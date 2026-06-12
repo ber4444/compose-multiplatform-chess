@@ -80,7 +80,7 @@ fun pickMoveStockfish(
     allyPieces: List<Piece>
 ): SelectedMove {
     if (engine == null) {
-        return pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces, gameState.castlingRights)
+        return pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces, gameState.castlingRights, gameState.enPassantTarget)
     }
 
     // Convert board state to FEN
@@ -95,7 +95,7 @@ fun pickMoveStockfish(
         val appMove = UciMoveConverter.uciMoveToAppMove(bestMoveUci, allyPositions)
         if (appMove != null) {
             // Validate that this is actually a legal move
-            val allLegal = getAllLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces, gameState.castlingRights)
+            val allLegal = getAllLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces, gameState.castlingRights, gameState.enPassantTarget)
             if (allLegal.any { it.first == appMove.position && it.second == appMove.pieceIndex }) {
                 logger.d { "Stockfish move accepted: $bestMoveUci -> ${appMove.position}" }
                 return appMove
@@ -110,7 +110,7 @@ fun pickMoveStockfish(
     }
 
     // Fall back to the simple CPU algorithm
-    return pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces, gameState.castlingRights)
+    return pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces, gameState.castlingRights, gameState.enPassantTarget)
 }
 
 fun pickMoveCPU(
@@ -118,7 +118,8 @@ fun pickMoveCPU(
     enemyPieces: List<Piece>,
     allyPositions: List<Pair<Int, Int>>,
     allyPieces: List<Piece>,
-    castlingRights: CastlingRights = CastlingRights.NONE
+    castlingRights: CastlingRights = CastlingRights.NONE,
+    enPassantTarget: Pair<Int, Int>? = null
 ): SelectedMove {
     // Determine all possible moves given the state of the board
     val allPossibleMoves = getAllLegalMoves(
@@ -126,13 +127,14 @@ fun pickMoveCPU(
         enemyPieces = enemyPieces,
         allyPositions = allyPositions,
         allyPieces = allyPieces,
-        castlingRights = castlingRights
+        castlingRights = castlingRights,
+        enPassantTarget = enPassantTarget
     )
     if(allPossibleMoves.isEmpty()) return SelectedMove(INVALID_POSITION, -1)
 
 
     // Focus on capturing enemy Pieces
-    val captureMoves = allPossibleMoves.filter { it.first in enemyPositions }
+    val captureMoves = allPossibleMoves.filter { it.first in enemyPositions || (it.first == enPassantTarget && allyPieces[it.second] is Pawn) }
     if(captureMoves.isNotEmpty()) {
         val move = captureMoves.random()
         return SelectedMove(move.first, move.second)
@@ -272,7 +274,8 @@ fun hasLegalMoves(
     enemyPositions: List<Pair<Int, Int>>,
     enemyPieces: List<Piece>,
     allyPositions: List<Pair<Int, Int>>,
-    allyPieces: List<Piece>
+    allyPieces: List<Piece>,
+    enPassantTarget: Pair<Int, Int>? = null
 ): Boolean {
     // Using getPossibleMoves,
     val possibleMoves = getPossibleMoves(enemyPositions, allyPositions, allyPieces)
@@ -301,6 +304,12 @@ fun hasLegalMoves(
             return true
         }
     }
+    
+    val enPassantMoves = getEnPassantMoves(enPassantTarget, enemyPositions, enemyPieces, allyPositions, allyPieces)
+    if (enPassantMoves.isNotEmpty()) {
+        return true
+    }
+
     return false
 }
 
@@ -310,14 +319,16 @@ fun getLegalMovesForPiece(
     enemyPieces: List<Piece>,
     allyPositions: List<Pair<Int, Int>>,
     allyPieces: List<Piece>,
-    castlingRights: CastlingRights = CastlingRights.NONE
+    castlingRights: CastlingRights = CastlingRights.NONE,
+    enPassantTarget: Pair<Int, Int>? = null
 ) : List<Pair<Int, Int>> {
     val allLegalMoves = getAllLegalMoves(
         enemyPositions = enemyPositions,
         enemyPieces = enemyPieces,
         allyPositions = allyPositions,
         allyPieces = allyPieces,
-        castlingRights = castlingRights
+        castlingRights = castlingRights,
+        enPassantTarget = enPassantTarget
     )
     return allLegalMoves.filter { it.second == pieceIndex }.map { it.first }
 }
@@ -327,7 +338,8 @@ fun getAllLegalMoves(
     enemyPieces: List<Piece>,
     allyPositions: List<Pair<Int, Int>>,
     allyPieces: List<Piece>,
-    castlingRights: CastlingRights = CastlingRights.NONE
+    castlingRights: CastlingRights = CastlingRights.NONE,
+    enPassantTarget: Pair<Int, Int>? = null
 ) : List<Pair<Pair<Int, Int>, Int>> {
     val legalMoves : MutableList<Pair<Pair<Int, Int>, Int>> = mutableListOf()
     // Using getPossibleMoves,
@@ -359,6 +371,7 @@ fun getAllLegalMoves(
         }
     }
     legalMoves.addAll(getCastlingMoves(castlingRights, enemyPositions, enemyPieces, allyPositions, allyPieces))
+    legalMoves.addAll(getEnPassantMoves(enPassantTarget, enemyPositions, enemyPieces, allyPositions, allyPieces))
     return legalMoves
 }
 
@@ -449,4 +462,44 @@ fun getCastlingMoves(
     }
 
     return castlingMoves
+}
+
+fun getEnPassantMoves(
+    enPassantTarget: Pair<Int, Int>?,
+    enemyPositions: List<Pair<Int, Int>>,
+    enemyPieces: List<Piece>,
+    allyPositions: List<Pair<Int, Int>>,
+    allyPieces: List<Piece>
+): List<Pair<Pair<Int, Int>, Int>> {
+    val enPassantMoves = mutableListOf<Pair<Pair<Int, Int>, Int>>()
+    if (enPassantTarget == null) return enPassantMoves
+    
+    val kingIndex = allyPieces.indexOfFirst { it is King }
+    if (kingIndex == -1) return enPassantMoves
+    val isWhite = allyPieces[kingIndex].set == Set.WHITE
+    
+    val victimRow = if (isWhite) enPassantTarget.first + 1 else enPassantTarget.first - 1
+    val victimPos = Pair(victimRow, enPassantTarget.second)
+    val victimIndex = enemyPositions.indexOf(victimPos)
+    if (victimIndex == -1 || enemyPieces[victimIndex] !is Pawn) return enPassantMoves
+    
+    val candidateCols = listOf(enPassantTarget.second - 1, enPassantTarget.second + 1)
+    for (col in candidateCols) {
+        if (col !in 0 until BOARD_SIZE) continue
+        val candidatePos = Pair(victimRow, col)
+        val candidateIndex = allyPositions.indexOf(candidatePos)
+        if (candidateIndex != -1 && allyPieces[candidateIndex] is Pawn) {
+            val simAllyPositions = allyPositions.toMutableList().apply { set(candidateIndex, enPassantTarget) }
+            val simEnemyPositions = enemyPositions.filterIndexed { index, _ -> index != victimIndex }
+            val simEnemyPieces = enemyPieces.filterIndexed { index, _ -> index != victimIndex }
+            
+            val kingPosition = if (candidateIndex == kingIndex) enPassantTarget else simAllyPositions[kingIndex]
+            
+            if (!checkCheck(kingPosition, simEnemyPositions, simEnemyPieces, simAllyPositions)) {
+                enPassantMoves.add(Pair(enPassantTarget, candidateIndex))
+            }
+        }
+    }
+    
+    return enPassantMoves
 }

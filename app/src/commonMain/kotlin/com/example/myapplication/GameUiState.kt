@@ -47,7 +47,8 @@ data class GameUiState(
 
     val selectedSquare : Pair<Int, Int> = INVALID_POSITION, // The Position on the board that the user has selected
     val pendingPromotion: PendingPromotion? = null,
-    val castlingRights: CastlingRights = CastlingRights()
+    val castlingRights: CastlingRights = CastlingRights(),
+    val enPassantTarget: Pair<Int, Int>? = null
 )
 
 // Current win state of the game

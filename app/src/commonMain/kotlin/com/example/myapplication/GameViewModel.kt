@@ -81,7 +81,8 @@ class GameViewModel(
                 enemyPieces = gameState.value.piecesBlack,
                 allyPositions = gameState.value.positionsWhite,
                 allyPieces = gameState.value.piecesWhite,
-                castlingRights = gameState.value.castlingRights
+                castlingRights = gameState.value.castlingRights,
+                enPassantTarget = gameState.value.enPassantTarget
             )
 
             if (legalMoves.none { move -> move.first == newPosition && move.second == selectedPieceIndex }) {
@@ -249,7 +250,7 @@ class GameViewModel(
         if ((_gameState.value.inCheckWhite && _gameState.value.turn == Set.WHITE) ||
             (_gameState.value.inCheckBlack && _gameState.value.turn == Set.BLACK)
         ) {
-            if (hasLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces)) {
+            if (hasLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces, _gameState.value.enPassantTarget)) {
                 logger.i { "Must escape check!" }
             } else {
                 logger.i { "No legal moves to escape check! You lose!" }
@@ -261,7 +262,7 @@ class GameViewModel(
         } else if ((!_gameState.value.inCheckWhite && _gameState.value.turn == Set.WHITE) ||
             (!_gameState.value.inCheckBlack && _gameState.value.turn == Set.BLACK)
         ) {
-            if (hasLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces)) {
+            if (hasLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces, _gameState.value.enPassantTarget)) {
                 logger.d { "Continue playing, legal moves available." }
             } else {
                 logger.i { "No legal moves available, Stalemate!" }
@@ -334,10 +335,24 @@ class GameViewModel(
 
             mutableEnemyPositions.removeAt(index)
             mutableEnemyPieces.removeAt(index)
+        } else if (allyPieces[pieceIndex] is Pawn && allyPositions[pieceIndex].second != newPosition.second && newPosition == _gameState.value.enPassantTarget) {
+            val victimPosition = Pair(allyPositions[pieceIndex].first, newPosition.second)
+            val index = enemyPositions.indexOf(victimPosition)
+            if (index != -1) {
+                logger.i { "${when (turn) { Set.WHITE -> Set.BLACK.name; Set.BLACK -> Set.WHITE.name }} ${enemyPieces[index].name} was captured en passant!" }
+                mutableEnemyPositions.removeAt(index)
+                mutableEnemyPieces.removeAt(index)
+            }
         }
 
         val movingPiece = allyPieces[pieceIndex]
         val fromPosition = allyPositions[pieceIndex]
+        
+        val newEnPassantTarget = if (movingPiece is Pawn && kotlin.math.abs(newPosition.first - fromPosition.first) == 2) {
+            Pair((newPosition.first + fromPosition.first) / 2, fromPosition.second)
+        } else {
+            null
+        }
         
         if (movingPiece is King) {
             if (turn == Set.WHITE) {
@@ -406,7 +421,8 @@ class GameViewModel(
                 inCheckWhite = allyInCheck,
                 inCheckBlack = enemyInCheck,
                 pendingPromotion = null,
-                castlingRights = updatedRights
+                castlingRights = updatedRights,
+                enPassantTarget = newEnPassantTarget
             )
 
             Set.BLACK -> _gameState.value.copy(
@@ -418,7 +434,8 @@ class GameViewModel(
                 inCheckWhite = enemyInCheck,
                 inCheckBlack = allyInCheck,
                 pendingPromotion = null,
-                castlingRights = updatedRights
+                castlingRights = updatedRights,
+                enPassantTarget = newEnPassantTarget
             )
         }
     }

@@ -107,6 +107,36 @@ class GameScreenTest {
     }
 
     @Test
+    fun testEnPassantCapture() {
+        val state = FenConverter.fenToGameState("k7/8/8/3pP3/8/8/8/K7 w - d6 0 1")
+        val viewModel = GameViewModel(state)
+        
+        composeTestRule.setContent {
+            MyApplicationTheme {
+                GameScreen(WindowWidthSizeClass.Medium, viewModel)
+            }
+        }
+        
+        // 1. Assert initial state: black pawn at d5 (3, 3), white pawn at e5 (3, 4)
+        composeTestRule.onNodeWithTag(boardSquareTag(SquareType.BlackPiece, 3, 3)).assertIsDisplayed()
+        composeTestRule.onNodeWithTag(boardSquareTag(SquareType.WhitePiece, 3, 4)).assertIsDisplayed()
+        
+        // 2. Click white pawn
+        composeTestRule.onNodeWithTag(boardSquareTag(SquareType.WhitePiece, 3, 4)).performClick()
+        
+        // 3. Click the en passant target square (2, 3) which shows up as a PossibleMove
+        composeTestRule.onNodeWithTag(boardSquareTag(SquareType.PossibleMove, 2, 3)).performClick()
+        
+        // 4. Wait for animation
+        composeTestRule.waitForIdle()
+        
+        // 5. Assert new state: white pawn is at (2, 3), square (3, 3) is empty
+        composeTestRule.onNodeWithTag(boardSquareTag(SquareType.WhitePiece, 2, 3)).assertIsDisplayed()
+        composeTestRule.onNodeWithTag(boardSquareTag(SquareType.Empty, 3, 3)).assertIsDisplayed()
+        composeTestRule.onNodeWithTag(boardSquareTag(SquareType.Empty, 3, 4)).assertIsDisplayed()
+    }
+
+    @Test
     fun chessBoardInPortrait_shouldBeVisible() {
         assertChessboardVisibleIn(ScreenOrientation.PORTRAIT)
     }
