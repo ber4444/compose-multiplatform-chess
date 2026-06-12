@@ -1,6 +1,7 @@
 package com.example.myapplication
 
 import kotlin.test.assertTrue
+import kotlin.test.assertEquals
 import kotlin.test.Test
 import kotlin.math.abs
 
@@ -27,8 +28,8 @@ class MoveTest {
             allyPieces = whitePieces
         )
 
-        val x = abs(randomPosition.first.first - whitePositions[0].first)
-        val y = abs(randomPosition.first.second - whitePositions[0].second)
+        val x = abs(randomPosition.position.first - whitePositions[0].first)
+        val y = abs(randomPosition.position.second - whitePositions[0].second)
 
         val kingDidNotMove = when {
             x == 0 && y == 1 ||
@@ -41,5 +42,31 @@ class MoveTest {
             kingDidNotMove,
             "Distance traveled was $x,$y which is a King's distance and the King should have no moves"
         )
+    }
+
+    @Test
+    fun `pickMoveStockfish parses promotion from engine`() {
+        val whitePawns = listOf(Pawn(Set.WHITE), King(Set.WHITE))
+        val whitePositions = listOf(Pair(1, 0), Pair(7, 4)) // a7, e1
+        val blackPieces = listOf(King(Set.BLACK))
+        val blackPositions = listOf(Pair(0, 4)) // e8
+        
+        val engine = object : ChessEngine { 
+            override fun getBestMove(fen: String) = "a7a8n"
+            override fun close() {} 
+        }
+
+        val move = pickMoveStockfish(
+            engine = engine,
+            gameState = GameUiState(),
+            enemyPositions = blackPositions,
+            enemyPieces = blackPieces,
+            allyPositions = whitePositions,
+            allyPieces = whitePawns
+        )
+
+        assertEquals(Pair(0, 0), move.position)
+        assertEquals(0, move.pieceIndex)
+        assertEquals(PromotionType.KNIGHT, move.promotion)
     }
 }

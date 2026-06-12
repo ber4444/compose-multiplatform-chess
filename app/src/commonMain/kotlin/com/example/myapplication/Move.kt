@@ -8,13 +8,22 @@ private val logger = Logger.withTag("Move")
 //  y and x values must always be between 0 and 8
 val INVALID_POSITION = Pair(-1, -1)
 
+data class SelectedMove(
+    val position: Pair<Int, Int>,
+    val pieceIndex: Int,
+    val promotion: PromotionType? = null
+)
+
+fun isPromotionMove(piece: Piece, newPosition: Pair<Int, Int>): Boolean =
+    piece is Pawn && newPosition.first == if (piece.set == Set.WHITE) 0 else BOARD_SIZE - 1
+
 // Return a randomly selected move
 fun pickMoveRandom(
     enemyPositions: List<Pair<Int, Int>>,
     enemyPieces: List<Piece>,
     allyPositions: List<Pair<Int, Int>>,
     allyPieces: List<Piece>
-): Pair<Pair<Int, Int>, Int> {
+): SelectedMove {
     // If no newPosition is assigned, returns an invalid position (not a possible move)
     var newPosition: Pair<Int, Int> = INVALID_POSITION
     var newPositionIndex = -1
@@ -38,7 +47,7 @@ fun pickMoveRandom(
     }
 
     // Return the newPosition to update the PositionIndex with
-    return Pair(newPosition, newPositionIndex)
+    return SelectedMove(newPosition, newPositionIndex)
 }
 
 /**
@@ -62,7 +71,7 @@ fun pickMoveStockfish(
     enemyPieces: List<Piece>,
     allyPositions: List<Pair<Int, Int>>,
     allyPieces: List<Piece>
-): Pair<Pair<Int, Int>, Int> {
+): SelectedMove {
     if (engine == null) {
         return pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces)
     }
@@ -80,8 +89,8 @@ fun pickMoveStockfish(
         if (appMove != null) {
             // Validate that this is actually a legal move
             val allLegal = getAllLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces)
-            if (allLegal.any { it.first == appMove.first && it.second == appMove.second }) {
-                logger.d { "Stockfish move accepted: $bestMoveUci -> ${appMove.first}" }
+            if (allLegal.any { it.first == appMove.position && it.second == appMove.pieceIndex }) {
+                logger.d { "Stockfish move accepted: $bestMoveUci -> ${appMove.position}" }
                 return appMove
             } else {
                 logger.w { "Stockfish move $bestMoveUci is not legal in app, falling back" }
@@ -103,7 +112,7 @@ fun pickMoveCPU(
     enemyPieces: List<Piece>,
     allyPositions: List<Pair<Int, Int>>,
     allyPieces: List<Piece>
-): Pair<Pair<Int, Int>, Int> {
+): SelectedMove {
     // Determine all possible moves given the state of the board
     val allPossibleMoves = getAllLegalMoves(
         enemyPositions = enemyPositions,
@@ -111,17 +120,19 @@ fun pickMoveCPU(
         allyPositions = allyPositions,
         allyPieces = allyPieces
     )
-    if(allPossibleMoves.isEmpty()) return Pair(INVALID_POSITION, -1)
+    if(allPossibleMoves.isEmpty()) return SelectedMove(INVALID_POSITION, -1)
 
 
     // Focus on capturing enemy Pieces
     val captureMoves = allPossibleMoves.filter { it.first in enemyPositions }
     if(captureMoves.isNotEmpty()) {
-        return captureMoves.random()
+        val move = captureMoves.random()
+        return SelectedMove(move.first, move.second)
     }
 
     // Otherwise, return a random possible move
-    return allPossibleMoves.random()
+    val move = allPossibleMoves.random()
+    return SelectedMove(move.first, move.second)
 }
 
 // Get the possible moves for all ally Pieces

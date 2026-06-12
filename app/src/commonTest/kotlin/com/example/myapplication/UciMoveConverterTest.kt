@@ -58,8 +58,8 @@ class UciMoveConverterTest {
         val result = UciMoveConverter.uciMoveToAppMove("e2e4", positions)
 
         assertNotNull(result)
-        assertEquals(Pair(4, 4), result.first)
-        assertEquals(1, result.second)
+        assertEquals(Pair(4, 4), result.position)
+        assertEquals(1, result.pieceIndex)
     }
 
     @Test
@@ -105,5 +105,25 @@ class UciMoveConverterTest {
         assertFailsWith<IllegalArgumentException> {
             UciMoveConverter.parseUciMove("e2")
         }
+    }
+
+    @Test
+    fun `uciMoveToAppMove parses promotion`() {
+        val positions = listOf(Pair(1, 0)) // a7
+        
+        val qResult = UciMoveConverter.uciMoveToAppMove("a7a8q", positions)
+        assertNotNull(qResult)
+        assertEquals(PromotionType.QUEEN, qResult.promotion)
+
+        val nResult = UciMoveConverter.uciMoveToAppMove("a7a8n", positions)
+        assertNotNull(nResult)
+        assertEquals(PromotionType.KNIGHT, nResult.promotion)
+
+        val nullPromo = UciMoveConverter.uciMoveToAppMove("e2e4", listOf(Pair(6, 4)))
+        assertNotNull(nullPromo)
+        assertNull(nullPromo.promotion)
+
+        val invalidPromo = UciMoveConverter.uciMoveToAppMove("a7a8x", positions)
+        assertNull(invalidPromo)
     }
 }
