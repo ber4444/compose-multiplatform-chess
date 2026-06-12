@@ -118,4 +118,21 @@ class FenConverterTest {
             FenConverter.STARTING_FEN
         )
     }
+
+    @Test
+    fun `clock round-trip`() {
+        val state = FenConverter.fenToGameState("4k3/8/8/8/8/8/8/4K3 w - - 12 34")
+        assertEquals(12, state.halfmoveClock)
+        assertEquals(34, state.fullmoveNumber)
+        assertEquals("4k3/8/8/8/8/8/8/4K3 w - - 12 34", FenConverter.gameStateToFen(state))
+    }
+
+    @Test
+    fun `missing clock fields default`() {
+        val state = FenConverter.fenToGameState("4k3/8/8/8/8/8/8/4K3 w - -")
+        assertEquals(0, state.halfmoveClock)
+        assertEquals(1, state.fullmoveNumber)
+        val startState = FenConverter.fenToGameState(FenConverter.STARTING_FEN)
+        assertEquals(FenConverter.STARTING_FEN, FenConverter.gameStateToFen(startState))
+    }
 }

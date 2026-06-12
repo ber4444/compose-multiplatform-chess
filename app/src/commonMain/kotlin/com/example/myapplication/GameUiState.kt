@@ -48,7 +48,12 @@ data class GameUiState(
     val selectedSquare : Pair<Int, Int> = INVALID_POSITION, // The Position on the board that the user has selected
     val pendingPromotion: PendingPromotion? = null,
     val castlingRights: CastlingRights = CastlingRights(),
-    val enPassantTarget: Pair<Int, Int>? = null
+    val enPassantTarget: Pair<Int, Int>? = null,
+    val halfmoveClock: Int = 0,      // halfmoves since last capture or pawn move (fifty-move rule)
+    val fullmoveNumber: Int = 1,     // starts at 1, increments after each Black move
+    // Repetition keys (first four FEN fields) of every position since the last irreversible
+    // move (capture/pawn move). Invariant: when non-empty, the last element is the current position.
+    val positionHistory: List<String> = emptyList()
 )
 
 // Current win state of the game

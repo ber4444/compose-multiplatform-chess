@@ -107,6 +107,46 @@ class GameScreenTest {
     }
 
     @Test
+    fun testDrawDialogDisplayed() {
+        val testGameState = GameUiState(winState = WinState.DRAW)
+
+        composeTestRule.setContent {
+            MyApplicationTheme {
+                GameScreen(WindowWidthSizeClass.Medium, GameViewModel(testGameState))
+            }
+        }
+
+        composeTestRule.onNodeWithText("Game ended in a DRAW!").assertIsDisplayed()
+    }
+
+    @Test
+    fun testInsufficientMaterialDrawViaClicks() {
+        val state = FenConverter.fenToGameState("4k3/8/8/6n1/8/8/8/2B1K3 w - - 10 40")
+        val viewModel = GameViewModel(state)
+
+        composeTestRule.setContent {
+            MyApplicationTheme {
+                GameScreen(WindowWidthSizeClass.Medium, viewModel)
+            }
+        }
+
+        // Click bishop on c1
+        composeTestRule.onNodeWithTag(boardSquareTag(SquareType.WhitePiece, 7, 2)).performClick()
+        
+        // Click capture square on g5 (knight)
+        composeTestRule.onNodeWithTag(boardSquareTag(SquareType.PossibleCapture, 3, 6)).performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule
+                .onAllNodesWithTag("winnerText", useUnmergedTree = true)
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+        }
+
+        composeTestRule.onNodeWithText("Game ended in a DRAW!").assertIsDisplayed()
+    }
+
+    @Test
     fun testEnPassantCapture() {
         val state = FenConverter.fenToGameState("k7/8/8/3pP3/8/8/8/K7 w - d6 0 1")
         val viewModel = GameViewModel(state)

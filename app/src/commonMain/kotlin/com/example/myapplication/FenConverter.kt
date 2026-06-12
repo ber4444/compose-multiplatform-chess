@@ -45,13 +45,9 @@ object FenConverter {
         }
     }
 
-    /**
-     * Convert the current game state to a FEN string.
-     *
-     * @param gameState The current game UI state
-     * @return A FEN string representing the board position
-     */
-    fun gameStateToFen(gameState: GameUiState): String {
+    /** First four FEN fields (placement, active color, castling, en passant) —
+     *  the position identity used for threefold-repetition detection. */
+    fun positionKey(gameState: GameUiState): String {
         // Build the board array (8x8, null = empty)
         val board = Array(BOARD_SIZE) { arrayOfNulls<Piece>(BOARD_SIZE) }
 
@@ -95,8 +91,7 @@ object FenConverter {
         // Active color
         val activeColor = if (gameState.turn == Set.WHITE) "w" else "b"
 
-        // Castling, en passant, halfmove clock, and fullmove number
-        // The app does not track en passant, halfmove clock, and fullmove number
+        // Castling and en passant
         val rights = gameState.castlingRights
         val castling = buildString {
             if (rights.whiteKingside) append('K')
@@ -107,15 +102,22 @@ object FenConverter {
         }
         val enPassant = gameState.enPassantTarget
             ?.let { UciMoveConverter.positionToUciSquare(it) } ?: "-"
-        val halfmoveClock = 0
-        val fullmoveNumber = 1
 
-        return "$piecePlacement $activeColor $castling $enPassant $halfmoveClock $fullmoveNumber"
+        return "$piecePlacement $activeColor $castling $enPassant"
     }
 
     /**
+     * Convert the current game state to a FEN string.
+     *
+     * @param gameState The current game UI state
+     * @return A FEN string representing the board position
+     */
+    fun gameStateToFen(gameState: GameUiState): String =
+        "${positionKey(gameState)} ${gameState.halfmoveClock} ${gameState.fullmoveNumber}"
+
+    /**
      * Convert a FEN string into the app's board model.
-     * Halfmove clock and fullmove number are ignored because the app does not track them.
+     * Halfmove clock and fullmove number are parsed to track fifty-move rule.
      */
     fun fenToGameState(fen: String): GameUiState {
         val parts = fen.trim().split(" ")
@@ -176,6 +178,9 @@ object FenConverter {
         val enPassantTarget = if (parts.size >= 4 && parts[3] != "-")
             UciMoveConverter.uciSquareToPosition(parts[3]) else null
 
+        val halfmoveClock = parts.getOrNull(4)?.toIntOrNull() ?: 0
+        val fullmoveNumber = parts.getOrNull(5)?.toIntOrNull() ?: 1
+
         return GameUiState(
             turn = turn,
             piecesWhite = piecesWhite,
@@ -183,7 +188,9 @@ object FenConverter {
             piecesBlack = piecesBlack,
             positionsBlack = positionsBlack,
             castlingRights = castlingRights,
-            enPassantTarget = enPassantTarget
+            enPassantTarget = enPassantTarget,
+            halfmoveClock = halfmoveClock,
+            fullmoveNumber = fullmoveNumber
         )
     }
 }
