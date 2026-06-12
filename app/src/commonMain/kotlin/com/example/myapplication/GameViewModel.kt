@@ -80,7 +80,8 @@ class GameViewModel(
                 enemyPositions = gameState.value.positionsBlack,
                 enemyPieces = gameState.value.piecesBlack,
                 allyPositions = gameState.value.positionsWhite,
-                allyPieces = gameState.value.piecesWhite
+                allyPieces = gameState.value.piecesWhite,
+                castlingRights = gameState.value.castlingRights
             )
 
             if (legalMoves.none { move -> move.first == newPosition && move.second == selectedPieceIndex }) {
@@ -89,6 +90,7 @@ class GameViewModel(
             }
 
             val movingPiece = gameState.value.piecesWhite[selectedPieceIndex]
+            val preMovePosition = gameState.value.positionsWhite[selectedPieceIndex]
             if (isPromotionMove(movingPiece, newPosition)) {
                 _gameState.value = _gameState.value.copy(
                     pendingPromotion = PendingPromotion(
@@ -110,10 +112,15 @@ class GameViewModel(
                 allyPieces = _gameState.value.piecesWhite
             )
 
+            val rookMove = castlingRookMove(movingPiece, preMovePosition, newPosition)
+
             _animState.value = PieceAnimationState(
                 pieceToAnimate = gameState.value.piecesWhite[selectedPieceIndex],
                 animatePositionStart = gameState.value.positionsWhite[selectedPieceIndex],
-                animatePositionEnd = newPosition
+                animatePositionEnd = newPosition,
+                secondaryPiece = if (rookMove != null) Rook(Set.WHITE) else null,
+                secondaryStart = rookMove?.first ?: INVALID_POSITION,
+                secondaryEnd = rookMove?.second ?: INVALID_POSITION
             )
         }
     }
@@ -265,6 +272,8 @@ class GameViewModel(
 
         val selectedMove = pickMove(enemyPositions, enemyPieces, allyPositions, allyPieces)
         val newPosition = selectedMove.position
+        val movingPiece = allyPieces[selectedMove.pieceIndex]
+        val preMovePosition = allyPositions[selectedMove.pieceIndex]
 
         _gameState.value = deriveNewGameState(
             newPosition = newPosition,
@@ -277,10 +286,15 @@ class GameViewModel(
             promotion = selectedMove.promotion
         )
 
+        val rookMove = castlingRookMove(movingPiece, preMovePosition, newPosition)
+
         _animState.value = PieceAnimationState(
             pieceToAnimate = allyPieces[selectedMove.pieceIndex],
             animatePositionStart = allyPositions[selectedMove.pieceIndex],
-            animatePositionEnd = selectedMove.position
+            animatePositionEnd = selectedMove.position,
+            secondaryPiece = if (rookMove != null) Rook(turn) else null,
+            secondaryStart = rookMove?.first ?: INVALID_POSITION,
+            secondaryEnd = rookMove?.second ?: INVALID_POSITION
         )
     }
 
@@ -301,14 +315,54 @@ class GameViewModel(
 
         logger.d { "Moving $turn ${allyPieces[pieceIndex].name} from ${allyPositions[pieceIndex]} to $newPosition" }
 
+        var updatedRights = _gameState.value.castlingRights
+
         if (newPosition in enemyPositions) {
             val index = enemyPositions.indexOf(newPosition)
             logger.i { "${when (turn) { Set.WHITE -> Set.BLACK.name; Set.BLACK -> Set.WHITE.name }} ${enemyPieces[index].name} was captured!" }
+            
+            val capturedPiece = enemyPieces[index]
+            if (capturedPiece is Rook) {
+                if (turn == Set.WHITE) {
+                    if (newPosition == BLACK_KS_ROOK_HOME) updatedRights = updatedRights.copy(blackKingside = false)
+                    if (newPosition == BLACK_QS_ROOK_HOME) updatedRights = updatedRights.copy(blackQueenside = false)
+                } else {
+                    if (newPosition == WHITE_KS_ROOK_HOME) updatedRights = updatedRights.copy(whiteKingside = false)
+                    if (newPosition == WHITE_QS_ROOK_HOME) updatedRights = updatedRights.copy(whiteQueenside = false)
+                }
+            }
+
             mutableEnemyPositions.removeAt(index)
             mutableEnemyPieces.removeAt(index)
         }
 
+        val movingPiece = allyPieces[pieceIndex]
+        val fromPosition = allyPositions[pieceIndex]
+        
+        if (movingPiece is King) {
+            if (turn == Set.WHITE) {
+                updatedRights = updatedRights.copy(whiteKingside = false, whiteQueenside = false)
+            } else {
+                updatedRights = updatedRights.copy(blackKingside = false, blackQueenside = false)
+            }
+        } else if (movingPiece is Rook) {
+            if (turn == Set.WHITE) {
+                if (fromPosition == WHITE_KS_ROOK_HOME) updatedRights = updatedRights.copy(whiteKingside = false)
+                if (fromPosition == WHITE_QS_ROOK_HOME) updatedRights = updatedRights.copy(whiteQueenside = false)
+            } else {
+                if (fromPosition == BLACK_KS_ROOK_HOME) updatedRights = updatedRights.copy(blackKingside = false)
+                if (fromPosition == BLACK_QS_ROOK_HOME) updatedRights = updatedRights.copy(blackQueenside = false)
+            }
+        }
+
         mutableAllyPositions[pieceIndex] = newPosition
+        
+        castlingRookMove(movingPiece, fromPosition, newPosition)?.let { (rookFrom, rookTo) ->
+            val rookIndex = allyPositions.indexOf(rookFrom)
+            if (rookIndex != -1) {
+                mutableAllyPositions[rookIndex] = rookTo
+            }
+        }
         if (isPromotionMove(allyPieces[pieceIndex], newPosition)) {
             val promoted = (promotion ?: PromotionType.QUEEN).toPiece(turn)
             logger.i { "$turn Pawn promoted to ${promoted.name}!" }
@@ -351,7 +405,8 @@ class GameViewModel(
                 piecesWhite = mutableAllyPieces,
                 inCheckWhite = allyInCheck,
                 inCheckBlack = enemyInCheck,
-                pendingPromotion = null
+                pendingPromotion = null,
+                castlingRights = updatedRights
             )
 
             Set.BLACK -> _gameState.value.copy(
@@ -362,7 +417,8 @@ class GameViewModel(
                 piecesBlack = mutableAllyPieces,
                 inCheckWhite = enemyInCheck,
                 inCheckBlack = allyInCheck,
-                pendingPromotion = null
+                pendingPromotion = null,
+                castlingRights = updatedRights
             )
         }
     }

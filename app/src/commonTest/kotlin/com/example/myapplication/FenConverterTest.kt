@@ -18,6 +18,7 @@ class FenConverterTest {
             "FEN should start with piece placement"
         )
         assertTrue(fen.contains(" w "), "FEN should indicate white to move")
+        assertTrue(fen.contains(" KQkq "), "FEN should indicate all castling rights available")
     }
 
     @Test
@@ -68,6 +69,26 @@ class FenConverterTest {
     }
 
     @Test
+    fun `FEN handles custom castling rights`() {
+        val gameState = GameUiState(
+            castlingRights = CastlingRights(
+                whiteKingside = false,
+                whiteQueenside = true,
+                blackKingside = true,
+                blackQueenside = false
+            )
+        )
+        val fen = FenConverter.gameStateToFen(gameState)
+        assertTrue(fen.contains(" Qk "), "FEN should serialize castling correctly")
+
+        val deserialized = FenConverter.fenToGameState(fen)
+        assertEquals(false, deserialized.castlingRights.whiteKingside)
+        assertEquals(true, deserialized.castlingRights.whiteQueenside)
+        assertEquals(true, deserialized.castlingRights.blackKingside)
+        assertEquals(false, deserialized.castlingRights.blackQueenside)
+    }
+
+    @Test
     fun `FEN handles captured pieces correctly`() {
         // Simulate a game where most pieces have been captured
         val gameState = GameUiState(
@@ -93,7 +114,7 @@ class FenConverterTest {
     @Test
     fun `starting position FEN constant is standard`() {
         assertEquals(
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
             FenConverter.STARTING_FEN
         )
     }

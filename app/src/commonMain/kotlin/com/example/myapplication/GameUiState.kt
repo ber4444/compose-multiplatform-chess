@@ -10,6 +10,16 @@ data class PendingPromotion(
 )
 
 @Immutable
+data class CastlingRights(
+    val whiteKingside: Boolean = true,
+    val whiteQueenside: Boolean = true,
+    val blackKingside: Boolean = true,
+    val blackQueenside: Boolean = true
+) {
+    companion object { val NONE = CastlingRights(false, false, false, false) }
+}
+
+@Immutable
 data class GameUiState(
     val turn: Set = Set.WHITE,
 
@@ -36,7 +46,8 @@ data class GameUiState(
     val autoPlay : Boolean = false,         // If the game is in autoplay mode
 
     val selectedSquare : Pair<Int, Int> = INVALID_POSITION, // The Position on the board that the user has selected
-    val pendingPromotion: PendingPromotion? = null
+    val pendingPromotion: PendingPromotion? = null,
+    val castlingRights: CastlingRights = CastlingRights()
 )
 
 // Current win state of the game

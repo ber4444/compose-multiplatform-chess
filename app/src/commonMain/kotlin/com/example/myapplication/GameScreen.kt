@@ -281,7 +281,8 @@ fun Board(
                     enemyPieces = gameState.piecesBlack,
                     enemyPositions = gameState.positionsBlack,
                     allyPositions = gameState.positionsWhite,
-                    allyPieces = gameState.piecesWhite
+                    allyPieces = gameState.piecesWhite,
+                    castlingRights = gameState.castlingRights
                 )
             }
         }
@@ -371,7 +372,10 @@ fun Board(
                         ) {
                             if (!(animState.pieceToAnimate != null &&
                                     (animState.animatePositionStart == currentSquare ||
-                                        animState.animatePositionEnd == currentSquare))) {
+                                        animState.animatePositionEnd == currentSquare)) &&
+                                !(animState.secondaryPiece != null &&
+                                    (animState.secondaryStart == currentSquare ||
+                                        animState.secondaryEnd == currentSquare))) {
                                 if (
                                     squareType == SquareType.WhitePiece ||
                                     squareType == SquareType.CannotMove ||
@@ -399,6 +403,16 @@ fun Board(
                     to = animState.animatePositionEnd,
                     animationEnd = animationEnd
                 )
+                if (animState.secondaryPiece != null) {
+                    val fallbackSize = if (squareSizePx.value == IntSize.Zero) squareAvgSizePx.value else squareSizePx.value
+                    AnimatedChessPiece(
+                        piece = animState.secondaryPiece,
+                        squareSizePx = fallbackSize,
+                        from = animState.secondaryStart,
+                        to = animState.secondaryEnd,
+                        animationEnd = {}
+                    )
+                }
             } else {
                 error("Invalid move")
             }

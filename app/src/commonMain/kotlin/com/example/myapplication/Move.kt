@@ -8,6 +8,13 @@ private val logger = Logger.withTag("Move")
 //  y and x values must always be between 0 and 8
 val INVALID_POSITION = Pair(-1, -1)
 
+val WHITE_KING_HOME = Pair(7, 4)
+val WHITE_KS_ROOK_HOME = Pair(7, 7)
+val WHITE_QS_ROOK_HOME = Pair(7, 0)
+val BLACK_KING_HOME = Pair(0, 4)
+val BLACK_KS_ROOK_HOME = Pair(0, 7)
+val BLACK_QS_ROOK_HOME = Pair(0, 0)
+
 data class SelectedMove(
     val position: Pair<Int, Int>,
     val pieceIndex: Int,
@@ -73,7 +80,7 @@ fun pickMoveStockfish(
     allyPieces: List<Piece>
 ): SelectedMove {
     if (engine == null) {
-        return pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces)
+        return pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces, gameState.castlingRights)
     }
 
     // Convert board state to FEN
@@ -88,7 +95,7 @@ fun pickMoveStockfish(
         val appMove = UciMoveConverter.uciMoveToAppMove(bestMoveUci, allyPositions)
         if (appMove != null) {
             // Validate that this is actually a legal move
-            val allLegal = getAllLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces)
+            val allLegal = getAllLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces, gameState.castlingRights)
             if (allLegal.any { it.first == appMove.position && it.second == appMove.pieceIndex }) {
                 logger.d { "Stockfish move accepted: $bestMoveUci -> ${appMove.position}" }
                 return appMove
@@ -103,22 +110,23 @@ fun pickMoveStockfish(
     }
 
     // Fall back to the simple CPU algorithm
-    return pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces)
+    return pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces, gameState.castlingRights)
 }
 
-// From the given list of moves, pick a move based on a CPU algorithm
 fun pickMoveCPU(
     enemyPositions: List<Pair<Int, Int>>,
     enemyPieces: List<Piece>,
     allyPositions: List<Pair<Int, Int>>,
-    allyPieces: List<Piece>
+    allyPieces: List<Piece>,
+    castlingRights: CastlingRights = CastlingRights.NONE
 ): SelectedMove {
     // Determine all possible moves given the state of the board
     val allPossibleMoves = getAllLegalMoves(
         enemyPositions = enemyPositions,
         enemyPieces = enemyPieces,
         allyPositions = allyPositions,
-        allyPieces = allyPieces
+        allyPieces = allyPieces,
+        castlingRights = castlingRights
     )
     if(allPossibleMoves.isEmpty()) return SelectedMove(INVALID_POSITION, -1)
 
@@ -301,13 +309,15 @@ fun getLegalMovesForPiece(
     enemyPositions: List<Pair<Int, Int>>,
     enemyPieces: List<Piece>,
     allyPositions: List<Pair<Int, Int>>,
-    allyPieces: List<Piece>
+    allyPieces: List<Piece>,
+    castlingRights: CastlingRights = CastlingRights.NONE
 ) : List<Pair<Int, Int>> {
     val allLegalMoves = getAllLegalMoves(
         enemyPositions = enemyPositions,
         enemyPieces = enemyPieces,
         allyPositions = allyPositions,
-        allyPieces = allyPieces
+        allyPieces = allyPieces,
+        castlingRights = castlingRights
     )
     return allLegalMoves.filter { it.second == pieceIndex }.map { it.first }
 }
@@ -316,7 +326,8 @@ fun getAllLegalMoves(
     enemyPositions: List<Pair<Int, Int>>,
     enemyPieces: List<Piece>,
     allyPositions: List<Pair<Int, Int>>,
-    allyPieces: List<Piece>
+    allyPieces: List<Piece>,
+    castlingRights: CastlingRights = CastlingRights.NONE
 ) : List<Pair<Pair<Int, Int>, Int>> {
     val legalMoves : MutableList<Pair<Pair<Int, Int>, Int>> = mutableListOf()
     // Using getPossibleMoves,
@@ -347,5 +358,95 @@ fun getAllLegalMoves(
             legalMoves.add(move)
         }
     }
+    legalMoves.addAll(getCastlingMoves(castlingRights, enemyPositions, enemyPieces, allyPositions, allyPieces))
     return legalMoves
+}
+
+// Returns (rookFrom, rookTo) if this king move is castling, else null
+fun castlingRookMove(piece: Piece, from: Pair<Int, Int>, to: Pair<Int, Int>): Pair<Pair<Int, Int>, Pair<Int, Int>>? {
+    if (piece !is King || kotlin.math.abs(to.second - from.second) != 2) return null
+    val row = to.first
+    return if (to.second == 6) { // Kingside
+        Pair(Pair(row, 7), Pair(row, 5))
+    } else { // Queenside
+        Pair(Pair(row, 0), Pair(row, 3))
+    }
+}
+
+fun getCastlingMoves(
+    castlingRights: CastlingRights,
+    enemyPositions: List<Pair<Int, Int>>,
+    enemyPieces: List<Piece>,
+    allyPositions: List<Pair<Int, Int>>,
+    allyPieces: List<Piece>
+): List<Pair<Pair<Int, Int>, Int>> {
+    val castlingMoves = mutableListOf<Pair<Pair<Int, Int>, Int>>()
+    val kingIndex = allyPieces.indexOfFirst { it is King }
+    if (kingIndex == -1) return castlingMoves
+
+    val isWhite = allyPieces[kingIndex].set == Set.WHITE
+    val kingHome = if (isWhite) WHITE_KING_HOME else BLACK_KING_HOME
+    
+    // If king isn't on home square, can't castle
+    if (allyPositions[kingIndex] != kingHome) return castlingMoves
+
+    val ksRight = if (isWhite) castlingRights.whiteKingside else castlingRights.blackKingside
+    val qsRight = if (isWhite) castlingRights.whiteQueenside else castlingRights.blackQueenside
+
+    if (!ksRight && !qsRight) return castlingMoves
+
+    val ksRookHome = if (isWhite) WHITE_KS_ROOK_HOME else BLACK_KS_ROOK_HOME
+    val qsRookHome = if (isWhite) WHITE_QS_ROOK_HOME else BLACK_QS_ROOK_HOME
+    val row = kingHome.first
+
+    // Check if in check currently
+    if (checkCheck(kingHome, enemyPositions, enemyPieces, allyPositions)) {
+        return castlingMoves
+    }
+
+    // Kingside
+    if (ksRight) {
+        val ksRookIndex = allyPositions.indexOf(ksRookHome)
+        if (ksRookIndex != -1 && allyPieces[ksRookIndex] is Rook) {
+            val f = Pair(row, 5)
+            val g = Pair(row, 6)
+            if (f !in allyPositions && f !in enemyPositions &&
+                g !in allyPositions && g !in enemyPositions) {
+                
+                // Simulate to check for check on f and g
+                val simF = allyPositions.toMutableList().apply { set(kingIndex, f) }
+                val simG = allyPositions.toMutableList().apply { set(kingIndex, g) }
+                
+                if (!checkCheck(f, enemyPositions, enemyPieces, simF) &&
+                    !checkCheck(g, enemyPositions, enemyPieces, simG)) {
+                    castlingMoves.add(Pair(g, kingIndex))
+                }
+            }
+        }
+    }
+
+    // Queenside
+    if (qsRight) {
+        val qsRookIndex = allyPositions.indexOf(qsRookHome)
+        if (qsRookIndex != -1 && allyPieces[qsRookIndex] is Rook) {
+            val b = Pair(row, 1)
+            val c = Pair(row, 2)
+            val d = Pair(row, 3)
+            if (b !in allyPositions && b !in enemyPositions &&
+                c !in allyPositions && c !in enemyPositions &&
+                d !in allyPositions && d !in enemyPositions) {
+                
+                // Simulate to check for check on d and c (b doesn't need to be unattacked)
+                val simD = allyPositions.toMutableList().apply { set(kingIndex, d) }
+                val simC = allyPositions.toMutableList().apply { set(kingIndex, c) }
+                
+                if (!checkCheck(d, enemyPositions, enemyPieces, simD) &&
+                    !checkCheck(c, enemyPositions, enemyPieces, simC)) {
+                    castlingMoves.add(Pair(c, kingIndex))
+                }
+            }
+        }
+    }
+
+    return castlingMoves
 }
