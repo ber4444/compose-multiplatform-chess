@@ -20,6 +20,8 @@ abstract class BaseStockfishEngine : ChessEngine {
 
     companion object {
         const val DEFAULT_THINK_TIME_MS = 1000L
+        const val EVAL_DEPTH = 12
+        const val EVAL_TIMEOUT_MS = 5000L
         private val logger = Logger.withTag("StockfishEngine")
     }
 
@@ -144,6 +146,20 @@ abstract class BaseStockfishEngine : ChessEngine {
         }
     }
 
+    override fun evaluate(fen: String): Int? {
+        if (!isReady || process == null) return null
+
+        return try {
+            sendCommand("position fen $fen")
+            sendCommand("go depth $EVAL_DEPTH")
+            val rawEval = waitForEvaluation(EVAL_TIMEOUT_MS) ?: return null
+            UciEvaluation.toWhitePerspective(rawEval, UciEvaluation.isWhiteToMove(fen))
+        } catch (e: IOException) {
+            logger.e(e) { "Error evaluating position" }
+            null
+        }
+    }
+
     override fun close() = shutdown()
 
     fun shutdown() {
@@ -180,6 +196,25 @@ abstract class BaseStockfishEngine : ChessEngine {
             if (remaining <= 0) return null
             val line = lineQueue.poll(remaining, TimeUnit.MILLISECONDS) ?: return null
             if (line.startsWith("bestmove")) return line
+        }
+    }
+
+    private fun waitForEvaluation(timeoutMs: Long): Int? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var lastEval: Int? = null
+        while (true) {
+            val remaining = deadline - System.currentTimeMillis()
+            if (remaining <= 0) return null
+            val line = lineQueue.poll(remaining, TimeUnit.MILLISECONDS) ?: return null
+            
+            val parsedEval = UciEvaluation.parseInfoScore(line)
+            if (parsedEval != null) {
+                lastEval = parsedEval
+            }
+            
+            if (line.startsWith("bestmove")) {
+                return lastEval
+            }
         }
     }
 }

@@ -69,6 +69,11 @@ import game.app.generated.resources.promotion_prompt
 import game.app.generated.resources.reset_button
 import game.app.generated.resources.stockfish_disabled
 import game.app.generated.resources.stockfish_enabled
+import game.app.generated.resources.accept_button
+import game.app.generated.resources.decline_button
+import game.app.generated.resources.draw_offer_declined
+import game.app.generated.resources.draw_offer_prompt
+import game.app.generated.resources.offer_draw_button
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
@@ -157,6 +162,10 @@ fun GameScreen(
             )
         }
 
+        if (gameState.drawOffer == Set.BLACK && gameState.winState == WinState.NONE) {
+            DrawOfferDialog(onAccept = viewModel::acceptDrawOffer, onDecline = viewModel::declineDrawOffer)
+        }
+
         Board(
             gameState = gameState,
             animState = animState,
@@ -198,6 +207,18 @@ fun GameScreen(
             Button(onClick = viewModel::resetGame) {
                 Text(stringResource(Res.string.reset_button))
             }
+            Button(
+                onClick = viewModel::requestDrawOffer,
+                enabled = canOfferDraw(gameState) && animState.pieceToAnimate == null,
+                modifier = Modifier.testTag("offer_draw_button")
+            ) { Text(stringResource(Res.string.offer_draw_button)) }
+        }
+
+        if (gameState.drawOfferDeclinedBy == Set.BLACK) {
+            Text(
+                text = stringResource(Res.string.draw_offer_declined),
+                modifier = Modifier.testTag("draw_offer_declined_text")
+            )
         }
     }
 
@@ -504,6 +525,22 @@ fun PromotionDialog(set: Set, onSelect: (PromotionType) -> Unit, onDismiss: () -
                         .testTag("promotion_choice_${type.name}"),
                     contentAlignment = Alignment.Center
                 ) { Piece(pieceModel = type.toPiece(set)) }
+            }
+        }
+    }
+}
+
+@Composable
+fun DrawOfferDialog(onAccept: () -> Unit, onDecline: () -> Unit) {
+    PopupWindow(onDismiss = { onDecline() }) {
+        Text(stringResource(Res.string.draw_offer_prompt), style = MaterialTheme.typography.titleLarge)
+        Spacer(modifier = Modifier.padding(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(onClick = onAccept, modifier = Modifier.testTag("draw_offer_accept")) {
+                Text(stringResource(Res.string.accept_button))
+            }
+            Button(onClick = onDecline, modifier = Modifier.testTag("draw_offer_decline")) {
+                Text(stringResource(Res.string.decline_button))
             }
         }
     }

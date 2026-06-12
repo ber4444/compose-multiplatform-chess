@@ -53,7 +53,10 @@ data class GameUiState(
     val fullmoveNumber: Int = 1,     // starts at 1, increments after each Black move
     // Repetition keys (first four FEN fields) of every position since the last irreversible
     // move (capture/pawn move). Invariant: when non-empty, the last element is the current position.
-    val positionHistory: List<String> = emptyList()
+    val positionHistory: List<String> = emptyList(),
+    val drawOffer: Set? = null,            // side with an unresolved offer pending (Set is the WHITE/BLACK enum)
+    val drawOfferDeclinedBy: Set? = null,  // drives "declined" feedback text; cleared on next move
+    val lastDrawOfferFullmove: Int = 0     // fullmoveNumber of most recent offer (0 = never); cooldown anchor
 )
 
 // Current win state of the game
