@@ -7,13 +7,13 @@ class GameViewModelTest {
     private val viewModel = GameViewModel()
 
     @Test
-    fun `test movePieceWhite within bounds and no overlap`() {
+    fun `test movePieceWhite within bounds and no overlap`() = kotlinx.coroutines.test.runTest {
         viewModel.moveCPU(Set.WHITE)  {
             enemyPositions: List<Pair<Int, Int>>,
             enemyPieces: List<Piece>,
             allyPositions: List<Pair<Int,Int>>,
             allyPieces: List<Piece> ->
-            pickMoveRandom(enemyPositions, enemyPieces, allyPositions, allyPieces)
+            pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces)
         }
         val positionWhite = viewModel.gameState.value.positionsWhite.first()
         val positionBlack = viewModel.gameState.value.positionsBlack.first()
@@ -23,13 +23,13 @@ class GameViewModelTest {
     }
 
     @Test
-    fun `test movePieceBlack within bounds and no overlap`() {
+    fun `test movePieceBlack within bounds and no overlap`() = kotlinx.coroutines.test.runTest {
         viewModel.moveCPU(Set.BLACK) {
             enemyPositions: List<Pair<Int, Int>>,
             enemyPieces: List<Piece>,
             allyPositions: List<Pair<Int, Int>>,
             allyPieces: List<Piece> ->
-            pickMoveRandom(enemyPositions, enemyPieces, allyPositions, allyPieces)
+            pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces)
         }
         val positionBlack = viewModel.gameState.value.positionsBlack.first()
         val positionWhite = viewModel.gameState.value.positionsWhite.first()
@@ -39,29 +39,35 @@ class GameViewModelTest {
     }
 
     @Test
-    fun `play until game over and ensure no overlap`() {
+    fun `play until game over and ensure no overlap`() = kotlinx.coroutines.test.runTest {
         while(viewModel.gameState.value.winState == WinState.NONE) {
             viewModel.moveCPU(Set.WHITE) {
                 enemyPositions: List<Pair<Int, Int>>,
                 enemyPieces: List<Piece>,
                 allyPositions: List<Pair<Int, Int>>,
                 allyPieces: List<Piece> ->
-                pickMoveRandom(enemyPositions, enemyPieces, allyPositions, allyPieces)
+                pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces)
             }
             viewModel.moveCPU(Set.BLACK) {
                 enemyPositions: List<Pair<Int, Int>>,
                 enemyPieces: List<Piece>,
                 allyPositions: List<Pair<Int, Int>>,
                 allyPieces: List<Piece> ->
-                pickMoveRandom(enemyPositions, enemyPieces, allyPositions, allyPieces)
+                pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces)
             }
 
-            val positionWhite = viewModel.gameState.value.positionsWhite.first()
-            val positionBlack = viewModel.gameState.value.positionsBlack.first()
+            val positionWhite = viewModel.gameState.value.positionsWhite.firstOrNull()
+            val positionBlack = viewModel.gameState.value.positionsBlack.firstOrNull()
 
-            assertTrue(positionWhite.first in 0 until BOARD_SIZE && positionWhite.second in 0 until BOARD_SIZE, "White piece out of bounds")
-            assertTrue(positionBlack.first in 0 until BOARD_SIZE && positionBlack.second in 0 until BOARD_SIZE, "Black piece out of bounds")
-            assertTrue(positionWhite != positionBlack, "Pieces overlap")
+            if (positionWhite != null) {
+                assertTrue(positionWhite.first in 0 until BOARD_SIZE && positionWhite.second in 0 until BOARD_SIZE, "White piece out of bounds")
+            }
+            if (positionBlack != null) {
+                assertTrue(positionBlack.first in 0 until BOARD_SIZE && positionBlack.second in 0 until BOARD_SIZE, "Black piece out of bounds")
+            }
+            if (positionWhite != null && positionBlack != null) {
+                assertTrue(positionWhite != positionBlack, "Pieces overlap")
+            }
         }
     }
 
@@ -226,12 +232,12 @@ class GameViewModelTest {
     }
 
     @Test
-    fun `test white pieces do not turn black after first move in autoplay`() {
+    fun `test white pieces do not turn black after first move in autoplay`() = kotlinx.coroutines.test.runTest {
         val viewModel = GameViewModel()
 
         // Execute the first automatic move for white
         viewModel.moveCPU(Set.WHITE) { enemyPositions, enemyPieces, allyPositions, allyPieces ->
-            pickMoveRandom(enemyPositions, enemyPieces, allyPositions, allyPieces)
+            pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces)
         }
 
         // At this point, the turn should switch to BLACK
@@ -245,7 +251,7 @@ class GameViewModelTest {
 
         // Execute the automatic move for black to ensure black pieces stay black
         viewModel.moveCPU(Set.BLACK) { enemyPositions, enemyPieces, allyPositions, allyPieces ->
-            pickMoveRandom(enemyPositions, enemyPieces, allyPositions, allyPieces)
+            pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces)
         }
 
         val piecesBlack = viewModel.gameState.value.piecesBlack

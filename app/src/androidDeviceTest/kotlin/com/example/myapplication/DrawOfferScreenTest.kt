@@ -26,8 +26,8 @@ class DrawOfferScreenTest {
 
     private fun mockEngine(eval: Int?): ChessEngine {
         return object : ChessEngine {
-            override fun getBestMove(fen: String): String? = null
-            override fun evaluate(fen: String): Int? = eval
+            override suspend fun getBestMove(fen: String): String? = null
+            override suspend fun evaluate(fen: String): Int? = eval
             override fun close() {}
         }
     }

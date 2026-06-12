@@ -87,7 +87,7 @@ class PromotionTest {
     }
 
     @Test
-    fun testCPUPromotion() {
+    fun testCPUPromotion() = kotlinx.coroutines.test.runTest {
         val viewModel = GameViewModel(FenConverter.fenToGameState(BLACK_PROMO))
         val state = viewModel.gameState.value
         val blackPawnIdx = state.piecesBlack.indexOfFirst { it is Pawn }
@@ -129,7 +129,7 @@ class PromotionTest {
     }
 
     @Test
-    fun testMatePromotion() {
+    fun testMatePromotion() = kotlinx.coroutines.test.runTest {
         val viewModel = GameViewModel(FenConverter.fenToGameState(MATE_PROMO))
         val state = viewModel.gameState.value
         val pawnIdx = state.piecesWhite.indexOfFirst { it is Pawn }
@@ -137,8 +137,9 @@ class PromotionTest {
         viewModel.playerMove(pawnIdx, Pair(0, 2)) // c8
         viewModel.promotePawn(PromotionType.QUEEN)
         
-        viewModel.animationEnd() // runs moveCPU(BLACK) synchronously since no engine
+        viewModel.animationEnd() // runs moveCPU(BLACK) asynchronously
         
+        viewModel.awaitState { it.winState == WinState.WHITE }
         assertEquals(WinState.WHITE, viewModel.gameState.value.winState)
         
         viewModel.close()

@@ -7,6 +7,8 @@ import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Base class containing all UCI protocol communication logic shared between
@@ -96,7 +98,7 @@ abstract class BaseStockfishEngine : ChessEngine {
         }
     }
 
-    override fun getBestMove(fen: String): String? = getBestMove(fen, DEFAULT_THINK_TIME_MS)
+    override suspend fun getBestMove(fen: String): String? = withContext(Dispatchers.IO) { getBestMove(fen, DEFAULT_THINK_TIME_MS) }
 
     fun getBestMove(fen: String, thinkTimeMs: Long): String? {
         if (!isReady || process == null) return getEmbeddedBestMove(fen)
@@ -146,13 +148,13 @@ abstract class BaseStockfishEngine : ChessEngine {
         }
     }
 
-    override fun evaluate(fen: String): Int? {
-        if (!isReady || process == null) return null
+    override suspend fun evaluate(fen: String): Int? = withContext(Dispatchers.IO) {
+        if (!isReady || process == null) return@withContext null
 
-        return try {
+        return@withContext try {
             sendCommand("position fen $fen")
             sendCommand("go depth $EVAL_DEPTH")
-            val rawEval = waitForEvaluation(EVAL_TIMEOUT_MS) ?: return null
+            val rawEval = waitForEvaluation(EVAL_TIMEOUT_MS) ?: return@withContext null
             UciEvaluation.toWhitePerspective(rawEval, UciEvaluation.isWhiteToMove(fen))
         } catch (e: IOException) {
             logger.e(e) { "Error evaluating position" }

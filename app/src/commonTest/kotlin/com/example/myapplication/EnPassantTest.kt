@@ -59,7 +59,7 @@ class EnPassantTest {
     }
 
     @Test
-    fun `Target set on double push and expiry`() {
+    fun `Target set on double push and expiry`() = kotlinx.coroutines.test.runTest {
         val viewModel = GameViewModel(GameUiState())
         val e2PawnIndex = viewModel.gameState.value.positionsWhite.indexOf(Pair(6, 4))
 
@@ -107,7 +107,7 @@ class EnPassantTest {
     }
 
     @Test
-    fun `Black side via moveCPU`() {
+    fun `Black side via moveCPU`() = kotlinx.coroutines.test.runTest {
         val state = FenConverter.fenToGameState("rnbqkbnr/pppp1ppp/8/8/3Pp3/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 3")
         val viewModel = GameViewModel(state)
         

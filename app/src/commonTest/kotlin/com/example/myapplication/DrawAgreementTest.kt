@@ -10,8 +10,8 @@ class DrawAgreementTest {
 
     private fun mockEngine(eval: Int?): ChessEngine {
         return object : ChessEngine {
-            override fun getBestMove(fen: String): String? = null
-            override fun evaluate(fen: String): Int? = eval
+            override suspend fun getBestMove(fen: String): String? = null
+            override suspend fun evaluate(fen: String): Int? = eval
             override fun close() {}
         }
     }
@@ -97,7 +97,7 @@ class DrawAgreementTest {
     }
 
     @Test
-    fun testWhiteOffers_mockEval0_Accepted() {
+    fun testWhiteOffers_mockEval0_Accepted() = kotlinx.coroutines.test.runTest {
         val viewModel = GameViewModel()
         viewModel.attachEngine(mockEngine(0))
         
@@ -108,7 +108,7 @@ class DrawAgreementTest {
     }
 
     @Test
-    fun testWhiteOffers_mockEvalMinus400_Declined() {
+    fun testWhiteOffers_mockEvalMinus400_Declined() = kotlinx.coroutines.test.runTest {
         val viewModel = GameViewModel()
         viewModel.attachEngine(mockEngine(-400))
         
@@ -120,7 +120,7 @@ class DrawAgreementTest {
     }
 
     @Test
-    fun testWhiteOffers_NoEngine_EqualMaterial_Accepted() {
+    fun testWhiteOffers_NoEngine_EqualMaterial_Accepted() = kotlinx.coroutines.test.runTest {
         val viewModel = GameViewModel(GameUiState()) // start pos material is 0
         
         viewModel.offerDraw()
@@ -129,7 +129,7 @@ class DrawAgreementTest {
     }
 
     @Test
-    fun testWhiteOffers_NoEngine_BlackAhead_Declined() {
+    fun testWhiteOffers_NoEngine_BlackAhead_Declined() = kotlinx.coroutines.test.runTest {
         val state = FenConverter.fenToGameState("3qk3/8/8/8/8/8/8/4K3 w - - 0 1") // Black queen
         val viewModel = GameViewModel(state)
         
@@ -140,7 +140,7 @@ class DrawAgreementTest {
     }
 
     @Test
-    fun testWhiteOffers_mockEvalNull_FallsBackToMaterial() {
+    fun testWhiteOffers_mockEvalNull_FallsBackToMaterial() = kotlinx.coroutines.test.runTest {
         val state = FenConverter.fenToGameState("3qk3/8/8/8/8/8/8/4K3 w - - 0 1")
         val viewModel = GameViewModel(state)
         viewModel.attachEngine(mockEngine(null))
@@ -152,7 +152,7 @@ class DrawAgreementTest {
     }
 
     @Test
-    fun testCooldownResetsAfterMove() {
+    fun testCooldownResetsAfterMove() = kotlinx.coroutines.test.runTest {
         val viewModel = GameViewModel()
         viewModel.attachEngine(mockEngine(-400))
         
@@ -166,7 +166,7 @@ class DrawAgreementTest {
     }
 
     @Test
-    fun testOfferDrawMidPromotion_NoOps() {
+    fun testOfferDrawMidPromotion_NoOps() = kotlinx.coroutines.test.runTest {
         val state = FenConverter.fenToGameState("4k3/P7/8/8/8/8/8/4K3 w - - 0 1")
         val viewModel = GameViewModel(state)
         
@@ -180,7 +180,7 @@ class DrawAgreementTest {
     }
 
     @Test
-    fun testBlackProactivelyOffers() {
+    fun testBlackProactivelyOffers() = kotlinx.coroutines.test.runTest {
         // FEN with R+P each, so it doesn't trigger insufficient material
         val state = FenConverter.fenToGameState("r3k3/p7/8/8/8/8/P7/R3K3 w - - 10 30")
         val viewModel = GameViewModel(state)
@@ -190,13 +190,13 @@ class DrawAgreementTest {
         
         // Trigger animation end
         viewModel.animationEnd()
+        viewModel.awaitState { it.drawOffer == Set.BLACK }
         
-        assertEquals(Set.BLACK, viewModel.gameState.value.drawOffer)
         assertEquals(WinState.NONE, viewModel.gameState.value.winState)
     }
 
     @Test
-    fun testBlackProactivelyOffers_Autoplay_NoOffer() {
+    fun testBlackProactivelyOffers_Autoplay_NoOffer() = kotlinx.coroutines.test.runTest {
         val state = FenConverter.fenToGameState("r3k3/p7/8/8/8/8/P7/R3K3 w - - 10 30")
         val viewModel = GameViewModel(state)
         
@@ -205,12 +205,13 @@ class DrawAgreementTest {
         
         viewModel.setAutoPlay(true)
         viewModel.animationEnd()
+        viewModel.awaitState { it.turn == Set.WHITE }
         
         assertNull(viewModel.gameState.value.drawOffer)
     }
 
     @Test
-    fun testBlackDrawOfferCooldown() {
+    fun testBlackDrawOfferCooldown() = kotlinx.coroutines.test.runTest {
         val state = FenConverter.fenToGameState("r3k3/p7/8/8/8/8/P7/R3K3 w - - 10 30")
         val viewModel = GameViewModel(state.copy(lastDrawOfferFullmove = 29))
         
@@ -218,6 +219,7 @@ class DrawAgreementTest {
         viewModel.playerMove(a1RookIdx, Pair(7, 3))
         
         viewModel.animationEnd()
+        viewModel.awaitState { it.turn == Set.WHITE }
         
         assertNull(viewModel.gameState.value.drawOffer)
     }

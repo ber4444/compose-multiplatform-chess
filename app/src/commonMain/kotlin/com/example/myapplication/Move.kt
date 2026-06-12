@@ -71,7 +71,7 @@ fun pickMoveRandom(
  * @param allyPieces The current team's pieces
  * @return A Pair of (new position, piece index) representing the chosen move
  */
-fun pickMoveStockfish(
+suspend fun pickMoveStockfish(
     engine: ChessEngine?,
     gameState: GameUiState,
     enemyPositions: List<Pair<Int, Int>>,
