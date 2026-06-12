@@ -57,20 +57,7 @@ class GameScreenTest {
 
     @Test
     fun testStalemate() {
-        val sixtyFourWhitePieces = List(64) { King(Set.WHITE) }
-        val positions = mutableListOf<Pair<Int, Int>>()
-        for (i in 0 until BOARD_SIZE) {
-            for (j in 0 until BOARD_SIZE) {
-                positions.add(Pair(i, j))
-            }
-        }
-
-        val testGameState = GameUiState(
-            piecesWhite = sixtyFourWhitePieces,
-            piecesBlack = listOf(King(Set.BLACK)),
-            positionsWhite = positions,
-            positionsBlack = listOf()
-        )
+        val testGameState = FenConverter.fenToGameState("k7/8/K7/1Q6/8/8/8/8 b - - 0 1")
 
         val viewModel = GameViewModel(testGameState)
 
@@ -208,12 +195,7 @@ class GameScreenTest {
                     GameScreen(
                         windowSize = WindowWidthSizeClass.Medium,
                         viewModel = GameViewModel(
-                            gameState = GameUiState(
-                                piecesWhite = List(64) { King(Set.WHITE) },
-                                piecesBlack = listOf(King(Set.BLACK)),
-                                positionsWhite = mutableListOf(),
-                                positionsBlack = listOf()
-                            )
+                            gameState = GameUiState()
                         )
                     )
                 }
