@@ -4,8 +4,8 @@
 
 ## Included ABIs
 
-- `app/src/main/jniLibs/arm64-v8a/libstockfish.so`
-- `app/src/main/jniLibs/armeabi-v7a/libstockfish.so`
+- `app/src/androidMain/jniLibs/arm64-v8a/libstockfish.so`
+- `app/src/androidMain/jniLibs/armeabi-v7a/libstockfish.so`
 
 ## Upstream source
 
