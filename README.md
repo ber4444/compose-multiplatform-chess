@@ -3,18 +3,32 @@
 Compose Multiplatform chess app targeting:
 
 - Android
-- Linux desktop (JVM)
+- Desktop (JVM): Linux and macOS
 - Web (Wasm)
+- iOS
 
 ## Setup
 
-For the desktop target, install stockfish first:
+For the desktop target on Linux, install stockfish first:
 
 ```bash
 sudo apt install stockfish  # For Ubuntu/Debian
 sudo pacman -S stockfish    # For Arch
 sudo dnf install stockfish  # For Fedora
 ```
+
+For the desktop target on macOS:
+```bash
+brew install stockfish
+```
+
+### iOS Setup
+
+macOS, Xcode 16+, and JDK 17 are required.
+1. `open iosApp/iosApp.xcodeproj`
+2. Run the `iosApp` scheme
+
+The Stockfish engine is bundled automatically, nothing to install manually.
 
 ## Project layout
 
@@ -23,14 +37,17 @@ sudo dnf install stockfish  # For Fedora
 - `androidApp/src/main` Android application manifest that depends on the shared KMP module
 - `app/src/desktopMain` desktop launcher
 - `app/src/wasmJsMain` web launcher
+- `app/src/iosMain` shared iOS implementation
+- `iosApp/` Xcode project and Swift adapter
 
 ## Useful Gradle tasks
 
 - `./gradlew test` runs shared unit tests
 - `./gradlew assembleDebug installDebug` builds and installs the Android app
-- `./gradlew :app:desktopRun` launches the desktop app
+- `./gradlew :app:run` launches the desktop app
 - `./gradlew :app:wasmJsBrowserDevelopmentRun` starts the web target
 - `./gradlew :app:connectedAndroidDeviceTest` runs Android UI tests
+- `./gradlew :app:iosSimulatorArm64Test` runs iOS Compose UI tests
 
 Mobile and desktop screenshots:
 

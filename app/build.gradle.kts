@@ -4,6 +4,7 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.gradle.api.file.DirectoryProperty
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.compose.ExperimentalComposeLibrary
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -48,6 +49,17 @@ kotlin {
     jvm("desktop") {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
+        }
+    }
+
+    iosArm64 {
+        binaries.framework { baseName = "ChessApp"; isStatic = true }
+    }
+    iosSimulatorArm64 {
+        binaries.framework { baseName = "ChessApp"; isStatic = true }
+        // KGP's default simulator device often doesn't exist on current Xcode images.
+        testRuns.configureEach {
+            deviceId = providers.gradleProperty("iosSimulatorDeviceId").getOrElse("iPhone 17")
         }
     }
 
@@ -107,6 +119,17 @@ kotlin {
                 implementation(compose.desktop.currentOs)
             }
         }
+
+        val iosMain by creating { dependsOn(commonMain.get()) }
+        val iosArm64Main by getting { dependsOn(iosMain) }
+        val iosSimulatorArm64Main by getting { dependsOn(iosMain) }
+
+        val iosSimulatorArm64Test by getting {
+            dependencies {
+                @OptIn(ExperimentalComposeLibrary::class)
+                implementation(compose.uiTest)
+            }
+        }
     }
 }
 
@@ -136,7 +159,7 @@ compose.desktop {
         nativeDistributions {
             packageName = "game"
             packageVersion = "1.0.0"
-            targetFormats(TargetFormat.Deb)
+            targetFormats(TargetFormat.Deb, TargetFormat.Dmg)
         }
     }
 }

@@ -1,0 +1,61 @@
+name: iosApp
+options:
+  bundleIdPrefix: com.example.myapplication
+  deploymentTarget:
+    iOS: "16.0"          # floor set by ChessKitEngine (.iOS(.v16))
+  createIntermediateGroups: true
+settings:
+  base:
+    ENABLE_USER_SCRIPT_SANDBOXING: "NO"   # required by embedAndSignAppleFrameworkForXcode
+packages:
+  ChessKitEngine:
+    url: https://github.com/chesskit-app/chesskit-engine
+    exactVersion: 0.6.0   # 0.7.0 needs swift-tools 6.2 (Xcode 26+); bump deliberately
+targets:
+  iosApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: iosApp
+        excludes: ["Resources/**"]
+      - path: iosApp/Resources
+        buildPhase: resources          # .nnue files must land in the app bundle
+    dependencies:
+      - package: ChessKitEngine
+    info:
+      path: iosApp/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.myapplication
+        FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
+        OTHER_LDFLAGS: "$(inherited) -framework ChessApp"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+    preBuildScripts:
+      - name: Compile Kotlin Framework
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ -z "${JAVA_HOME:-}" ]; then export JAVA_HOME=$(/usr/libexec/java_home 2>/dev/null || true); fi
+          cd "$SRCROOT/.."
+          ./gradlew :app:embedAndSignAppleFrameworkForXcode
+  iosAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [iosAppTests]
+    dependencies:
+      - target: iosApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.myapplication.tests
+        FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/iosApp.app/iosApp"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  iosApp:
+    build:
+      targets: { iosApp: all }
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets: [iosAppTests]

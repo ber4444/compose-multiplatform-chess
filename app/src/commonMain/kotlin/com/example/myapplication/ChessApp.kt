@@ -32,9 +32,7 @@ fun ChessApp(
             }
             GameScreen(
                 windowSize = windowSize,
-                viewModel = viewModel,
-                maxHeight = maxHeight, // new parameter
-                maxWidth = maxWidth    // new parameter
+                viewModel = viewModel
             )
         }
     }

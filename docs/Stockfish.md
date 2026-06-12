@@ -39,8 +39,19 @@ The earlier packaging put Stockfish under `assets/` and extracted it into the ap
 That works poorly on modern Android because writable app storage is often not executable.
 So the engine could be found but still fail to launch, leaving the UI in the off state.
 
+## Desktop (macOS / Linux) path
+
+`DesktopStockfishEngine` executes the system-installed `stockfish` binary. For macOS, it also probes common Homebrew installation paths (`/opt/homebrew/bin/stockfish`, `/usr/local/bin/stockfish`) and common Linux paths because Finder-launched applications on macOS often do not inherit the shell's `PATH`.
+
 ## Web (Wasm) path
 
 For the browser target, we vendor `stockfish-18-lite-single.js` in `app/src/wasmJsMain/resources/stockfish/`. This file is served as a static asset by the Gradle development server and packaged in the web distribution.
 
 `WasmStockfishEngine` initializes a Web Worker with this script. The Worker communicates via `postMessage` (sending strings) and `onmessage` (receiving strings), which is wrapped by `WorkerUciTransport` to fit the common `UciTransport` interface.
+
+## iOS path
+
+For iOS, we use `ChessKitEngine` (version 0.6.0 via SPM) which compiles Stockfish 17 into the app (GPLv3 already covered by `docs/Stockfish-COPYING.txt`). 
+Because iOS apps cannot spawn subprocesses, the Swift `StockfishChessEngine` acts as an adapter, starting the engine asynchronously and bridging calls synchronously back to Kotlin via a semaphore lock on `Dispatchers.Default`.
+
+`ChessKitEngine` does not bundle NNUE networks, so Stockfish 17 defaults (`nn-1111cefa1111.nnue` and `nn-37f18f62d772.nnue`) are committed raw into `iosApp/iosApp/Resources/`. These download URLs and shasums must match official Stockfish test networks, as their filenames encode the first 12 characters of their sha256 hashes.

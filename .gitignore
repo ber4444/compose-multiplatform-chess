@@ -1,3 +1,5 @@
+.DS_Store
+*/.DS_Store
 build/*
 app/build/*
 androidApp/build/*
@@ -5,3 +7,7 @@ androidApp/build/*
 .gradle/*
 .idea/*
 local.properties
+
+iosApp/iosApp.xcodeproj/xcuserdata
+iosApp/iosApp.xcodeproj/project.xcworkspace/xcuserdata
+iosApp/build/*

@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   instrumented-tests:
     name: Build + Android tests (API ${{ matrix.api-level }}, Device ${{ matrix.profile }} / ${{ matrix.target }})
@@ -109,3 +112,49 @@ jobs:
         with:
           name: test-results-api-${{ matrix.api-level }}-device-${{ matrix.profile }}
           path: app/build/reports/androidTests/connected/debug/index.html
+
+  apple:
+    name: Build + iOS/macOS checks
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5.0.0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5.0.0
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Show Xcode and simulators
+        run: |
+          xcodebuild -version
+          xcrun simctl list devices available | head -30
+
+      - name: Ensure test simulator exists
+        run: |
+          xcrun simctl list devices available | grep -q "iPhone 16" || \
+            xcrun simctl create "iPhone 16" "com.apple.CoreSimulator.SimDeviceType.iPhone-16"
+
+      - name: Kotlin checks (simulator unit+UI tests, desktop tests, device link, DMG)
+        run: ./gradlew :app:iosSimulatorArm64Test :app:desktopTest :app:linkReleaseFrameworkIosArm64 :app:packageDistributionForCurrentOS "-PiosSimulatorDeviceId=iPhone 16"
+
+      - name: Build and test iosApp
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project iosApp/iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,name=iPhone 16" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            test
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: apple-test-reports
+          path: app/build/reports/tests/
