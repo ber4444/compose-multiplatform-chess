@@ -50,7 +50,7 @@ class GameViewModel(
     }
 
     fun setAutoPlay(newVal: Boolean) {
-        _gameState.value = gameState.value.copy(autoPlay = newVal, pendingPromotion = null)
+        _gameState.value = gameState.value.copy(autoPlay = newVal, pendingPromotion = null, drawOffer = null)
     }
 
     fun hideWindow() {
@@ -72,6 +72,7 @@ class GameViewModel(
             _gameState.value.piecesWhite.isNotEmpty()
         ) {
             if (_gameState.value.pendingPromotion != null) return
+            if (_gameState.value.drawOffer != null) return
             if (selectedPieceIndex == -1) {
                 throw IllegalStateException("Cannot identify selected Piece!")
             }
@@ -171,18 +172,77 @@ class GameViewModel(
         _animState.value = _animState.value.copy(pieceToAnimate = null)
 
         if (_gameState.value.turn == Set.BLACK) {
-            moveCPU { enemyPositions, enemyPieces, allyPositions, allyPieces ->
-                pickMoveStockfish(
-                    chessEngine,
-                    _gameState.value,
-                    enemyPositions,
-                    enemyPieces,
-                    allyPositions,
-                    allyPieces
-                )
-            }
+            if (tryBlackDrawOffer()) return
+            moveBlackWithEngine()
         } else {
             _viewState.value = _viewState.value.copy(moveButtonLock = false)
+        }
+    }
+
+    private fun moveBlackWithEngine() {
+        moveCPU { enemyPositions, enemyPieces, allyPositions, allyPieces ->
+            pickMoveStockfish(
+                chessEngine,
+                _gameState.value,
+                enemyPositions,
+                enemyPieces,
+                allyPositions,
+                allyPieces
+            )
+        }
+    }
+
+    fun requestDrawOffer() {
+        scope.launch { offerDraw() }
+    }
+
+    fun offerDraw() {
+        if (!canOfferDraw(_gameState.value)) return
+        _gameState.value = _gameState.value.copy(
+            drawOffer = Set.WHITE,
+            lastDrawOfferFullmove = _gameState.value.fullmoveNumber
+        )
+        val eval = evaluatePositionCp(chessEngine, _gameState.value)
+        if (shouldBlackAcceptDraw(eval)) {
+            _gameState.value = _gameState.value.copy(
+                winState = WinState.DRAW,
+                drawOffer = null
+            )
+        } else {
+            _gameState.value = _gameState.value.copy(
+                drawOffer = null,
+                drawOfferDeclinedBy = Set.BLACK
+            )
+        }
+    }
+
+    fun tryBlackDrawOffer(): Boolean {
+        val state = _gameState.value
+        if (state.turn != Set.BLACK) return false
+        if (!blackDrawOfferPreconditions(state)) return false
+        val eval = evaluatePositionCp(chessEngine, state)
+        if (shouldBlackOfferDraw(eval)) {
+            _gameState.value = state.copy(
+                drawOffer = Set.BLACK,
+                lastDrawOfferFullmove = state.fullmoveNumber
+            )
+            return true
+        }
+        return false
+    }
+
+    fun acceptDrawOffer() {
+        val state = _gameState.value
+        if (state.drawOffer == Set.BLACK && state.winState == WinState.NONE) {
+            _gameState.value = state.copy(drawOffer = null, winState = WinState.DRAW)
+        }
+    }
+
+    fun declineDrawOffer() {
+        if (_gameState.value.drawOffer == Set.BLACK) {
+            _gameState.value = _gameState.value.copy(drawOffer = null)
+            gameMoves?.cancel()
+            gameMoves = scope.launch { moveBlackWithEngine() }
         }
     }
 
@@ -431,7 +491,9 @@ class GameViewModel(
                 castlingRights = updatedRights,
                 enPassantTarget = newEnPassantTarget,
                 halfmoveClock = newHalfmoveClock,
-                fullmoveNumber = newFullmoveNumber
+                fullmoveNumber = newFullmoveNumber,
+                drawOffer = null,
+                drawOfferDeclinedBy = null
             )
 
             Set.BLACK -> _gameState.value.copy(
@@ -446,7 +508,9 @@ class GameViewModel(
                 castlingRights = updatedRights,
                 enPassantTarget = newEnPassantTarget,
                 halfmoveClock = newHalfmoveClock,
-                fullmoveNumber = newFullmoveNumber
+                fullmoveNumber = newFullmoveNumber,
+                drawOffer = null,
+                drawOfferDeclinedBy = null
             )
         }
 

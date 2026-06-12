@@ -40,7 +40,7 @@ All code uses package `com.example.myapplication` even though the project is nam
 
 The chess-AI path is the part that spans the most files:
 
-- `ChessEngine` (commonMain) — minimal interface: `getBestMove(fen)` / `close()`.
+- `ChessEngine` (commonMain) — minimal interface: `getBestMove(fen)` / `evaluate(fen)` / `close()`.
 - `BaseStockfishEngine` (jvmCommonMain) — all UCI protocol logic over a spawned process; subclasses only implement `resolveExecutablePath()`. Returning `null` means "no binary, use embedded fallback".
 - `StockfishEngine` (androidMain) — launches the vendored `libstockfish.so` from the app's `nativeLibraryDir`.
 - `DesktopStockfishEngine` (desktopMain) — uses the system-installed `stockfish` binary.
@@ -59,6 +59,7 @@ Stockfish binaries are vendored at `app/src/androidMain/jniLibs/{arm64-v8a,armea
 - **Pawn Promotion:** Reaching the back rank transitions `gameState` to a `pendingPromotion` state (which displays a `PromotionDialog` UI). Normal moves are blocked until the user selects a piece (or the CPU picks one), which then replaces the Pawn and completes the turn. `SelectedMove` encapsulates both the move coordinates and the optional `PromotionType`.
 - **En Passant:** Captured pawns are removed from their original square (not the destination) in `deriveNewGameState`. The `enPassantTarget` state field tracks double pushes, and `FenConverter` correctly emits/parses the en passant FEN field.
 - **Draw detection:** Threefold repetition (`positionHistory` of FEN position keys, cleared on irreversible moves), fifty-move rule (real `halfmoveClock`/`fullmoveNumber`, now emitted/parsed by `FenConverter` and sent to Stockfish), and insufficient material — all evaluated in `deriveNewGameState` via `applyDrawConditions` (`DrawConditions.kt`), setting `WinState.DRAW`.
+- **Draw agreements:** Players can offer draws to the engine, which accepts or declines based on positional evaluation (`UciEvaluation.kt`) or material fallback. The engine may also proactively offer draws in drawish positions. Supported via new `drawOffer` fields in `GameUiState`.
 
 ## Build quirks (don't "clean up")
 

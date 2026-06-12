@@ -9,4 +9,9 @@
     <string name="game_end_message_no_winner">Game ended in a %1$s!</string>
     <string name="autoplay_label">Autoplay</string>
     <string name="promotion_prompt">Promote pawn to:</string>
+    <string name="offer_draw_button">Offer Draw</string>
+    <string name="draw_offer_prompt">Black offers a draw</string>
+    <string name="accept_button">Accept</string>
+    <string name="decline_button">Decline</string>
+    <string name="draw_offer_declined">Black declined the draw offer</string>
 </resources>
