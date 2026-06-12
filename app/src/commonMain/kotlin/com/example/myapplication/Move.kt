@@ -184,7 +184,7 @@ fun checkCheck(
     //  Can use enemyPieces to determine what types of moves to look for
     //  (if no queens or bishops, don't need to check diagonals)
     // Using getPossibleMoves,
-    val enemyMoves = getPossibleMoves(enemyPositions, allyPositions, enemyPieces)
+    val enemyMoves = getPossibleMoves(allyPositions, enemyPositions, enemyPieces)
 
     // Determine if the King can be attacked by any possible Enemy move
     val checkMoveIndex = enemyMoves.map { it.first }.indexOf(kingPosition)
