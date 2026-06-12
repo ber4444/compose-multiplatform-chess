@@ -317,6 +317,7 @@ class GameViewModel(
         logger.d { "Moving $turn ${allyPieces[pieceIndex].name} from ${allyPositions[pieceIndex]} to $newPosition" }
 
         var updatedRights = _gameState.value.castlingRights
+        var captureOccurred = false
 
         if (newPosition in enemyPositions) {
             val index = enemyPositions.indexOf(newPosition)
@@ -335,6 +336,7 @@ class GameViewModel(
 
             mutableEnemyPositions.removeAt(index)
             mutableEnemyPieces.removeAt(index)
+            captureOccurred = true
         } else if (allyPieces[pieceIndex] is Pawn && allyPositions[pieceIndex].second != newPosition.second && newPosition == _gameState.value.enPassantTarget) {
             val victimPosition = Pair(allyPositions[pieceIndex].first, newPosition.second)
             val index = enemyPositions.indexOf(victimPosition)
@@ -342,11 +344,16 @@ class GameViewModel(
                 logger.i { "${when (turn) { Set.WHITE -> Set.BLACK.name; Set.BLACK -> Set.WHITE.name }} ${enemyPieces[index].name} was captured en passant!" }
                 mutableEnemyPositions.removeAt(index)
                 mutableEnemyPieces.removeAt(index)
+                captureOccurred = true
             }
         }
 
         val movingPiece = allyPieces[pieceIndex]
         val fromPosition = allyPositions[pieceIndex]
+        
+        val newHalfmoveClock = if (captureOccurred || movingPiece is Pawn) 0
+                               else _gameState.value.halfmoveClock + 1
+        val newFullmoveNumber = _gameState.value.fullmoveNumber + if (turn == Set.BLACK) 1 else 0
         
         val newEnPassantTarget = if (movingPiece is Pawn && kotlin.math.abs(newPosition.first - fromPosition.first) == 2) {
             Pair((newPosition.first + fromPosition.first) / 2, fromPosition.second)
@@ -411,7 +418,7 @@ class GameViewModel(
             logger.i { "Enemy $nextTurn in Check!" }
         }
 
-        return when (turn) {
+        val movedState = when (turn) {
             Set.WHITE -> _gameState.value.copy(
                 turn = nextTurn,
                 piecesBlack = mutableEnemyPieces,
@@ -422,7 +429,9 @@ class GameViewModel(
                 inCheckBlack = enemyInCheck,
                 pendingPromotion = null,
                 castlingRights = updatedRights,
-                enPassantTarget = newEnPassantTarget
+                enPassantTarget = newEnPassantTarget,
+                halfmoveClock = newHalfmoveClock,
+                fullmoveNumber = newFullmoveNumber
             )
 
             Set.BLACK -> _gameState.value.copy(
@@ -435,8 +444,19 @@ class GameViewModel(
                 inCheckBlack = allyInCheck,
                 pendingPromotion = null,
                 castlingRights = updatedRights,
-                enPassantTarget = newEnPassantTarget
+                enPassantTarget = newEnPassantTarget,
+                halfmoveClock = newHalfmoveClock,
+                fullmoveNumber = newFullmoveNumber
             )
         }
+
+        // Captures/pawn moves are irreversible: earlier positions can never recur, so reset history.
+        // Otherwise lazily seed the pre-move position (covers fresh games, resetGame, and FEN-loaded
+        // states without touching the constructor — some tests build GameUiState with mismatched
+        // piece/position lists that must never reach positionKey).
+        val priorHistory = if (newHalfmoveClock == 0) emptyList()
+            else _gameState.value.positionHistory.ifEmpty { listOf(FenConverter.positionKey(_gameState.value)) }
+        val newState = movedState.copy(positionHistory = priorHistory + FenConverter.positionKey(movedState))
+        return applyDrawConditions(newState)
     }
 }
