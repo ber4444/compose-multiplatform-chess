@@ -1,0 +1,15 @@
+{
+  "originHash" : "f268eed68259bbd9c684419ecebe8d3905775f8cdb14e48c54d864954913ec33",
+  "pins" : [
+    {
+      "identity" : "chesskit-engine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/chesskit-app/chesskit-engine",
+      "state" : {
+        "revision" : "f9d3c1fb951cc4bbe46914ae5535968ec86e89eb",
+        "version" : "0.6.0"
+      }
+    }
+  ],
+  "version" : 3
+}
