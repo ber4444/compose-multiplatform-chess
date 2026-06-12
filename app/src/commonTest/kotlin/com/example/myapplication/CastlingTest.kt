@@ -133,22 +133,23 @@ class CastlingTest {
         var state = FenConverter.fenToGameState("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1")
         val viewModel = GameViewModel(state)
         
-        // Move h1 rook
+        // White h1 rook captures Black's h8 rook
         val h1RookIndex = state.positionsWhite.indexOf(Pair(7, 7))
-        viewModel.playerMove(h1RookIndex, Pair(7, 6))
+        // We force a player move to an enemy position. The GameViewModel allows this if we bypass validation, 
+        // wait, playerMove validates against getAllLegalMoves. 
+        // h1 to h8 is blocked by the black rook on h8. It IS a legal capture move for a rook! 
+        // Oh wait, there are no pieces in between in the FEN "r3k2r/8/8/8/8/8/8/R3K2R".
+        // Yes, the h-file is clear between h1 and h8.
+        viewModel.playerMove(h1RookIndex, Pair(0, 7))
 
         state = viewModel.gameState.value
+        // Moving from h1 clears White's kingside right
         assertFalse(state.castlingRights.whiteKingside)
         assertTrue(state.castlingRights.whiteQueenside)
         
-        // Black captures h1 rook on h8 with its rook
-        val blackRookIndex = state.positionsBlack.indexOf(Pair(0, 0))
-        viewModel.moveCPU(turn = Set.BLACK) { _, _, _, _ ->
-            SelectedMove(Pair(0, 7), blackRookIndex)
-        }
-
-        state = viewModel.gameState.value
+        // Capturing the rook on h8 clears Black's kingside right
         assertFalse(state.castlingRights.blackKingside)
+        assertTrue(state.castlingRights.blackQueenside)
     }
 
     @Test
