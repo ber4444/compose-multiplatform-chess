@@ -282,7 +282,8 @@ fun Board(
                     enemyPositions = gameState.positionsBlack,
                     allyPositions = gameState.positionsWhite,
                     allyPieces = gameState.piecesWhite,
-                    castlingRights = gameState.castlingRights
+                    castlingRights = gameState.castlingRights,
+                    enPassantTarget = gameState.enPassantTarget
                 )
             }
         }

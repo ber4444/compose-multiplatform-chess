@@ -105,7 +105,8 @@ object FenConverter {
             if (rights.blackQueenside) append('q')
             if (isEmpty()) append('-')
         }
-        val enPassant = "-"
+        val enPassant = gameState.enPassantTarget
+            ?.let { UciMoveConverter.positionToUciSquare(it) } ?: "-"
         val halfmoveClock = 0
         val fullmoveNumber = 1
 
@@ -114,7 +115,7 @@ object FenConverter {
 
     /**
      * Convert a FEN string into the app's board model.
-     * En passant and counters are ignored because the app does not track them.
+     * Halfmove clock and fullmove number are ignored because the app does not track them.
      */
     fun fenToGameState(fen: String): GameUiState {
         val parts = fen.trim().split(" ")
@@ -172,13 +173,17 @@ object FenConverter {
             CastlingRights.NONE
         }
 
+        val enPassantTarget = if (parts.size >= 4 && parts[3] != "-")
+            UciMoveConverter.uciSquareToPosition(parts[3]) else null
+
         return GameUiState(
             turn = turn,
             piecesWhite = piecesWhite,
             positionsWhite = positionsWhite,
             piecesBlack = piecesBlack,
             positionsBlack = positionsBlack,
-            castlingRights = castlingRights
+            castlingRights = castlingRights,
+            enPassantTarget = enPassantTarget
         )
     }
 }
