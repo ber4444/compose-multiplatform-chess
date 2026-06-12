@@ -7,7 +7,7 @@ class GameViewModelTest {
     private val viewModel = GameViewModel()
 
     @Test
-    fun `test movePieceWhite within bounds and no overlap`() {
+    fun `test movePieceWhite within bounds and no overlap`() = kotlinx.coroutines.test.runTest {
         viewModel.moveCPU(Set.WHITE)  {
             enemyPositions: List<Pair<Int, Int>>,
             enemyPieces: List<Piece>,
@@ -23,7 +23,7 @@ class GameViewModelTest {
     }
 
     @Test
-    fun `test movePieceBlack within bounds and no overlap`() {
+    fun `test movePieceBlack within bounds and no overlap`() = kotlinx.coroutines.test.runTest {
         viewModel.moveCPU(Set.BLACK) {
             enemyPositions: List<Pair<Int, Int>>,
             enemyPieces: List<Piece>,
@@ -39,7 +39,7 @@ class GameViewModelTest {
     }
 
     @Test
-    fun `play until game over and ensure no overlap`() {
+    fun `play until game over and ensure no overlap`() = kotlinx.coroutines.test.runTest {
         while(viewModel.gameState.value.winState == WinState.NONE) {
             viewModel.moveCPU(Set.WHITE) {
                 enemyPositions: List<Pair<Int, Int>>,
@@ -226,7 +226,7 @@ class GameViewModelTest {
     }
 
     @Test
-    fun `test white pieces do not turn black after first move in autoplay`() {
+    fun `test white pieces do not turn black after first move in autoplay`() = kotlinx.coroutines.test.runTest {
         val viewModel = GameViewModel()
 
         // Execute the first automatic move for white

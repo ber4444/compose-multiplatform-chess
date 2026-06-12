@@ -23,6 +23,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.random.Random
+import kotlinx.coroutines.runBlocking
 
 @RunWith(AndroidJUnit4::class)
 class GameScreenTest {
@@ -80,8 +81,10 @@ class GameScreenTest {
         }
 
         composeTestRule.runOnIdle {
-            viewModel.moveCPU { _, _, _, _ ->
-                error("Expected stalemate detection before move selection")
+            runBlocking {
+                viewModel.moveCPU { _, _, _, _ ->
+                    error("Expected stalemate detection before move selection")
+                }
             }
         }
 

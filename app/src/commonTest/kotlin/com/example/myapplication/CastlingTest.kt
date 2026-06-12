@@ -115,7 +115,7 @@ class CastlingTest {
     }
 
     @Test
-    fun `Black castling via moveCPU with injected pickMove`() {
+    fun `Black castling via moveCPU with injected pickMove`() = kotlinx.coroutines.test.runTest {
         val viewModel = GameViewModel(FenConverter.fenToGameState("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1"))
         
         viewModel.moveCPU(turn = Set.BLACK) { _, _, allyPositions, allyPieces ->
@@ -153,12 +153,12 @@ class CastlingTest {
     }
 
     @Test
-    fun `Stockfish path castling`() {
+    fun `Stockfish path castling`() = kotlinx.coroutines.test.runTest {
         val state = FenConverter.fenToGameState("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1")
         val blackKingIndex = state.piecesBlack.indexOfFirst { it is King }
         
         val engine = object : ChessEngine { 
-            override fun getBestMove(fen: String) = "e8g8"
+            override suspend fun getBestMove(fen: String) = "e8g8"
             override fun close() {} 
         }
 

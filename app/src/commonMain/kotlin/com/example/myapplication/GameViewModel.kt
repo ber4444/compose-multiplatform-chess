@@ -19,6 +19,12 @@ class GameViewModel(
     private val _gameState = MutableStateFlow(gameState)
     val gameState: StateFlow<GameUiState> = _gameState
 
+    init {
+        if (_gameState.value.winState == WinState.NONE) {
+            _gameState.value = applyDrawConditions(applyWinConditions(_gameState.value))
+        }
+    }
+
     private val _animState = MutableStateFlow(PieceAnimationState())
     val animState: StateFlow<PieceAnimationState> = _animState
 
@@ -169,17 +175,19 @@ class GameViewModel(
 
     fun animationEnd() {
         if (_animState.value.pieceToAnimate == null) return
-        _animState.value = _animState.value.copy(pieceToAnimate = null)
+        _animState.value = _animState.value.copy(pieceToAnimate = null, secondaryPiece = null)
 
         if (_gameState.value.turn == Set.BLACK) {
-            if (tryBlackDrawOffer()) return
-            moveBlackWithEngine()
+            gameMoves?.cancel()
+            gameMoves = scope.launch {
+                if (!tryBlackDrawOffer()) moveBlackWithEngine()
+            }
         } else {
             _viewState.value = _viewState.value.copy(moveButtonLock = false)
         }
     }
 
-    private fun moveBlackWithEngine() {
+    private suspend fun moveBlackWithEngine() {
         moveCPU { enemyPositions, enemyPieces, allyPositions, allyPieces ->
             pickMoveStockfish(
                 chessEngine,
@@ -196,7 +204,7 @@ class GameViewModel(
         scope.launch { offerDraw() }
     }
 
-    fun offerDraw() {
+    suspend fun offerDraw() {
         if (!canOfferDraw(_gameState.value)) return
         _gameState.value = _gameState.value.copy(
             drawOffer = Set.WHITE,
@@ -216,7 +224,7 @@ class GameViewModel(
         }
     }
 
-    fun tryBlackDrawOffer(): Boolean {
+    suspend fun tryBlackDrawOffer(): Boolean {
         val state = _gameState.value
         if (state.turn != Set.BLACK) return false
         if (!blackDrawOfferPreconditions(state)) return false
@@ -248,7 +256,7 @@ class GameViewModel(
 
     fun updateUI() {
         if (_animState.value.pieceToAnimate == null) return
-        _animState.value = _animState.value.copy(pieceToAnimate = null)
+        _animState.value = _animState.value.copy(pieceToAnimate = null, secondaryPiece = null)
 
         if (_gameState.value.turn == Set.WHITE) {
             _viewState.value = _viewState.value.copy(moveButtonLock = false)
@@ -262,9 +270,9 @@ class GameViewModel(
         _animState.value = PieceAnimationState()
     }
 
-    fun moveCPU(
+    suspend fun moveCPU(
         turn: Set = _gameState.value.turn,
-        pickMove: (
+        pickMove: suspend (
             enemyPositions: List<Pair<Int, Int>>,
             enemyPieces: List<Piece>,
             allyPositions: List<Pair<Int, Int>>,
@@ -298,37 +306,8 @@ class GameViewModel(
             return
         }
 
-        if ((_gameState.value.inCheckWhite && _gameState.value.turn != Set.WHITE) ||
-            (_gameState.value.inCheckBlack && _gameState.value.turn != Set.BLACK)
-        ) {
-            _gameState.value = _gameState.value.copy(
-                winState = if (_gameState.value.turn == Set.WHITE) WinState.WHITE else WinState.BLACK
-            )
+        if (allyPieces.isEmpty() || _gameState.value.winState != WinState.NONE) {
             return
-        }
-
-        if ((_gameState.value.inCheckWhite && _gameState.value.turn == Set.WHITE) ||
-            (_gameState.value.inCheckBlack && _gameState.value.turn == Set.BLACK)
-        ) {
-            if (hasLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces, _gameState.value.enPassantTarget)) {
-                logger.i { "Must escape check!" }
-            } else {
-                logger.i { "No legal moves to escape check! You lose!" }
-                _gameState.value = _gameState.value.copy(
-                    winState = if (_gameState.value.turn == Set.BLACK) WinState.WHITE else WinState.BLACK
-                )
-                return
-            }
-        } else if ((!_gameState.value.inCheckWhite && _gameState.value.turn == Set.WHITE) ||
-            (!_gameState.value.inCheckBlack && _gameState.value.turn == Set.BLACK)
-        ) {
-            if (hasLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces, _gameState.value.enPassantTarget)) {
-                logger.d { "Continue playing, legal moves available." }
-            } else {
-                logger.i { "No legal moves available, Stalemate!" }
-                _gameState.value = _gameState.value.copy(winState = WinState.STALEMATE)
-                return
-            }
         }
 
         val selectedMove = pickMove(enemyPositions, enemyPieces, allyPositions, allyPieces)
@@ -521,6 +500,43 @@ class GameViewModel(
         val priorHistory = if (newHalfmoveClock == 0) emptyList()
             else _gameState.value.positionHistory.ifEmpty { listOf(FenConverter.positionKey(_gameState.value)) }
         val newState = movedState.copy(positionHistory = priorHistory + FenConverter.positionKey(movedState))
-        return applyDrawConditions(newState)
+        val winStateApplied = applyWinConditions(newState)
+        if (winStateApplied.winState != WinState.NONE) return winStateApplied
+        return applyDrawConditions(winStateApplied)
+    }
+
+    private fun applyWinConditions(state: GameUiState): GameUiState {
+        if (state.winState != WinState.NONE) return state
+
+        // Re-evaluate check status to be safe, especially if loaded from FEN
+        val whiteKingIndex = state.piecesWhite.indexOfFirst { it is King }
+        val inCheckWhite = if (whiteKingIndex != -1) {
+            checkCheck(state.positionsWhite[whiteKingIndex], state.positionsBlack, state.piecesBlack, state.positionsWhite)
+        } else false
+
+        val blackKingIndex = state.piecesBlack.indexOfFirst { it is King }
+        val inCheckBlack = if (blackKingIndex != -1) {
+            checkCheck(state.positionsBlack[blackKingIndex], state.positionsWhite, state.piecesWhite, state.positionsBlack)
+        } else false
+
+        // Update the state with actual check statuses
+        var updatedState = state.copy(inCheckWhite = inCheckWhite, inCheckBlack = inCheckBlack)
+
+        val enemyPositions = if (updatedState.turn == Set.WHITE) updatedState.positionsBlack else updatedState.positionsWhite
+        val enemyPieces = if (updatedState.turn == Set.WHITE) updatedState.piecesBlack else updatedState.piecesWhite
+        val allyPositions = if (updatedState.turn == Set.WHITE) updatedState.positionsWhite else updatedState.positionsBlack
+        val allyPieces = if (updatedState.turn == Set.WHITE) updatedState.piecesWhite else updatedState.piecesBlack
+
+        val hasMoves = hasLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces, updatedState.enPassantTarget)
+
+        if (!hasMoves) {
+            val inCheck = if (updatedState.turn == Set.WHITE) inCheckWhite else inCheckBlack
+            if (inCheck) {
+                updatedState = updatedState.copy(winState = if (updatedState.turn == Set.WHITE) WinState.BLACK else WinState.WHITE)
+            } else {
+                updatedState = updatedState.copy(winState = WinState.STALEMATE)
+            }
+        }
+        return updatedState
     }
 }

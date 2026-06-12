@@ -39,3 +39,8 @@ The earlier packaging put Stockfish under `assets/` and extracted it into the ap
 That works poorly on modern Android because writable app storage is often not executable.
 So the engine could be found but still fail to launch, leaving the UI in the off state.
 
+## Web (Wasm) path
+
+For the browser target, we vendor `stockfish-18-lite-single.js` in `app/src/wasmJsMain/resources/stockfish/`. This file is served as a static asset by the Gradle development server and packaged in the web distribution.
+
+`WasmStockfishEngine` initializes a Web Worker with this script. The Worker communicates via `postMessage` (sending strings) and `onmessage` (receiving strings), which is wrapped by `WorkerUciTransport` to fit the common `UciTransport` interface.

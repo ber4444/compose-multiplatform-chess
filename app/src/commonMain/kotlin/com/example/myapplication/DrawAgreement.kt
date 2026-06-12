@@ -24,7 +24,7 @@ fun materialBalanceCp(state: GameUiState): Int {
     return whiteSum - blackSum
 }
 
-fun evaluatePositionCp(engine: ChessEngine?, state: GameUiState): Int =
+suspend fun evaluatePositionCp(engine: ChessEngine?, state: GameUiState): Int =
     engine?.evaluate(FenConverter.gameStateToFen(state)) ?: materialBalanceCp(state)
 
 fun shouldBlackAcceptDraw(evalCp: Int): Boolean = evalCp >= DRAW_ACCEPT_THRESHOLD_CP

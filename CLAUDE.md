@@ -40,11 +40,12 @@ All code uses package `com.example.myapplication` even though the project is nam
 
 The chess-AI path is the part that spans the most files:
 
-- `ChessEngine` (commonMain) — minimal interface: `getBestMove(fen)` / `evaluate(fen)` / `close()`.
-- `BaseStockfishEngine` (jvmCommonMain) — all UCI protocol logic over a spawned process; subclasses only implement `resolveExecutablePath()`. Returning `null` means "no binary, use embedded fallback".
+- `ChessEngine` (commonMain) — minimal interface: `suspend getBestMove(fen)` / `suspend evaluate(fen)` / `close()`.
+- `UciProtocolClient` (commonMain) — handles async UCI protocol via `UciTransport` (used by Wasm).
+- `BaseStockfishEngine` (jvmCommonMain) — blocking UCI process logic wrapped in `withContext(Dispatchers.IO)`; subclasses only implement `resolveExecutablePath()`. Returning `null` means "no binary, use embedded fallback".
 - `StockfishEngine` (androidMain) — launches the vendored `libstockfish.so` from the app's `nativeLibraryDir`.
 - `DesktopStockfishEngine` (desktopMain) — uses the system-installed `stockfish` binary.
-- Wasm — no engine; `GameViewModel` is created without one.
+- `WasmStockfishEngine` (wasmJsMain) — uses `stockfish-18-lite-single.js` running in a Web Worker.
 
 Black's move flows through `pickMoveStockfish` (Move.kt): game state → FEN (`FenConverter`) → engine → UCI move → app move (`UciMoveConverter`) → `SelectedMove` validated against `getAllLegalMoves`. On any failure (null engine, illegal/unconvertible move) it falls back to `pickMoveCPU` (capture-preferring random, defaults to Queen for promotions). Engines are injected at platform entry points (`MainActivity`, desktop/wasm `Main.kt`) via `viewModel.attachEngine(...)` after an async `start()`.
 

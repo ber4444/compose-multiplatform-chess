@@ -8,7 +8,7 @@ import kotlin.test.assertTrue
 class DrawConditionsTest {
 
     @Test
-    fun `quiet moves increment clock fullmove after Black`() {
+    fun `quiet moves increment clock fullmove after Black`() = kotlinx.coroutines.test.runTest {
         val vm = GameViewModel()
         vm.playerMove(6, Pair(5, 5)) // Ng1-f3
         assertEquals(1, vm.gameState.value.halfmoveClock)
@@ -67,7 +67,7 @@ class DrawConditionsTest {
     }
 
     @Test
-    fun `fifty-move deferred while in check`() {
+    fun `fifty-move deferred while in check`() = kotlinx.coroutines.test.runTest {
         val vm = GameViewModel(FenConverter.fenToGameState("4k3/8/8/8/8/8/8/4K2R w - - 99 80"))
         val rookIdx = vm.gameState.value.positionsWhite.indexOf(Pair(7, 7))
         vm.playerMove(rookIdx, Pair(0, 7)) // Rh1-h8+
@@ -90,7 +90,7 @@ class DrawConditionsTest {
     }
 
     @Test
-    fun `threefold via knight shuffle`() {
+    fun `threefold via knight shuffle`() = kotlinx.coroutines.test.runTest {
         val vm = GameViewModel()
         
         // Cycle 1
@@ -111,7 +111,7 @@ class DrawConditionsTest {
     }
 
     @Test
-    fun `repetition key includes castling rights`() {
+    fun `repetition key includes castling rights`() = kotlinx.coroutines.test.runTest {
         val vm = GameViewModel(FenConverter.fenToGameState("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1"))
         
         repeat(2) {

@@ -45,14 +45,14 @@ class MoveTest {
     }
 
     @Test
-    fun `pickMoveStockfish parses promotion from engine`() {
+    fun `pickMoveStockfish parses promotion from engine`() = kotlinx.coroutines.test.runTest {
         val whitePawns = listOf(Pawn(Set.WHITE), King(Set.WHITE))
         val whitePositions = listOf(Pair(1, 0), Pair(7, 4)) // a7, e1
         val blackPieces = listOf(King(Set.BLACK))
         val blackPositions = listOf(Pair(0, 4)) // e8
         
         val engine = object : ChessEngine { 
-            override fun getBestMove(fen: String) = "a7a8n"
+            override suspend fun getBestMove(fen: String) = "a7a8n"
             override fun close() {} 
         }
 
