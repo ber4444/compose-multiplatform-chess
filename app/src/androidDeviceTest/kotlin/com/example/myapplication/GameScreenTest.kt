@@ -215,7 +215,7 @@ class GameScreenTest {
         )
 
         composeTestRule
-            .onNodeWithTag(boardSquareTag(SquareType.Empty, row = 0, column = 0))
+            .onNodeWithTag(boardSquareTag(SquareType.BlackPiece, row = 0, column = 0))
             .assertIsDisplayed()
     }
 
