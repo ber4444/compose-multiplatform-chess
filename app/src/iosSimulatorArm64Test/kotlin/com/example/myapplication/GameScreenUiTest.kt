@@ -44,7 +44,7 @@ class GameScreenUiTest {
         // click e4 square
         onNodeWithTag("board_square_PossibleMove_4_4").performClick()
 
-        waitUntil(5_000) {
+        waitUntil(timeoutMillis = 5_000) {
             onAllNodesWithTag("board_square_WhitePiece_4_4")
                 .fetchSemanticsNodes(atLeastOneRootRequired = false)
                 .isNotEmpty()
