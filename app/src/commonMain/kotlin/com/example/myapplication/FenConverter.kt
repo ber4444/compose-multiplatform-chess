@@ -13,7 +13,7 @@ package com.example.myapplication
 object FenConverter {
 
     /** Standard starting position FEN. */
-    const val STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1"
+    const val STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
     /**
      * Convert a piece to its FEN character representation.
@@ -96,8 +96,15 @@ object FenConverter {
         val activeColor = if (gameState.turn == Set.WHITE) "w" else "b"
 
         // Castling, en passant, halfmove clock, and fullmove number
-        // The app does not track these, so we use safe defaults
-        val castling = "-"
+        // The app does not track en passant, halfmove clock, and fullmove number
+        val rights = gameState.castlingRights
+        val castling = buildString {
+            if (rights.whiteKingside) append('K')
+            if (rights.whiteQueenside) append('Q')
+            if (rights.blackKingside) append('k')
+            if (rights.blackQueenside) append('q')
+            if (isEmpty()) append('-')
+        }
         val enPassant = "-"
         val halfmoveClock = 0
         val fullmoveNumber = 1
@@ -107,7 +114,7 @@ object FenConverter {
 
     /**
      * Convert a FEN string into the app's board model.
-     * Castling, en passant and counters are ignored because the app does not track them.
+     * En passant and counters are ignored because the app does not track them.
      */
     fun fenToGameState(fen: String): GameUiState {
         val parts = fen.trim().split(" ")
@@ -154,12 +161,24 @@ object FenConverter {
             else -> throw IllegalArgumentException("Invalid active color in FEN: ${parts[1]}")
         }
 
+        val castlingRights = if (parts.size >= 3 && parts[2] != "-") {
+            CastlingRights(
+                whiteKingside = parts[2].contains('K'),
+                whiteQueenside = parts[2].contains('Q'),
+                blackKingside = parts[2].contains('k'),
+                blackQueenside = parts[2].contains('q')
+            )
+        } else {
+            CastlingRights.NONE
+        }
+
         return GameUiState(
             turn = turn,
             piecesWhite = piecesWhite,
             positionsWhite = positionsWhite,
             piecesBlack = piecesBlack,
-            positionsBlack = positionsBlack
+            positionsBlack = positionsBlack,
+            castlingRights = castlingRights
         )
     }
 }
