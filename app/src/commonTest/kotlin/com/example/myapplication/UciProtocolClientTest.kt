@@ -4,6 +4,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -34,11 +35,11 @@ class UciProtocolClientTest {
         
         val startJob = async { client.start() }
         
-        testScheduler.advanceUntilIdle()
+        runCurrent()
         assertEquals("uci", transport.commands.last())
         
         transport.onLine?.invoke("uciok")
-        testScheduler.advanceUntilIdle()
+        runCurrent()
         assertEquals("isready", transport.commands.last())
         
         transport.onLine?.invoke("readyok")
@@ -61,9 +62,9 @@ class UciProtocolClientTest {
         val client = UciProtocolClient(transport)
         
         val startJob = async { client.start() }
-        testScheduler.advanceUntilIdle()
+        runCurrent()
         transport.onLine?.invoke("uciok")
-        testScheduler.advanceUntilIdle()
+        runCurrent()
         transport.onLine?.invoke("readyok")
         startJob.await()
         
@@ -71,10 +72,10 @@ class UciProtocolClientTest {
         
         val fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
         val moveJob = async { client.bestMove(fen, 100) }
-        testScheduler.advanceUntilIdle()
+        runCurrent()
         
         assertEquals(2, transport.commands.size)
-        assertEquals("position fen \$fen", transport.commands[0])
+        assertEquals("position fen $fen", transport.commands[0])
         assertEquals("go movetime 100", transport.commands[1])
         
         transport.onLine?.invoke("info depth 10")
@@ -89,15 +90,15 @@ class UciProtocolClientTest {
         val client = UciProtocolClient(transport)
         
         val startJob = async { client.start() }
-        testScheduler.advanceUntilIdle()
+        runCurrent()
         transport.onLine?.invoke("uciok")
-        testScheduler.advanceUntilIdle()
+        runCurrent()
         transport.onLine?.invoke("readyok")
         startJob.await()
         
         // White to move, eval 50 -> returns 50
         val evalJob = async { client.evaluate("... w ...") }
-        testScheduler.advanceUntilIdle()
+        runCurrent()
         
         transport.onLine?.invoke("info score cp 50")
         transport.onLine?.invoke("bestmove e2e4") // must trigger completion
