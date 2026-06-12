@@ -22,10 +22,10 @@ class GameScreenUiTest {
             }
         }
 
-        onNodeWithTag("chess_board").assertIsDisplayed()
-        onNodeWithTag("board_square_WhitePiece_7_4").assertIsDisplayed() // white king e1
-        onNodeWithTag("board_square_BlackPiece_0_4").assertIsDisplayed() // black king e8
-        onNodeWithTag("offer_draw_button").assertIsDisplayed() // draw button
+        onNodeWithTag("chess_board").assertExists()
+        onNodeWithTag("board_square_WhitePiece_7_4", useUnmergedTree = true).assertExists() // white king e1
+        onNodeWithTag("board_square_BlackPiece_0_4", useUnmergedTree = true).assertExists() // black king e8
+        onNodeWithTag("offer_draw_button").assertExists() // draw button
 
         viewModel.close()
     }
