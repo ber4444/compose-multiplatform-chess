@@ -132,11 +132,11 @@ abstract class BaseStockfishEngine : ChessEngine {
             val enemyPieces    = if (isWhiteTurn) gameState.piecesBlack   else gameState.piecesWhite
 
             val move = pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces)
-            if (move.second == -1 || move.first == INVALID_POSITION) {
+            if (move.pieceIndex == -1 || move.position == INVALID_POSITION) {
                 logger.w { "Embedded fallback engine could not find a legal move" }
                 null
             } else {
-                UciMoveConverter.appMoveToUci(allyPositions[move.second], move.first)
+                UciMoveConverter.appMoveToUci(allyPositions[move.pieceIndex], move.position)
             }
         } catch (e: IllegalArgumentException) {
             logger.e(e) { "Invalid FEN supplied to embedded fallback engine" }

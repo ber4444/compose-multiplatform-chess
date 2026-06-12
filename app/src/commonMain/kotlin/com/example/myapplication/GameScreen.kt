@@ -65,6 +65,7 @@ import game.app.generated.resources.king_dark
 import game.app.generated.resources.king_light
 import game.app.generated.resources.no_winner
 import game.app.generated.resources.play_again_button
+import game.app.generated.resources.promotion_prompt
 import game.app.generated.resources.reset_button
 import game.app.generated.resources.stockfish_disabled
 import game.app.generated.resources.stockfish_enabled
@@ -146,6 +147,14 @@ fun GameScreen(
                     }
                 }
             }
+        }
+
+        if (gameState.pendingPromotion != null) {
+            PromotionDialog(
+                set = gameState.turn,  // always WHITE when pending
+                onSelect = viewModel::promotePawn,
+                onDismiss = viewModel::cancelPromotion
+            )
         }
 
         Board(
@@ -463,6 +472,23 @@ fun PopupWindow(onDismiss: (Boolean) -> Unit, content: @Composable () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 content()
+            }
+        }
+    }
+}
+
+@Composable
+fun PromotionDialog(set: Set, onSelect: (PromotionType) -> Unit, onDismiss: () -> Unit) {
+    PopupWindow(onDismiss = { onDismiss() }) {
+        Text(stringResource(Res.string.promotion_prompt), style = MaterialTheme.typography.titleLarge)
+        Spacer(modifier = Modifier.padding(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PromotionType.entries.forEach { type ->
+                Box(
+                    modifier = Modifier.size(56.dp).clickable { onSelect(type) }
+                        .testTag("promotion_choice_${type.name}"),
+                    contentAlignment = Alignment.Center
+                ) { Piece(pieceModel = type.toPiece(set)) }
             }
         }
     }

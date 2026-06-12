@@ -68,11 +68,15 @@ object UciMoveConverter {
     fun uciMoveToAppMove(
         uciMove: String,
         allyPositions: List<Pair<Int, Int>>
-    ): Pair<Pair<Int, Int>, Int>? {
+    ): SelectedMove? {
         val (from, to) = parseUciMove(uciMove)
         val pieceIndex = allyPositions.indexOf(from)
         if (pieceIndex == -1) return null
-        return Pair(to, pieceIndex)
+        
+        val promotion = if (uciMove.length == 5) {
+            PromotionType.fromUciChar(uciMove[4]) ?: return null  // malformed → caller falls back
+        } else null
+        return SelectedMove(to, pieceIndex, promotion)
     }
 
     /**

@@ -3,6 +3,13 @@ package com.example.myapplication
 import androidx.compose.runtime.Immutable
 
 @Immutable
+data class PendingPromotion(
+    val pieceIndex: Int,        // index into piecesWhite/positionsWhite
+    val from: Pair<Int, Int>,
+    val to: Pair<Int, Int>      // back-rank square, possibly a capture
+)
+
+@Immutable
 data class GameUiState(
     val turn: Set = Set.WHITE,
 
@@ -29,6 +36,7 @@ data class GameUiState(
     val autoPlay : Boolean = false,         // If the game is in autoplay mode
 
     val selectedSquare : Pair<Int, Int> = INVALID_POSITION, // The Position on the board that the user has selected
+    val pendingPromotion: PendingPromotion? = null
 )
 
 // Current win state of the game

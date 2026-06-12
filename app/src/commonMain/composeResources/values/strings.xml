@@ -8,4 +8,5 @@
     <string name="game_end_message_winner">Game ended! %1$s wins!</string>
     <string name="game_end_message_no_winner">Game ended in a %1$s!</string>
     <string name="autoplay_label">Autoplay</string>
+    <string name="promotion_prompt">Promote pawn to:</string>
 </resources>

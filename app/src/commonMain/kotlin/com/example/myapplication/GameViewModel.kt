@@ -50,7 +50,7 @@ class GameViewModel(
     }
 
     fun setAutoPlay(newVal: Boolean) {
-        _gameState.value = gameState.value.copy(autoPlay = newVal)
+        _gameState.value = gameState.value.copy(autoPlay = newVal, pendingPromotion = null)
     }
 
     fun hideWindow() {
@@ -71,6 +71,7 @@ class GameViewModel(
             _gameState.value.winState == WinState.NONE &&
             _gameState.value.piecesWhite.isNotEmpty()
         ) {
+            if (_gameState.value.pendingPromotion != null) return
             if (selectedPieceIndex == -1) {
                 throw IllegalStateException("Cannot identify selected Piece!")
             }
@@ -85,6 +86,18 @@ class GameViewModel(
             if (legalMoves.none { move -> move.first == newPosition && move.second == selectedPieceIndex }) {
                 logger.w { "Cannot move into Check!" }
                 return
+            }
+
+            val movingPiece = gameState.value.piecesWhite[selectedPieceIndex]
+            if (isPromotionMove(movingPiece, newPosition)) {
+                _gameState.value = _gameState.value.copy(
+                    pendingPromotion = PendingPromotion(
+                        pieceIndex = selectedPieceIndex,
+                        from = gameState.value.positionsWhite[selectedPieceIndex],
+                        to = newPosition
+                    )
+                )
+                return  // applied later by promotePawn, or discarded by cancelPromotion
             }
 
             _gameState.value = deriveNewGameState(
@@ -103,6 +116,25 @@ class GameViewModel(
                 animatePositionEnd = newPosition
             )
         }
+    }
+
+    fun promotePawn(promotion: PromotionType) {
+        val pending = _gameState.value.pendingPromotion ?: return
+        if (_gameState.value.turn != Set.WHITE || _gameState.value.winState != WinState.NONE) return
+        val pawn = _gameState.value.piecesWhite[pending.pieceIndex]  // capture BEFORE applying
+        _gameState.value = deriveNewGameState(
+            pieceIndex = pending.pieceIndex, newPosition = pending.to, turn = Set.WHITE,
+            enemyPieces = _gameState.value.piecesBlack, enemyPositions = _gameState.value.positionsBlack,
+            allyPositions = _gameState.value.positionsWhite, allyPieces = _gameState.value.piecesWhite,
+            promotion = promotion
+        )
+        _animState.value = PieceAnimationState(
+            pieceToAnimate = pawn, animatePositionStart = pending.from, animatePositionEnd = pending.to
+        )
+    }
+
+    fun cancelPromotion() {
+        _gameState.value = _gameState.value.copy(pendingPromotion = null)
     }
 
     fun startUserTurn() {
@@ -169,7 +201,7 @@ class GameViewModel(
             enemyPieces: List<Piece>,
             allyPositions: List<Pair<Int, Int>>,
             allyPieces: List<Piece>
-        ) -> Pair<Pair<Int, Int>, Int>
+        ) -> SelectedMove
     ) {
         _gameState.value = _gameState.value.copy(turn = turn, selectedSquare = INVALID_POSITION)
         logger.d { "MOVEBUTTONLOCK=TRUE" }; _viewState.value = _viewState.value.copy(moveButtonLock = true)
@@ -231,23 +263,24 @@ class GameViewModel(
             }
         }
 
-        val positionIndexPair = pickMove(enemyPositions, enemyPieces, allyPositions, allyPieces)
-        val newPosition = positionIndexPair.first
+        val selectedMove = pickMove(enemyPositions, enemyPieces, allyPositions, allyPieces)
+        val newPosition = selectedMove.position
 
         _gameState.value = deriveNewGameState(
             newPosition = newPosition,
-            pieceIndex = positionIndexPair.second,
+            pieceIndex = selectedMove.pieceIndex,
             turn = turn,
             enemyPieces = enemyPieces,
             enemyPositions = enemyPositions,
             allyPositions = allyPositions,
-            allyPieces = allyPieces
+            allyPieces = allyPieces,
+            promotion = selectedMove.promotion
         )
 
         _animState.value = PieceAnimationState(
-            pieceToAnimate = allyPieces[positionIndexPair.second],
-            animatePositionStart = allyPositions[positionIndexPair.second],
-            animatePositionEnd = positionIndexPair.first
+            pieceToAnimate = allyPieces[selectedMove.pieceIndex],
+            animatePositionStart = allyPositions[selectedMove.pieceIndex],
+            animatePositionEnd = selectedMove.position
         )
     }
 
@@ -258,11 +291,13 @@ class GameViewModel(
         enemyPieces: List<Piece>,
         enemyPositions: List<Pair<Int, Int>>,
         allyPositions: List<Pair<Int, Int>>,
-        allyPieces: List<Piece>
+        allyPieces: List<Piece>,
+        promotion: PromotionType? = null
     ): GameUiState {
         val mutableEnemyPieces = enemyPieces.toMutableList()
         val mutableEnemyPositions = enemyPositions.toMutableList()
         val mutableAllyPositions = allyPositions.toMutableList()
+        val mutableAllyPieces = allyPieces.toMutableList()
 
         logger.d { "Moving $turn ${allyPieces[pieceIndex].name} from ${allyPositions[pieceIndex]} to $newPosition" }
 
@@ -274,8 +309,13 @@ class GameViewModel(
         }
 
         mutableAllyPositions[pieceIndex] = newPosition
+        if (isPromotionMove(allyPieces[pieceIndex], newPosition)) {
+            val promoted = (promotion ?: PromotionType.QUEEN).toPiece(turn)
+            logger.i { "$turn Pawn promoted to ${promoted.name}!" }
+            mutableAllyPieces[pieceIndex] = promoted
+        }
 
-        val allyKingIndex = allyPieces.indexOfFirst { it::class == King::class }
+        val allyKingIndex = mutableAllyPieces.indexOfFirst { it::class == King::class }
         val allyInCheck = checkCheck(
             mutableAllyPositions[allyKingIndex],
             mutableEnemyPositions,
@@ -287,7 +327,7 @@ class GameViewModel(
         val enemyInCheck = checkCheck(
             mutableEnemyPositions[enemyKingIndex],
             mutableAllyPositions,
-            allyPieces,
+            mutableAllyPieces,
             mutableEnemyPositions
         )
 
@@ -308,8 +348,10 @@ class GameViewModel(
                 piecesBlack = mutableEnemyPieces,
                 positionsBlack = mutableEnemyPositions,
                 positionsWhite = mutableAllyPositions,
+                piecesWhite = mutableAllyPieces,
                 inCheckWhite = allyInCheck,
-                inCheckBlack = enemyInCheck
+                inCheckBlack = enemyInCheck,
+                pendingPromotion = null
             )
 
             Set.BLACK -> _gameState.value.copy(
@@ -317,8 +359,10 @@ class GameViewModel(
                 piecesWhite = mutableEnemyPieces,
                 positionsWhite = mutableEnemyPositions,
                 positionsBlack = mutableAllyPositions,
+                piecesBlack = mutableAllyPieces,
                 inCheckWhite = enemyInCheck,
-                inCheckBlack = allyInCheck
+                inCheckBlack = allyInCheck,
+                pendingPromotion = null
             )
         }
     }
