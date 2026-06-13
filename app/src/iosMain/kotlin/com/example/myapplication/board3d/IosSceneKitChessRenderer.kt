@@ -42,7 +42,14 @@ class IosSceneKitChessRenderer(
         scene?.rootNode?.addChildNode(rootNode!!)
 
         cameraNode = SCNNode.node()
-        cameraNode?.camera = SCNCamera.camera()
+        val cam = SCNCamera.camera()
+        cam.wantsHDR = true                                   // filmic tonemapping
+        cam.bloomIntensity = 0.25
+        cam.bloomThreshold = 0.85
+        cam.wantsExposureAdaptation = false
+        cam.screenSpaceAmbientOcclusionIntensity = 0.6        // contact darkening
+        cam.screenSpaceAmbientOcclusionRadius = 0.5
+        cameraNode?.camera = cam
         cameraNode?.position = SCNVector3Make(0.0f, 6.5f, 6.5f)
         
         val lookAt = platform.SceneKit.SCNLookAtConstraint.lookAtConstraintWithTarget(rootNode)
@@ -50,18 +57,53 @@ class IosSceneKitChessRenderer(
         
         scene?.rootNode?.addChildNode(cameraNode!!)
 
+        // Key directional light with soft shadows.
         val lightNode = SCNNode.node()
         val light = SCNLight.light()
         light.type = SCNLightTypeDirectional
+        light.castsShadow = true
+        light.shadowMode = platform.SceneKit.SCNShadowModeDeferred
+        light.shadowRadius = 8.0
+        light.shadowSampleCount = 16.toULong()
+        light.shadowColor = UIColor.colorWithRed(0.0, green = 0.0, blue = 0.0, alpha = 0.45)
+        light.intensity = 1100.0
         lightNode.light = light
         lightNode.eulerAngles = SCNVector3Make((-kotlin.math.PI / 3.0).toFloat(), (kotlin.math.PI / 4.0).toFloat(), 0.0f)
         scene?.rootNode?.addChildNode(lightNode)
+
+        // Soft ambient fill.
+        val ambientNode = SCNNode.node()
+        val ambient = SCNLight.light()
+        ambient.type = platform.SceneKit.SCNLightTypeAmbient
+        ambient.intensity = 350.0
+        ambient.color = UIColor.colorWithRed(0.60, green = 0.66, blue = 0.76, alpha = 1.0)
+        ambientNode.light = ambient
+        scene?.rootNode?.addChildNode(ambientNode)
+
+        // Image-based ambient/reflection + sky background.
+        scene?.lightingEnvironment?.contents = UIColor.colorWithRed(0.70, green = 0.76, blue = 0.85, alpha = 1.0)
+        scene?.lightingEnvironment?.intensity = 1.2
+        scene?.background?.contents = UIColor.colorWithRed(0.62, green = 0.70, blue = 0.82, alpha = 1.0)
+
+        // Ground floor (catches shadows, subtle reflection, grounds the board).
+        val floor = platform.SceneKit.SCNFloor.floor()
+        floor.reflectivity = 0.04
+        val floorMat = SCNMaterial.material()
+        floorMat.lightingModelName = platform.SceneKit.SCNLightingModelPhysicallyBased
+        floorMat.diffuse.contents = UIColor.colorWithRed(0.17, green = 0.16, blue = 0.15, alpha = 1.0)
+        floorMat.roughness.contents = 0.85
+        floor.materials = listOf(floorMat)
+        val floorNode = SCNNode.nodeWithGeometry(floor)
+        floorNode.position = SCNVector3Make(0.0f, -0.06f, 0.0f)
+        scene?.rootNode?.addChildNode(floorNode)
 
         val boardGeom = geometries["BOARD"]
         if (boardGeom != null) {
             val boardNode = SCNNode.nodeWithGeometry(boardGeom)
             val boardMat = SCNMaterial.material()
             boardMat.lightingModelName = platform.SceneKit.SCNLightingModelPhysicallyBased
+            boardMat.roughness.contents = 0.25 // polished marble
+            boardMat.metalness.contents = 0.0
             if (textures["board3.jpg"] != null) {
                 boardMat.diffuse.contents = platform.UIKit.UIImage.imageWithData(textures["board3.jpg"]!!)
             } else {
@@ -105,8 +147,9 @@ class IosSceneKitChessRenderer(
         
         scnSurface.scnView.scene = this.scene
         scnSurface.scnView.allowsCameraControl = false
-        scnSurface.scnView.autoenablesDefaultLighting = true
-        scnSurface.scnView.backgroundColor = UIColor.whiteColor
+        scnSurface.scnView.autoenablesDefaultLighting = false // use our explicit lighting rig
+        scnSurface.scnView.jitteringEnabled = true            // antialiasing for stills
+        scnSurface.scnView.backgroundColor = UIColor.colorWithRed(0.62, green = 0.70, blue = 0.82, alpha = 1.0)
 
         if (pendingFen != null) {
             updatePosition(pendingFen!!)
@@ -133,14 +176,18 @@ class IosSceneKitChessRenderer(
 
         val whiteMat = SCNMaterial.material()
         whiteMat.lightingModelName = platform.SceneKit.SCNLightingModelPhysicallyBased
+        whiteMat.roughness.contents = 0.45 // wood: matte-ish
+        whiteMat.metalness.contents = 0.0
         if (textures["whites.png"] != null) {
             whiteMat.diffuse.contents = platform.UIKit.UIImage.imageWithData(textures["whites.png"]!!)
         } else {
             whiteMat.diffuse.contents = UIColor.whiteColor
         }
-        
+
         val blackMat = SCNMaterial.material()
         blackMat.lightingModelName = platform.SceneKit.SCNLightingModelPhysicallyBased
+        blackMat.roughness.contents = 0.45
+        blackMat.metalness.contents = 0.0
         if (textures["blacks.png"] != null) {
             blackMat.diffuse.contents = platform.UIKit.UIImage.imageWithData(textures["blacks.png"]!!)
         } else {
@@ -207,12 +254,14 @@ class IosSceneKitChessRenderer(
             val center = BoardGeometry.squareCenter(square)
             val box = platform.SceneKit.SCNBox.boxWithWidth(1.0, height = 0.05, length = 1.0, chamferRadius = 0.0)
             val mat = platform.SceneKit.SCNMaterial.material()
-            mat.diffuse.contents = platform.UIKit.UIColor.greenColor
-            mat.transparency = 0.5
+            val green = UIColor.colorWithRed(0.30, green = 0.95, blue = 0.40, alpha = 1.0)
+            mat.diffuse.contents = green
+            mat.emission.contents = green   // glow so it reads under the lighting rig
+            mat.transparency = 0.55
             box.materials = listOf(mat)
-            
+
             selectionNode = platform.SceneKit.SCNNode.nodeWithGeometry(box)
-            selectionNode?.position = platform.SceneKit.SCNVector3Make(center.x, 0.025f, center.z)
+            selectionNode?.position = platform.SceneKit.SCNVector3Make(center.x, 0.03f, center.z)
             rootNode?.addChildNode(selectionNode!!)
         }
     }
