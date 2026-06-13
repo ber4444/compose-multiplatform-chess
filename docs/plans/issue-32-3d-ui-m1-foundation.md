@@ -4,7 +4,9 @@ Prereq reading: [issue-32-3d-ui-overview.md](issue-32-3d-ui-overview.md) (archit
 
 Deliverables: the Materia spike verdict, the commonMain `Chess3DBoardRenderer` abstraction and scene layer, a 2D/3D toggle with graceful fallback compiled on **all** platforms, a real 3D backend on **desktop JVM**, the chess.glb asset, and CI updates. Phases B and C are independent of the spike outcome; run Phase A first only because it gates Phase D's engine choice.
 
-## Phase A — Materia spike (timeboxed, throwaway)
+## Phase A — Materia spike (timeboxed, throwaway) — ✅ DONE
+
+> **STATUS: COMPLETED 2026-06-12. Gate FAILED at S3 → desktop backend = LWJGL headless Vulkan.** Do not re-run this spike. See the [Spike result](#spike-result) at the bottom for the verdict and the reusable Materia consumption recipe. The remainder of this Phase A section is retained as the record of what was tested.
 
 **Timebox: 3 working days equivalent; hard stop.** Work on a throwaway branch (`spike/materia-desktop`). Nothing from the spike branch merges; the outputs are (1) a "Spike result" section appended to this doc with a PASS/FAIL verdict per criterion, and (2) if PASS, the pinned submodule SHA and the actual glTF mesh names for `ChessSetMeshNames.kt`.
 
@@ -106,18 +108,15 @@ Locations:
 
 ## Phase D — Desktop backend (`app/src/desktopMain/kotlin/com/example/myapplication/board3d/`)
 
-Files (Materia path; on fallback, swap `MateriaChessRenderer` for `VulkanChessRenderer` + pipeline files — the public surface is identical):
+**Engine: LWJGL headless Vulkan (per the spike — Materia is not used here).** The public surface below is renderer-agnostic; only `VulkanChessRenderer`'s internals are LWJGL-specific.
 
 - **`ImageBitmapChess3DSurface.kt`** — `class ImageBitmapChess3DSurface(override val widthPx: Int, override val heightPx: Int, val onFrame: (ImageBitmap) -> Unit) : Chess3DSurface`, plus `internal fun IntArray.toImageBitmap(w: Int, h: Int): ImageBitmap` (Skia `Bitmap.installPixels` → `asComposeImageBitmap`).
 - **`DesktopBoard3DSurface.kt`** — `@Composable fun DesktopBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier)`: `remember` a `mutableStateOf<ImageBitmap?>` frame; create the surface sized via `onSizeChanged` (also emit `Board3DInput.Resize`); `DisposableEffect(renderer, surface) { renderer.attach(surface); onDispose { renderer.detach() } }`; draw `Image(frame, ...)`.
-- **`MateriaChessRenderer.kt`** — `class MateriaChessRenderer(private val chessSetGlb: ByteArray) : Chess3DBoardRenderer`. Owns a dedicated render dispatcher (`newSingleThreadContext("chess3d-render")` — Vulkan is thread-affine). Builds the Materia scene from `Board3DSceneMapper.fromFen(...)` + `ChessSetMeshNames`; the board itself is 64 instanced quad/box meshes with two materials. Renders **on demand** (scene or camera change) and pushes frames through the attached `ImageBitmapChess3DSurface.onFrame`.
-- **`DesktopBoard3D.kt`** — `fun desktopBoard3DSupport(): Board3DSupport` wiring `Chess3DRendererFactory { runCatching { MateriaChessRenderer(Res.readBytes("files/models/chess.glb")) }.getOrNull() }` (any init failure → null → graceful 2D fallback) + `::DesktopBoard3DSurface`.
+- **`VulkanChessRenderer.kt`** — `class VulkanChessRenderer(private val chessSetGlb: ByteArray) : Chess3DBoardRenderer`. Owns a dedicated render dispatcher (`newSingleThreadContext("chess3d-render")` — Vulkan is thread-affine). **Offscreen pipeline** (overview Decision D): VkInstance → device → render pass → graphics pipeline → vertex/index/uniform buffers → render into an offscreen `VkImage` → `vkCmdCopyImageToBuffer` → map → `IntArray`. Parses `chessSetGlb` with `de.javagl:jgltf-model` into per-piece meshes keyed by `ChessSetMeshNames`; builds the scene from `Board3DSceneMapper.fromFen(...)`; the board itself is 64 quads with two materials. Renders **on demand** (scene or camera change) and pushes frames through the attached `ImageBitmapChess3DSurface.onFrame`. No GLFW window, no swapchain (this is exactly why Materia's windowed renderer was rejected).
+- **`DesktopBoard3D.kt`** — `fun desktopBoard3DSupport(): Board3DSupport` wiring `Chess3DRendererFactory { runCatching { VulkanChessRenderer(Res.readBytes("files/models/chess.glb")) }.getOrNull() }` (no Vulkan driver / init failure → null → graceful 2D fallback) + `::DesktopBoard3DSurface`.
 - **`Main.kt`** (modify) — `ChessApp(viewModel = viewModel, board3D = remember { desktopBoard3DSupport() })`.
 
-Gradle (`app/build.gradle.kts` + `gradle/libs.versions.toml`):
-
-- Materia path: desktopMain `implementation` on the substituted Materia modules.
-- Fallback path: versions `lwjgl = "3.3.6"`, `jgltf = "2.0.5"`; artifacts `org.lwjgl:lwjgl`, `org.lwjgl:lwjgl-vulkan` plus runtime natives classifiers `natives-linux`, `natives-macos`, `natives-macos-arm64`, `natives-windows` (lwjgl-vulkan needs no GLFW for offscreen rendering and its macOS natives bundle MoltenVK), and `de.javagl:jgltf-model`.
+Gradle (`app/build.gradle.kts` + `gradle/libs.versions.toml`): versions `lwjgl = "3.3.6"`, `jgltf = "2.0.5"`; desktopMain artifacts `org.lwjgl:lwjgl`, `org.lwjgl:lwjgl-vulkan` (+ `lwjgl-shaderc` if compiling GLSL at runtime) plus runtime natives classifiers `natives-linux`, `natives-macos`, `natives-macos-arm64`, `natives-windows` (lwjgl-vulkan needs no GLFW for offscreen rendering and its macOS natives bundle MoltenVK — spike-confirmed GPU detection on Apple silicon), and `de.javagl:jgltf-model`. No Materia dependency, no composite build, no submodule.
 
 ### Desktop backend unit tests (`app/src/desktopTest/kotlin/com/example/myapplication/board3d/`)
 
@@ -127,16 +126,16 @@ Gradle (`app/build.gradle.kts` + `gradle/libs.versions.toml`):
 
 ## Phase E — Assets
 
-1. Fetch `data/chess.gltf` (+ buffers/textures) from https://github.com/jpbruyere/vkChess at a pinned commit (the repo is MIT). **Blocking license task:** the piece models are credited to Matt Joos via Sketchfab; locate the model's actual license page and record the finding here. Likely CC-BY 4.0 → fine **with attribution**. If NC/ND or unverifiable → substitute a CC0 chess set (search OpenGameArt/Kenney for "chess CC0"); last-resort safe option: procedural lathe-profile meshes generated in code.
-2. Convert to a single self-contained binary (avoids multi-file URI resolution on wasm/iOS later): `npx @gltf-transform/cli copy chess.gltf chess.glb`. Record the exact command/version here; commit only the `.glb`.
+1. Fetch `data/chess.gltf` from https://github.com/jpbruyere/vkChess at a pinned commit (single self-contained `.gltf`, ~8.16 MB, with embedded base64 buffers + textures). The repo is MIT, **but the spike found the README credits the piece models to Matt Joos (sketchfab.com/mathiasjoos) with NO license stated for the models themselves** — MIT on the repo does not clear the assets. **Blocking license task (unchanged, still open):** verify the Sketchfab model's actual license. CC-BY → fine **with attribution**. NC/ND or unverifiable → substitute a CC0 chess set (search OpenGameArt/Kenney for "chess CC0"); last-resort safe option: procedural lathe-profile meshes generated in code. **Do not commit the asset until this is cleared.**
+2. Convert to a self-contained binary (spike-verified: 8.16 MB → 6.01 MB; one embedded BIN chunk; 72 nodes/meshes, 4 source materials `white`/`black`/`black-case`/`Material`; six piece template nodes named exactly `king`/`queen`/`rook`/`bishop`/`knight`/`pawn`): `npx --yes @gltf-transform/cli copy chess.gltf chess.glb`. Commit only the `.glb`.
 3. Place at `app/src/commonMain/composeResources/files/models/chess.glb` — loadable on every platform (including wasm and the Android assets reflection hack, which already handles compose resources per CLAUDE.md) via `Res.readBytes("files/models/chess.glb")` inside each platform factory.
-4. Add `THIRD_PARTY_NOTICES.md` at the repo root (model attribution; Materia Apache-2.0; LWJGL/jgltf licenses if on the fallback path) and link it from the README.
+4. Add `THIRD_PARTY_NOTICES.md` at the repo root (chess-model attribution per the license task; **LWJGL (BSD-3) and `de.javagl:jgltf-model` (MIT)** for the desktop backend) and link it from the README. Add Materia (Apache-2.0) only if a later milestone actually adopts it.
 
 ## Phase F — CI (`.github/workflows/android-tests.yml`)
 
 - **ubuntu job**: add a step `sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers vulkan-tools` (lavapipe = CPU Vulkan). After the main build step, add `./gradlew :app:desktopTest --tests "*board3d*" -Dchess3d.smoke=true` with `continue-on-error: true` initially; promote to required once stable. The existing `:app:check` already runs all new commonTest/desktopTest non-smoke tests with zero GPU needs.
-- **macos (apple) job**: append `-Dchess3d.smoke=true` to the Gradle test invocation (MoltenVK available via LWJGL natives / Materia); `continue-on-error: true` first.
-- If Materia passed the gate: add `submodules: recursive` to both jobs' checkout steps.
+- **macos (apple) job**: append `-Dchess3d.smoke=true` to the Gradle test invocation (MoltenVK is bundled in LWJGL's `lwjgl-vulkan` macOS natives); `continue-on-error: true` first.
+- No submodule / composite-build steps are needed (Materia is not used on desktop).
 
 ## Definition of done
 
@@ -148,4 +147,36 @@ Gradle (`app/build.gradle.kts` + `gradle/libs.versions.toml`):
 
 ## Spike result
 
-_To be appended by the implementing agent: per-criterion PASS/FAIL table, chosen engine, pinned Materia SHA (if applicable), actual glTF mesh names, and any fork patches required._
+Executed 2026-06-12 on Apple M4 / macOS / JDK 21 (Temurin), against Materia v0.4.1.0 (`codes.yousef:materia`). The spike workspace (`tmp/`, git-ignored) and its `mavenLocal` publish were cleaned up after the run; the evidence and the reusable consumption recipe are folded into this section so the docs stay self-contained.
+
+| # | Task | Result |
+|---|---|---|
+| S1 | Kotlin 2.3.20 consumes Materia 2.2.20 artifacts | **PASS, with build caveats.** Metadata reads cleanly (0 `io.materia.*` errors). BUT: composite build (`includeBuild`) **fails under Gradle 9.x** — Materia's `build.gradle.kts:746` uses the removed `javaexec{}` script API, and this repo is on Gradle 9.3.1 (AGP 9.1.1). Must build/publish Materia with its own Gradle 8.13 → Maven repo. Also: building needs Tint/naga (`compileShaders`) unless disabled (SPIR-V is pre-committed), and consumers must add LWJGL + native classifiers explicitly (Materia exposes them runtime-only). |
+| S2 | Plain `main()` render | **FAIL.** GPU detected via MoltenVK (*Apple M4, Vulkan 1.2.296*); swapchain creation failed (`VkResult=-1000000001`, hidden-window/MoltenVK). |
+| S3 | Offscreen + readback, off main thread | **FAIL (gate).** No windowless render path — `RendererFactory` requires a GLFW-window-backed `VulkanSurface`; renderer hardwires `VulkanSwapchain` through `initialize()`/`render()`. GLFW also requires the macOS main thread + `-XstartOnFirstThread`, conflicting with Compose/AWT and with off-thread readback. |
+| S4 | Parse `chess.glb`, enumerate meshes, PBR | **PASS.** Parsed in 86 ms; all 6 piece nodes present (`king`/`queen`/`rook`/`bishop`/`knight`/`pawn`) with `MeshStandardMaterial`. Mesh-name + `white`/`black` material findings feed `ChessSetMeshNames.kt` regardless of renderer. |
+| S5 | On-demand frame render | **API present, frames not.** `render(scene, camera)` is imperative/callable, but `initialize()` can't succeed without a working window swapchain (see S2/S3). |
+| S6 | Readback into Compose `Image` | **N/A** — blocked by S3. |
+
+**Conclusion**: Gate fails at S3. Materia's JVM backend is structurally a windowed-swapchain renderer with no offscreen render-to-texture path — the one capability the desktop interop (overview Decision C: offscreen → CPU readback → Compose `ImageBitmap`, off the UI thread) requires. Adding it is a deep fork of the 2694-line `VulkanRenderer`, well beyond the ≤200-line escape hatch.
+
+**Decision**: Proceed with the **LWJGL headless Vulkan** renderer (overview Decision D) for the desktop backend; glTF parsing via `de.javagl:jgltf-model`. `third_party/materia` will not be added (no submodule, no composite build). The commonMain abstraction (Phases B/C) and the asset work (Phase E) are unchanged. Positive signal: LWJGL 3.3.6 + MoltenVK detected the GPU on this hardware (*Apple M4, Vulkan 1.2.296*), so the offscreen pipeline is viable on the same machine.
+
+### Materia consumption recipe (only if a later milestone revisits it)
+
+The spike proved this works for the JVM target; reuse it for M2/M3/M4 instead of the (broken) composite-build approach. **Re-verify S1 per target** first — wasm klibs are far less forward-compatible than JVM.
+
+1. **Build & publish Materia with its OWN Gradle 8.13** (not this repo's 9.3.1 — Materia's `build.gradle.kts:746` uses the removed `javaexec{}` script API and won't configure under Gradle 9):
+   ```bash
+   # in the Materia checkout, with JDK 21 and an Android SDK (local.properties sdk.dir=...)
+   ./gradlew publishKotlinMultiplatformPublicationToMavenLocal \
+             publish<Target>PublicationToMavenLocal \
+             -x test --init-script disable-shaders.init.gradle.kts
+   ```
+   where `disable-shaders.init.gradle.kts` neutralises the Tint/naga-dependent `compileShaders` task (SPIR-V is pre-committed):
+   ```kotlin
+   allprojects { tasks.matching { it.name == "compileShaders" }.configureEach { enabled = false; actions.clear() } }
+   ```
+   (Alternatively install `naga-cli`/Tint on the build machine.) Publish to a checked-in flat Maven dir or internal repo for real use, not just `mavenLocal`.
+2. **Consume from a Maven repo** (`mavenLocal()` / the flat dir), `implementation("codes.yousef:materia:<ver>")`.
+3. **Add LWJGL explicitly** — Materia exposes it runtime-only and without natives: add `org.lwjgl:lwjgl{,-glfw,-vulkan,-shaderc}:3.3.6` for compile access **plus** the per-OS `:natives-*` runtime classifiers.

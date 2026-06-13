@@ -4,11 +4,16 @@ Prereqs: [issue-32-3d-ui-overview.md](issue-32-3d-ui-overview.md) and merged [M1
 
 Goal: a real 3D backend on Android, injected from `MainActivity`. Vulkan-from-`Surface` on API 24+ is Materia's headline Android feature, so risk is moderate.
 
+> **Engine context (post-M1 spike).** Desktop adopted **LWJGL headless Vulkan**, not Materia (M1 Spike result). Android renders to a *real* `SurfaceView` surface, which suits Materia's windowed renderer — but adopting it means publish-to-Maven plumbing (composite build is dead under Gradle 9.3.1) and a second renderer codebase. If M2 already stood Materia up, reuse that; otherwise the mini-spike below also weighs an NDK-native Vulkan renderer behind the same interface.
+
 ## Go/no-go mini-spike (timebox: half a day)
 
-One question: does Materia's Android backend render to a **caller-supplied** `android.view.Surface`/`ANativeWindow` (from a `SurfaceHolder`), on API 24+, without owning the Activity/view hierarchy?
+Two questions:
 
-No-go → record the verdict below and pause this milestone pending either a Materia fork patch exposing surface injection, or (if M1 ended on the LWJGL fallback) a separate decision on an NDK-based renderer — do not improvise an alternative without updating this doc first.
+1. Consumption: does Materia (built with its own Gradle 8.13, published to a Maven repo per the M1 "Materia consumption recipe" — **not** `includeBuild`) provide an Android-target klib consumable from `androidMain`, and does `:androidApp:assembleDebug` link its per-ABI native libs? (Re-validate even if JVM/Apple passed; targets are independent.)
+2. Surface: does Materia's Android backend render to a **caller-supplied** `android.view.Surface`/`ANativeWindow` (from a `SurfaceHolder`), on API 24+, without owning the Activity/view hierarchy?
+
+No-go on either → record the verdict below and pause this milestone pending either a Materia fork patch exposing surface injection, or an **NDK-native Vulkan renderer** behind the same `Chess3DBoardRenderer` interface (consistent with desktop's hand-written approach) — do not improvise an alternative without updating this doc first.
 
 ## Files
 
@@ -21,9 +26,9 @@ All in `app/src/androidMain/kotlin/com/example/myapplication/board3d/` unless no
     - `surfaceChanged` → `renderer.onUserInteraction(Board3DInput.Resize(w, h))`
     - `surfaceDestroyed` → `renderer.detach()` — and the renderer contract's "detach must return quickly but the surface must not be touched afterwards" matters most here: the GPU work targeting the surface must be fenced before returning.
   - `fun androidBoard3DSupport(): Board3DSupport` — factory loads `Res.readBytes("files/models/chess.glb")`, `runCatching { ... }.getOrNull()` (also returns null on devices without Vulkan).
-- **`AndroidVulkanChessRenderer.kt`** — Materia wrapper; same structure as the desktop renderer (dedicated render thread, scene from `Board3DSceneMapper` + `ChessSetMeshNames`, render on demand / on surface callbacks).
+- **`AndroidVulkanChessRenderer.kt`** — Materia wrapper (or NDK-native on rescope); same structure as the desktop renderer (dedicated render thread, scene from `Board3DSceneMapper` + `ChessSetMeshNames`, render on demand / on surface callbacks).
 - **`MainActivity.kt`** (modify) — pass `board3D = androidBoard3DSupport()` into `ChessApp`.
-- **`app/build.gradle.kts`** — androidMain dependency on the substituted Materia modules.
+- **`app/build.gradle.kts`** — androidMain dependency on Materia consumed from a Maven repo (built separately with Gradle 8.13 per the M1 "Materia consumption recipe"); no `includeBuild`, no submodule.
 
 Note on z-order: `SurfaceView` punches a hole in the window, but Compose `Dialog`s are separate windows, so promotion/game-over/draw dialogs layer correctly above it — still covered by an explicit test below. Do not touch `jniLibs.useLegacyPackaging` or the compose-resources asset hacks.
 
@@ -39,7 +44,8 @@ UI tests (`app/src/androidDeviceTest/kotlin/com/example/myapplication/`):
 
 ## CI
 
-- No new infrastructure: the existing emulator job already uses `swiftshader_indirect` and runs `:app:connectedAndroidDeviceTest`, which picks up the new tests.
+- The existing emulator job already uses `swiftshader_indirect` and runs `:app:connectedAndroidDeviceTest`, which picks up the new tests.
+- If Materia is adopted: CI must publish it to a Maven repo before building `:app` (no submodule/composite build). NDK-native rescope needs no such step.
 - Watch APK size: Materia ships native libs per ABI; compare `:androidApp:assembleDebug` output size before/after and flag a >20 MB growth in the PR.
 
 ## Definition of done

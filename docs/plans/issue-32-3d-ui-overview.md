@@ -6,23 +6,26 @@ This document holds the decisions and the shared commonMain API. Each milestone 
 
 | Milestone | Doc | Scope |
 |---|---|---|
-| M1 | [issue-32-3d-ui-m1-foundation.md](issue-32-3d-ui-m1-foundation.md) | Materia spike, commonMain abstraction + scene mapping, 2D/3D toggle with graceful fallback on all platforms, real desktop JVM backend, assets, CI |
-| M2 | [issue-32-3d-ui-m2-apple.md](issue-32-3d-ui-m2-apple.md) | iOS backend (MoltenVK via Materia; Metal-direct rescope path) |
-| M3 | [issue-32-3d-ui-m3-android.md](issue-32-3d-ui-m3-android.md) | Android backend (Vulkan from a `SurfaceView`) |
-| M4 | [issue-32-3d-ui-m4-wasm.md](issue-32-3d-ui-m4-wasm.md) | Wasm backend (WebGPU overlay canvas) |
+| M1 | [issue-32-3d-ui-m1-foundation.md](issue-32-3d-ui-m1-foundation.md) | Materia spike (**done → desktop uses LWJGL headless Vulkan**), commonMain abstraction + scene mapping, 2D/3D toggle with graceful fallback on all platforms, real desktop JVM backend, assets, CI |
+| M2 | [issue-32-3d-ui-m2-apple.md](issue-32-3d-ui-m2-apple.md) | iOS backend (MoltenVK via Materia, or Metal-direct — mini-spike decides) |
+| M3 | [issue-32-3d-ui-m3-android.md](issue-32-3d-ui-m3-android.md) | Android backend (Vulkan from a `SurfaceView` — Materia or NDK-native) |
+| M4 | [issue-32-3d-ui-m4-wasm.md](issue-32-3d-ui-m4-wasm.md) | Wasm backend (WebGPU overlay canvas — Materia or native WebGPU) |
 | M5 | [issue-32-3d-ui-m5-interaction-animation.md](issue-32-3d-ui-m5-interaction-animation.md) | 3D tap-to-move via ray picking, smooth piece animation, camera polish |
 
 ## Engine choice
 
-Primary: wrap **[Materia](https://github.com/codeyousef/Materia)** — a KMP 3D library with a Three.js-style scene graph, glTF 2.0 loader, and backends matching our target matrix: WebGPU (JS/wasm), Vulkan via LWJGL 3.3.6 (JVM), Vulkan (Android API 24+), MoltenVK (Apple, beta). Apache-2.0.
+The original candidate was **[Materia](https://github.com/codeyousef/Materia)** — a KMP 3D library (Three.js-style scene graph, glTF 2.0 loader; backends: WebGPU on JS/wasm, Vulkan via LWJGL 3.3.6 on JVM, Vulkan on Android API 24+, MoltenVK on Apple; Apache-2.0). The M1 Phase A spike has now **run** (2026-06-12; full per-criterion verdict in the [M1 doc's "Spike result"](issue-32-3d-ui-m1-foundation.md#spike-result)).
 
-Known constraints (verified June 2026, record any changes here):
+### Post-spike status (this is the current source of truth)
 
-- **Alpha software** (v0.4.1.0), APIs may change.
-- **Not published to Maven Central** — must be vendored: git submodule at `third_party/materia` pinned to a tag, consumed via Gradle composite build (`includeBuild` + dependency substitution in `settings.gradle.kts`).
-- Built with **Kotlin 2.2.20** vs this repo's 2.3.20. A composite build keeps each build's Kotlin Gradle plugin separate, so the risk is klib/metadata-level consumption, not plugin clash. Lowest risk on JVM, highest on wasm.
+- **Desktop (M1): LWJGL headless Vulkan — Materia rejected.** Materia's JVM backend is structurally a *windowed-swapchain* renderer with **no offscreen render-to-texture path**, which is exactly what the desktop interop needs (Decision C: render offscreen → CPU readback → Compose `ImageBitmap`, off the UI thread). The spike confirmed `RendererFactory` rejects a windowless surface, and GLFW demands the macOS main thread. So desktop uses the hand-written **LWJGL headless Vulkan** pipeline (Decision D), glTF via `de.javagl:jgltf-model`. Positive signal: LWJGL 3.3.6 + MoltenVK detected the GPU on the spike machine, so this pipeline is viable on the same hardware.
+- **What the spike *did* validate about Materia (still useful if it's used elsewhere):** Kotlin 2.3.20 reads Materia's 2.2.20-built **JVM** artifacts with zero metadata errors; its glTF loader parses `chess.glb` in ~86 ms with all six piece nodes as PBR `MeshStandardMaterial`.
+- **Materia is NOT vendored via composite build.** The plan originally assumed `includeBuild("third_party/materia")`. **That does not work**: Materia's `build.gradle.kts` uses Gradle's removed `javaexec{}` script API, but this repo runs Gradle 9.3.1 (AGP 9.1.1 requires it), so the included build won't even configure. If Materia is ever used, it must be **built with its own Gradle 8.13 and published to a Maven repo** (mavenLocal for spikes; a checked-in flat Maven dir or an internal repo for real use). Building it also needs a WGSL compiler (Tint/naga) unless the `compileShaders` task is disabled (SPIR-V is pre-committed), and consumers must add **LWJGL + per-OS native classifiers explicitly** (Materia exposes them runtime-only). See the M1 Spike result for the exact recipe.
+- **Materia (v0.4.1.0) is alpha and not on Maven Central.** Built with **Kotlin 2.2.20** vs this repo's 2.3.20 — JVM klib consumption is proven, but **wasm klibs are far less forward-compatible**, so M4 must re-validate consumption for the `wasmJs` target specifically before relying on it.
 
-The adoption is gated by a **timeboxed spike** (M1 Phase A). If the gate fails, the fallback is a direct **LWJGL headless Vulkan** renderer on desktop (see M1 doc); the `Chess3DBoardRenderer` abstraction isolates the rest of the app from this choice either way. Each later milestone has its own go/no-go mini-spike with a documented rescope path.
+### Open decision for M2–M4
+
+The spike killer (no offscreen path) is **desktop-specific**: M2 (iOS), M3 (Android), and M4 (wasm) render to a *real* surface (`UIKitView`/`SurfaceView`/`<canvas>`), which is what Materia's swapchain renderer wants — so Materia is *not* ruled out there on the same grounds. But choosing it now means **two renderer codebases** (hand-written LWJGL on desktop + Materia on mobile/wasm) plus the publish-to-Maven plumbing and per-target Kotlin-version re-validation. Each of those milestones therefore keeps its own go/no-go mini-spike, and may instead extend a platform-native renderer behind the same `Chess3DBoardRenderer` interface. The `Chess3DBoardRenderer` abstraction isolates the rest of the app from whichever way each milestone lands.
 
 ## Architecture decisions
 
@@ -46,13 +49,13 @@ The only genuinely platform-specific Compose piece — the composable that creat
 The desktop renderer draws into an offscreen GPU image; frames are read back and drawn with a plain Compose `Image`. Not SwingPanel/AWT-Vulkan, because:
 
 - **Dialog correctness.** `GameScreen` shows Compose `Dialog`s (promotion, game over, draw offer) above the board. A bitmap is plain Compose content, so z-order, the `verticalScroll` column, and `testTag` semantics all work normally.
-- **macOS threading.** GLFW windows must be created on the process's first thread, which AWT/Compose owns. Headless Vulkan (no swapchain) renders offscreen from any thread.
+- **macOS threading.** GLFW windows must be created on the process's first thread, which AWT/Compose owns (spike-confirmed: GLFW off the main thread throws, and that is also why a windowed engine like Materia can't drive this). Headless Vulkan (no swapchain) renders offscreen from any thread.
 - **CI.** GitHub's ubuntu runners have no GPU; offscreen Vulkan runs on lavapipe (`mesa-vulkan-drivers`). LWJGL's `lwjgl-vulkan` macOS natives bundle MoltenVK, so macos runners work too.
 - **Cost is fine.** The board renders on demand (scene or camera change), not in a hot loop; a 700×700 RGBA readback is ~2 MB.
 
-### D. Fallback engine = LWJGL headless Vulkan minimal pipeline
+### D. Desktop engine = LWJGL headless Vulkan minimal pipeline (spike-confirmed choice)
 
-If the Materia spike fails: instance → device → one render pass → one graphics pipeline → vertex/index/uniform buffers → render to image → `vkCmdCopyImageToBuffer` → map. Offscreen rendering removes swapchain/WSI/resize complexity; roughly 1.5–2.5k lines, mechanical from the LWJGL Vulkan samples. glTF parsing via `de.javagl:jgltf-model` (MIT, Maven Central). Plain OpenGL would be less code but is deprecated on macOS and contradicts the issue's explicit Vulkan-first direction. vkChess's C++ code is **not** vendored — only its asset (`data/chess.gltf`); a JNI + CMake bridge to its `vke`/`vkvg` stack is rejected.
+This was the documented fallback; the M1 spike's rejection of Materia for desktop makes it **the** desktop backend. Pipeline: instance → device → one render pass → one graphics pipeline → vertex/index/uniform buffers → render to image → `vkCmdCopyImageToBuffer` → map. Offscreen rendering removes swapchain/WSI/resize complexity; roughly 1.5–2.5k lines, mechanical from the LWJGL Vulkan samples. glTF parsing via `de.javagl:jgltf-model` (MIT, Maven Central). Plain OpenGL would be less code but is deprecated on macOS and contradicts the issue's explicit Vulkan-first direction. vkChess's C++ code is **not** vendored — only its asset (`data/chess.gltf`); a JNI + CMake bridge to its `vke`/`vkvg` stack is rejected.
 
 ## commonMain API
 
@@ -234,10 +237,12 @@ Behavior: `LaunchedEffect(Unit)` calls `support.rendererFactory.create()`; null 
 
 ## Risk register
 
-| Risk | Mitigation |
+| Risk | Status / Mitigation |
 |---|---|
-| Materia offscreen render/readback unsupported on JVM | Explicit spike gate S3; ≤200-line fork patch acceptable; else LWJGL fallback (Decision D) |
-| Kotlin 2.2.20-built klibs unreadable from 2.3.20 | Composite build isolates plugins; spike S1 (JVM) and M4 day-1 (wasm, highest risk) catch it; rescope = fork Materia and bump Kotlin |
+| Materia offscreen render/readback unsupported on JVM | **Resolved (spike): confirmed unsupported → desktop uses LWJGL headless Vulkan (Decision D).** |
+| Materia consumed via Gradle composite build (`includeBuild`) | **Resolved (spike): composite build fails under Gradle 9.x.** If Materia is used at all, build it with its own Gradle 8.13 and publish to a Maven repo. |
+| Kotlin 2.2.20-built klibs unreadable from 2.3.20 | **JVM: resolved (spike) — reads cleanly.** wasm: still open and highest-risk — M4 day-1 mini-spike must re-validate; rescope = fork Materia and bump Kotlin, or use a platform-native WebGPU renderer. |
 | Materia Apple backend is beta | M2 go/no-go mini-spike; rescope path = Metal-direct renderer behind the same interface |
-| chess.gltf piece-model license unverified (Matt Joos via Sketchfab) | Blocking M1 task: verify (likely CC-BY 4.0 → attribute); NC/ND/unverifiable → CC0 set substitution; last resort procedural meshes |
+| Two renderer codebases if M2–M4 adopt Materia (desktop is LWJGL) | Each milestone's mini-spike decides Materia vs platform-native behind the same `Chess3DBoardRenderer` interface; weigh against the publish-to-Maven plumbing cost |
+| chess.gltf piece-model license unverified (Matt Joos via Sketchfab) | **Still blocking.** vkChess README credits the artist but states **no license** for the models. M1 task: verify (CC-BY → attribute); NC/ND/unverifiable → CC0 set substitution; last resort procedural meshes. Don't commit the asset until cleared. |
 | FEN reflects the post-move state while the 2D animation is still playing | Accepted for M1–M4 (3D snaps); resolved by M5 transitions |

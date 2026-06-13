@@ -4,11 +4,13 @@ Prereqs: [issue-32-3d-ui-overview.md](issue-32-3d-ui-overview.md) and a merged [
 
 Goal: a real 3D backend on iOS, injected from `MainViewController.kt`. This is the highest-risk milestone — Materia's Apple backend is explicitly **beta** — so it opens with its own gate.
 
+> **Engine context (post-M1 spike).** Desktop did **not** adopt Materia (its JVM backend has no offscreen path; see M1 Spike result). iOS is different: it renders to a *real* `CAMetalLayer`, which is what Materia's windowed renderer wants — so Materia is a genuine option here. But this is the **first milestone to actually introduce Materia**, which means standing up the publish-to-Maven plumbing (composite build is NOT viable — see below) and accepting a second renderer codebase alongside desktop's LWJGL. The mini-spike below decides Materia vs Metal-direct; either way the `Chess3DBoardRenderer` interface is unchanged.
+
 ## Go/no-go mini-spike (timebox: 1 day)
 
 Two binary questions:
 
-1. Does Materia's Apple backend compile as a Kotlin 2.2.20 klib consumable from this repo's 2.3.20 `iosMain` via the composite build (`:app:linkDebugFrameworkIosSimulatorArm64` succeeds)?
+1. Does Materia's Apple backend compile as a Kotlin 2.2.20 klib consumable from this repo's 2.3.20 `iosMain`, with Materia **built by its own Gradle 8.13 and published to a Maven repo** (the M1 spike proved `includeBuild` composite builds fail under this repo's Gradle 9.3.1; see the M1 "Materia consumption recipe")? Verify `:app:linkDebugFrameworkIosSimulatorArm64` succeeds. Re-validate per-target: the JVM klib read cleanly in M1, but Apple/Native klibs are a separate question.
 2. Can it create a `VkSurfaceKHR` (via MoltenVK) from a **caller-supplied** `CAMetalLayer`, rather than insisting on owning the view/window?
 
 **No-go on either → rescope** this milestone to a Metal-direct renderer written in `iosMain` (Kotlin/Native `platform.Metal` bindings, same `Chess3DBoardRenderer` contract — the abstraction is the insurance policy). Record the verdict and decision in the "Spike result" section below. The file list and tests below stay identical either way; only `MoltenVkChessRenderer`'s internals change.
@@ -23,7 +25,7 @@ All in `app/src/iosMain/kotlin/com/example/myapplication/board3d/` unless noted:
   - `fun iosBoard3DSupport(): Board3DSupport` — factory loads `Res.readBytes("files/models/chess.glb")`, `runCatching { ... }.getOrNull()`.
 - **`MoltenVkChessRenderer.kt`** — Materia wrapper (or Metal-direct on rescope). Same structure as the desktop renderer: dedicated render dispatcher, scene from `Board3DSceneMapper` + `ChessSetMeshNames`, render on demand.
 - **`MainViewController.kt`** (modify) — `ChessApp(viewModel, board3D = remember { iosBoard3DSupport() })`. **No Swift or framework-API changes** — all 3D wiring stays in Kotlin; the Xcode project, `project.yml`, and `StockfishChessEngine.swift` are untouched.
-- **`app/build.gradle.kts`** — `iosMain` dependency on the substituted Materia modules (the composite build produces klibs per target). Skip on rescope.
+- **`app/build.gradle.kts`** — `iosMain` dependency on Materia consumed from a Maven repo (built separately with Gradle 8.13 per the M1 "Materia consumption recipe"); no `includeBuild`, no submodule. Skip on rescope (Metal-direct needs no extra dependency).
 
 ## Tests
 
@@ -39,7 +41,7 @@ UI tests (`app/src/iosSimulatorArm64Test/kotlin/com/example/myapplication/`):
 
 - The fake-based toggle tests run under the existing `:app:iosSimulatorArm64Test` — required.
 - The smoke test: iOS simulators get Metal via host-GPU paravirtualization on arm64 macOS runners, but treat it as `continue-on-error: true` until proven stable.
-- Ensure `submodules: recursive` on the checkout step (done in M1 if Materia was chosen).
+- If Materia is adopted: CI must publish it to a Maven repo before building `:app` (a `./gradlew -p materia publish...` step against the pinned Materia checkout, or a pre-published internal artifact). No `submodules: recursive` (composite build is not used).
 - Watch static framework size: compare the `linkReleaseFrameworkIosArm64` output before/after; flag in the PR description if it grows by more than ~20 MB.
 
 ## Definition of done
