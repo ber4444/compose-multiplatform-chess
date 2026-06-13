@@ -110,6 +110,10 @@ kotlin {
                 implementation(libs.androidx.compose.ui.test.junit4.android)
                 implementation(libs.androidx.compose.ui.test.manifest)
                 implementation(libs.androidx.activity.compose)
+                // kotlin.test assertions (board3d UI tests). androidDeviceTest is an
+                // instrumented source set and does NOT see commonTest, so the test
+                // fakes are duplicated locally (see board3d/FakeChess3DRenderer.kt).
+                implementation(kotlin("test"))
             }
         }
 
@@ -117,6 +121,33 @@ kotlin {
             dependsOn(jvmCommonMain)
             dependencies {
                 implementation(compose.desktop.currentOs)
+                implementation(libs.lwjgl)
+                implementation(libs.lwjgl.vulkan)
+                implementation(libs.jgltf.model)
+                
+                // Add native runtimes for the current OS (and eventually all OSs for distribution)
+                val lwjglVersion = "3.3.6"
+                val osName = System.getProperty("os.name").lowercase()
+                val osArch = System.getProperty("os.arch").lowercase()
+                val lwjglNatives = when {
+                    osName.contains("win") -> "natives-windows"
+                    osName.contains("mac") -> if (osArch.contains("aarch64") || osArch.contains("arm")) "natives-macos-arm64" else "natives-macos"
+                    else -> "natives-linux"
+                }
+                runtimeOnly("org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives")
+                // lwjgl-vulkan only ships a native artifact on macOS (bundled MoltenVK);
+                // on Linux/Windows the system Vulkan loader is used, so there is no
+                // natives-linux/natives-windows artifact to resolve.
+                if (osName.contains("mac")) {
+                    runtimeOnly("org.lwjgl:lwjgl-vulkan:$lwjglVersion:$lwjglNatives")
+                }
+            }
+        }
+
+        val desktopTest by getting {
+            dependencies {
+                @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
+                implementation(compose.desktop.uiTestJUnit4)
             }
         }
 

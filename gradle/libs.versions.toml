@@ -23,6 +23,9 @@ androidx-espresso-device = { group = "androidx.test.espresso", name = "espresso-
 androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "androidx-lifecycleRuntimeCompose" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidx-testExtJunit" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+lwjgl = { module = "org.lwjgl:lwjgl", version = "3.3.6" }
+lwjgl-vulkan = { module = "org.lwjgl:lwjgl-vulkan", version = "3.3.6" }
+jgltf-model = { module = "de.javagl:jgltf-model", version = "2.0.4" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

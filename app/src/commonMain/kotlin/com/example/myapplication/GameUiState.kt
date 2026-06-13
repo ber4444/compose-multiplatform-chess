@@ -73,4 +73,6 @@ data class ViewState (
     val hideWindow: Boolean = false,        // If the gameOver window should be hidden
     val buttonLock : Boolean = false,       // Lock all game modifying buttons (doesn't include reset/exit)
     val moveButtonLock: Boolean = false,    // If the 'Move' button is locked
+    val show3D: Boolean = false,            // If the 3D board should be displayed instead of 2D
+    val board3DUnavailable: Boolean = false // Set to true if 3D initialization fails
 )

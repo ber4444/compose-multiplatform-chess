@@ -1,5 +1,7 @@
 package com.example.myapplication
 
+import com.example.myapplication.board3d.Board3D
+import com.example.myapplication.board3d.Board3DSupport
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -74,6 +76,8 @@ import game.app.generated.resources.decline_button
 import game.app.generated.resources.draw_offer_declined
 import game.app.generated.resources.draw_offer_prompt
 import game.app.generated.resources.offer_draw_button
+import game.app.generated.resources.board_3d_toggle_label
+import game.app.generated.resources.board_3d_unavailable
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
@@ -83,7 +87,8 @@ import kotlin.math.roundToInt
 @Composable
 fun GameScreen(
     windowSize: WindowWidthSizeClass,
-    viewModel: GameViewModel
+    viewModel: GameViewModel,
+    board3D: Board3DSupport? = null
 ) {
     val gameState by viewModel.gameState.collectAsState()
     val animState by viewModel.animState.collectAsState()
@@ -156,14 +161,24 @@ fun GameScreen(
             DrawOfferDialog(onAccept = viewModel::acceptDrawOffer, onDecline = viewModel::declineDrawOffer)
         }
 
-        Board(
-            gameState = gameState,
-            animState = animState,
-            windowSize = windowSize,
-            updateSelected = viewModel::updateSelected,
-            playerMove = viewModel::playerMove,
-            animationEnd = viewModel::animationEnd
-        )
+        if (viewState.show3D && board3D != null) {
+            val fen = remember(gameState) { FenConverter.gameStateToFen(gameState) }
+            Board3D(
+                support = board3D,
+                fen = fen,
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                onUnavailable = { viewModel.markBoard3DUnavailable() }
+            )
+        } else {
+            Board(
+                gameState = gameState,
+                animState = animState,
+                windowSize = windowSize,
+                updateSelected = viewModel::updateSelected,
+                playerMove = viewModel::playerMove,
+                animationEnd = viewModel::animationEnd
+            )
+        }
 
         Spacer(modifier = Modifier.padding(8.dp))
 
@@ -180,6 +195,18 @@ fun GameScreen(
                 Text(text = stringResource(Res.string.autoplay_label))
             }
 
+            if (board3D != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = viewState.show3D,
+                        onCheckedChange = { viewModel.setShow3D(it) },
+                        enabled = !viewState.buttonLock,
+                        modifier = Modifier.testTag("board_3d_toggle")
+                    )
+                    Text(text = stringResource(Res.string.board_3d_toggle_label))
+                }
+            }
+
             Text(
                 text = stringResource(
                     if (stockfishEnabled) {
@@ -189,6 +216,14 @@ fun GameScreen(
                     }
                 ),
                 style = MaterialTheme.typography.bodyLarge
+            )
+        }
+        
+        if (viewState.board3DUnavailable) {
+            Text(
+                text = stringResource(Res.string.board_3d_unavailable),
+                color = Color.Red,
+                modifier = Modifier.testTag("board_3d_unavailable")
             )
         }
 

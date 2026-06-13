@@ -63,6 +63,14 @@ class GameViewModel(
         _viewState.value = viewState.value.copy(buttonLock = true, hideWindow = true)
     }
 
+    fun setShow3D(enabled: Boolean) {
+        _viewState.value = viewState.value.copy(show3D = enabled, board3DUnavailable = false)
+    }
+
+    fun markBoard3DUnavailable() {
+        _viewState.value = viewState.value.copy(show3D = false, board3DUnavailable = true)
+    }
+
     fun updateSelected(position: Pair<Int, Int>) {
         _gameState.value = gameState.value.copy(selectedSquare = position)
     }

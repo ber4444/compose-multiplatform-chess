@@ -91,20 +91,20 @@ kotlin.test, backtick function names, following `MoveTest.kt` conventions. FEN i
 
 All of these use `FakeChess3DRenderer` plus a trivial fake `surfaceContent` (`Box(modifier)`) injected via `Board3DSupport`, so **no GPU anywhere**. They inject the support directly into `GameScreen`, validating the full toggle path on Android/iOS/wasm ahead of those platforms' backend milestones (their entry points still pass `null` in M1).
 
-Test cases (same five bodies on each platform):
+Test cases — the board **swaps**, so 2D and 3D are never both present (as implemented in `Board3DUiTest.kt` on each platform):
 
-1. `toggle shows 3d surface` — click `board_3d_toggle`; assert node `board_3d` exists **and** `chess_board` still exists.
-2. `renderer lifecycle follows composition` — after toggle on, fake events begin `["attach", "updatePosition:<starting FEN>"]`; after toggle off, events end `["detach", "dispose"]`.
-3. `2d interaction drives 3d while active` — toggle on; click `board_square_WhitePiece_6_4` then `board_square_PossibleMove_4_4` (e2–e4, existing `squareTestTag` format); `waitUntil` the fake's `lastFen` equals the post-e4 FEN.
-4. `factory null falls back to 2d` — factory returns null; click toggle; assert `board_3d` does not exist, `board_3d_unavailable` exists, toggle is unchecked, `chess_board` still interactive.
-5. `no support hides toggle` — `board3D = null` → `board_3d_toggle` does not exist.
+1. `toggle swaps 2d for 3d` — initially `chess_board` present, `board_3d` absent; click `board_3d_toggle` (or `setShow3D(true)`); assert `board_3d` present **and** `chess_board` absent; toggle off → `chess_board` back, `board_3d` gone.
+2. `renderer lifecycle follows composition` — after toggle on, the fake records one `attach`; after toggle off, exactly one `detach` and one `dispose`.
+3. `factory null falls back to 2d` — factory returns null; toggle on → `board_3d` absent, `board_3d_unavailable` present, `chess_board` still present (the 2D board is what's shown on fallback).
 
-Locations:
+(Deferred to M5, when 3D becomes interactive: a "2d interaction still drives the game" case — not applicable in M1 because 3D mode hides the 2D board and 3D has no tap-to-move yet.)
 
-- `app/src/desktopTest/kotlin/com/example/myapplication/board3d/Board3DToggleUiTest.kt` — **new capability**: add to `app/build.gradle.kts` a `desktopTest` dependency on `compose.uiTest` (with `@OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)`), mirroring the existing `wasmJsTest` and `iosSimulatorArm64Test` blocks. Use `runComposeUiTest`.
-- `app/src/androidDeviceTest/kotlin/com/example/myapplication/Board3DToggleTest.kt` — `createComposeRule()` + JUnit4, following `GameScreenTest.kt`.
-- `app/src/iosSimulatorArm64Test/kotlin/com/example/myapplication/Board3DToggleUiTest.kt` — `runComposeUiTest`, following `GameScreenUiTest.kt`.
-- `app/src/wasmJsTest/kotlin/com/example/myapplication/Board3DToggleUiTest.kt` — `runComposeUiTest`.
+Locations (implemented; `desktopTest` gains `compose.desktop.uiTestJUnit4`):
+
+- `app/src/desktopTest/kotlin/com/example/myapplication/board3d/Board3DUiTest.kt` — `createComposeRule()` + JUnit4.
+- `app/src/androidDeviceTest/kotlin/com/example/myapplication/board3d/Board3DUiTest.kt` — `createComposeRule()` + JUnit4.
+- `app/src/iosSimulatorArm64Test/kotlin/com/example/myapplication/board3d/Board3DUiTest.kt` — `runComposeUiTest`.
+- `app/src/wasmJsTest/kotlin/com/example/myapplication/board3d/Board3DUiTest.kt` — `runComposeUiTest`.
 
 ## Phase D — Desktop backend (`app/src/desktopMain/kotlin/com/example/myapplication/board3d/`)
 

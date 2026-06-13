@@ -14,4 +14,6 @@
     <string name="accept_button">Accept</string>
     <string name="decline_button">Decline</string>
     <string name="draw_offer_declined">Black declined the draw offer</string>
+    <string name="board_3d_toggle_label">3D Board</string>
+    <string name="board_3d_unavailable">3D renderer failed to initialize</string>
 </resources>
