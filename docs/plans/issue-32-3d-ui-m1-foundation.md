@@ -42,7 +42,7 @@ Plus the state/UI wiring (also specified in the overview):
 
 - `GameUiState.kt` — `ViewState` gains `show3D`, `board3DUnavailable`.
 - `GameViewModel.kt` — `setShow3D(enabled)`, `markBoard3DUnavailable()`.
-- `ChessApp.kt` / `GameScreen.kt` — `board3D: Board3DSupport? = null` parameter, toggle checkbox (`testTag("board_3d_toggle")`) in the settings row next to AutoPlay, `Board3D` above the always-mounted 2D `Board`, unavailable text (`testTag("board_3d_unavailable")`).
+- `ChessApp.kt` / `GameScreen.kt` — `board3D: Board3DSupport? = null` parameter, toggle checkbox (`testTag("board_3d_toggle")`) in the settings row next to AutoPlay, and a board area that shows `Board3D` **instead of** the 2D `Board` when 3D is enabled (the 2D board is hidden, not shown alongside), plus the unavailable text (`testTag("board_3d_unavailable")`).
 - `app/src/commonMain/composeResources/values/strings.xml` — `board_3d_toggle_label`, `board_3d_unavailable`.
 - `app/src/commonTest/kotlin/com/example/myapplication/board3d/FakeChess3DRenderer.kt`.
 

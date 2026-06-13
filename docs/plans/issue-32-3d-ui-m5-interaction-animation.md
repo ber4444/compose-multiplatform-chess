@@ -4,6 +4,8 @@ Prereqs: [issue-32-3d-ui-overview.md](issue-32-3d-ui-overview.md) and merged M1�
 
 Only now does the renderer interface grow. Both additions are backward compatible: existing backends keep compiling and keep working (they just snap instead of animating).
 
+> **Priority note:** Feature 1 (tap-to-move) is **not optional polish** for this project. Because the UI hides the 2D board in 3D mode (a swap, not a co-display — see overview), 3D mode is *view-only* until this lands: a human cannot make a move while in 3D. Treat 3D tap-to-move as the requirement that makes 3D mode actually playable; animation (Feature 2) is the polish.
+
 ## Feature 1: Tap-to-move in 3D
 
 The 2D model remains the source of truth for rules and selection state (per the issue: game state stays in Compose). Camera state already lives in the common host's `OrbitCameraController`, so picking is pure common code — no renderer involvement:

@@ -10,7 +10,7 @@ Goal: a WebGPU backend for the web target, injected from the wasm `Main.kt`. Thi
 
 Kotlin-version klib risk is **highest here** — wasm klibs are the least forward-compatible, and M1's clean JVM result does **not** carry over. Question: does Materia's WebGPU module (built with its own Gradle 8.13, published to a Maven repo per the M1 recipe — **not** `includeBuild`) compile as a klib consumable from this repo's Kotlin 2.3.20 `wasmJsMain` (`:app:wasmJsBrowserDistribution` succeeds), and can its renderer bind to a **caller-supplied** `HTMLCanvasElement`?
 
-No-go → either maintain a fork branch of Materia bumped to Kotlin 2.3.20 (patch branch, rebased per Materia release), or write a native WebGPU renderer behind the `Chess3DBoardRenderer` interface. Record the choice and its maintenance cost in the verdict below.
+No-go → three options, in rough preference order: (a) **a Three.js / Babylon.js JS-interop bridge** behind the `Chess3DBoardRenderer` interface — this is the issue's own wasm sub-hint and its big advantage is that it **sidesteps the Kotlin-klib-version risk entirely** (the renderer lives in JS, called via `external`/`@JsModule`), which is exactly the risk that makes Materia-on-wasm fragile; (b) a native WebGPU renderer in Kotlin via `kotlinx-browser` / external WebGPU bindings; (c) maintain a fork branch of Materia bumped to Kotlin 2.3.20 (rebased per release). Record the choice and its maintenance cost in the verdict below.
 
 ## Canvas strategy: overlay
 

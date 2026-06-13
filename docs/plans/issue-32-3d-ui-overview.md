@@ -12,6 +12,25 @@ This document holds the decisions and the shared commonMain API. Each milestone 
 | M4 | [issue-32-3d-ui-m4-wasm.md](issue-32-3d-ui-m4-wasm.md) | Wasm backend (WebGPU overlay canvas — Materia or native WebGPU) |
 | M5 | [issue-32-3d-ui-m5-interaction-animation.md](issue-32-3d-ui-m5-interaction-animation.md) | 3D tap-to-move via ray picking, smooth piece animation, camera polish |
 
+## Scrutiny of the issue's hints
+
+The issue offers hints, not requirements. Each was evaluated against the codebase and the M1 spike; where reality diverged we followed reality. Summary of the verdicts (rationale lives in the sections below):
+
+**Hint 1 — "Unify behind a single `Chess3DBoardRenderer` abstraction … provide expect/actuals per platform … the actual implementation can wrap Materia."**
+- ✅ **Adopt the single abstraction.** We use almost exactly the proposed interface, with one addition: `dispose()`. Without it the factory-created renderer leaks GPU resources when 3D is toggled off — `detach()` only severs the surface.
+- ❌ **Reject expect/actual; use a plain interface + factory injection** (see Decision A). expect/actual is compile-time only and cannot express the two things we actually need: runtime fallback (inject `null` → hide the toggle) and runtime engine selection (real backend vs `FakeChess3DRenderer` in tests). The repo also has zero expect/actual today and a manual source-set hierarchy that makes it the most error-prone wiring.
+- ⚠️ **"Can wrap Materia" is only conditionally true.** The spike showed Materia *cannot* be wrapped on desktop (no offscreen path). The abstraction is what lets each platform wrap a different backend — which is the real value of hint 1, more than "one engine."
+
+**Hint 2 — "Prefer one engine where feasible (Materia for Vulkan + WebGPU + Metal); if not, Vulkan-native / MoltenVK / WebGPU per platform."**
+- ❌ **The "one engine" ideal is not feasible** — spike-confirmed. We land on the issue's *own* fallback: hand-written LWJGL Vulkan on desktop, and Materia-or-native per platform elsewhere (each milestone re-validates). So we explicitly do **not** prefer one engine; we prefer the abstraction that lets each platform choose. See "Engine choice" and "Open decision for M2–M4."
+- 💡 **Elevate the "Three.js/BabylonJS bridge for wasm" sub-hint.** A JS-interop bridge sidesteps the Kotlin-klib-version risk entirely (M4's biggest risk) and is a serious M4 alternative to a Materia/WebGPU klib — recorded in the M4 doc.
+
+**Hint 3 — "Host the 3D surface in a Composable; keep FEN/selection in Compose; render visual state in the engine. Keep the 2D board as the canonical interaction model initially; 3D as a view layer."**
+- ✅ **Adopt the Compose-integration pattern** (Decision B + the `Board3D` host): game state stays in Compose, the renderer receives only FEN.
+- ⚠️ **Deliberate divergence on "2D stays canonical/visible."** The product decision is to **hide** the 2D board in 3D mode (swap, not co-display). Consequence worth surfacing: this **promotes M5's 3D tap-to-move from polish to a requirement** — until it lands, 3D mode is view-only and a human can't move while in it (engine/autoplay aside). 2D remains the canonical interaction model *when shown*; it just isn't shown in 3D mode.
+
+Meta-point: the issue names vkChess for the look and Materia for the engine, but both proved partial — we take only vkChess's **asset** (its C++ engine isn't reusable here) and Materia is rejected on desktop. "Adopt the UI from vkChess" therefore means adopt its visual style/asset, not its code.
+
 ## Engine choice
 
 The original candidate was **[Materia](https://github.com/codeyousef/Materia)** — a KMP 3D library (Three.js-style scene graph, glTF 2.0 loader; backends: WebGPU on JS/wasm, Vulkan via LWJGL 3.3.6 on JVM, Vulkan on Android API 24+, MoltenVK on Apple; Apache-2.0). The M1 Phase A spike has now **run** (2026-06-12; full per-criterion verdict in the [M1 doc's "Spike result"](issue-32-3d-ui-m1-foundation.md#spike-result)).
@@ -223,8 +242,8 @@ Behavior: `LaunchedEffect(Unit)` calls `support.rendererFactory.create()`; null 
 - `ViewState` (`GameUiState.kt`) gains `show3D: Boolean = false` and `board3DUnavailable: Boolean = false`.
 - `GameViewModel` gains `fun setShow3D(enabled: Boolean)` (clears `board3DUnavailable` when enabling) and `fun markBoard3DUnavailable()` (sets the flag, flips `show3D` back off).
 - `ChessApp(viewModel, modifier, board3D: Board3DSupport? = null)` and `GameScreen(windowSize, viewModel, board3D: Board3DSupport? = null)` — default null means entry points without a backend keep compiling unchanged.
-- `GameScreen`: in the settings row next to the AutoPlay `Checkbox`, add (only when `board3D != null`) a `Checkbox` with `Modifier.testTag("board_3d_toggle")` + label. The board area **swaps** between modes (not side by side): `if (viewState.show3D && board3D != null)` render `Board3D(...)` (testTag `board_3d`, `fillMaxWidth().aspectRatio(1f)`) **instead of** `Board(...)`; otherwise render the 2D `Board(...)`. So the 2D `chess_board` is *not* composed while 3D is shown. When `viewState.board3DUnavailable`, show a `Text` with `Modifier.testTag("board_3d_unavailable")`. FEN derived with `remember(gameState) { FenConverter.gameStateToFen(gameState) }`.
-  - **Interaction note (M1):** because the 2D board is hidden in 3D mode and 3D tap-to-move doesn't arrive until M5, 3D mode is **view-only** in M1 — the human toggles back to 2D to make a move (engine/autoplay still progress). This is the deliberate "hidden, not side by side" UX; 3D becomes interactive in M5.
+- `GameScreen`: in the settings row next to the AutoPlay `Checkbox`, add (only when `board3D != null`) a `Checkbox` with `Modifier.testTag("board_3d_toggle")` + label. The board area shows **exactly one** board at a time: `if (viewState.show3D && board3D != null)` render `Board3D(...)` (testTag `board_3d`, `fillMaxWidth().aspectRatio(1f)`); otherwise render the 2D `Board(...)`. Enabling 3D **hides** the 2D board — the 2D `chess_board` is *not* composed while 3D is shown. When `viewState.board3DUnavailable`, show a `Text` with `Modifier.testTag("board_3d_unavailable")`. FEN derived with `remember(gameState) { FenConverter.gameStateToFen(gameState) }`.
+  - **Interaction note (M1):** because the 2D board is hidden in 3D mode and 3D tap-to-move doesn't arrive until M5, 3D mode is **view-only** in M1 — the human toggles back to 2D to make a move (engine/autoplay still progress). 3D becomes interactive in M5.
 - New strings in `app/src/commonMain/composeResources/values/strings.xml`: `board_3d_toggle_label`, `board_3d_unavailable`.
 
 ## Execution rules
