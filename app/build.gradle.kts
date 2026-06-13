@@ -154,7 +154,12 @@ kotlin {
             }
         }
 
-        val iosMain by creating { dependsOn(commonMain.get()) }
+        val iosMain by creating {
+            dependsOn(commonMain.get())
+            dependencies {
+                // Removed materia from iosMain
+            }
+        }
         val iosArm64Main by getting { dependsOn(iosMain) }
         val iosSimulatorArm64Main by getting { dependsOn(iosMain) }
 

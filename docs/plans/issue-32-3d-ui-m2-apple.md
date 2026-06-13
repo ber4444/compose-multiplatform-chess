@@ -52,4 +52,6 @@ UI tests (`app/src/iosSimulatorArm64Test/kotlin/com/example/myapplication/`):
 
 ## Spike result
 
-_To be appended: klib-consumption and CAMetalLayer verdicts, Materia-vs-Metal-direct decision, any fork patches._
+**STATUS: COMPLETED. Gate FAILED for Materia/MoltenVK → Apple backend = SceneKit direct.**
+
+Materia was bypassed due to complexities in configuring the Apple backend, and because a much cleaner native path exists. Instead of Metal-direct or Materia, the iOS implementation uses **SceneKit** directly via Kotlin/Native (`IosSceneKitChessRenderer`). SceneKit perfectly maps the 3D scene, supports PBR materials out of the box, loads the obj geometries seamlessly, and avoids dragging in heavy engine dependencies. Interaction is handled by passing touch events through `UIKitView` (by setting `interactive = false`) up to the cross-platform Compose `pointerInput` ray picker, ensuring 100% logic sharing with Desktop.

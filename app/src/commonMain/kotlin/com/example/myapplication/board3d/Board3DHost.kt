@@ -8,6 +8,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 
+import androidx.compose.ui.layout.onSizeChanged
+
 @Composable
 fun Board3D(
     support: Board3DSupport,
@@ -42,6 +44,11 @@ fun Board3D(
 
         val inputModifier = modifier
             .testTag("board_3d")
+            .onSizeChanged { size ->
+                if (size.height > 0) {
+                    cameraController.onResize(size.width.toFloat() / size.height.toFloat())
+                }
+            }
             .pointerInput(currentRenderer) {
                 detectTapGestures { offset ->
                     // Tap -> ray pick -> board square. Picking is pure common code (camera + math);

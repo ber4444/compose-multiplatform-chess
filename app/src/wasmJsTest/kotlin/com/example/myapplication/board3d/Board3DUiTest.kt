@@ -41,32 +41,35 @@ class Board3DUiTest {
             )
         }
 
-        // Initially 2D board is shown, 3D is not
-        assertTrue(onAllNodesWithTag("chess_board").fetchSemanticsNodes().isNotEmpty())
-        assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isEmpty())
-
-        // Toggle 3D on
-        viewModel.setShow3D(true)
-        waitForIdle()
-
-        // 3D board should be shown, 2D board should NOT be shown
+        // Initially 3D board is shown, 2D is not
         assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isNotEmpty())
         assertTrue(onAllNodesWithTag("chess_board").fetchSemanticsNodes().isEmpty())
 
         // Verify renderer was attached
         assertEquals(1, fakeRenderer.events.count { it == "attach" })
-        
+
         // Toggle 3D off
         viewModel.setShow3D(false)
         waitForIdle()
 
-        // 2D back, 3D gone
+        // 2D board should be shown, 3D board should NOT be shown
         assertTrue(onAllNodesWithTag("chess_board").fetchSemanticsNodes().isNotEmpty())
         assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isEmpty())
-        
+
         // Verify renderer was detached and disposed
         assertEquals(1, fakeRenderer.events.count { it == "detach" })
         assertEquals(1, fakeRenderer.events.count { it == "dispose" })
+
+        // Toggle 3D on again
+        viewModel.setShow3D(true)
+        waitForIdle()
+
+        // 3D back, 2D gone
+        assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(onAllNodesWithTag("chess_board").fetchSemanticsNodes().isEmpty())
+        
+        // Verify renderer was attached again
+        assertEquals(2, fakeRenderer.events.count { it == "attach" })
     }
 
     @Test

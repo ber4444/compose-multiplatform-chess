@@ -17,5 +17,5 @@ fun MainViewController(engine: ChessEngine?): UIViewController = ComposeUIViewCo
         viewModel.attachEngine(engine)
         onDispose { viewModel.close() } // also closes the attached engine
     }
-    MyApplicationTheme { ChessApp(viewModel = viewModel) }
+    MyApplicationTheme { ChessApp(viewModel = viewModel, board3D = remember { com.example.myapplication.board3d.iosBoard3DSupport() }) }
 }

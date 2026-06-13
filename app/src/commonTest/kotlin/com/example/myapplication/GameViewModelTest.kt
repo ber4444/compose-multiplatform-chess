@@ -266,16 +266,16 @@ class GameViewModelTest {
     }
 
     @Test
-    fun `test 3D toggle updates view state correctly`() {
+    fun test3DToggleUpdatesViewStateCorrectly() {
         val viewModel = GameViewModel()
         
         // Initial state
-        assertTrue(!viewModel.viewState.value.show3D, "Should start with 3D off")
+        assertTrue(viewModel.viewState.value.show3D, "Should start with 3D on")
         assertTrue(!viewModel.viewState.value.board3DUnavailable, "Unavailable flag should start false")
         
-        // Turn on 3D
-        viewModel.setShow3D(true)
-        assertTrue(viewModel.viewState.value.show3D, "setShow3D(true) should set show3D to true")
+        // Turn off 3D
+        viewModel.setShow3D(false)
+        assertTrue(!viewModel.viewState.value.show3D, "setShow3D(false) should set show3D to false")
         assertTrue(!viewModel.viewState.value.board3DUnavailable, "board3DUnavailable should be false")
         
         // Mark unavailable
@@ -287,5 +287,21 @@ class GameViewModelTest {
         viewModel.setShow3D(true)
         assertTrue(viewModel.viewState.value.show3D, "setShow3D(true) should set show3D to true")
         assertTrue(!viewModel.viewState.value.board3DUnavailable, "setShow3D(true) should clear unavailable flag")
+    }
+
+    @Test
+    fun `testStockfishMoveClearsSelectedSquare`() = kotlinx.coroutines.test.runTest {
+        val viewModel = GameViewModel()
+        
+        // Simulate White selecting a piece
+        viewModel.updateSelected(Pair(6, 4))
+        
+        // Simulate Black (Stockfish) making a move
+        viewModel.moveCPU(Set.BLACK) { _, _, _, _ ->
+            SelectedMove(position = Pair(4, 4), pieceIndex = 0)
+        }
+        
+        // Verify that selectedSquare was cleared
+        kotlin.test.assertEquals(INVALID_POSITION, viewModel.gameState.value.selectedSquare)
     }
 }

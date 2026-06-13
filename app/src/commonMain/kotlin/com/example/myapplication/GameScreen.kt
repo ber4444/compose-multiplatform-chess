@@ -165,6 +165,7 @@ fun GameScreen(
         if (viewState.show3D && board3D != null) {
             LaunchedEffect(animState.pieceToAnimate) {
                 if (animState.pieceToAnimate != null) {
+                    kotlinx.coroutines.delay(50)
                     viewModel.animationEnd()
                 }
             }
@@ -179,7 +180,7 @@ fun GameScreen(
                     ?.let { BoardSquare(it.first, it.second) },
                 onSquareTapped = onSquareTapped@{ sq ->
                     // Route a 3D tap through the same selection/move logic the 2D board uses.
-                    if (gameState.autoPlay || animState.pieceToAnimate != null) return@onSquareTapped
+                    if (gameState.autoPlay || animState.pieceToAnimate != null || gameState.turn != Set.WHITE) return@onSquareTapped
                     val pos = Pair(sq.row, sq.col)
                     val selectedPieceIndex = gameState.positionsWhite.indexOf(gameState.selectedSquare)
                     val legalMoves = if (selectedPieceIndex != -1) {
@@ -433,10 +434,10 @@ fun Board(
                                         val moveIndex = gameState.selectedSquare
                                         updateSelected(INVALID_POSITION)
                                         selectedPossibleMoves.value = emptyList()
-                                        playerMove(
-                                            gameState.positionsWhite.indexOf(moveIndex),
-                                            currentSquare
-                                        )
+                                        val idx = gameState.positionsWhite.indexOf(moveIndex)
+                                        if (idx != -1) {
+                                            playerMove(idx, currentSquare)
+                                        }
                                     }
                                     SquareType.WhitePiece -> if (gameState.turn == Set.WHITE) {
                                         updateSelected(currentSquare)
@@ -456,11 +457,17 @@ fun Board(
                                     squareType == SquareType.CannotMove ||
                                     squareType == SquareType.CanMove
                                 ) {
-                                    Piece(pieceModel = gameState.piecesWhite[gameState.positionsWhite.indexOf(currentSquare)])
+                                    val idx = gameState.positionsWhite.indexOf(currentSquare)
+                                    if (idx != -1) {
+                                        Piece(pieceModel = gameState.piecesWhite[idx])
+                                    }
                                 }
 
                                 if (squareType == SquareType.BlackPiece || squareType == SquareType.PossibleCapture) {
-                                    Piece(pieceModel = gameState.piecesBlack[gameState.positionsBlack.indexOf(currentSquare)])
+                                    val idx = gameState.positionsBlack.indexOf(currentSquare)
+                                    if (idx != -1) {
+                                        Piece(pieceModel = gameState.piecesBlack[idx])
+                                    }
                                 }
                             }
                         }

@@ -1,26 +1,21 @@
 package com.example.myapplication.board3d
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.printToLog
-import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.runComposeUiTest
 import com.example.myapplication.GameScreen
 import com.example.myapplication.GameViewModel
 import com.example.myapplication.WindowWidthSizeClass
-import org.junit.Rule
-import org.junit.Test
+import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalTestApi::class)
 class Board3DUiTest {
-    @get:Rule
-    val rule = createComposeRule()
 
     @Test
-    fun test3DToggleAndFallback() {
+    fun test3DToggleAndFallback() = runComposeUiTest {
         val fakeRenderer = FakeChess3DRenderer()
         val board3DSupport = Board3DSupport(
             rendererFactory = { fakeRenderer },
@@ -38,7 +33,7 @@ class Board3DUiTest {
 
         val viewModel = GameViewModel()
 
-        rule.setContent {
+        setContent {
             GameScreen(
                 windowSize = WindowWidthSizeClass.Medium,
                 viewModel = viewModel,
@@ -46,38 +41,39 @@ class Board3DUiTest {
             )
         }
 
-        // Initially 2D board is shown, 3D is not
-        assertTrue(rule.onAllNodesWithTag("chess_board").fetchSemanticsNodes().isNotEmpty())
-        assertTrue(rule.onAllNodesWithTag("board_3d").fetchSemanticsNodes().isEmpty())
-
-        // Toggle 3D on
-        viewModel.setShow3D(true)
-        rule.waitForIdle()
-
-        rule.onRoot().printToLog("TEST_TAG")
-
-        // 3D board should be shown, 2D board should NOT be shown
-        assertTrue(rule.onAllNodesWithTag("board_3d").fetchSemanticsNodes().isNotEmpty())
-        assertTrue(rule.onAllNodesWithTag("chess_board").fetchSemanticsNodes().isEmpty())
+        // Initially 3D board is shown, 2D is not
+        assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(onAllNodesWithTag("chess_board").fetchSemanticsNodes().isEmpty())
 
         // Verify renderer was attached
         assertEquals(1, fakeRenderer.events.count { it == "attach" })
-        
+
         // Toggle 3D off
         viewModel.setShow3D(false)
-        rule.waitForIdle()
+        waitForIdle()
 
-        // 2D back, 3D gone
-        assertTrue(rule.onAllNodesWithTag("chess_board").fetchSemanticsNodes().isNotEmpty())
-        assertTrue(rule.onAllNodesWithTag("board_3d").fetchSemanticsNodes().isEmpty())
-        
+        // 2D board should be shown, 3D board should NOT be shown
+        assertTrue(onAllNodesWithTag("chess_board").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isEmpty())
+
         // Verify renderer was detached and disposed
         assertEquals(1, fakeRenderer.events.count { it == "detach" })
         assertEquals(1, fakeRenderer.events.count { it == "dispose" })
+
+        // Toggle 3D on again
+        viewModel.setShow3D(true)
+        waitForIdle()
+
+        // 3D back, 2D gone
+        assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(onAllNodesWithTag("chess_board").fetchSemanticsNodes().isEmpty())
+        
+        // Verify renderer was attached again
+        assertEquals(2, fakeRenderer.events.count { it == "attach" })
     }
 
     @Test
-    fun test3DFallbackWhenFactoryReturnsNull() {
+    fun test3DFallbackWhenFactoryReturnsNull() = runComposeUiTest {
         val board3DSupport = Board3DSupport(
             rendererFactory = { null }, // init fails
             surfaceContent = { _, modifier -> Box(modifier) }
@@ -85,7 +81,7 @@ class Board3DUiTest {
 
         val viewModel = GameViewModel()
 
-        rule.setContent {
+        setContent {
             GameScreen(
                 windowSize = WindowWidthSizeClass.Medium,
                 viewModel = viewModel,
@@ -95,13 +91,13 @@ class Board3DUiTest {
 
         // Toggle 3D on
         viewModel.setShow3D(true)
-        rule.waitForIdle()
+        waitForIdle()
 
         // 2D board is still shown
-        assertTrue(rule.onAllNodesWithTag("chess_board").fetchSemanticsNodes().isNotEmpty())
-        assertTrue(rule.onAllNodesWithTag("board_3d").fetchSemanticsNodes().isEmpty())
+        assertTrue(onAllNodesWithTag("chess_board").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isEmpty())
 
         // Unavailable message is shown
-        assertTrue(rule.onAllNodesWithTag("board_3d_unavailable").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(onAllNodesWithTag("board_3d_unavailable").fetchSemanticsNodes().isNotEmpty())
     }
 }

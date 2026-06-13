@@ -123,7 +123,7 @@ object GltfChessMeshes {
         return normals
     }
 
-    private fun collectNodeGeometry(node: NodeModel): Triple<FloatArray, FloatArray, IntArray>? {
+    fun collectNodeGeometry(node: NodeModel): Triple<FloatArray, FloatArray, IntArray>? {
         val positions = ArrayList<Float>()
         val uvs = ArrayList<Float>()
         val indices = ArrayList<Int>()
