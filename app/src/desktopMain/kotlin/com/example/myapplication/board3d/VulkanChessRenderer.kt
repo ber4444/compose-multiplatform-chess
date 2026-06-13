@@ -57,6 +57,17 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     private var skyPipeline = VK_NULL_HANDLE
     private var fence = VK_NULL_HANDLE
 
+    // Shadow map (directional light depth pass)
+    private val shadowSize = 2048
+    private var shadowImage = VK_NULL_HANDLE; private var shadowMem = VK_NULL_HANDLE; private var shadowView = VK_NULL_HANDLE
+    private var shadowSampler = VK_NULL_HANDLE
+    private var shadowRenderPass = VK_NULL_HANDLE
+    private var shadowFramebuffer = VK_NULL_HANDLE
+    private var shadowPipelineLayout = VK_NULL_HANDLE
+    private var shadowPipeline = VK_NULL_HANDLE
+    private var uboBuffer = VK_NULL_HANDLE; private var uboMem = VK_NULL_HANDLE
+    private val lightDir = org.joml.Vector3f(0.45f, 1.0f, 0.35f).normalize()
+
     private val colorFormat = VK_FORMAT_R8G8B8A8_UNORM
     private val depthFormat = VK_FORMAT_D32_SFLOAT
 
@@ -169,17 +180,44 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     }
 
     private fun recordCommandBuffer(stack: MemoryStack) {
+        val lightVP = lightViewProj()
+        updateUbo(stack, lightVP)
+
         val begin = VkCommandBufferBeginInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO)
         check(vkBeginCommandBuffer(commandBuffer, begin) == VK_SUCCESS)
 
+        // --- Shadow pass: render scene depth from the light's POV into the shadow map ---
+        run {
+            val clearShadow = VkClearValue.calloc(1, stack)
+            clearShadow[0].depthStencil().set(1f, 0)
+            val shadowArea = VkRect2D.calloc(stack)
+            shadowArea.offset().set(0, 0); shadowArea.extent().set(shadowSize, shadowSize)
+            val begin2 = VkRenderPassBeginInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO).renderPass(shadowRenderPass).framebuffer(shadowFramebuffer).renderArea(shadowArea).pClearValues(clearShadow)
+            vkCmdBeginRenderPass(commandBuffer, begin2, VK_SUBPASS_CONTENTS_INLINE)
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline)
+            val vp = VkViewport.calloc(1, stack).x(0f).y(0f).width(shadowSize.toFloat()).height(shadowSize.toFloat()).minDepth(0f).maxDepth(1f)
+            vkCmdSetViewport(commandBuffer, 0, vp)
+            val sc = VkRect2D.calloc(1, stack); sc.get(0).offset().set(0, 0); sc.get(0).extent().set(shadowSize, shadowSize)
+            vkCmdSetScissor(commandBuffer, 0, sc)
+            val push = stack.malloc(64); lightVP.get(0, push)
+            vkCmdPushConstants(commandBuffer, shadowPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, push)
+            for (tex in ChessTexture.entries) {
+                val g = groupBuffers[tex] ?: continue
+                if (g.indexCount == 0 || tex == ChessTexture.BOARD) continue // board doesn't cast onto itself
+                vkCmdBindVertexBuffers(commandBuffer, 0, stack.longs(g.vBuf), stack.longs(0))
+                vkCmdBindIndexBuffer(commandBuffer, g.iBuf, 0, VK_INDEX_TYPE_UINT32)
+                vkCmdDrawIndexed(commandBuffer, g.indexCount, 1, 0, 0, 0)
+            }
+            vkCmdEndRenderPass(commandBuffer)
+        }
+
+        // --- Main pass ---
         val clear = VkClearValue.calloc(2, stack)
         clear[0].color().float32(0, 0.10f).float32(1, 0.11f).float32(2, 0.13f).float32(3, 1f)
         clear[1].depthStencil().set(1f, 0)
-
         val area = VkRect2D.calloc(stack)
         area.offset().set(0, 0); area.extent().set(width, height)
-        val rpBegin = VkRenderPassBeginInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO)
-            .renderPass(renderPass).framebuffer(framebuffer).renderArea(area).pClearValues(clear)
+        val rpBegin = VkRenderPassBeginInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO).renderPass(renderPass).framebuffer(framebuffer).renderArea(area).pClearValues(clear)
         vkCmdBeginRenderPass(commandBuffer, rpBegin, VK_SUBPASS_CONTENTS_INLINE)
 
         val viewport = VkViewport.calloc(1, stack).x(0f).y(0f).width(width.toFloat()).height(height.toFloat()).minDepth(0f).maxDepth(1f)
@@ -188,18 +226,10 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         scissor.get(0).offset().set(0, 0); scissor.get(0).extent().set(width, height)
         vkCmdSetScissor(commandBuffer, 0, scissor)
 
-        // Gradient sky behind everything (no depth write), then the scene on top.
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline)
         vkCmdDraw(commandBuffer, 3, 1, 0, 0)
 
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline)
-
-        // Push constant: viewProj (mat4) + camPos (vec4).
-        val pc = stack.malloc(80)
-        viewProjMatrix().get(0, pc)
-        pc.putFloat(64, camera.position.x).putFloat(68, camera.position.y).putFloat(72, camera.position.z).putFloat(76, 1f)
-        vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT or VK_SHADER_STAGE_FRAGMENT_BIT, 0, pc)
-
         for (tex in ChessTexture.entries) {
             val g = groupBuffers[tex] ?: continue
             if (g.indexCount == 0) continue
@@ -219,6 +249,16 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         vkCmdCopyImageToBuffer(commandBuffer, colorImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readbackBuffer, region)
 
         check(vkEndCommandBuffer(commandBuffer) == VK_SUCCESS)
+    }
+
+    private fun updateUbo(stack: MemoryStack, lightVP: Matrix4f) {
+        val pp = stack.mallocPointer(1)
+        vkMapMemory(device, uboMem, 0, 144, 0, pp)
+        val buf = pp.getByteBuffer(0, 144)
+        viewProjMatrix().get(0, buf)
+        lightVP.get(64, buf)
+        buf.putFloat(128, camera.position.x).putFloat(132, camera.position.y).putFloat(136, camera.position.z).putFloat(140, 1f)
+        vkUnmapMemory(device, uboMem)
     }
 
     private fun viewProjMatrix(): Matrix4f {
@@ -297,10 +337,86 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             createRenderPass(stack)
             createSampler(stack)
             createDescriptorLayoutAndPool(stack)
+            createShadowResources(stack)
             createPipeline(stack)
             createSkyPipeline(stack)
         }
         uploadAllTextures()
+    }
+
+    private fun createShadowResources(stack: MemoryStack) {
+        val (ubo, uboM) = createBuffer(144L, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, hostVisible)
+        uboBuffer = ubo; uboMem = uboM
+
+        val (img, mem) = createImage(shadowSize, shadowSize, depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT or VK_IMAGE_USAGE_SAMPLED_BIT)
+        shadowImage = img; shadowMem = mem
+        shadowView = createImageView(shadowImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT)
+
+        val samplerInfo = VkSamplerCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO)
+            .magFilter(VK_FILTER_LINEAR).minFilter(VK_FILTER_LINEAR)
+            .addressModeU(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER).addressModeV(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER).addressModeW(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER)
+            .borderColor(VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE).mipmapMode(VK_SAMPLER_MIPMAP_MODE_NEAREST).maxLod(0f).minLod(0f)
+        val pSampler = stack.mallocLong(1)
+        check(vkCreateSampler(device, samplerInfo, null, pSampler) == VK_SUCCESS); shadowSampler = pSampler.get(0)
+
+        // Depth-only render pass.
+        val attachment = VkAttachmentDescription.calloc(1, stack)
+        attachment[0].format(depthFormat).samples(VK_SAMPLE_COUNT_1_BIT)
+            .loadOp(VK_ATTACHMENT_LOAD_OP_CLEAR).storeOp(VK_ATTACHMENT_STORE_OP_STORE)
+            .stencilLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE).stencilStoreOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
+            .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED).finalLayout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL)
+        val depthRef = VkAttachmentReference.calloc(stack).attachment(0).layout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+        val subpass = VkSubpassDescription.calloc(1, stack).pipelineBindPoint(VK_PIPELINE_BIND_POINT_GRAPHICS).colorAttachmentCount(0).pDepthStencilAttachment(depthRef)
+        val rpInfo = VkRenderPassCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO).pAttachments(attachment).pSubpasses(subpass)
+        val pRp = stack.mallocLong(1)
+        check(vkCreateRenderPass(device, rpInfo, null, pRp) == VK_SUCCESS); shadowRenderPass = pRp.get(0)
+
+        val fbInfo = VkFramebufferCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO).renderPass(shadowRenderPass).pAttachments(stack.longs(shadowView)).width(shadowSize).height(shadowSize).layers(1)
+        val pFb = stack.mallocLong(1)
+        check(vkCreateFramebuffer(device, fbInfo, null, pFb) == VK_SUCCESS); shadowFramebuffer = pFb.get(0)
+
+        createShadowPipeline(stack)
+    }
+
+    private fun createShadowPipeline(stack: MemoryStack) {
+        val vert = createShaderModule(stack, SHADOW_VERT, Shaderc.shaderc_glsl_vertex_shader, "shadowVert")
+        val frag = createShaderModule(stack, SHADOW_FRAG, Shaderc.shaderc_glsl_fragment_shader, "shadowFrag")
+        val stages = VkPipelineShaderStageCreateInfo.calloc(2, stack)
+        stages[0].sType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO).stage(VK_SHADER_STAGE_VERTEX_BIT).module(vert).pName(stack.UTF8("main"))
+        stages[1].sType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO).stage(VK_SHADER_STAGE_FRAGMENT_BIT).module(frag).pName(stack.UTF8("main"))
+        val binding = VkVertexInputBindingDescription.calloc(1, stack).binding(0).stride(11 * 4).inputRate(VK_VERTEX_INPUT_RATE_VERTEX)
+        val attrs = VkVertexInputAttributeDescription.calloc(1, stack)
+        attrs[0].location(0).binding(0).format(VK_FORMAT_R32G32B32_SFLOAT).offset(0)
+        val vertexInput = VkPipelineVertexInputStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO).pVertexBindingDescriptions(binding).pVertexAttributeDescriptions(attrs)
+        val inputAssembly = VkPipelineInputAssemblyStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO).topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+        val viewportState = VkPipelineViewportStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO).viewportCount(1).scissorCount(1)
+        val raster = VkPipelineRasterizationStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO)
+            .polygonMode(VK_POLYGON_MODE_FILL).cullMode(VK_CULL_MODE_NONE).frontFace(VK_FRONT_FACE_COUNTER_CLOCKWISE).lineWidth(1f)
+            .depthBiasEnable(true).depthBiasConstantFactor(1.5f).depthBiasSlopeFactor(2.0f)
+        val multisample = VkPipelineMultisampleStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO).rasterizationSamples(VK_SAMPLE_COUNT_1_BIT)
+        val depth = VkPipelineDepthStencilStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO).depthTestEnable(true).depthWriteEnable(true).depthCompareOp(VK_COMPARE_OP_LESS)
+        val blend = VkPipelineColorBlendStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO)
+        val dynamic = VkPipelineDynamicStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO).pDynamicStates(stack.ints(VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR))
+        val pushConstant = VkPushConstantRange.calloc(1, stack).stageFlags(VK_SHADER_STAGE_VERTEX_BIT).offset(0).size(64)
+        val layoutInfo = VkPipelineLayoutCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO).pPushConstantRanges(pushConstant)
+        val pLayout = stack.mallocLong(1)
+        check(vkCreatePipelineLayout(device, layoutInfo, null, pLayout) == VK_SUCCESS); shadowPipelineLayout = pLayout.get(0)
+        val pipelineInfo = VkGraphicsPipelineCreateInfo.calloc(1, stack).sType(VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO)
+            .pStages(stages).pVertexInputState(vertexInput).pInputAssemblyState(inputAssembly).pViewportState(viewportState)
+            .pRasterizationState(raster).pMultisampleState(multisample).pDepthStencilState(depth).pColorBlendState(blend).pDynamicState(dynamic)
+            .layout(shadowPipelineLayout).renderPass(shadowRenderPass).subpass(0)
+        val pPipeline = stack.mallocLong(1)
+        check(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, pipelineInfo, null, pPipeline) == VK_SUCCESS) { "shadow pipeline failed" }
+        shadowPipeline = pPipeline.get(0)
+        vkDestroyShaderModule(device, vert, null); vkDestroyShaderModule(device, frag, null)
+    }
+
+    private fun lightViewProj(): Matrix4f {
+        val dist = 14f
+        val eye = org.joml.Vector3f(lightDir).mul(dist)
+        val proj = Matrix4f().ortho(-5.5f, 5.5f, -5.5f, 5.5f, 0.1f, 30f, true)
+        val view = Matrix4f().lookAt(eye.x, eye.y, eye.z, 0f, 0f, 0f, 0f, 1f, 0f)
+        return proj.mul(view)
     }
 
     private fun createSkyPipeline(stack: MemoryStack) {
@@ -387,13 +503,19 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     }
 
     private fun createDescriptorLayoutAndPool(stack: MemoryStack) {
-        val binding = VkDescriptorSetLayoutBinding.calloc(1, stack).binding(0).descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(1).stageFlags(VK_SHADER_STAGE_FRAGMENT_BIT)
-        val layoutInfo = VkDescriptorSetLayoutCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO).pBindings(binding)
+        val bindings = VkDescriptorSetLayoutBinding.calloc(3, stack)
+        bindings[0].binding(0).descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(1).stageFlags(VK_SHADER_STAGE_FRAGMENT_BIT) // material albedo
+        bindings[1].binding(1).descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(1).stageFlags(VK_SHADER_STAGE_FRAGMENT_BIT) // shadow map
+        bindings[2].binding(2).descriptorType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER).descriptorCount(1).stageFlags(VK_SHADER_STAGE_VERTEX_BIT or VK_SHADER_STAGE_FRAGMENT_BIT) // matrices
+        val layoutInfo = VkDescriptorSetLayoutCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO).pBindings(bindings)
         val pLayout = stack.mallocLong(1)
         check(vkCreateDescriptorSetLayout(device, layoutInfo, null, pLayout) == VK_SUCCESS); descriptorSetLayout = pLayout.get(0)
 
-        val poolSize = VkDescriptorPoolSize.calloc(1, stack).type(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(ChessTexture.entries.size)
-        val poolInfo = VkDescriptorPoolCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO).pPoolSizes(poolSize).maxSets(ChessTexture.entries.size)
+        val n = ChessTexture.entries.size
+        val poolSizes = VkDescriptorPoolSize.calloc(2, stack)
+        poolSizes[0].type(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(n * 2)
+        poolSizes[1].type(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER).descriptorCount(n)
+        val poolInfo = VkDescriptorPoolCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO).pPoolSizes(poolSizes).maxSets(n)
         val pPool = stack.mallocLong(1)
         check(vkCreateDescriptorPool(device, poolInfo, null, pPool) == VK_SUCCESS); descriptorPool = pPool.get(0)
     }
@@ -421,8 +543,7 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         val blend = VkPipelineColorBlendStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO).pAttachments(blendAttachment)
         val dynamic = VkPipelineDynamicStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO).pDynamicStates(stack.ints(VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR))
 
-        val pushConstant = VkPushConstantRange.calloc(1, stack).stageFlags(VK_SHADER_STAGE_VERTEX_BIT or VK_SHADER_STAGE_FRAGMENT_BIT).offset(0).size(80)
-        val layoutInfo = VkPipelineLayoutCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO).pSetLayouts(stack.longs(descriptorSetLayout)).pPushConstantRanges(pushConstant)
+        val layoutInfo = VkPipelineLayoutCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO).pSetLayouts(stack.longs(descriptorSetLayout))
         val pLayout = stack.mallocLong(1)
         check(vkCreatePipelineLayout(device, layoutInfo, null, pLayout) == VK_SUCCESS); pipelineLayout = pLayout.get(0)
 
@@ -479,10 +600,16 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             val alloc = VkDescriptorSetAllocateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO).descriptorPool(descriptorPool).pSetLayouts(stack.longs(descriptorSetLayout))
             val pSet = stack.mallocLong(1)
             check(vkAllocateDescriptorSets(device, alloc, pSet) == VK_SUCCESS)
-            val imageInfo = VkDescriptorImageInfo.calloc(1, stack).imageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL).imageView(view).sampler(sampler)
-            val write = VkWriteDescriptorSet.calloc(1, stack).sType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET).dstSet(pSet.get(0)).dstBinding(0).descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(1).pImageInfo(imageInfo)
-            vkUpdateDescriptorSets(device, write, null)
-            pSet.get(0)
+            val set = pSet.get(0)
+            val matInfo = VkDescriptorImageInfo.calloc(1, stack).imageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL).imageView(view).sampler(sampler)
+            val shadowInfo = VkDescriptorImageInfo.calloc(1, stack).imageLayout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL).imageView(shadowView).sampler(shadowSampler)
+            val bufInfo = VkDescriptorBufferInfo.calloc(1, stack).buffer(uboBuffer).offset(0).range(144L)
+            val writes = VkWriteDescriptorSet.calloc(3, stack)
+            writes[0].sType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET).dstSet(set).dstBinding(0).descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(1).pImageInfo(matInfo)
+            writes[1].sType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET).dstSet(set).dstBinding(1).descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(1).pImageInfo(shadowInfo)
+            writes[2].sType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET).dstSet(set).dstBinding(2).descriptorType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER).descriptorCount(1).pBufferInfo(bufInfo)
+            vkUpdateDescriptorSets(device, writes, null)
+            set
         }
         return Texture(image, mem, view, descriptorSet)
     }
@@ -617,6 +744,15 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         if (sampler != VK_NULL_HANDLE) vkDestroySampler(device, sampler, null)
         if (descriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, descriptorPool, null)
         if (descriptorSetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, descriptorSetLayout, null)
+        destroyBuffer(uboBuffer, uboMem)
+        if (shadowPipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, shadowPipeline, null)
+        if (shadowPipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, shadowPipelineLayout, null)
+        if (shadowFramebuffer != VK_NULL_HANDLE) vkDestroyFramebuffer(device, shadowFramebuffer, null)
+        if (shadowRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, shadowRenderPass, null)
+        if (shadowSampler != VK_NULL_HANDLE) vkDestroySampler(device, shadowSampler, null)
+        if (shadowView != VK_NULL_HANDLE) vkDestroyImageView(device, shadowView, null)
+        if (shadowImage != VK_NULL_HANDLE) vkDestroyImage(device, shadowImage, null)
+        if (shadowMem != VK_NULL_HANDLE) vkFreeMemory(device, shadowMem, null)
         if (skyPipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, skyPipeline, null)
         if (skyPipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, skyPipelineLayout, null)
         if (pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, pipeline, null)
@@ -637,13 +773,13 @@ layout(location = 0) in vec3 inPos;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inUv;
 layout(location = 3) in vec3 inTint;
-layout(push_constant) uniform PC { mat4 viewProj; vec4 camPos; } pc;
+layout(set = 0, binding = 2) uniform UBO { mat4 viewProj; mat4 lightViewProj; vec4 camPos; } ubo;
 layout(location = 0) out vec3 vNormal;
 layout(location = 1) out vec2 vUv;
 layout(location = 2) out vec3 vTint;
 layout(location = 3) out vec3 vWorldPos;
 void main() {
-    gl_Position = pc.viewProj * vec4(inPos, 1.0);
+    gl_Position = ubo.viewProj * vec4(inPos, 1.0);
     vNormal = inNormal; vUv = inUv; vTint = inTint; vWorldPos = inPos;
 }
 """
@@ -655,24 +791,53 @@ layout(location = 1) in vec2 vUv;
 layout(location = 2) in vec3 vTint;
 layout(location = 3) in vec3 vWorldPos;
 layout(set = 0, binding = 0) uniform sampler2D tex;
-layout(push_constant) uniform PC { mat4 viewProj; vec4 camPos; } pc;
+layout(set = 0, binding = 1) uniform sampler2D shadowMap;
+layout(set = 0, binding = 2) uniform UBO { mat4 viewProj; mat4 lightViewProj; vec4 camPos; } ubo;
 layout(location = 0) out vec4 outColor;
 const vec3 SKY = vec3(0.62, 0.69, 0.80);
 const vec3 GROUND = vec3(0.24, 0.21, 0.18);
+float shadowFactor(vec3 worldPos, float ndl) {
+    vec4 lp = ubo.lightViewProj * vec4(worldPos, 1.0);
+    vec3 proj = lp.xyz / lp.w;
+    vec2 uv = proj.xy * 0.5 + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || proj.z > 1.0) return 1.0;
+    float bias = max(0.0020 * (1.0 - ndl), 0.0007);
+    float current = proj.z - bias;
+    float sum = 0.0;
+    vec2 texel = vec2(1.0 / 2048.0);
+    for (int x = -1; x <= 1; x++) for (int y = -1; y <= 1; y++) {
+        float closest = texture(shadowMap, uv + vec2(x, y) * texel).r;
+        sum += current <= closest ? 1.0 : 0.0;
+    }
+    return sum / 9.0;
+}
 void main() {
     vec3 N = normalize(vNormal);
-    vec3 L = normalize(vec3(0.45, 1.0, 0.35));       // toward the key light
-    float diff = max(dot(N, L), 0.0);
-    vec3 V = normalize(pc.camPos.xyz - vWorldPos);
+    vec3 L = normalize(vec3(0.45, 1.0, 0.35));
+    float ndl = max(dot(N, L), 0.0);
+    vec3 V = normalize(ubo.camPos.xyz - vWorldPos);
     vec3 H = normalize(L + V);
     float spec = pow(max(dot(N, H), 0.0), 48.0) * 0.30;
-    vec3 ambient = mix(GROUND, SKY, clamp(N.y * 0.5 + 0.5, 0.0, 1.0)); // hemisphere ambient
+    float sh = shadowFactor(vWorldPos, ndl);
+    vec3 ambient = mix(GROUND, SKY, clamp(N.y * 0.5 + 0.5, 0.0, 1.0));
     vec3 base = texture(tex, vUv).rgb;
     vec3 albedo = base * vTint;
-    vec3 lit = albedo * (0.55 * ambient + 0.75 * diff) + vec3(spec);
-    vec3 glow = max(vTint - vec3(1.0), 0.0) * base * 1.6;             // emissive selected square
+    vec3 lit = albedo * (0.55 * ambient + 0.75 * ndl * sh) + vec3(spec * sh);
+    vec3 glow = max(vTint - vec3(1.0), 0.0) * base * 1.6;
     outColor = vec4(clamp(lit + glow, 0.0, 1.0), 1.0);
 }
+"""
+
+        private const val SHADOW_VERT = """
+#version 450
+layout(location = 0) in vec3 inPos;
+layout(push_constant) uniform PC { mat4 lightViewProj; } pc;
+void main() { gl_Position = pc.lightViewProj * vec4(inPos, 1.0); }
+"""
+
+        private const val SHADOW_FRAG = """
+#version 450
+void main() {}
 """
 
         private const val SKY_VERT = """
