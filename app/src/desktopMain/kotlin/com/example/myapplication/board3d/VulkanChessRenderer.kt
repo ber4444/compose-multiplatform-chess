@@ -53,6 +53,8 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     private var sampler = VK_NULL_HANDLE
     private var pipelineLayout = VK_NULL_HANDLE
     private var pipeline = VK_NULL_HANDLE
+    private var skyPipelineLayout = VK_NULL_HANDLE
+    private var skyPipeline = VK_NULL_HANDLE
     private var fence = VK_NULL_HANDLE
 
     private val colorFormat = VK_FORMAT_R8G8B8A8_UNORM
@@ -179,13 +181,18 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         val rpBegin = VkRenderPassBeginInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO)
             .renderPass(renderPass).framebuffer(framebuffer).renderArea(area).pClearValues(clear)
         vkCmdBeginRenderPass(commandBuffer, rpBegin, VK_SUBPASS_CONTENTS_INLINE)
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline)
 
         val viewport = VkViewport.calloc(1, stack).x(0f).y(0f).width(width.toFloat()).height(height.toFloat()).minDepth(0f).maxDepth(1f)
         vkCmdSetViewport(commandBuffer, 0, viewport)
         val scissor = VkRect2D.calloc(1, stack)
         scissor.get(0).offset().set(0, 0); scissor.get(0).extent().set(width, height)
         vkCmdSetScissor(commandBuffer, 0, scissor)
+
+        // Gradient sky behind everything (no depth write), then the scene on top.
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline)
+        vkCmdDraw(commandBuffer, 3, 1, 0, 0)
+
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline)
 
         // Push constant: viewProj (mat4) + camPos (vec4).
         val pc = stack.malloc(80)
@@ -291,8 +298,39 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             createSampler(stack)
             createDescriptorLayoutAndPool(stack)
             createPipeline(stack)
+            createSkyPipeline(stack)
         }
         uploadAllTextures()
+    }
+
+    private fun createSkyPipeline(stack: MemoryStack) {
+        val vert = createShaderModule(stack, SKY_VERT, Shaderc.shaderc_glsl_vertex_shader, "skyVert")
+        val frag = createShaderModule(stack, SKY_FRAG, Shaderc.shaderc_glsl_fragment_shader, "skyFrag")
+        val stages = VkPipelineShaderStageCreateInfo.calloc(2, stack)
+        stages[0].sType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO).stage(VK_SHADER_STAGE_VERTEX_BIT).module(vert).pName(stack.UTF8("main"))
+        stages[1].sType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO).stage(VK_SHADER_STAGE_FRAGMENT_BIT).module(frag).pName(stack.UTF8("main"))
+        val vertexInput = VkPipelineVertexInputStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO)
+        val inputAssembly = VkPipelineInputAssemblyStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO).topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+        val viewportState = VkPipelineViewportStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO).viewportCount(1).scissorCount(1)
+        val raster = VkPipelineRasterizationStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO).polygonMode(VK_POLYGON_MODE_FILL).cullMode(VK_CULL_MODE_NONE).frontFace(VK_FRONT_FACE_COUNTER_CLOCKWISE).lineWidth(1f)
+        val multisample = VkPipelineMultisampleStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO).rasterizationSamples(VK_SAMPLE_COUNT_1_BIT)
+        val depth = VkPipelineDepthStencilStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO).depthTestEnable(false).depthWriteEnable(false).depthCompareOp(VK_COMPARE_OP_ALWAYS)
+        val blendAttachment = VkPipelineColorBlendAttachmentState.calloc(1, stack).colorWriteMask(VK_COLOR_COMPONENT_R_BIT or VK_COLOR_COMPONENT_G_BIT or VK_COLOR_COMPONENT_B_BIT or VK_COLOR_COMPONENT_A_BIT).blendEnable(false)
+        val blend = VkPipelineColorBlendStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO).pAttachments(blendAttachment)
+        val dynamic = VkPipelineDynamicStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO).pDynamicStates(stack.ints(VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR))
+
+        val layoutInfo = VkPipelineLayoutCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO)
+        val pLayout = stack.mallocLong(1)
+        check(vkCreatePipelineLayout(device, layoutInfo, null, pLayout) == VK_SUCCESS); skyPipelineLayout = pLayout.get(0)
+
+        val pipelineInfo = VkGraphicsPipelineCreateInfo.calloc(1, stack).sType(VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO)
+            .pStages(stages).pVertexInputState(vertexInput).pInputAssemblyState(inputAssembly).pViewportState(viewportState)
+            .pRasterizationState(raster).pMultisampleState(multisample).pDepthStencilState(depth).pColorBlendState(blend).pDynamicState(dynamic)
+            .layout(skyPipelineLayout).renderPass(renderPass).subpass(0)
+        val pPipeline = stack.mallocLong(1)
+        check(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, pipelineInfo, null, pPipeline) == VK_SUCCESS) { "sky pipeline failed" }
+        skyPipeline = pPipeline.get(0)
+        vkDestroyShaderModule(device, vert, null); vkDestroyShaderModule(device, frag, null)
     }
 
     private fun hasInstanceExtension(stack: MemoryStack, name: String): Boolean {
@@ -579,6 +617,8 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         if (sampler != VK_NULL_HANDLE) vkDestroySampler(device, sampler, null)
         if (descriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, descriptorPool, null)
         if (descriptorSetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, descriptorSetLayout, null)
+        if (skyPipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, skyPipeline, null)
+        if (skyPipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, skyPipelineLayout, null)
         if (pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, pipeline, null)
         if (pipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, pipelineLayout, null)
         if (renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, renderPass, null)
@@ -617,16 +657,43 @@ layout(location = 3) in vec3 vWorldPos;
 layout(set = 0, binding = 0) uniform sampler2D tex;
 layout(push_constant) uniform PC { mat4 viewProj; vec4 camPos; } pc;
 layout(location = 0) out vec4 outColor;
+const vec3 SKY = vec3(0.62, 0.69, 0.80);
+const vec3 GROUND = vec3(0.24, 0.21, 0.18);
 void main() {
     vec3 N = normalize(vNormal);
-    vec3 L = normalize(vec3(0.4, 1.0, 0.3));        // toward the light
+    vec3 L = normalize(vec3(0.45, 1.0, 0.35));       // toward the key light
     float diff = max(dot(N, L), 0.0);
     vec3 V = normalize(pc.camPos.xyz - vWorldPos);
     vec3 H = normalize(L + V);
-    float spec = pow(max(dot(N, H), 0.0), 40.0) * 0.25;
-    vec3 albedo = texture(tex, vUv).rgb * vTint;
-    vec3 color = albedo * (0.35 + 0.75 * diff) + vec3(spec);
-    outColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+    float spec = pow(max(dot(N, H), 0.0), 48.0) * 0.30;
+    vec3 ambient = mix(GROUND, SKY, clamp(N.y * 0.5 + 0.5, 0.0, 1.0)); // hemisphere ambient
+    vec3 base = texture(tex, vUv).rgb;
+    vec3 albedo = base * vTint;
+    vec3 lit = albedo * (0.55 * ambient + 0.75 * diff) + vec3(spec);
+    vec3 glow = max(vTint - vec3(1.0), 0.0) * base * 1.6;             // emissive selected square
+    outColor = vec4(clamp(lit + glow, 0.0, 1.0), 1.0);
+}
+"""
+
+        private const val SKY_VERT = """
+#version 450
+layout(location = 0) out vec2 vUv;
+void main() {
+    vec2 p = vec2(float((gl_VertexIndex << 1) & 2), float(gl_VertexIndex & 2));
+    vUv = p;
+    gl_Position = vec4(p * 2.0 - 1.0, 1.0, 1.0); // far plane, behind everything
+}
+"""
+
+        private const val SKY_FRAG = """
+#version 450
+layout(location = 0) in vec2 vUv;
+layout(location = 0) out vec4 outColor;
+void main() {
+    float t = clamp(vUv.y * 0.5, 0.0, 1.0);                  // 0 bottom -> 1 top
+    vec3 horizon = vec3(0.78, 0.82, 0.88);
+    vec3 zenith = vec3(0.30, 0.45, 0.66);
+    outColor = vec4(mix(horizon, zenith, t), 1.0);
 }
 """
     }

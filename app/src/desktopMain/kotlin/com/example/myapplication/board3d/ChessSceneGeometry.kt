@@ -23,7 +23,7 @@ class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, Scene
         private const val FLOATS_PER_VERTEX = 11
         private const val BOARD_TILES = 4 // board3.jpg is a 4x4 marble-tile checkerboard
         private val NO_TINT = floatArrayOf(1f, 1f, 1f)
-        private val SELECT_TINT = floatArrayOf(0.35f, 1.1f, 0.45f)
+        private val SELECT_TINT = floatArrayOf(0.45f, 1.7f, 0.55f)
 
         fun build(scene: Board3DScene, meshes: Map<PieceKind, MeshData>): ChessSceneGeometry {
             val board = Builder()
