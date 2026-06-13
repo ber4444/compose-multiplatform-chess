@@ -13,21 +13,14 @@ class ImageBitmapChess3DSurface(
     val onFrame: (ImageBitmap) -> Unit
 ) : Chess3DSurface
 
-internal fun IntArray.toImageBitmap(w: Int, h: Int): ImageBitmap {
+/**
+ * Wraps raw `width*height*4` RGBA8888 bytes (the layout the Vulkan renderer reads back from its
+ * `VK_FORMAT_R8G8B8A8_UNORM` color target) into a Compose [ImageBitmap] via Skia, with no channel
+ * swizzling.
+ */
+internal fun rgbaBytesToImageBitmap(rgba: ByteArray, w: Int, h: Int): ImageBitmap {
     val bitmap = Bitmap()
-    bitmap.allocPixels(ImageInfo.makeN32Premul(w, h))
-    val bytes = ByteArray(this.size * 4)
-    for (i in this.indices) {
-        val x = i % w
-        val y = i / w
-        val isDark = ((x / (w / 8.0)).toInt() + (y / (h / 8.0)).toInt()) % 2 == 0
-        val color = if (isDark) 0xFF444444.toInt() else 0xFF888888.toInt()
-        
-        bytes[i * 4] = (color and 0xFF).toByte()
-        bytes[i * 4 + 1] = ((color shr 8) and 0xFF).toByte()
-        bytes[i * 4 + 2] = ((color shr 16) and 0xFF).toByte()
-        bytes[i * 4 + 3] = (0xFF).toByte()
-    }
-    bitmap.installPixels(bytes)
+    bitmap.allocPixels(ImageInfo(w, h, ColorType.RGBA_8888, ColorAlphaType.UNPREMUL))
+    bitmap.installPixels(rgba)
     return bitmap.asComposeImageBitmap()
 }

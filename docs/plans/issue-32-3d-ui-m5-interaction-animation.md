@@ -4,6 +4,8 @@ Prereqs: [issue-32-3d-ui-overview.md](issue-32-3d-ui-overview.md) and merged M1�
 
 Only now does the renderer interface grow. Both additions are backward compatible: existing backends keep compiling and keep working (they just snap instead of animating).
 
+> **Status:** Feature 1 (tap-to-move + selection highlight) is **implemented on desktop** — the `Board3D` host ray-picks taps and routes them through the 2D board's `updateSelected`/`playerMove` path, and the renderer draws the selected square. Feature 2 (the scene differ + animated transitions) is **not yet implemented**. The interface change below for animation (`updatePosition(fen, transition)`) is still pending; the shipped `setSelectedSquare` default-method addition covers selection.
+
 > **Priority note:** Feature 1 (tap-to-move) is **not optional polish** for this project. Because the UI hides the 2D board in 3D mode (a swap, not a co-display — see overview), 3D mode is *view-only* until this lands: a human cannot make a move while in 3D. Treat 3D tap-to-move as the requirement that makes 3D mode actually playable; animation (Feature 2) is the polish.
 
 ## Feature 1: Tap-to-move in 3D

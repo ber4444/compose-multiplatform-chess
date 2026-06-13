@@ -2,6 +2,7 @@ package com.example.myapplication
 
 import com.example.myapplication.board3d.Board3D
 import com.example.myapplication.board3d.Board3DSupport
+import com.example.myapplication.board3d.BoardSquare
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -167,7 +168,31 @@ fun GameScreen(
                 support = board3D,
                 fen = fen,
                 modifier = Modifier.fillMaxWidth().aspectRatio(1f),
-                onUnavailable = { viewModel.markBoard3DUnavailable() }
+                onUnavailable = { viewModel.markBoard3DUnavailable() },
+                selectedSquare = gameState.selectedSquare
+                    .takeIf { it != INVALID_POSITION }
+                    ?.let { BoardSquare(it.first, it.second) },
+                onSquareTapped = onSquareTapped@{ sq ->
+                    // Route a 3D tap through the same selection/move logic the 2D board uses.
+                    if (gameState.autoPlay || animState.pieceToAnimate != null) return@onSquareTapped
+                    val pos = Pair(sq.row, sq.col)
+                    val selectedPieceIndex = gameState.positionsWhite.indexOf(gameState.selectedSquare)
+                    val legalMoves = if (selectedPieceIndex != -1) {
+                        getLegalMovesForPiece(
+                            pieceIndex = selectedPieceIndex,
+                            enemyPieces = gameState.piecesBlack,
+                            enemyPositions = gameState.positionsBlack,
+                            allyPositions = gameState.positionsWhite,
+                            allyPieces = gameState.piecesWhite,
+                            castlingRights = gameState.castlingRights,
+                            enPassantTarget = gameState.enPassantTarget,
+                        )
+                    } else emptyList()
+                    when {
+                        pos in legalMoves -> viewModel.playerMove(selectedPieceIndex, pos)
+                        pos in gameState.positionsWhite -> viewModel.updateSelected(pos)
+                    }
+                }
             )
         } else {
             Board(

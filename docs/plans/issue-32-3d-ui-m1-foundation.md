@@ -4,6 +4,8 @@ Prereq reading: [issue-32-3d-ui-overview.md](issue-32-3d-ui-overview.md) (archit
 
 Deliverables: the Materia spike verdict, the commonMain `Chess3DBoardRenderer` abstraction and scene layer, a 2D/3D toggle with graceful fallback compiled on **all** platforms, a real 3D backend on **desktop JVM**, the chess.glb asset, and CI updates. Phases B and C are independent of the spike outcome; run Phase A first only because it gates Phase D's engine choice.
 
+> **Status: IMPLEMENTED & verified on desktop.** Phases A–F are done. The desktop LWJGL headless Vulkan renderer actually renders the board + glTF pieces via MoltenVK and reads back to a Compose `ImageBitmap` (verified by `DesktopRendererSmokeTest`, which writes PNGs to `app/build/`). The abstraction/toggle/fallback compile on all targets; commonTest + desktopTest are green. Deferred to later sessions: iOS/Android/wasm backends (M2–M4) and the animation half of M5. (3D tap-to-move from M5 was pulled forward to make desktop 3D playable — see M5.)
+
 ## Phase A — Materia spike (timeboxed, throwaway) — ✅ DONE
 
 > **STATUS: COMPLETED 2026-06-12. Gate FAILED at S3 → desktop backend = LWJGL headless Vulkan.** Do not re-run this spike. See the [Spike result](#spike-result) at the bottom for the verdict and the reusable Materia consumption recipe. The remainder of this Phase A section is retained as the record of what was tested.

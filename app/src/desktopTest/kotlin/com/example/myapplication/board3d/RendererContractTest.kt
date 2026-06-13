@@ -13,18 +13,20 @@ class RendererContractTest {
         Assume.assumeTrue(glbFile.exists())
         
         val bytes = glbFile.readBytes()
-        val renderer = VulkanChessRenderer(bytes)
-        
-        val fakeSurface = FakeChess3DSurface()
-        
-        // Update before attach
+        // Constructor does real Vulkan init; skip (don't fail) where no device is available.
+        val renderer = try {
+            VulkanChessRenderer(bytes)
+        } catch (t: Throwable) {
+            Assume.assumeNoException("No Vulkan device available", t); return
+        }
+
+        // updatePosition before attach must be buffered, not crash; detach idempotent; dispose clean.
         renderer.updatePosition("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
-        
-        renderer.attach(fakeSurface)
+        renderer.detach() // idempotent even before attach
+        renderer.attach(FakeChess3DSurface()) // non-ImageBitmap surface: accepted, no render
         renderer.detach()
         renderer.dispose()
-        
-        // No crash should happen
-        assertEquals(true, true)
+
+        assertEquals(true, true) // reaching here without crashing is the contract
     }
 }

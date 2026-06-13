@@ -21,3 +21,7 @@ License: BSD-3-Clause
 ## jgltf-model
 Used for parsing GLTF/GLB models on Desktop.
 License: MIT
+
+## JOML (Java OpenGL Math Library)
+Used for view/projection/model matrices in the Desktop Vulkan renderer.
+License: MIT

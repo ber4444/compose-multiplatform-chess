@@ -17,6 +17,11 @@ interface Chess3DBoardRenderer {
     fun updatePosition(fen: String)
     fun onUserInteraction(event: Board3DInput)
     fun dispose()
+
+    /** Visual-only selection highlight (kept out of [updatePosition] because the position is the
+     *  FEN; selection state lives in Compose per the issue). Default no-op so backends that don't
+     *  render a highlight still compile. */
+    fun setSelectedSquare(square: BoardSquare?) {}
 }
 
 /** Marker for a platform drawing target. Platform impls wrap native handles

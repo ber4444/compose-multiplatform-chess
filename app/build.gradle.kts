@@ -123,8 +123,10 @@ kotlin {
                 implementation(compose.desktop.currentOs)
                 implementation(libs.lwjgl)
                 implementation(libs.lwjgl.vulkan)
+                implementation(libs.lwjgl.shaderc)
                 implementation(libs.jgltf.model)
-                
+                implementation(libs.joml)
+
                 // Add native runtimes for the current OS (and eventually all OSs for distribution)
                 val lwjglVersion = "3.3.6"
                 val osName = System.getProperty("os.name").lowercase()
@@ -135,6 +137,7 @@ kotlin {
                     else -> "natives-linux"
                 }
                 runtimeOnly("org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives")
+                runtimeOnly("org.lwjgl:lwjgl-shaderc:$lwjglVersion:$lwjglNatives")
                 // lwjgl-vulkan only ships a native artifact on macOS (bundled MoltenVK);
                 // on Linux/Windows the system Vulkan loader is used, so there is no
                 // natives-linux/natives-windows artifact to resolve.
@@ -167,6 +170,12 @@ kotlin {
 compose.resources {
     packageOfResClass = "game.app.generated.resources"
     publicResClass = true
+}
+
+// Forward the 3D smoke-test toggle to the forked test JVM. Gradle's `-Dchess3d.smoke=true` only
+// sets the property on the build JVM; tests run in a separate JVM, so propagate it explicitly.
+tasks.withType<Test>().configureEach {
+    providers.systemProperty("chess3d.smoke").orNull?.let { systemProperty("chess3d.smoke", it) }
 }
 
 tasks.configureEach {

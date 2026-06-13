@@ -25,7 +25,9 @@ androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 lwjgl = { module = "org.lwjgl:lwjgl", version = "3.3.6" }
 lwjgl-vulkan = { module = "org.lwjgl:lwjgl-vulkan", version = "3.3.6" }
+lwjgl-shaderc = { module = "org.lwjgl:lwjgl-shaderc", version = "3.3.6" }
 jgltf-model = { module = "de.javagl:jgltf-model", version = "2.0.4" }
+joml = { module = "org.joml:joml", version = "1.10.8" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

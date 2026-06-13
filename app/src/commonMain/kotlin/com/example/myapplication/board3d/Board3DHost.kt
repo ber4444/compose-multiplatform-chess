@@ -1,6 +1,7 @@
 package com.example.myapplication.board3d
 
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -13,6 +14,8 @@ fun Board3D(
     fen: String,
     modifier: Modifier = Modifier,
     onUnavailable: () -> Unit,
+    selectedSquare: BoardSquare? = null,
+    onSquareTapped: (BoardSquare) -> Unit = {},
 ) {
     var renderer by remember { mutableStateOf<Chess3DBoardRenderer?>(null) }
     var initAttempted by remember { mutableStateOf(false) }
@@ -31,34 +34,41 @@ fun Board3D(
 
     if (initAttempted && currentRenderer != null) {
         val cameraController = remember { OrbitCameraController(1f) }
+        val currentOnTap by rememberUpdatedState(onSquareTapped)
 
-        // Send FEN
-        LaunchedEffect(currentRenderer, fen) {
-            currentRenderer.updatePosition(fen)
-        }
+        // Position (FEN) and selection are pushed to the renderer as they change.
+        LaunchedEffect(currentRenderer, fen) { currentRenderer.updatePosition(fen) }
+        LaunchedEffect(currentRenderer, selectedSquare) { currentRenderer.setSelectedSquare(selectedSquare) }
 
-        // Pointer input
         val inputModifier = modifier
             .testTag("board_3d")
-            .pointerInput(Unit) {
+            .pointerInput(currentRenderer) {
+                detectTapGestures { offset ->
+                    // Tap -> ray pick -> board square. Picking is pure common code (camera + math);
+                    // the resulting square is routed back to Compose (selection/move stay there).
+                    val xNorm = offset.x / size.width.toFloat()
+                    val yNorm = offset.y / size.height.toFloat()
+                    val ray = CameraMath.rayFromScreen(cameraController.camera, xNorm, yNorm)
+                    BoardRayPicker.pickSquare(ray)?.let { currentOnTap(it) }
+                }
+            }
+            .pointerInput(currentRenderer) {
                 detectDragGestures { change, dragAmount ->
                     change.consume()
-                    // normalize by size
                     val dxNorm = dragAmount.x / size.width.toFloat()
                     val dyNorm = dragAmount.y / size.height.toFloat()
                     cameraController.onDrag(dxNorm, dyNorm)
                     currentRenderer.onUserInteraction(Board3DInput.SetCamera(cameraController.camera))
                 }
             }
-            .pointerInput(Unit) {
+            .pointerInput(currentRenderer) {
                 detectTransformGestures { _, _, zoom, _ ->
-                    // zoom > 1 means zoom in (distance decrease)
                     cameraController.onZoom(1f / zoom)
                     currentRenderer.onUserInteraction(Board3DInput.SetCamera(cameraController.camera))
                 }
             }
 
-        // Ensure camera aspect is updated
+        // Push the initial camera once.
         LaunchedEffect(currentRenderer) {
             currentRenderer.onUserInteraction(Board3DInput.SetCamera(cameraController.camera))
         }
