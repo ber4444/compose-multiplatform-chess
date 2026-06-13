@@ -163,6 +163,11 @@ fun GameScreen(
         }
 
         if (viewState.show3D && board3D != null) {
+            LaunchedEffect(animState.pieceToAnimate) {
+                if (animState.pieceToAnimate != null) {
+                    viewModel.animationEnd()
+                }
+            }
             val fen = remember(gameState) { FenConverter.gameStateToFen(gameState) }
             Board3D(
                 support = board3D,

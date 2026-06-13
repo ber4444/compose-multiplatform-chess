@@ -264,4 +264,28 @@ class GameViewModelTest {
             assertTrue(piece.set == Set.WHITE, "A white piece turned to black after black's move: ${piece.name}")
         }
     }
+
+    @Test
+    fun `test 3D toggle updates view state correctly`() {
+        val viewModel = GameViewModel()
+        
+        // Initial state
+        assertTrue(!viewModel.viewState.value.show3D, "Should start with 3D off")
+        assertTrue(!viewModel.viewState.value.board3DUnavailable, "Unavailable flag should start false")
+        
+        // Turn on 3D
+        viewModel.setShow3D(true)
+        assertTrue(viewModel.viewState.value.show3D, "setShow3D(true) should set show3D to true")
+        assertTrue(!viewModel.viewState.value.board3DUnavailable, "board3DUnavailable should be false")
+        
+        // Mark unavailable
+        viewModel.markBoard3DUnavailable()
+        assertTrue(!viewModel.viewState.value.show3D, "markBoard3DUnavailable should turn off show3D")
+        assertTrue(viewModel.viewState.value.board3DUnavailable, "markBoard3DUnavailable should set flag to true")
+        
+        // Turn on 3D again
+        viewModel.setShow3D(true)
+        assertTrue(viewModel.viewState.value.show3D, "setShow3D(true) should set show3D to true")
+        assertTrue(!viewModel.viewState.value.board3DUnavailable, "setShow3D(true) should clear unavailable flag")
+    }
 }

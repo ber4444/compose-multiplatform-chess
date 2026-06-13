@@ -480,7 +480,8 @@ class GameViewModel(
                 halfmoveClock = newHalfmoveClock,
                 fullmoveNumber = newFullmoveNumber,
                 drawOffer = null,
-                drawOfferDeclinedBy = null
+                drawOfferDeclinedBy = null,
+                selectedSquare = INVALID_POSITION
             )
 
             Set.BLACK -> _gameState.value.copy(
@@ -497,7 +498,8 @@ class GameViewModel(
                 halfmoveClock = newHalfmoveClock,
                 fullmoveNumber = newFullmoveNumber,
                 drawOffer = null,
-                drawOfferDeclinedBy = null
+                drawOfferDeclinedBy = null,
+                selectedSquare = INVALID_POSITION
             )
         }
 

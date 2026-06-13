@@ -11,12 +11,13 @@ import org.joml.Vector3f
 import java.io.ByteArrayInputStream
 
 /**
- * Interleaved, indexed, normalized geometry for one piece kind.
- * Vertex layout for the Vulkan pipeline: [px, py, pz, nx, ny, nz] per vertex.
+ * Indexed, normalized geometry for one piece kind. Vertex streams are parallel
+ * (one entry per vertex): [positions] (3), [normals] (3, smooth, unit), [uvs] (2, TEXCOORD_0).
  */
 class MeshData(
-    val positions: FloatArray, // 3 floats per vertex (already normalized: base on y=0, centred in x/z)
-    val normals: FloatArray,   // 3 floats per vertex, smooth, unit length
+    val positions: FloatArray,
+    val normals: FloatArray,
+    val uvs: FloatArray,
     val indices: IntArray,
 ) {
     val vertexCount get() = positions.size / 3
@@ -31,13 +32,10 @@ class MeshData(
 }
 
 /**
- * Loads the six piece template meshes from `chess.glb` (self-contained GLB bytes), keyed by
- * [PieceKind]. Pieces are looked up by the glTF node names recorded in [ChessSetMeshNames]
- * (`king`/`queen`/…). Each piece is recentred in x/z with its base on y=0 and the whole set is
- * scaled by a single factor (derived from the tallest piece) so relative sizes are preserved and
- * the tallest piece is ~[TARGET_KING_HEIGHT] world units. Board squares are 1.0 unit (see
- * [BoardGeometry]); this keeps pieces proportional to the squares without depending on the
- * source model's absolute scale.
+ * Loads the six piece template meshes (positions + UVs + smooth normals) from `chess.glb`, keyed by
+ * [PieceKind] via [ChessSetMeshNames] node names. Pieces are recentred in x/z with base on y=0 and
+ * scaled by a single factor (from the tallest piece) so relative sizes are preserved and the tallest
+ * is ~[TARGET_KING_HEIGHT] world units. UVs are the model's TEXCOORD_0, used to sample the wood atlas.
  */
 object GltfChessMeshes {
     private const val TARGET_KING_HEIGHT = 0.95f
@@ -47,20 +45,19 @@ object GltfChessMeshes {
         val nameToKind: Map<String, PieceKind> =
             PieceKind.entries.associateBy { ChessSetMeshNames.getMeshName(it, PieceColor.WHITE) }
 
-        // Raw (node-local-transformed) geometry per kind, before global normalization.
-        data class Raw(val pos: FloatArray, val idx: IntArray)
+        class Raw(val pos: FloatArray, val uv: FloatArray, val idx: IntArray)
         val raw = HashMap<PieceKind, Raw>()
 
         for (node in model.nodeModels) {
             val kind = node.name?.let { nameToKind[it] } ?: continue
             if (raw.containsKey(kind)) continue
-            val (pos, idx) = collectNodeGeometry(node) ?: continue
-            if (pos.isNotEmpty() && idx.isNotEmpty()) raw[kind] = Raw(pos, idx)
+            val collected = collectNodeGeometry(node) ?: continue
+            if (collected.first.isNotEmpty() && collected.third.isNotEmpty()) {
+                raw[kind] = Raw(collected.first, collected.second, collected.third)
+            }
         }
-
         if (raw.isEmpty()) return emptyMap()
 
-        // Single global scale so the tallest piece reaches TARGET_KING_HEIGHT (relative sizes kept).
         var maxHeight = 0f
         for ((_, r) in raw) {
             var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
@@ -71,11 +68,10 @@ object GltfChessMeshes {
         }
         val scale = if (maxHeight > 0f) TARGET_KING_HEIGHT / maxHeight else 1f
 
-        return raw.mapValues { (_, r) -> normalize(r.pos, r.idx, scale) }
+        return raw.mapValues { (_, r) -> normalize(r.pos, r.uv, r.idx, scale) }
     }
 
-    /** Recentre x/z to 0, drop base to y=0, apply [scale], then compute smooth normals. */
-    private fun normalize(pos: FloatArray, idx: IntArray, scale: Float): MeshData {
+    private fun normalize(pos: FloatArray, uv: FloatArray, idx: IntArray, scale: Float): MeshData {
         var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
         var minY = Float.MAX_VALUE
         var minZ = Float.MAX_VALUE; var maxZ = -Float.MAX_VALUE
@@ -99,10 +95,10 @@ object GltfChessMeshes {
             out[i + 2] = (pos[i + 2] - cz) * scale
             i += 3
         }
-        return MeshData(out, computeSmoothNormals(out, idx), idx)
+        val uvs = if (uv.size == (pos.size / 3) * 2) uv else FloatArray((pos.size / 3) * 2)
+        return MeshData(out, computeSmoothNormals(out, idx), uvs, idx)
     }
 
-    /** Per-vertex normals = normalized sum of incident face normals. */
     private fun computeSmoothNormals(pos: FloatArray, idx: IntArray): FloatArray {
         val normals = FloatArray(pos.size)
         var t = 0
@@ -113,9 +109,7 @@ object GltfChessMeshes {
             val nx = uy * vz - uz * vy
             val ny = uz * vx - ux * vz
             val nz = ux * vy - uy * vx
-            for (vi in intArrayOf(a, b, c)) {
-                normals[vi] += nx; normals[vi + 1] += ny; normals[vi + 2] += nz
-            }
+            for (vi in intArrayOf(a, b, c)) { normals[vi] += nx; normals[vi + 1] += ny; normals[vi + 2] += nz }
             t += 3
         }
         var i = 0
@@ -129,58 +123,50 @@ object GltfChessMeshes {
         return normals
     }
 
-    /** Gather positions+indices from a node's mesh primitives (recursing children), with the
-     *  node's local transform applied so geometry is in a consistent orientation. */
-    private fun collectNodeGeometry(node: NodeModel): Pair<FloatArray, IntArray>? {
+    private fun collectNodeGeometry(node: NodeModel): Triple<FloatArray, FloatArray, IntArray>? {
         val positions = ArrayList<Float>()
+        val uvs = ArrayList<Float>()
         val indices = ArrayList<Int>()
         val transform = Matrix4f().set(node.computeLocalTransform(null))
-        appendNode(node, transform, positions, indices)
+        appendNode(node, transform, positions, uvs, indices)
         if (positions.isEmpty() || indices.isEmpty()) return null
-        return positions.toFloatArray() to indices.toIntArray()
+        return Triple(positions.toFloatArray(), uvs.toFloatArray(), indices.toIntArray())
     }
 
-    private fun appendNode(node: NodeModel, transform: Matrix4f, positions: ArrayList<Float>, indices: ArrayList<Int>) {
-        for (mesh in node.meshModels) {
-            for (prim in mesh.meshPrimitiveModels) {
-                appendPrimitive(prim, transform, positions, indices)
-            }
-        }
+    private fun appendNode(node: NodeModel, transform: Matrix4f, positions: ArrayList<Float>, uvs: ArrayList<Float>, indices: ArrayList<Int>) {
+        for (mesh in node.meshModels) for (prim in mesh.meshPrimitiveModels) appendPrimitive(prim, transform, positions, uvs, indices)
         for (child in node.children) {
             val childTransform = Matrix4f(transform).mul(Matrix4f().set(child.computeLocalTransform(null)))
-            appendNode(child, childTransform, positions, indices)
+            appendNode(child, childTransform, positions, uvs, indices)
         }
     }
 
-    private fun appendPrimitive(prim: MeshPrimitiveModel, transform: Matrix4f, positions: ArrayList<Float>, indices: ArrayList<Int>) {
+    private fun appendPrimitive(prim: MeshPrimitiveModel, transform: Matrix4f, positions: ArrayList<Float>, uvs: ArrayList<Float>, indices: ArrayList<Int>) {
         if (prim.mode != 4) return // TRIANGLES only
         val posAccessor = prim.attributes["POSITION"] ?: return
         val floats = AccessorDatas.createFloat(posAccessor)
+        val uvAccessor = prim.attributes["TEXCOORD_0"]
+        val uvFloats = uvAccessor?.let { AccessorDatas.createFloat(it) }
         val baseVertex = positions.size / 3
         val v = Vector3f()
         for (e in 0 until floats.numElements) {
             v.set(floats.get(e, 0), floats.get(e, 1), floats.get(e, 2))
             transform.transformPosition(v)
             positions.add(v.x); positions.add(v.y); positions.add(v.z)
+            if (uvFloats != null) { uvs.add(uvFloats.get(e, 0)); uvs.add(uvFloats.get(e, 1)) } else { uvs.add(0f); uvs.add(0f) }
         }
         val idxAccessor = prim.indices
         if (idxAccessor != null) {
             val data: AccessorData = idxAccessor.accessorData
             val n = data.numElements
             val buf = data.createByteBuffer()
-            val componentType = idxAccessor.componentType
-            for (k in 0 until n) {
-                val index = when (componentType) {
-                    5121 -> buf.get(k).toInt() and 0xFF                       // unsigned byte
-                    5123 -> buf.getShort(k * 2).toInt() and 0xFFFF            // unsigned short
-                    5125 -> buf.getInt(k * 4)                                 // unsigned int
-                    else -> buf.getShort(k * 2).toInt() and 0xFFFF
-                }
-                indices.add(baseVertex + index)
+            when (idxAccessor.componentType) {
+                5121 -> for (k in 0 until n) indices.add(baseVertex + (buf.get(k).toInt() and 0xFF))
+                5125 -> for (k in 0 until n) indices.add(baseVertex + buf.getInt(k * 4))
+                else -> for (k in 0 until n) indices.add(baseVertex + (buf.getShort(k * 2).toInt() and 0xFFFF))
             }
         } else {
-            val count = floats.numElements
-            for (k in 0 until count) indices.add(baseVertex + k)
+            for (k in 0 until floats.numElements) indices.add(baseVertex + k)
         }
     }
 }
