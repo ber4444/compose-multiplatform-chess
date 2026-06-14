@@ -60,7 +60,6 @@ import androidx.compose.ui.unit.min
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
 import game.app.generated.resources.Res
-import game.app.generated.resources.autoplay_label
 import game.app.generated.resources.cancel_button
 import game.app.generated.resources.game_end_message_no_winner
 import game.app.generated.resources.game_end_message_winner
@@ -70,8 +69,6 @@ import game.app.generated.resources.no_winner
 import game.app.generated.resources.play_again_button
 import game.app.generated.resources.promotion_prompt
 import game.app.generated.resources.reset_button
-import game.app.generated.resources.stockfish_disabled
-import game.app.generated.resources.stockfish_enabled
 import game.app.generated.resources.accept_button
 import game.app.generated.resources.decline_button
 import game.app.generated.resources.draw_offer_declined
@@ -94,7 +91,6 @@ fun GameScreen(
     val gameState by viewModel.gameState.collectAsState()
     val animState by viewModel.animState.collectAsState()
     val viewState by viewModel.viewState.collectAsState()
-    val stockfishEnabled by viewModel.stockfishEnabled.collectAsState()
     val scrollState = rememberScrollState()
 
     Column(
@@ -180,7 +176,7 @@ fun GameScreen(
                     ?.let { BoardSquare(it.first, it.second) },
                 onSquareTapped = onSquareTapped@{ sq ->
                     // Route a 3D tap through the same selection/move logic the 2D board uses.
-                    if (gameState.autoPlay || animState.pieceToAnimate != null || gameState.turn != Set.WHITE) return@onSquareTapped
+                    if (animState.pieceToAnimate != null || gameState.turn != Set.WHITE) return@onSquareTapped
                     val pos = Pair(sq.row, sq.col)
                     val selectedPieceIndex = gameState.positionsWhite.indexOf(gameState.selectedSquare)
                     val legalMoves = if (selectedPieceIndex != -1) {
@@ -213,43 +209,18 @@ fun GameScreen(
 
         Spacer(modifier = Modifier.padding(8.dp))
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
+        if (board3D != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(
-                    checked = gameState.autoPlay,
-                    onCheckedChange = viewModel::setAutoPlay,
-                    enabled = !viewState.buttonLock
+                    checked = viewState.show3D,
+                    onCheckedChange = { viewModel.setShow3D(it) },
+                    enabled = !viewState.buttonLock,
+                    modifier = Modifier.testTag("board_3d_toggle")
                 )
-                Text(text = stringResource(Res.string.autoplay_label))
+                Text(text = stringResource(Res.string.board_3d_toggle_label))
             }
-
-            if (board3D != null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(
-                        checked = viewState.show3D,
-                        onCheckedChange = { viewModel.setShow3D(it) },
-                        enabled = !viewState.buttonLock,
-                        modifier = Modifier.testTag("board_3d_toggle")
-                    )
-                    Text(text = stringResource(Res.string.board_3d_toggle_label))
-                }
-            }
-
-            Text(
-                text = stringResource(
-                    if (stockfishEnabled) {
-                        Res.string.stockfish_enabled
-                    } else {
-                        Res.string.stockfish_disabled
-                    }
-                ),
-                style = MaterialTheme.typography.bodyLarge
-            )
         }
-        
+
         if (viewState.board3DUnavailable) {
             Text(
                 text = stringResource(Res.string.board_3d_unavailable),
@@ -274,12 +245,6 @@ fun GameScreen(
                 text = stringResource(Res.string.draw_offer_declined),
                 modifier = Modifier.testTag("draw_offer_declined_text")
             )
-        }
-    }
-
-    LaunchedEffect(gameState.autoPlay, gameState.winState, animState.pieceToAnimate, viewState.moveButtonLock) {
-        if (gameState.autoPlay && gameState.winState == WinState.NONE && animState.pieceToAnimate == null && !viewState.moveButtonLock) {
-            viewModel.startUserTurn()
         }
     }
 }
@@ -347,23 +312,19 @@ fun Board(
     val squareAvgSizePx = remember { mutableStateOf(IntSize.Zero) }
     val selectedPossibleMoves = remember { mutableStateOf(emptyList<Pair<Int, Int>>()) }
 
-    if (!gameState.autoPlay) {
-        if (gameState.selectedSquare != INVALID_POSITION) {
-            val pieceIndex = gameState.positionsWhite.indexOf(gameState.selectedSquare)
-            if (pieceIndex != -1) {
-                selectedPossibleMoves.value = getLegalMovesForPiece(
-                    pieceIndex = pieceIndex,
-                    enemyPieces = gameState.piecesBlack,
-                    enemyPositions = gameState.positionsBlack,
-                    allyPositions = gameState.positionsWhite,
-                    allyPieces = gameState.piecesWhite,
-                    castlingRights = gameState.castlingRights,
-                    enPassantTarget = gameState.enPassantTarget
-                )
-            }
+    if (gameState.selectedSquare != INVALID_POSITION) {
+        val pieceIndex = gameState.positionsWhite.indexOf(gameState.selectedSquare)
+        if (pieceIndex != -1) {
+            selectedPossibleMoves.value = getLegalMovesForPiece(
+                pieceIndex = pieceIndex,
+                enemyPieces = gameState.piecesBlack,
+                enemyPositions = gameState.positionsBlack,
+                allyPositions = gameState.positionsWhite,
+                allyPieces = gameState.piecesWhite,
+                castlingRights = gameState.castlingRights,
+                enPassantTarget = gameState.enPassantTarget
+            )
         }
-    } else if (selectedPossibleMoves.value.isNotEmpty()) {
-        selectedPossibleMoves.value = emptyList()
     }
 
     val boxModifier = Modifier
@@ -409,11 +370,9 @@ fun Board(
                             }
                         }
 
-                        val clickable = !gameState.autoPlay && (
-                            squareType == SquareType.PossibleMove ||
-                                squareType == SquareType.PossibleCapture ||
-                                squareType == SquareType.WhitePiece
-                            )
+                        val clickable = squareType == SquareType.PossibleMove ||
+                            squareType == SquareType.PossibleCapture ||
+                            squareType == SquareType.WhitePiece
 
                         Square(
                             modifier = Modifier.onGloballyPositioned {

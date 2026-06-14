@@ -1,5 +1,15 @@
 # Issue #32 — 3D UI, Milestone 4: Wasm (WebGPU)
 
+> **Status update — engine decision RESOLVED by [M6](issue-32-3d-ui-m6-wgpu4k.md).** The deferred
+> spike below is answered: the renderer is **wgpu4k** (`io.ygdrasil:wgpu4k-toolkit`) — this milestone's
+> own no-go **option (b)** ("a native WebGPU renderer in Kotlin"). Wasm is now delivered as **Phase 2 of
+> the unified wgpu4k backend**, i.e. the *shared* commonMain renderer compiled to `wasmJs`, **not** a
+> wasm-specific Materia/Three.js renderer.
+> - **Still valid here (reused as-is):** the canvas-overlay strategy, the `navigator.gpu` fallback,
+>   the `WasmBoard3D.kt` / `overlayCssRect` / test layout, and the DoD.
+> - **Superseded:** all Materia-specific parts (consumption recipe, Gradle 8.13 publish, fork branch,
+>   the "publish Materia to a Maven repo first" CI step) and the wasm-only `WebGpuChessRenderer`.
+
 Prereqs: [issue-32-3d-ui-overview.md](issue-32-3d-ui-overview.md) and merged [M1](issue-32-3d-ui-m1-foundation.md) (abstraction, `wasmJsTest` toggle tests, `chess.glb`). Suggested branch: `issue-32-3d-m4`.
 
 Goal: a WebGPU backend for the web target, injected from the wasm `Main.kt`. This milestone exercises the production fallback path for real: any browser without WebGPU gets the 2D board with the unavailable message.
@@ -59,4 +69,8 @@ UI tests (`app/src/wasmJsTest/kotlin/com/example/myapplication/`):
 
 ## Spike result
 
-_To be appended: wasm klib verdict, canvas-binding verdict, fork-branch decision._
+**Resolved by [M6](issue-32-3d-ui-m6-wgpu4k.md).** Engine = **wgpu4k** (option (b)). The Kotlin-klib
+forward-compat risk that this milestone flagged as "highest here" is retired in principle — wgpu4k
+tracks Kotlin 2.3.21 (repo is 2.3.20) and resolved + compiled cleanly on desktop. **Still open (M6
+Phase 2):** confirm the `wasmJs` *variant* resolves/compiles and binds to a caller-supplied
+`HTMLCanvasElement` via the overlay strategy above. Fork-branch question is moot (no Materia).

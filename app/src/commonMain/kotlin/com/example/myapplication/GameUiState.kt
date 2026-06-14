@@ -43,7 +43,6 @@ data class GameUiState(
     val inCheckBlack : Boolean = false,
 
     val winState: WinState = WinState.NONE, // The current WinState of the game
-    val autoPlay : Boolean = false,         // If the game is in autoplay mode
 
     val selectedSquare : Pair<Int, Int> = INVALID_POSITION, // The Position on the board that the user has selected
     val pendingPromotion: PendingPromotion? = null,

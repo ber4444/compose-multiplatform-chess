@@ -2,6 +2,17 @@
 
 Implementation plan for [issue #32](https://github.com/ber4444/compose-multiplatform-chess/issues/32): adopt the 3D look of [vkChess](https://github.com/jpbruyere/vkChess) (C++/Vulkan PBR chess) behind a `Chess3DBoardRenderer` abstraction. Initially target Vulkan + MoltenVK; WebGPU later. The 2D board stays the canonical interaction model; 3D is a view layer mirroring the same FEN/game state.
 
+> **Committed direction (2026-06-14): unify all 3D onto a single [wgpu4k](https://github.com/wgpu4k/wgpu4k)
+> WebGPU backend + WGSL.** This **supersedes** the "one engine isn't feasible → Materia-or-native per
+> platform" conclusion in *Engine choice* below. The `Chess3DBoardRenderer` abstraction, the scene
+> layer, and Decisions A/B/C are unchanged and are exactly what makes the swap possible; Decision D
+> (desktop = LWJGL) is superseded by wgpu4k's headless `TextureRenderingContext` (readback per Decision
+> C is kept). Execution is **wasm-first, incremental** — see [M6](issue-32-3d-ui-m6-wgpu4k.md) and the
+> approved plan `is-this-a-feasible-smooth-lemon.md`. The shipping native backends (M1 desktop/LWJGL,
+> M2 iOS/SceneKit, M3 Android/Filament) **stay until each wgpu4k replacement proves parity**, and
+> wgpu4k's Android/iOS backends must leave WIP first. The per-platform engine-decision prose below is
+> retained as historical rationale.
+
 This document holds the decisions and the shared commonMain API. Each milestone has its own execution-ready plan doc:
 
 | Milestone | Doc | Scope |
@@ -10,7 +21,13 @@ This document holds the decisions and the shared commonMain API. Each milestone 
 | M2 | [issue-32-3d-ui-m2-apple.md](issue-32-3d-ui-m2-apple.md) | iOS backend (MoltenVK via Materia, or Metal-direct — mini-spike decides) |
 | M3 | [issue-32-3d-ui-m3-android.md](issue-32-3d-ui-m3-android.md) | Android backend (Vulkan from a `SurfaceView` — Materia or NDK-native) |
 | M4 | [issue-32-3d-ui-m4-wasm.md](issue-32-3d-ui-m4-wasm.md) | Wasm backend (WebGPU overlay canvas — Materia or native WebGPU) |
-| M5 | [issue-32-3d-ui-m5-interaction-animation.md](issue-32-3d-ui-m5-interaction-animation.md) | 3D tap-to-move via ray picking, smooth piece animation, camera polish |
+| M5 | [issue-32-3d-ui-m5-interaction-animation.md](issue-32-3d-ui-m5-interaction-animation.md) | 3D tap-to-move via ray picking, smooth piece animation, camera polish (backend-agnostic) |
+| **M6** | [issue-32-3d-ui-m6-wgpu4k.md](issue-32-3d-ui-m6-wgpu4k.md) | **Committed unification: single wgpu4k (WebGPU) + WGSL backend.** Resolves M4's engine choice; incrementally replaces the M1–M3 native backends (wasm-first). |
+
+> Milestones M1–M3 shipped platform-native backends (LWJGL / SceneKit / Filament); M4 was deferred.
+> Per the committed direction above, these are now **interim** — M6 replaces them with one wgpu4k
+> backend, incrementally and only as each target proves parity. M5 is unaffected (it's above the
+> renderer interface).
 
 ## Scrutiny of the issue's hints
 
@@ -40,14 +57,19 @@ Meta-point: the issue names vkChess for the look and Materia for the engine, but
 
 The original candidate was **[Materia](https://github.com/codeyousef/Materia)** — a KMP 3D library (Three.js-style scene graph, glTF 2.0 loader; backends: WebGPU on JS/wasm, Vulkan via LWJGL 3.3.6 on JVM, Vulkan on Android API 24+, MoltenVK on Apple; Apache-2.0). The M1 Phase A spike has now **run** (2026-06-12; full per-criterion verdict in the [M1 doc's "Spike result"](issue-32-3d-ui-m1-foundation.md#spike-result)).
 
-### Post-spike status (this is the current source of truth)
+### Post-spike status (M1–M3 backend rationale; superseded as the *direction* by the wgpu4k commitment above)
 
 - **Desktop (M1): LWJGL headless Vulkan — Materia rejected.** Materia's JVM backend is structurally a *windowed-swapchain* renderer with **no offscreen render-to-texture path**, which is exactly what the desktop interop needs (Decision C: render offscreen → CPU readback → Compose `ImageBitmap`, off the UI thread). The spike confirmed `RendererFactory` rejects a windowless surface, and GLFW demands the macOS main thread. So desktop uses the hand-written **LWJGL headless Vulkan** pipeline (Decision D), glTF via `de.javagl:jgltf-model`. Positive signal: LWJGL 3.3.6 + MoltenVK detected the GPU on the spike machine, so this pipeline is viable on the same hardware.
 - **What the spike *did* validate about Materia (still useful if it's used elsewhere):** Kotlin 2.3.20 reads Materia's 2.2.20-built **JVM** artifacts with zero metadata errors; its glTF loader parses `chess.glb` in ~86 ms with all six piece nodes as PBR `MeshStandardMaterial`.
 - **Materia is NOT vendored via composite build.** The plan originally assumed `includeBuild("third_party/materia")`. **That does not work**: Materia's `build.gradle.kts` uses Gradle's removed `javaexec{}` script API, but this repo runs Gradle 9.3.1 (AGP 9.1.1 requires it), so the included build won't even configure. If Materia is ever used, it must be **built with its own Gradle 8.13 and published to a Maven repo** (mavenLocal for spikes; a checked-in flat Maven dir or an internal repo for real use). Building it also needs a WGSL compiler (Tint/naga) unless the `compileShaders` task is disabled (SPIR-V is pre-committed), and consumers must add **LWJGL + per-OS native classifiers explicitly** (Materia exposes them runtime-only). See the M1 Spike result for the exact recipe.
 - **Materia (v0.4.1.0) is alpha and not on Maven Central.** Built with **Kotlin 2.2.20** vs this repo's 2.3.20 — JVM klib consumption is proven, but **wasm klibs are far less forward-compatible**, so M4 must re-validate consumption for the `wasmJs` target specifically before relying on it.
 
-### Open decision for M2–M4
+### Open decision for M2–M4 — RESOLVED (wgpu4k unification, 2026-06-14)
+
+**Resolved:** the engine is **wgpu4k** across all targets (see the committed-direction banner and
+[M6](issue-32-3d-ui-m6-wgpu4k.md)). The "two renderer codebases" worry below is accepted *transitionally*
+— the native backends remain only until each wgpu4k replacement proves parity. The original analysis is
+kept for context:
 
 The spike killer (no offscreen path) is **desktop-specific**: M2 (iOS), M3 (Android), and M4 (wasm) render to a *real* surface (`UIKitView`/`SurfaceView`/`<canvas>`), which is what Materia's swapchain renderer wants — so Materia is *not* ruled out there on the same grounds. But choosing it now means **two renderer codebases** (hand-written LWJGL on desktop + Materia on mobile/wasm) plus the publish-to-Maven plumbing and per-target Kotlin-version re-validation. Each of those milestones therefore keeps its own go/no-go mini-spike, and may instead extend a platform-native renderer behind the same `Chess3DBoardRenderer` interface. The `Chess3DBoardRenderer` abstraction isolates the rest of the app from whichever way each milestone lands.
 
@@ -271,3 +293,7 @@ Behavior: `LaunchedEffect(Unit)` calls `support.rendererFactory.create()`; null 
 | Two renderer codebases if M2–M4 adopt Materia (desktop is LWJGL) | Each milestone's mini-spike decides Materia vs platform-native behind the same `Chess3DBoardRenderer` interface; weigh against the publish-to-Maven plumbing cost |
 | chess.gltf piece-model license unverified (Matt Joos via Sketchfab) | **Still blocking.** vkChess README credits the artist but states **no license** for the models. M1 task: verify (CC-BY → attribute); NC/ND/unverifiable → CC0 set substitution; last resort procedural meshes. Don't commit the asset until cleared. |
 | FEN reflects the post-move state while the 2D animation is still playing | Accepted for M1–M4 (3D snaps); resolved by M5 transitions |
+| **(wgpu4k) Dependency is a pre-release SNAPSHOT** | `io.ygdrasil:wgpu4k-toolkit` has no stable release (latest `0.2.0-SNAPSHOT`, only milestone `0.1.0.M2`); from a GitLab Maven repo, not Central. Mitigation: pin the timestamped snapshot; track upstream for a 0.2.0 release before shipping. |
+| **(wgpu4k) Android + iOS backends are WIP** | Confirmed WIP at v27.x — full unification can't complete yet. Mitigation: wasm-first; keep Filament/SceneKit until wgpu4k's native targets mature; gate each migration on visual parity ([M6](issue-32-3d-ui-m6-wgpu4k.md)). |
+| **(wgpu4k) Desktop needs JDK 22+ / jvmTarget 22 (Panama FFM)** | Desktop target raised to `JVM_22`; runtime requires JDK 22+. Mitigation: dev/CI on JDK 26 (✓); the packaged desktop distribution must bundle/require a ≥22 JRE. |
+| **(superseded) Materia rows above** | The Materia-specific risks are historical — the committed direction is wgpu4k, not Materia. |

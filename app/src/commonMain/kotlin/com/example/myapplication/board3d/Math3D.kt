@@ -101,7 +101,7 @@ object BoardRayPicker {
 /** Pure visual camera state machine (yaw/pitch/distance around board center). */
 class OrbitCameraController(private var aspect: Float) {
     private var yawDegrees = 0f
-    private var pitchDegrees = 45f
+    private var pitchDegrees = 30f   // matches DEFAULT_WHITE_VIEW so a fresh controller == the default white view
     private var distance = 12f
     private val center = Vec3(0f, 0f, 0f)
 
@@ -144,7 +144,7 @@ class OrbitCameraController(private var aspect: Float) {
         val DEFAULT_WHITE_VIEW: CameraParams
             get() = OrbitCameraController(1f).apply {
                 yawDegrees = 0f
-                pitchDegrees = 45f
+                pitchDegrees = 30f
                 distance = 12f
             }.camera
     }

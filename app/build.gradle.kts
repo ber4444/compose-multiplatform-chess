@@ -48,7 +48,9 @@ kotlin {
 
     jvm("desktop") {
         compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_11)
+            // wgpu4k's JVM artifact uses Panama FFM (java.lang.foreign), available since JDK 22,
+            // so the desktop target must compile at >= 22 (M6 3D spike). Android stays on JVM_11.
+            jvmTarget.set(JvmTarget.JVM_22)
         }
     }
 
@@ -101,6 +103,9 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.core.ktx)
             implementation(libs.androidx.lifecycle.runtime.compose)
+            implementation(libs.filament.android)
+            implementation(libs.filament.gltfio)
+            implementation(libs.filament.utils)
         }
 
         val androidDeviceTest by getting {
@@ -126,6 +131,7 @@ kotlin {
                 implementation(libs.lwjgl.shaderc)
                 implementation(libs.jgltf.model)
                 implementation(libs.joml)
+                implementation(libs.wgpu4k.toolkit) // M6 3D spike: unified WebGPU backend
 
                 // Add native runtimes for the current OS (and eventually all OSs for distribution)
                 val lwjglVersion = "3.3.6"
@@ -212,10 +218,16 @@ compose.desktop {
 tasks.configureEach {
     if (name == "mergeAndroidDeviceTestAssets") {
         dependsOn("copyAndroidMainComposeResourcesToAndroidAssets")
+        val srcDir = project.layout.buildDirectory.dir("generated/compose/resourceGenerator/androidAssets/copyAndroidMainComposeResourcesToAndroidAssets")
+        // Track the generated compose resources as an input so the merge (and the re-copy below)
+        // re-runs when they change. Without this the task stays UP-TO-DATE on an incremental build
+        // after editing strings.xml, leaving a stale strings blob in the device-test assets. The
+        // compiled Res.string offsets then read misaligned bytes from it -> "input is not properly
+        // padded" Base64 crash in every stringResource(), failing every device test.
+        inputs.dir(srcDir)
         doLast {
-            val srcDir = project.layout.buildDirectory.dir("generated/compose/resourceGenerator/androidAssets/copyAndroidMainComposeResourcesToAndroidAssets").get().asFile
             val destDir = project.layout.buildDirectory.dir("intermediates/assets/androidDeviceTest/mergeAndroidDeviceTestAssets").get().asFile
-            srcDir.copyRecursively(destDir, overwrite = true)
+            srcDir.get().asFile.copyRecursively(destDir, overwrite = true)
         }
     }
 }

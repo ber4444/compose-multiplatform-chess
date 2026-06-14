@@ -73,8 +73,11 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
 
     private var width = 0
     private var height = 0
-    private var colorImage = VK_NULL_HANDLE; private var colorMem = VK_NULL_HANDLE; private var colorView = VK_NULL_HANDLE
-    private var depthImage = VK_NULL_HANDLE; private var depthMem = VK_NULL_HANDLE; private var depthView = VK_NULL_HANDLE
+    private var samples = VK_SAMPLE_COUNT_1_BIT // MSAA sample count (chosen in initVulkan)
+    private var colorImage = VK_NULL_HANDLE; private var colorMem = VK_NULL_HANDLE; private var colorView = VK_NULL_HANDLE // MSAA color
+    private var depthImage = VK_NULL_HANDLE; private var depthMem = VK_NULL_HANDLE; private var depthView = VK_NULL_HANDLE // MSAA depth
+    private var resolveImage = VK_NULL_HANDLE; private var resolveMem = VK_NULL_HANDLE; private var resolveView = VK_NULL_HANDLE // single-sample resolve (read back)
+    private var envImage = VK_NULL_HANDLE; private var envMem = VK_NULL_HANDLE; private var envView = VK_NULL_HANDLE
     private var framebuffer = VK_NULL_HANDLE
     private var readbackBuffer = VK_NULL_HANDLE; private var readbackMem = VK_NULL_HANDLE; private var readbackSize = 0L
 
@@ -100,7 +103,9 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         meshes = GltfChessMeshes.load(glb)
         require(meshes.isNotEmpty()) { "No chess piece meshes found in glb" }
         textureImages = GltfChessTextures.load(glb)
-        runBlocking(renderDispatcher) { initVulkan() }
+        runBlocking(renderDispatcher) {
+            initVulkan()
+        }
     }
 
     override fun attach(surface: Chess3DSurface) {
@@ -203,7 +208,7 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             vkCmdPushConstants(commandBuffer, shadowPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, push)
             for (tex in ChessTexture.entries) {
                 val g = groupBuffers[tex] ?: continue
-                if (g.indexCount == 0 || tex == ChessTexture.BOARD) continue // board doesn't cast onto itself
+                if (g.indexCount == 0) continue
                 vkCmdBindVertexBuffers(commandBuffer, 0, stack.longs(g.vBuf), stack.longs(0))
                 vkCmdBindIndexBuffer(commandBuffer, g.iBuf, 0, VK_INDEX_TYPE_UINT32)
                 vkCmdDrawIndexed(commandBuffer, g.indexCount, 1, 0, 0, 0)
@@ -227,6 +232,9 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         vkCmdSetScissor(commandBuffer, 0, scissor)
 
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline)
+        textures.values.firstOrNull()?.descriptorSet?.let { ds ->
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipelineLayout, 0, stack.longs(ds), null)
+        }
         vkCmdDraw(commandBuffer, 3, 1, 0, 0)
 
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline)
@@ -246,18 +254,20 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         region.bufferOffset(0).bufferRowLength(0).bufferImageHeight(0)
         region.imageSubresource().aspectMask(VK_IMAGE_ASPECT_COLOR_BIT).mipLevel(0).baseArrayLayer(0).layerCount(1)
         region.imageOffset().set(0, 0, 0); region.imageExtent().set(width, height, 1)
-        vkCmdCopyImageToBuffer(commandBuffer, colorImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readbackBuffer, region)
+        vkCmdCopyImageToBuffer(commandBuffer, resolveImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readbackBuffer, region)
 
         check(vkEndCommandBuffer(commandBuffer) == VK_SUCCESS)
     }
 
     private fun updateUbo(stack: MemoryStack, lightVP: Matrix4f) {
         val pp = stack.mallocPointer(1)
-        vkMapMemory(device, uboMem, 0, 144, 0, pp)
-        val buf = pp.getByteBuffer(0, 144)
-        viewProjMatrix().get(0, buf)
+        vkMapMemory(device, uboMem, 0, 208, 0, pp)
+        val buf = pp.getByteBuffer(0, 208)
+        val vp = viewProjMatrix()
+        vp.get(0, buf)
         lightVP.get(64, buf)
         buf.putFloat(128, camera.position.x).putFloat(132, camera.position.y).putFloat(136, camera.position.z).putFloat(140, 1f)
+        vp.invert(Matrix4f()).get(144, buf)
         vkUnmapMemory(device, uboMem)
     }
 
@@ -308,6 +318,7 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             val devices = stack.mallocPointer(count.get(0))
             vkEnumeratePhysicalDevices(instance, count, devices)
             physicalDevice = VkPhysicalDevice(devices.get(0), instance)
+            samples = getMaxUsableSampleCount(stack)
             queueFamily = findGraphicsQueueFamily(stack)
 
             val devExts = mutableListOf<String>()
@@ -341,11 +352,19 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             createPipeline(stack)
             createSkyPipeline(stack)
         }
+        val envBytes = this::class.java.getResourceAsStream("/papermill_hdr16f_cube.ktx")?.readAllBytes()
+        if (envBytes != null) {
+            val ktx = KtxLoader.load(envBytes)
+            if (ktx != null) {
+                uploadKtxTexture(ktx)
+                ktx.free()
+            }
+        }
         uploadAllTextures()
     }
 
     private fun createShadowResources(stack: MemoryStack) {
-        val (ubo, uboM) = createBuffer(144L, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, hostVisible)
+        val (ubo, uboM) = createBuffer(208L, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, hostVisible)
         uboBuffer = ubo; uboMem = uboM
 
         val (img, mem) = createImage(shadowSize, shadowSize, depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT or VK_IMAGE_USAGE_SAMPLED_BIT)
@@ -391,8 +410,8 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         val inputAssembly = VkPipelineInputAssemblyStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO).topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
         val viewportState = VkPipelineViewportStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO).viewportCount(1).scissorCount(1)
         val raster = VkPipelineRasterizationStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO)
-            .polygonMode(VK_POLYGON_MODE_FILL).cullMode(VK_CULL_MODE_NONE).frontFace(VK_FRONT_FACE_COUNTER_CLOCKWISE).lineWidth(1f)
-            .depthBiasEnable(true).depthBiasConstantFactor(1.5f).depthBiasSlopeFactor(2.0f)
+            .polygonMode(VK_POLYGON_MODE_FILL).cullMode(VK_CULL_MODE_FRONT_BIT).frontFace(VK_FRONT_FACE_COUNTER_CLOCKWISE).lineWidth(1f)
+            .depthBiasEnable(true).depthBiasConstantFactor(2.5f).depthBiasSlopeFactor(2.5f)
         val multisample = VkPipelineMultisampleStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO).rasterizationSamples(VK_SAMPLE_COUNT_1_BIT)
         val depth = VkPipelineDepthStencilStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO).depthTestEnable(true).depthWriteEnable(true).depthCompareOp(VK_COMPARE_OP_LESS)
         val blend = VkPipelineColorBlendStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO)
@@ -429,13 +448,13 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         val inputAssembly = VkPipelineInputAssemblyStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO).topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
         val viewportState = VkPipelineViewportStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO).viewportCount(1).scissorCount(1)
         val raster = VkPipelineRasterizationStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO).polygonMode(VK_POLYGON_MODE_FILL).cullMode(VK_CULL_MODE_NONE).frontFace(VK_FRONT_FACE_COUNTER_CLOCKWISE).lineWidth(1f)
-        val multisample = VkPipelineMultisampleStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO).rasterizationSamples(VK_SAMPLE_COUNT_1_BIT)
+        val multisample = VkPipelineMultisampleStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO).rasterizationSamples(samples)
         val depth = VkPipelineDepthStencilStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO).depthTestEnable(false).depthWriteEnable(false).depthCompareOp(VK_COMPARE_OP_ALWAYS)
         val blendAttachment = VkPipelineColorBlendAttachmentState.calloc(1, stack).colorWriteMask(VK_COLOR_COMPONENT_R_BIT or VK_COLOR_COMPONENT_G_BIT or VK_COLOR_COMPONENT_B_BIT or VK_COLOR_COMPONENT_A_BIT).blendEnable(false)
         val blend = VkPipelineColorBlendStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO).pAttachments(blendAttachment)
         val dynamic = VkPipelineDynamicStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO).pDynamicStates(stack.ints(VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR))
 
-        val layoutInfo = VkPipelineLayoutCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO)
+        val layoutInfo = VkPipelineLayoutCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO).pSetLayouts(stack.longs(descriptorSetLayout))
         val pLayout = stack.mallocLong(1)
         check(vkCreatePipelineLayout(device, layoutInfo, null, pLayout) == VK_SUCCESS); skyPipelineLayout = pLayout.get(0)
 
@@ -474,19 +493,36 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         error("no graphics queue family")
     }
 
+    private fun getMaxUsableSampleCount(stack: MemoryStack): Int {
+        val props = VkPhysicalDeviceProperties.calloc(stack)
+        vkGetPhysicalDeviceProperties(physicalDevice, props)
+        val counts = props.limits().framebufferColorSampleCounts() and props.limits().framebufferDepthSampleCounts()
+        if ((counts and VK_SAMPLE_COUNT_8_BIT) != 0) return VK_SAMPLE_COUNT_8_BIT
+        if ((counts and VK_SAMPLE_COUNT_4_BIT) != 0) return VK_SAMPLE_COUNT_4_BIT
+        if ((counts and VK_SAMPLE_COUNT_2_BIT) != 0) return VK_SAMPLE_COUNT_2_BIT
+        return VK_SAMPLE_COUNT_1_BIT
+    }
+
     private fun createRenderPass(stack: MemoryStack) {
-        val attachments = VkAttachmentDescription.calloc(2, stack)
-        attachments[0].format(colorFormat).samples(VK_SAMPLE_COUNT_1_BIT)
-            .loadOp(VK_ATTACHMENT_LOAD_OP_CLEAR).storeOp(VK_ATTACHMENT_STORE_OP_STORE)
+        // 0: MSAA color (rendered into), 1: MSAA depth, 2: single-sample resolve target (read back).
+        val attachments = VkAttachmentDescription.calloc(3, stack)
+        attachments[0].format(colorFormat).samples(samples)
+            .loadOp(VK_ATTACHMENT_LOAD_OP_CLEAR).storeOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
             .stencilLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE).stencilStoreOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
-            .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED).finalLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-        attachments[1].format(depthFormat).samples(VK_SAMPLE_COUNT_1_BIT)
+            .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED).finalLayout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+        attachments[1].format(depthFormat).samples(samples)
             .loadOp(VK_ATTACHMENT_LOAD_OP_CLEAR).storeOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
             .stencilLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE).stencilStoreOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
             .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED).finalLayout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+        attachments[2].format(colorFormat).samples(VK_SAMPLE_COUNT_1_BIT)
+            .loadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE).storeOp(VK_ATTACHMENT_STORE_OP_STORE)
+            .stencilLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE).stencilStoreOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
+            .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED).finalLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
         val colorRef = VkAttachmentReference.calloc(1, stack).attachment(0).layout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
         val depthRef = VkAttachmentReference.calloc(stack).attachment(1).layout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-        val subpass = VkSubpassDescription.calloc(1, stack).pipelineBindPoint(VK_PIPELINE_BIND_POINT_GRAPHICS).colorAttachmentCount(1).pColorAttachments(colorRef).pDepthStencilAttachment(depthRef)
+        val resolveRef = VkAttachmentReference.calloc(1, stack).attachment(2).layout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+        val subpass = VkSubpassDescription.calloc(1, stack).pipelineBindPoint(VK_PIPELINE_BIND_POINT_GRAPHICS)
+            .colorAttachmentCount(1).pColorAttachments(colorRef).pResolveAttachments(resolveRef).pDepthStencilAttachment(depthRef)
         val rpInfo = VkRenderPassCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO).pAttachments(attachments).pSubpasses(subpass)
         val p = stack.mallocLong(1)
         check(vkCreateRenderPass(device, rpInfo, null, p) == VK_SUCCESS) { "vkCreateRenderPass failed" }
@@ -503,17 +539,18 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     }
 
     private fun createDescriptorLayoutAndPool(stack: MemoryStack) {
-        val bindings = VkDescriptorSetLayoutBinding.calloc(3, stack)
+        val bindings = VkDescriptorSetLayoutBinding.calloc(4, stack)
         bindings[0].binding(0).descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(1).stageFlags(VK_SHADER_STAGE_FRAGMENT_BIT) // material albedo
         bindings[1].binding(1).descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(1).stageFlags(VK_SHADER_STAGE_FRAGMENT_BIT) // shadow map
         bindings[2].binding(2).descriptorType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER).descriptorCount(1).stageFlags(VK_SHADER_STAGE_VERTEX_BIT or VK_SHADER_STAGE_FRAGMENT_BIT) // matrices
+        bindings[3].binding(3).descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(1).stageFlags(VK_SHADER_STAGE_FRAGMENT_BIT) // env map
         val layoutInfo = VkDescriptorSetLayoutCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO).pBindings(bindings)
         val pLayout = stack.mallocLong(1)
         check(vkCreateDescriptorSetLayout(device, layoutInfo, null, pLayout) == VK_SUCCESS); descriptorSetLayout = pLayout.get(0)
 
         val n = ChessTexture.entries.size
         val poolSizes = VkDescriptorPoolSize.calloc(2, stack)
-        poolSizes[0].type(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(n * 2)
+        poolSizes[0].type(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(n * 3)
         poolSizes[1].type(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER).descriptorCount(n)
         val poolInfo = VkDescriptorPoolCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO).pPoolSizes(poolSizes).maxSets(n)
         val pPool = stack.mallocLong(1)
@@ -537,7 +574,7 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         val inputAssembly = VkPipelineInputAssemblyStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO).topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
         val viewportState = VkPipelineViewportStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO).viewportCount(1).scissorCount(1)
         val raster = VkPipelineRasterizationStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO).polygonMode(VK_POLYGON_MODE_FILL).cullMode(VK_CULL_MODE_NONE).frontFace(VK_FRONT_FACE_COUNTER_CLOCKWISE).lineWidth(1f)
-        val multisample = VkPipelineMultisampleStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO).rasterizationSamples(VK_SAMPLE_COUNT_1_BIT)
+        val multisample = VkPipelineMultisampleStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO).rasterizationSamples(samples)
         val depth = VkPipelineDepthStencilStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO).depthTestEnable(true).depthWriteEnable(true).depthCompareOp(VK_COMPARE_OP_LESS)
         val blendAttachment = VkPipelineColorBlendAttachmentState.calloc(1, stack).colorWriteMask(VK_COLOR_COMPONENT_R_BIT or VK_COLOR_COMPONENT_G_BIT or VK_COLOR_COMPONENT_B_BIT or VK_COLOR_COMPONENT_A_BIT).blendEnable(false)
         val blend = VkPipelineColorBlendStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO).pAttachments(blendAttachment)
@@ -603,11 +640,13 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             val set = pSet.get(0)
             val matInfo = VkDescriptorImageInfo.calloc(1, stack).imageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL).imageView(view).sampler(sampler)
             val shadowInfo = VkDescriptorImageInfo.calloc(1, stack).imageLayout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL).imageView(shadowView).sampler(shadowSampler)
-            val bufInfo = VkDescriptorBufferInfo.calloc(1, stack).buffer(uboBuffer).offset(0).range(144L)
-            val writes = VkWriteDescriptorSet.calloc(3, stack)
+            val envInfo = VkDescriptorImageInfo.calloc(1, stack).imageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL).imageView(envView).sampler(sampler)
+            val bufInfo = VkDescriptorBufferInfo.calloc(1, stack).buffer(uboBuffer).offset(0).range(208L)
+            val writes = VkWriteDescriptorSet.calloc(4, stack)
             writes[0].sType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET).dstSet(set).dstBinding(0).descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(1).pImageInfo(matInfo)
             writes[1].sType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET).dstSet(set).dstBinding(1).descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(1).pImageInfo(shadowInfo)
             writes[2].sType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET).dstSet(set).dstBinding(2).descriptorType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER).descriptorCount(1).pBufferInfo(bufInfo)
+            writes[3].sType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET).dstSet(set).dstBinding(3).descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(1).pImageInfo(envInfo)
             vkUpdateDescriptorSets(device, writes, null)
             set
         }
@@ -641,18 +680,20 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         if (w == width && h == height && framebuffer != VK_NULL_HANDLE) return
         destroyTargets()
         width = w; height = h
-        val (ci, cm) = createImage(w, h, colorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT or VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+        val (ci, cm) = createImage(w, h, colorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT or VK_IMAGE_USAGE_TRANSFER_SRC_BIT, samples)
         colorImage = ci; colorMem = cm; colorView = createImageView(colorImage, colorFormat, VK_IMAGE_ASPECT_COLOR_BIT)
-        val (di, dm) = createImage(w, h, depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+        val (di, dm) = createImage(w, h, depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, samples)
         depthImage = di; depthMem = dm; depthView = createImageView(depthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT)
+        val (ri, rm) = createImage(w, h, colorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT or VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT)
+        resolveImage = ri; resolveMem = rm; resolveView = createImageView(resolveImage, colorFormat, VK_IMAGE_ASPECT_COLOR_BIT)
         MemoryStack.stackPush().use { stack ->
-            val fbInfo = VkFramebufferCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO).renderPass(renderPass).pAttachments(stack.longs(colorView, depthView)).width(w).height(h).layers(1)
+            val fbInfo = VkFramebufferCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO).renderPass(renderPass).pAttachments(stack.longs(colorView, depthView, resolveView)).width(w).height(h).layers(1)
             val p = stack.mallocLong(1)
             check(vkCreateFramebuffer(device, fbInfo, null, p) == VK_SUCCESS); framebuffer = p.get(0)
         }
         readbackSize = (w.toLong() * h * 4)
-        val (rb, rm) = createBuffer(readbackSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT, hostVisible)
-        readbackBuffer = rb; readbackMem = rm
+        val (rb, rbm) = createBuffer(readbackSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT, hostVisible)
+        readbackBuffer = rb; readbackMem = rbm
     }
 
     private fun uploadGroup(tex: ChessTexture, group: SceneGroup) {
@@ -676,8 +717,8 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         val pp = stack.mallocPointer(1); vkMapMemory(device, mem, 0, data.size.toLong(), 0, pp); pp.getByteBuffer(0, data.size).put(data); vkUnmapMemory(device, mem)
     }
 
-    private fun createImage(w: Int, h: Int, format: Int, usage: Int): Pair<Long, Long> = MemoryStack.stackPush().use { stack ->
-        val info = VkImageCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO).imageType(VK_IMAGE_TYPE_2D).format(format).mipLevels(1).arrayLayers(1).samples(VK_SAMPLE_COUNT_1_BIT).tiling(VK_IMAGE_TILING_OPTIMAL).usage(usage).sharingMode(VK_SHARING_MODE_EXCLUSIVE).initialLayout(VK_IMAGE_LAYOUT_UNDEFINED)
+    private fun createImage(w: Int, h: Int, format: Int, usage: Int, samplesCount: Int = VK_SAMPLE_COUNT_1_BIT): Pair<Long, Long> = MemoryStack.stackPush().use { stack ->
+        val info = VkImageCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO).imageType(VK_IMAGE_TYPE_2D).format(format).mipLevels(1).arrayLayers(1).samples(samplesCount).tiling(VK_IMAGE_TILING_OPTIMAL).usage(usage).sharingMode(VK_SHARING_MODE_EXCLUSIVE).initialLayout(VK_IMAGE_LAYOUT_UNDEFINED)
         info.extent().set(w, h, 1)
         val pImage = stack.mallocLong(1)
         check(vkCreateImage(device, info, null, pImage) == VK_SUCCESS)
@@ -689,11 +730,61 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         pImage.get(0) to pMem.get(0)
     }
 
-    private fun createImageView(image: Long, format: Int, aspect: Int): Long = MemoryStack.stackPush().use { stack ->
-        val info = VkImageViewCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO).image(image).viewType(VK_IMAGE_VIEW_TYPE_2D).format(format)
-        info.subresourceRange().aspectMask(aspect).baseMipLevel(0).levelCount(1).baseArrayLayer(0).layerCount(1)
+    private fun createImageView(image: Long, format: Int, aspect: Int, viewType: Int = VK_IMAGE_VIEW_TYPE_2D, layerCount: Int = 1, mipLevels: Int = 1): Long = MemoryStack.stackPush().use { stack ->
+        val info = VkImageViewCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO).image(image).viewType(viewType).format(format)
+        info.subresourceRange().aspectMask(aspect).baseMipLevel(0).levelCount(mipLevels).baseArrayLayer(0).layerCount(layerCount)
         val p = stack.mallocLong(1)
         check(vkCreateImageView(device, info, null, p) == VK_SUCCESS); p.get(0)
+    }
+
+    private fun uploadKtxTexture(ktx: KtxLoader.KtxImage) {
+        val (stgBuf, stgMem) = createBuffer(ktx.totalSize.toLong(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, hostVisible)
+        MemoryStack.stackPush().use { stack ->
+            val pp = stack.mallocPointer(1); vkMapMemory(device, stgMem, 0, ktx.totalSize.toLong(), 0, pp)
+            pp.getByteBuffer(0, ktx.totalSize).put(ktx.data); vkUnmapMemory(device, stgMem)
+        }
+
+        MemoryStack.stackPush().use { stack ->
+            val info = VkImageCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO).imageType(VK_IMAGE_TYPE_2D).format(VK_FORMAT_R16G16B16A16_SFLOAT)
+                .mipLevels(ktx.mipLevels).arrayLayers(ktx.faces).samples(VK_SAMPLE_COUNT_1_BIT).tiling(VK_IMAGE_TILING_OPTIMAL)
+                .usage(VK_IMAGE_USAGE_SAMPLED_BIT or VK_IMAGE_USAGE_TRANSFER_DST_BIT).sharingMode(VK_SHARING_MODE_EXCLUSIVE)
+                .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED).flags(VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT)
+            info.extent().set(ktx.width, ktx.height, 1)
+            val pImage = stack.mallocLong(1)
+            check(vkCreateImage(device, info, null, pImage) == VK_SUCCESS)
+            val req = VkMemoryRequirements.calloc(stack); vkGetImageMemoryRequirements(device, pImage.get(0), req)
+            val alloc = VkMemoryAllocateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO).allocationSize(req.size())
+                .memoryTypeIndex(findMemoryType(stack, req.memoryTypeBits(), VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+            val pMem = stack.mallocLong(1)
+            check(vkAllocateMemory(device, alloc, null, pMem) == VK_SUCCESS)
+            vkBindImageMemory(device, pImage.get(0), pMem.get(0), 0)
+            envImage = pImage.get(0); envMem = pMem.get(0)
+        }
+
+        singleTimeCommands { cmd ->
+            val stack = MemoryStack.stackGet()
+            val barrier = VkImageMemoryBarrier.calloc(1, stack).sType(VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER)
+                .oldLayout(VK_IMAGE_LAYOUT_UNDEFINED).newLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+                .srcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).dstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+                .image(envImage).srcAccessMask(0).dstAccessMask(VK_ACCESS_TRANSFER_WRITE_BIT)
+            barrier.subresourceRange().aspectMask(VK_IMAGE_ASPECT_COLOR_BIT).baseMipLevel(0).levelCount(ktx.mipLevels).baseArrayLayer(0).layerCount(ktx.faces)
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, null, null, barrier)
+
+            val regions = VkBufferImageCopy.calloc(ktx.mipLevels, stack)
+            for (m in 0 until ktx.mipLevels) {
+                regions[m].bufferOffset(ktx.mipOffsets[m].toLong()).bufferRowLength(0).bufferImageHeight(0)
+                regions[m].imageSubresource().aspectMask(VK_IMAGE_ASPECT_COLOR_BIT).mipLevel(m).baseArrayLayer(0).layerCount(ktx.faces)
+                regions[m].imageOffset().set(0, 0, 0)
+                regions[m].imageExtent().set((ktx.width shr m).coerceAtLeast(1), (ktx.height shr m).coerceAtLeast(1), 1)
+            }
+            vkCmdCopyBufferToImage(cmd, stgBuf, envImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, regions)
+
+            barrier.oldLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL).newLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+                .srcAccessMask(VK_ACCESS_TRANSFER_WRITE_BIT).dstAccessMask(VK_ACCESS_SHADER_READ_BIT)
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, null, null, barrier)
+        }
+        destroyBuffer(stgBuf, stgMem)
+        envView = createImageView(envImage, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_VIEW_TYPE_CUBE, ktx.faces, ktx.mipLevels)
     }
 
     private fun createBuffer(size: Long, usage: Int, memProps: Int): Pair<Long, Long> = MemoryStack.stackPush().use { stack ->
@@ -718,10 +809,13 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         if (framebuffer != VK_NULL_HANDLE) vkDestroyFramebuffer(device, framebuffer, null); framebuffer = VK_NULL_HANDLE
         if (colorView != VK_NULL_HANDLE) vkDestroyImageView(device, colorView, null); colorView = VK_NULL_HANDLE
         if (depthView != VK_NULL_HANDLE) vkDestroyImageView(device, depthView, null); depthView = VK_NULL_HANDLE
+        if (resolveView != VK_NULL_HANDLE) vkDestroyImageView(device, resolveView, null); resolveView = VK_NULL_HANDLE
         if (colorImage != VK_NULL_HANDLE) vkDestroyImage(device, colorImage, null); colorImage = VK_NULL_HANDLE
         if (depthImage != VK_NULL_HANDLE) vkDestroyImage(device, depthImage, null); depthImage = VK_NULL_HANDLE
+        if (resolveImage != VK_NULL_HANDLE) vkDestroyImage(device, resolveImage, null); resolveImage = VK_NULL_HANDLE
         if (colorMem != VK_NULL_HANDLE) vkFreeMemory(device, colorMem, null); colorMem = VK_NULL_HANDLE
         if (depthMem != VK_NULL_HANDLE) vkFreeMemory(device, depthMem, null); depthMem = VK_NULL_HANDLE
+        if (resolveMem != VK_NULL_HANDLE) vkFreeMemory(device, resolveMem, null); resolveMem = VK_NULL_HANDLE
         if (readbackBuffer != VK_NULL_HANDLE) vkDestroyBuffer(device, readbackBuffer, null); readbackBuffer = VK_NULL_HANDLE
         if (readbackMem != VK_NULL_HANDLE) vkFreeMemory(device, readbackMem, null); readbackMem = VK_NULL_HANDLE
     }
@@ -760,6 +854,9 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         if (renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, renderPass, null)
         if (fence != VK_NULL_HANDLE) vkDestroyFence(device, fence, null)
         if (commandPool != VK_NULL_HANDLE) vkDestroyCommandPool(device, commandPool, null)
+        if (envView != VK_NULL_HANDLE) vkDestroyImageView(device, envView, null)
+        if (envImage != VK_NULL_HANDLE) vkDestroyImage(device, envImage, null)
+        if (envMem != VK_NULL_HANDLE) vkFreeMemory(device, envMem, null)
         vkDestroyDevice(device, null)
         if (::instance.isInitialized) vkDestroyInstance(instance, null)
     }
@@ -792,10 +889,10 @@ layout(location = 2) in vec3 vTint;
 layout(location = 3) in vec3 vWorldPos;
 layout(set = 0, binding = 0) uniform sampler2D tex;
 layout(set = 0, binding = 1) uniform sampler2D shadowMap;
-layout(set = 0, binding = 2) uniform UBO { mat4 viewProj; mat4 lightViewProj; vec4 camPos; } ubo;
+layout(set = 0, binding = 2) uniform UBO { mat4 viewProj; mat4 lightViewProj; vec4 camPos; mat4 invViewProj; } ubo;
+layout(set = 0, binding = 3) uniform samplerCube envMap;
 layout(location = 0) out vec4 outColor;
-const vec3 SKY = vec3(0.62, 0.69, 0.80);
-const vec3 GROUND = vec3(0.24, 0.21, 0.18);
+
 float shadowFactor(vec3 worldPos, float ndl) {
     vec4 lp = ubo.lightViewProj * vec4(worldPos, 1.0);
     vec3 proj = lp.xyz / lp.w;
@@ -811,18 +908,38 @@ float shadowFactor(vec3 worldPos, float ndl) {
     }
     return sum / 9.0;
 }
+
+vec3 F_SchlickR(float cosTheta, vec3 F0, float roughness) {
+    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
 void main() {
     vec3 N = normalize(vNormal);
     vec3 L = normalize(vec3(0.45, 1.0, 0.35));
     float ndl = max(dot(N, L), 0.0);
     vec3 V = normalize(ubo.camPos.xyz - vWorldPos);
-    vec3 H = normalize(L + V);
-    float spec = pow(max(dot(N, H), 0.0), 48.0) * 0.30;
+    vec3 R = reflect(-V, N);
+
     float sh = shadowFactor(vWorldPos, ndl);
-    vec3 ambient = mix(GROUND, SKY, clamp(N.y * 0.5 + 0.5, 0.0, 1.0));
+    
+    float roughness = 0.25; // hardcoded average for glossy marble/wood
     vec3 base = texture(tex, vUv).rgb;
     vec3 albedo = base * vTint;
-    vec3 lit = albedo * (0.55 * ambient + 0.75 * ndl * sh) + vec3(spec * sh);
+    
+    vec3 F0 = vec3(0.04); // dielectric
+    vec3 F = F_SchlickR(max(dot(N, V), 0.0), F0, roughness);
+    vec3 kD = (1.0 - F);
+    
+    vec3 irradiance = textureLod(envMap, N, 8.0).rgb;
+    vec3 diffuse = irradiance * albedo;
+    
+    vec3 prefiltered = textureLod(envMap, R, roughness * 9.0).rgb;
+    // approximate BRDF lut for specular
+    vec3 specular = prefiltered * (F * 1.0 + 0.0);
+    
+    vec3 ambient = (kD * diffuse + specular);
+    vec3 lit = ambient + albedo * (0.75 * ndl * sh); // keep some directional light for shadow casting
+
     vec3 glow = max(vTint - vec3(1.0), 0.0) * base * 1.6;
     outColor = vec4(clamp(lit + glow, 0.0, 1.0), 1.0);
 }
@@ -842,23 +959,25 @@ void main() {}
 
         private const val SKY_VERT = """
 #version 450
-layout(location = 0) out vec2 vUv;
+layout(location = 0) out vec3 vViewDir;
+layout(set = 0, binding = 2) uniform UBO { mat4 viewProj; mat4 lightViewProj; vec4 camPos; mat4 invViewProj; } ubo;
+
 void main() {
     vec2 p = vec2(float((gl_VertexIndex << 1) & 2), float(gl_VertexIndex & 2));
-    vUv = p;
-    gl_Position = vec4(p * 2.0 - 1.0, 1.0, 1.0); // far plane, behind everything
+    vec2 ndc = p * 2.0 - 1.0;
+    vec4 unprojected = ubo.invViewProj * vec4(ndc, 1.0, 1.0);
+    vViewDir = unprojected.xyz / unprojected.w - ubo.camPos.xyz;
+    gl_Position = vec4(ndc, 1.0, 1.0); // far plane, behind everything
 }
 """
 
         private const val SKY_FRAG = """
 #version 450
-layout(location = 0) in vec2 vUv;
+layout(location = 0) in vec3 vViewDir;
+layout(set = 0, binding = 3) uniform samplerCube envMap;
 layout(location = 0) out vec4 outColor;
 void main() {
-    float t = clamp(vUv.y * 0.5, 0.0, 1.0);                  // 0 bottom -> 1 top
-    vec3 horizon = vec3(0.78, 0.82, 0.88);
-    vec3 zenith = vec3(0.30, 0.45, 0.66);
-    outColor = vec4(mix(horizon, zenith, t), 1.0);
+    outColor = vec4(textureLod(envMap, normalize(vViewDir), 0.0).rgb, 1.0);
 }
 """
     }

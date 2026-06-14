@@ -29,7 +29,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MyApplicationTheme {
-                ChessApp(viewModel = holder.gameViewModel)
+                ChessApp(
+                    viewModel = holder.gameViewModel,
+                    board3D = androidx.compose.runtime.remember { com.example.myapplication.board3d.androidBoard3DSupport() }
+                )
             }
         }
     }

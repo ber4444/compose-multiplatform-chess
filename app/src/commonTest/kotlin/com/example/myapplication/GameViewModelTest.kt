@@ -232,7 +232,7 @@ class GameViewModelTest {
     }
 
     @Test
-    fun `test white pieces do not turn black after first move in autoplay`() = kotlinx.coroutines.test.runTest {
+    fun `test white pieces do not turn black after first CPU move`() = kotlinx.coroutines.test.runTest {
         val viewModel = GameViewModel()
 
         // Execute the first automatic move for white

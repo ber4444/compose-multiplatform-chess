@@ -30,6 +30,7 @@ class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, Scene
             val white = Builder()
             val black = Builder()
 
+            addGround(board)
             addBoard(board, scene.selectedSquare)
 
             for (piece in scene.pieces) {
@@ -60,6 +61,23 @@ class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, Scene
                 b.vertex(p.x, p.y, p.z, n.x, n.y, n.z, mesh.uvs[v * 2], mesh.uvs[v * 2 + 1], NO_TINT)
             }
             for (i in mesh.indices) b.index(base + i)
+        }
+
+        /** A large stone-gray floor under/around the board, so it sits on a ground (horizon) rather
+         *  than floating on the sky. Sampled from a near-uniform spot of the marble texture + a grey
+         *  tint so it reads as flat stone. Part of the BOARD group so it also receives shadows. */
+        private fun addGround(b: Builder) {
+            val ext = 24f
+            val y = -0.02f
+            val u = 0.42f; val v = 0.12f               // near-uniform white-marble interior
+            val tint = floatArrayOf(0.5f, 0.52f, 0.55f) // flat stone grey
+            val base = b.vertexCount()
+            b.vertex(-ext, y, -ext, 0f, 1f, 0f, u, v, tint)
+            b.vertex(ext, y, -ext, 0f, 1f, 0f, u, v, tint)
+            b.vertex(ext, y, ext, 0f, 1f, 0f, u, v, tint)
+            b.vertex(-ext, y, ext, 0f, 1f, 0f, u, v, tint)
+            b.index(base); b.index(base + 1); b.index(base + 2)
+            b.index(base); b.index(base + 2); b.index(base + 3)
         }
 
         private fun addBoard(b: Builder, selected: BoardSquare?) {

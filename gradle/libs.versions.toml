@@ -11,6 +11,8 @@ androidx-lifecycleRuntimeCompose = "2.10.0"
 androidx-testExtJunit = "1.3.0"
 espressoDevice = "1.1.0"
 junit = "4.13.2"
+filament = "1.71.5"
+wgpu4k = "0.2.0-SNAPSHOT"
 
 [libraries]
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
@@ -28,6 +30,10 @@ lwjgl-vulkan = { module = "org.lwjgl:lwjgl-vulkan", version = "3.3.6" }
 lwjgl-shaderc = { module = "org.lwjgl:lwjgl-shaderc", version = "3.3.6" }
 jgltf-model = { module = "de.javagl:jgltf-model", version = "2.0.4" }
 joml = { module = "org.joml:joml", version = "1.10.8" }
+filament-android = { module = "com.google.android.filament:filament-android", version.ref = "filament" }
+filament-gltfio = { module = "com.google.android.filament:gltfio-android", version.ref = "filament" }
+filament-utils = { module = "com.google.android.filament:filament-utils-android", version.ref = "filament" }
+wgpu4k-toolkit = { module = "io.ygdrasil:wgpu4k-toolkit", version.ref = "wgpu4k" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

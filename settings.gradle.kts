@@ -17,6 +17,13 @@ dependencyResolutionManagement {
         mavenLocal()
         google()
         mavenCentral()
+        // wgpu4k is published to a GitLab Maven repo, not Maven Central (M6 3D spike).
+        // Scoped to io.ygdrasil so it isn't queried for every other dependency.
+        maven {
+            name = "wgpu4k"
+            setUrl("https://gitlab.com/api/v4/projects/25805863/packages/maven")
+            content { includeGroup("io.ygdrasil") }
+        }
         ivy {
             name = "Node.js Distributions"
             setUrl("https://nodejs.org/dist")

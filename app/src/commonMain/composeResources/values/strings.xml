@@ -3,11 +3,8 @@
     <string name="reset_button">Reset</string>
     <string name="play_again_button">Play Again!</string>
     <string name="cancel_button">Cancel</string>
-    <string name="stockfish_enabled">Stockfish: on</string>
-    <string name="stockfish_disabled">Stockfish: off</string>
     <string name="game_end_message_winner">Game ended! %1$s wins!</string>
     <string name="game_end_message_no_winner">Game ended in a %1$s!</string>
-    <string name="autoplay_label">Autoplay</string>
     <string name="promotion_prompt">Promote pawn to:</string>
     <string name="offer_draw_button">Offer Draw</string>
     <string name="draw_offer_prompt">Black offers a draw</string>
