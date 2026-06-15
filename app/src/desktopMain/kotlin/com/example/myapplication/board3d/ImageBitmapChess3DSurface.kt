@@ -18,9 +18,22 @@ class ImageBitmapChess3DSurface(
  * `VK_FORMAT_R8G8B8A8_UNORM` color target) into a Compose [ImageBitmap] via Skia, with no channel
  * swizzling.
  */
-internal fun rgbaBytesToImageBitmap(rgba: ByteArray, w: Int, h: Int): ImageBitmap {
+internal fun rgbaBytesToImageBitmap(rgba: ByteArray, w: Int, h: Int, bytesPerRow: Int = w * 4): ImageBitmap {
     val bitmap = Bitmap()
     bitmap.allocPixels(ImageInfo(w, h, ColorType.RGBA_8888, ColorAlphaType.UNPREMUL))
-    bitmap.installPixels(rgba)
+    if (bytesPerRow == w * 4) {
+        bitmap.installPixels(rgba)
+    } else {
+        val packed = ByteArray(w * h * 4)
+        for (y in 0 until h) {
+            rgba.copyInto(
+                destination = packed,
+                destinationOffset = y * w * 4,
+                startIndex = y * bytesPerRow,
+                endIndex = y * bytesPerRow + w * 4
+            )
+        }
+        bitmap.installPixels(packed)
+    }
     return bitmap.asComposeImageBitmap()
 }

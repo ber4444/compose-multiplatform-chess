@@ -1,98 +1,63 @@
-# Issue #32 — M6: wgpu4k unified WebGPU backend (spike)
+# Issue #32 — M6: wgpu4k desktop renderer — remaining work & decisions
 
-Status: **PHASE 0 IN PROGRESS** — research done, build spike pending.
+The desktop **wgpu4k** WebGPU renderer is **implemented and working** (`DesktopWgpuChessRenderer`):
+build wiring (GitLab repo, `wgpu4k-toolkit` dep, JDK-26 toolchain for desktop), runtime (offscreen
+`CAMetalLayer` → adapter/device via Panama FFM → render → `ImageBitmap` readback), and **F1 (papermill
+environment skybox)** are all done and verified via `Wgpu4kFrameDumpTest` → `build/wgpu-frame.png`.
+(Spike/implementation detail lives in git history.)
 
-Goal: evaluate collapsing the three native 3D backends (Desktop/LWJGL-Vulkan, iOS/SceneKit,
-Android/Filament) plus the missing Web target onto a single Kotlin-first WebGPU stack
-([wgpu4k](https://github.com/wgpu4k/wgpu4k)) + WGSL. Approach and rationale: see the approved plan
-(`is-this-a-feasible-smooth-lemon.md`). Sequencing is **wasm-first, incremental** — each working
-backend stays until its wgpu4k replacement proves parity.
+This doc now tracks only the **remaining fidelity work** and the **standing decisions** that downstream
+WebGPU work depends on — especially [M4 wasm](issue-32-3d-ui-m4-wasm.md) (same WGSL/WebGPU) and the
+[overview](issue-32-3d-ui-overview.md). Apple/Android fidelity is [M7](issue-32-3d-ui-m7-apple-android-fidelity.md).
 
-**Relationship to [M4 wasm](issue-32-3d-ui-m4-wasm.md):** M6 *resolves* M4's deferred engine decision
-rather than replacing the milestone — wgpu4k is M4's own no-go **option (b)**. M4's canvas-overlay
-strategy, `navigator.gpu` fallback, and tests are reused as-is (Phase 2 below); M4's Materia-specific
-parts are superseded.
+## Remaining: F2 — PBR + IBL (the piece lighting)
 
-## Phase 0 gate criteria (kill-switch)
-1. wgpu4k pins cleanly against this repo's Kotlin 2.3.x / CMP 1.10.x (the Materia failure mode).
-2. Minimal textured + shadowed triangle renders on every shipping target.
-3. iOS XCFramework integrates with the existing `embedAndSignAppleFrameworkForXcode` phase.
-4. Fail any → stop.
+The pieces/board still use a simple diffuse+spec shader. Rewrite the `WgpuShaders.WGPU_SHADER` fragment
+to the vkChess look (Sascha-Willems glTF PBR + image-based lighting), mirroring this repo's
+`VulkanChessRenderer` PBR fragment (a proven *simplified* vkChess port) — not vkChess's full IBL
+precompute (see decisions).
 
-## Findings (research)
+- Cook-Torrance direct light: `D_GGX`, `G_SchlicksmithGGX`, `F_Schlick`/`F_SchlickR` (one directional light).
+- IBL ambient from the **env cube already bound for the skybox**: irradiance ≈
+  `textureSampleLevel(env, N, highMip)`; prefiltered ≈ `textureSampleLevel(env, R, roughness*maxMip)`;
+  specular = `prefiltered*(F*brdf.x+brdf.y)` with an analytic BRDF approx (no BRDF-LUT).
+- **Uncharted2 tonemap + gamma 2.2 + exposure (~4.5)** replacing the current Reinhard (match the sky pass).
+- Materials by draw group: pieces = wood dielectric (metallic 0, roughness ~0.45), board marble (~0.25).
+- Wiring: add the env cube + env sampler to the **main** pipeline's bind group (bindings 3,4), the way
+  the sky bind group already does.
+- Files: `WgpuShaders.kt` (fragment), `DesktopWgpuChessRenderer.kt` (bind-group entries).
+- Verify with `Wgpu4kFrameDumpTest` → `build/wgpu-frame.png`.
 
-### 1. Kotlin / CMP compatibility — **PASS** (primary kill-switch cleared)
-- wgpu4k `main` `gradle/libs.versions.toml` declares **Kotlin 2.3.21**; this repo is on **2.3.20**
-  (`gradle/libs.versions.toml:5`) — same 2.3.x line, wgpu4k is one patch *ahead*. No klib
-  forward-compat break (the exact risk that killed Materia in M1–M3).
-- wgpu4k tracks current Compose tooling (activity-compose 1.13.0). This repo's CMP 1.10.3 / Compose
-  UI 1.10.5 are compatible-era.
+## Standing decisions / tradeoffs
 
-### 2. Coordinates & versioning — **resolved**
-- Group **`io.ygdrasil`**. High-level facade artifact: **`io.ygdrasil:wgpu4k-toolkit`** (low-level
-  binding is `wgpu4k-native`, version-scheme-follows-wgpu-native at `v27.0.4`).
-- **Not on Maven Central.** Published to a **GitLab Maven repo**:
-  `https://gitlab.com/api/v4/projects/25805863/packages/maven` (+ `mavenCentral()` + `google()` for
-  transitive deps). This must be added to `dependencyResolutionManagement.repositories`. (Confirmed
-  via the `hello-cube` example's `settings.gradle.kts`.)
-- Published `wgpu4k-toolkit` versions (GitLab `maven-metadata.xml`, updated 2026-05-15):
-  `<latest>0.2.0-SNAPSHOT</latest>`, `<release>0.1.0.M2</release>`; line:
-  preview-1/2/3, 0.0.3-SNAPSHOT, 0.1.0-SNAPSHOT, 0.1.0.M1, 0.1.0.M2, 0.1.1-SNAPSHOT, 0.2.0-SNAPSHOT.
-- **Kotlin alignment:** the Kotlin-2.3.21 build (matching our 2.3.20) is the current **`0.2.0-SNAPSHOT`**.
-  The only milestone *release* (`0.1.0.M2`) predates that. **Caveat:** depending on a SNAPSHOT is fine
-  for the spike but is a stability risk for any real migration — track upstream for a 0.2.0 release.
+- **Simplified IBL, not full precompute** (decision). Sample the env cube's mips directly instead of
+  generating irradiance / prefiltered-env / BRDF-LUT maps. Visually ~equivalent for this scene; far less
+  code. Full precompute is a possible later upgrade.
+- **No dynamic shadows** (decision). vkChess itself has none (grounding is IBL/AO). The repo's Vulkan
+  renderer added soft shadows as an extra — out of scope for parity (would be a separate F3).
+- **wgpu4k is a pre-release SNAPSHOT** (`io.ygdrasil:wgpu4k-toolkit:0.2.0-SNAPSHOT`) from a **GitLab
+  Maven repo** (not Maven Central). Stability risk; watch upstream for a 0.2.0 release before relying on it.
+- **Android & iOS wgpu4k backends are WIP** → the wgpu4k unification covers **Desktop + Web only** for
+  now. Native fidelity goes through the existing SceneKit/Filament engines ([M7](issue-32-3d-ui-m7-apple-android-fidelity.md)).
+- **Desktop keeps CPU readback** (offscreen texture → `ImageBitmap`); Compose Desktop has no zero-copy
+  surface interop. Negligible cost for a near-static board. (Web renders straight to the canvas — no readback.)
+- **Desktop needs JDK 22+ / `jvmTarget` 22** (Panama FFM). `:app:desktopTest` and `:app:run` use a scoped
+  JDK-26 toolchain launcher + Rococoa `--add-opens=java.base/java.lang=ALL-UNNAMED`; the Gradle daemon
+  stays on JDK 21.
 
-### 3. Toolchain prerequisites (verified)
-- **Gradle:** the README says wgpu4k needs **9.10+**, but that is its *build* requirement — **consuming
-  the published artifact resolved and compiled fine on the existing Gradle 9.3.1**. No wrapper bump
-  needed for the spike.
-- **JDK:** wgpu4k JVM path uses Panama FFM (needs JDK 22+). Dev machine has **JDK 26** ✓.
-- **jvmTarget:** raised the **desktop** target `JVM_11` → **`JVM_22`** (`app/build.gradle.kts:50-54`)
-  for FFM; **Android stays `JVM_11`**. Desktop compiled successfully at 22 on JDK 26.
+## WebGPU renderer gotchas (also apply to M4 wasm — same WGSL)
 
-### 4. Backend maturity (per README matrix — may be stale at v27.x; reconfirm)
-- Desktop JVM macOS arm64 ✅; wasm/JS 🆗; **Android 🛠️ WIP; iOS 🛠️ WIP**.
-- Implication: the gate's "all 5 targets now" bar likely **cannot** pass today — Android and iOS
-  backends are work-in-progress. This *aligns* with the wasm-first ordering: the supported targets
-  (Web Phase 2, Desktop Phase 5) come first; Android/iOS (Phases 3–4) wait on wgpu4k maturity.
-- On Apple, wgpu-native uses **Metal directly (no MoltenVK)** — so iOS risk is maturity, not a
-  translation layer.
+These were found the hard way on desktop; M4 reuses the same shaders, so they carry over:
 
-### 5. Build spike results (desktop) — **kill-switches PASS**
-Changes made: `settings.gradle.kts` (GitLab repo, scoped to `io.ygdrasil`), `gradle/libs.versions.toml`
-(`wgpu4k = "0.2.0-SNAPSHOT"` + `wgpu4k-toolkit` lib), `app/build.gradle.kts` (desktop dep + jvmTarget 22).
-- **Resolution PASS:** `:app:dependencyInsight` resolved
-  `io.ygdrasil:wgpu4k-toolkit:0.2.0-SNAPSHOT:20260515.183350-6`, selecting the `jvm` Kotlin platform
-  variant. BUILD SUCCESSFUL on Gradle 9.3.1.
-- **Binary-compat PASS (the Materia kill-switch):** `:app:compileKotlinDesktop` compiled a probe
-  (`app/src/desktopMain/.../board3d/Wgpu4kSpike.kt`) referencing `WGPUContext` + `glfwContextRenderer`.
-  Kotlin 2.3.20 reads wgpu4k 0.2.0-SNAPSHOT metadata cleanly.
-
-### 6. API map (for the real renderer)
-- JVM entry: `io.ygdrasil.webgpu.glfwContextRenderer(width,height,title,…)` → `GLFWContext { windowHandler, wgpuContext }`.
-- `WGPUContext { surface, adapter, device, renderingContext }`; instance via `WGPU.createInstance(backend?)`.
-- Headless path: `io.ygdrasil.webgpu.TextureRenderingContext` — render to a texture (maps onto the
-  existing desktop offscreen→`ImageBitmap` readback; reuse `rgbaBytesToImageBitmap`).
-- Reusable triangle: `wgpu4k-scenes` `HelloTriangle.kt` lives in **commonMain** (cross-target).
-- **Adapter needs a surface (verified via `javap` on `wgpu4k-jvm-0.2.0-SNAPSHOT`):**
-  `WGPU.requestAdapter(NativeSurface, GPUPowerPreference)` — **no surfaceless overload**. Surface
-  factories: `getSurfaceFromMetalLayer(addr)` (macOS), `getSurfaceFromX11Window` / `Wayland` (Linux),
-  `getSurfaceFromWindows` (Win), `getSurfaceFromAndroidWindow`. → A headless desktop renderer must
-  create an **offscreen `CAMetalLayer`** (via the `io.ygdrasil:rococoa` dep on the graph) and pass its
-  address to `getSurfaceFromMetalLayer`, then render into a texture and read back. This is the wgpu4k
-  analogue of the current LWJGL headless pipeline and is the first concrete slice of the desktop renderer.
-- Native lib ships in `wgpu4k-native-jvm` (`v27.0.4`), extracted/loaded via FFM at runtime.
-
-## Verdict so far
-Both desktop kill-switches **PASS** (resolution + Kotlin-2.3.20 binary compat). Realistic near-term gate
-is **Desktop + Web only**; Android/iOS deferred until wgpu4k's native targets leave WIP.
-
-## Next steps
-1. Desktop **runtime** proof / first renderer slice: create an offscreen `CAMetalLayer` (Rococoa) →
-   `getSurfaceFromMetalLayer` → `createInstance()` → `requestAdapter(surface)` → `requestDevice()`
-   (FFM loads `libwgpu_native` on macOS arm64) → render `HelloTriangle` → copy texture to buffer →
-   `rgbaBytesToImageBitmap`. Wire behind `Chess3DBoardRenderer` as the desktop `Board3DSupport`. Best
-   verified visually by running the app (`./gradlew :app:run`).
-2. **wasmJs**: add `wgpu4k-toolkit` to `wasmJsMain`, confirm the wasm variant resolves + compiles,
-   render the same `HelloTriangle` to a canvas overlay (reuse M4's overlay strategy).
-3. Record per-target results + final re-scoped gate verdict.
+- **No projection Y-flip.** WebGPU clip-space Y points up (unlike Vulkan). The Vulkan renderer's
+  `proj.m11 *= -1` must NOT be carried over — it flips the image *and* the winding.
+- **`cullMode = None`.** The shared `ChessSceneGeometry` winds the flat board/ground quads front-down
+  while glTF pieces are front-out; no single cull setting shows both. (Solid pieces rely on depth.)
+- **Skybox is the background → `ChessSceneGeometry.build(includeGround = false)`.** The giant grey ground
+  plane otherwise occludes the environment.
+- **UBO std140 offsets.** `camPos` is a `vec4` (bytes 128–143), so `invViewProj` (mat4) starts at **byte
+  144 = float 36**, not float 48. Getting this wrong silently zeroes the sky's view directions.
+- **WGSL must be ASCII.** naga mis-tokenizes non-ASCII (e.g. an em-dash) inside `//` comments and swallows
+  the next token → "expected expression" parse error / device panic.
+- **Adapter needs a surface** (`requestAdapter` has no surfaceless overload). Desktop builds an offscreen
+  `CAMetalLayer` (Rococoa); web gets its surface from the `<canvas>` (no such dance).

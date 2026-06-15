@@ -9,6 +9,10 @@
 >   the `WasmBoard3D.kt` / `overlayCssRect` / test layout, and the DoD.
 > - **Superseded:** all Materia-specific parts (consumption recipe, Gradle 8.13 publish, fork branch,
 >   the "publish Materia to a Maven repo first" CI step) and the wasm-only `WebGpuChessRenderer`.
+> - **vkChess-fidelity is in scope here too:** wasm reuses the desktop WGSL (skybox + PBR+IBL) and the
+>   env-cubemap approach from [M6](issue-32-3d-ui-m6-wgpu4k.md). Both are WebGPU, so the *renderer* is
+>   near-identical; only the **canvas surface** and the **asset pipeline** differ (see
+>   "vkChess-fidelity & desktop reuse" below).
 
 Prereqs: [issue-32-3d-ui-overview.md](issue-32-3d-ui-overview.md) and merged [M1](issue-32-3d-ui-m1-foundation.md) (abstraction, `wasmJsTest` toggle tests, `chess.glb`). Suggested branch: `issue-32-3d-m4`.
 
@@ -31,6 +35,34 @@ Compose-on-wasm renders the entire app into its own canvas inside the `ComposeTa
 - While any Compose dialog is open (promotion / game over / draw offer), the overlay must hide, since Compose dialogs draw inside the Compose canvas **below** the overlay. Implement by toggling `canvas.style.visibility` from a `LaunchedEffect` keyed on `gameState.pendingPromotion != null || gameState.winState != WinState.NONE || gameState.drawOffer == Set.BLACK`.
 - Rejected alternative (record, don't relitigate): making the Compose canvas transparent over the board and putting the WebGPU canvas underneath — Compose-wasm's canvas alpha behavior is not guaranteed across versions.
 
+## vkChess-fidelity & desktop reuse
+
+The wasm renderer is the desktop wgpu renderer minus the JVM-only bits — **both are wgpu4k + WGSL**, so
+the *rendering* is essentially identical and should be shared, not rewritten:
+
+**Reuse from desktop (M6) verbatim:**
+- The **WGSL** — sky shader + PBR+IBL fragment (`WgpuShaders.kt`). Move these into a shared source set
+  (commonMain, or a `wgpuMain` intermediate shared by desktop+wasm) so both targets compile the same
+  strings. Mind the WGSL gotchas in M6 (no Y-flip, `cullMode = None`, std140 `invViewProj` offset,
+  ASCII-only comments, `includeGround = false`).
+- The renderer structure: env cubemap + skybox pass + Cook-Torrance/IBL PBR + Uncharted2 tonemap, plus
+  the shared scene/geometry (`Board3DSceneMapper`, `ChessSceneGeometry`, `OrbitCameraController`).
+
+**Wasm-specific (the actual M4 work):**
+- **Surface:** render straight to the overlay `<canvas>`'s WebGPU surface — **no offscreen readback**
+  (desktop reads back only because Compose Desktop can't composite a foreign surface; the browser
+  composites the canvas natively). Configure a swapchain on the canvas and present per frame.
+- **Asset pipeline must be wasm-compatible** (desktop uses JVM-only libs):
+  - `KtxLoader` uses LWJGL `MemoryUtil`/`ByteBuffer` → write a pure-Kotlin/common KTX parser (or move a
+    JVM-free one to commonMain) for `papermill_hdr16f_cube.ktx`.
+  - `GltfChessMeshes`/`GltfChessTextures` use `de.javagl:jgltf` + `javax.imageio` (JVM only) → use a wasm
+    glTF path (e.g. wgpu4k-scenes' commonMain `GLTF2` helper) + browser/Kotlin image decode.
+  - Bundle the env + `chess.glb` as commonMain compose resources so `Res.readBytes` works on wasm.
+- **No FFM / JDK-toolchain concerns** — wasm uses the browser's WebGPU directly.
+
+Net: if the WGSL + scene code is shared, F1/F2 come almost for free on wasm; the real effort is the canvas
+surface plus the KTX/glTF/image loaders for `wasmJs`.
+
 ## Files
 
 All in `app/src/wasmJsMain/kotlin/com/example/myapplication/board3d/` unless noted:
@@ -40,9 +72,14 @@ All in `app/src/wasmJsMain/kotlin/com/example/myapplication/board3d/` unless not
   - `@Composable fun WasmBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier)`: `DisposableEffect` creates `<canvas id="board3d-overlay">` appended to `document.body` (`position: absolute; pointer-events: none`), attaches the renderer, removes the canvas and detaches on dispose; `onGloballyPositioned` drives the rect sync; dialog-state visibility toggle as above.
   - `internal fun overlayCssRect(boundsInWindow: Rect, devicePixelRatio: Double): CssRect` — the rect-sync math extracted as a pure function for unit testing.
   - `fun wasmBoard3DSupport(): Board3DSupport` — factory: `if (navigator.gpu == null) null else runCatching { WebGpuChessRenderer(Res.readBytes("files/models/chess.glb")) }.getOrNull()`.
-- **`WebGpuChessRenderer.kt`** — Materia WebGPU backend bound to the overlay canvas; same structure as the other renderers (scene from `Board3DSceneMapper` + `ChessSetMeshNames`, render on demand; on wasm "render thread" = rAF-driven single render when dirty).
+- **`WebGpuChessRenderer.kt`** — the **wgpu4k** WebGPU backend bound to the overlay canvas, reusing the
+  shared WGSL + env/PBR from M6; same structure as the other renderers (scene from `Board3DSceneMapper`,
+  render on demand — on wasm the "render thread" is an rAF-driven render when dirty). Renders to the canvas
+  surface (no readback).
 - **`Main.kt`** (modify) — inject `wasmBoard3DSupport()` into `ChessApp`.
-- **`app/build.gradle.kts`** — wasmJsMain dependency on Materia consumed from a Maven repo (built separately with Gradle 8.13 per the M1 "Materia consumption recipe", or the Kotlin-2.3.20 fork branch); no `includeBuild`, no submodule. Omit entirely on the native-WebGPU rescope.
+- **`app/build.gradle.kts`** — add `io.ygdrasil:wgpu4k-toolkit` to `wasmJsMain` (the GitLab repo is already
+  in `settings.gradle.kts` from M6); confirm the wasm variant resolves and `:app:wasmJsBrowserDistribution`
+  compiles. No Materia, no `includeBuild`.
 
 ## Tests
 
@@ -58,7 +95,7 @@ UI tests (`app/src/wasmJsTest/kotlin/com/example/myapplication/`):
 ## CI
 
 - Existing `:app:check` runs the wasm tests; `:app:wasmJsBrowserDistribution` already in the matrix.
-- If Materia is adopted: CI must publish it to a Maven repo before building `:app` (no submodule/composite build). The native-WebGPU rescope needs no such step.
+- No extra publish step: `wgpu4k-toolkit` resolves from the GitLab Maven repo already configured in `settings.gradle.kts` (M6).
 - Optional render smoke job: run the wasm tests with Chrome flags `--enable-unsafe-webgpu --use-webgpu-adapter=swiftshader` (Karma config), `continue-on-error: true`.
 
 ## Definition of done

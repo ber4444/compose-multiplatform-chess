@@ -22,7 +22,8 @@ This document holds the decisions and the shared commonMain API. Each milestone 
 | M3 | [issue-32-3d-ui-m3-android.md](issue-32-3d-ui-m3-android.md) | Android backend (Vulkan from a `SurfaceView` — Materia or NDK-native) |
 | M4 | [issue-32-3d-ui-m4-wasm.md](issue-32-3d-ui-m4-wasm.md) | Wasm backend (WebGPU overlay canvas — Materia or native WebGPU) |
 | M5 | [issue-32-3d-ui-m5-interaction-animation.md](issue-32-3d-ui-m5-interaction-animation.md) | 3D tap-to-move via ray picking, smooth piece animation, camera polish (backend-agnostic) |
-| **M6** | [issue-32-3d-ui-m6-wgpu4k.md](issue-32-3d-ui-m6-wgpu4k.md) | **Committed unification: single wgpu4k (WebGPU) + WGSL backend.** Resolves M4's engine choice; incrementally replaces the M1–M3 native backends (wasm-first). |
+| **M6** | [issue-32-3d-ui-m6-wgpu4k.md](issue-32-3d-ui-m6-wgpu4k.md) | **Committed unification: single wgpu4k (WebGPU) + WGSL backend.** Resolves M4's engine choice; incrementally replaces the M1–M3 native backends (wasm-first). Desktop done incl. F1 env; F2 PBR/IBL remaining. |
+| **M7** | [issue-32-3d-ui-m7-apple-android-fidelity.md](issue-32-3d-ui-m7-apple-android-fidelity.md) | **vkChess-fidelity for iOS (SceneKit) + Android (Filament)** via their native IBL/skybox — interim until wgpu4k Apple/Android leave WIP. |
 
 > Milestones M1–M3 shipped platform-native backends (LWJGL / SceneKit / Filament); M4 was deferred.
 > Per the committed direction above, these are now **interim** — M6 replaces them with one wgpu4k

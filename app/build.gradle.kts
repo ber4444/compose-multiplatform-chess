@@ -50,7 +50,7 @@ kotlin {
         compilerOptions {
             // wgpu4k's JVM artifact uses Panama FFM (java.lang.foreign), available since JDK 22,
             // so the desktop target must compile at >= 22 (M6 3D spike). Android stays on JVM_11.
-            jvmTarget.set(JvmTarget.JVM_22)
+            jvmTarget.set(JvmTarget.JVM_24)
         }
     }
 
@@ -76,6 +76,14 @@ kotlin {
         }
         androidMain { dependsOn(jvmCommonMain) }
 
+        val wgpuMain by creating {
+            dependsOn(commonMain.get())
+            dependencies {
+                implementation(libs.wgpu4k.toolkit)
+                implementation(libs.joml)
+            }
+        }
+
         commonMain.dependencies {
             implementation(compose.runtime)
             implementation(compose.foundation)
@@ -96,6 +104,10 @@ kotlin {
                 @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
                 implementation(compose.uiTest)
             }
+        }
+
+        val wasmJsMain by getting {
+            dependsOn(wgpuMain)
         }
 
         androidMain.dependencies {
@@ -124,14 +136,13 @@ kotlin {
 
         val desktopMain by getting {
             dependsOn(jvmCommonMain)
+            dependsOn(wgpuMain)
             dependencies {
                 implementation(compose.desktop.currentOs)
                 implementation(libs.lwjgl)
                 implementation(libs.lwjgl.vulkan)
                 implementation(libs.lwjgl.shaderc)
                 implementation(libs.jgltf.model)
-                implementation(libs.joml)
-                implementation(libs.wgpu4k.toolkit) // M6 3D spike: unified WebGPU backend
 
                 // Add native runtimes for the current OS (and eventually all OSs for distribution)
                 val lwjglVersion = "3.3.6"
@@ -183,10 +194,33 @@ compose.resources {
     publicResClass = true
 }
 
+
+
 // Forward the 3D smoke-test toggle to the forked test JVM. Gradle's `-Dchess3d.smoke=true` only
 // sets the property on the build JVM; tests run in a separate JVM, so propagate it explicitly.
 tasks.withType<Test>().configureEach {
     providers.systemProperty("chess3d.smoke").orNull?.let { systemProperty("chess3d.smoke", it) }
+    // wgpu4k's JVM binding is Java-22 bytecode and uses Panama FFM, so it needs a >= 22 runtime.
+    // The Gradle daemon runs on JDK 21 (gradle-daemon-jvm.properties), so run the desktop tests on
+    // the installed JDK 26 via a scoped toolchain launcher; Android/other tests stay on the daemon JDK.
+    if (name == "desktopTest") {
+        javaLauncher.set(
+            javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(26)) }
+        )
+        // Rococoa uses CGLIB which requires reflection access to java.lang.ClassLoader on newer JDKs
+        jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
+    }
+}
+
+// The Compose Desktop run tasks (JavaExec) must also use the >= 22 JDK for wgpu4k's FFM path and the
+// same Rococoa --add-opens. The Gradle daemon is on JDK 21. (M6 3D spike.)
+tasks.withType<JavaExec>().configureEach {
+    if (name == "run" || name == "runDistributable" || name == "runRelease") {
+        javaLauncher.set(
+            javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(26)) }
+        )
+        jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
+    }
 }
 
 tasks.configureEach {
@@ -206,6 +240,9 @@ tasks.configureEach {
 compose.desktop {
     application {
         mainClass = "com.example.myapplication.MainKt"
+        val launcher = javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(26)) }
+        javaHome = launcher.get().metadata.installationPath.asFile.absolutePath
+        jvmArgs += listOf("--add-opens=java.base/java.lang=ALL-UNNAMED")
 
         nativeDistributions {
             packageName = "game"

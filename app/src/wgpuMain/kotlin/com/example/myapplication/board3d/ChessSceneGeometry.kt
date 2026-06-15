@@ -25,12 +25,18 @@ class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, Scene
         private val NO_TINT = floatArrayOf(1f, 1f, 1f)
         private val SELECT_TINT = floatArrayOf(0.45f, 1.7f, 0.55f)
 
-        fun build(scene: Board3DScene, meshes: Map<PieceKind, MeshData>): ChessSceneGeometry {
+        fun build(
+            scene: Board3DScene,
+            meshes: Map<PieceKind, MeshData>,
+            includeGround: Boolean = true,
+        ): ChessSceneGeometry {
             val board = Builder()
             val white = Builder()
             val black = Builder()
 
-            addGround(board)
+            // The big grey floor only makes sense without an environment. With a skybox (wgpu/vkChess
+            // look) it would occlude the sky, so callers can skip it and let the board sit in the env.
+            if (includeGround) addGround(board)
             addBoard(board, scene.selectedSquare)
 
             for (piece in scene.pieces) {

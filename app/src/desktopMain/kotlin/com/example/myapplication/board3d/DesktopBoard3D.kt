@@ -9,7 +9,7 @@ fun desktopBoard3DSupport(): Board3DSupport {
         rendererFactory = {
             runCatching {
                 val bytes = Res.readBytes("files/models/chess.glb")
-                VulkanChessRenderer(bytes)
+                DesktopWgpuChessRenderer(bytes)
             }.getOrNull()
         },
         surfaceContent = { renderer, modifier ->
