@@ -5,7 +5,7 @@ import java.io.ByteArrayInputStream
 import javax.imageio.ImageIO
 
 /** Decoded RGBA8 image (row-major, top-left origin) for upload as a Vulkan sampled image. */
-class TextureImage(val width: Int, val height: Int, val rgba: ByteArray)
+
 
 /**
  * Decodes the embedded base-colour textures from `chess.glb` (by glTF image name) into RGBA8 bytes:
@@ -30,6 +30,16 @@ object GltfChessTextures {
             result[tex] = toRgba(decoded)
         }
         return result
+    }
+
+    /** Decode a single embedded image by its glTF name (e.g. the frame's `marble-speckled-albedo`). */
+    fun loadImage(glb: ByteArray, name: String): TextureImage? {
+        val model = GltfModelReader().readWithoutReferences(ByteArrayInputStream(glb))
+        val image = model.imageModels.firstOrNull { it.name == name } ?: return null
+        val data = image.imageData ?: return null
+        val bytes = ByteArray(data.remaining()).also { data.duplicate().get(it) }
+        val decoded = ImageIO.read(ByteArrayInputStream(bytes)) ?: return null
+        return toRgba(decoded)
     }
 
     private fun toRgba(img: java.awt.image.BufferedImage): TextureImage {

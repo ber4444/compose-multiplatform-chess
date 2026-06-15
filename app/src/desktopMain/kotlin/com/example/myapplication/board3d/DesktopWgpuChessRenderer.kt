@@ -9,7 +9,8 @@ import io.ygdrasil.wgpu.wgpuSetLogLevel
 import ffi.LibraryLoader
 import androidx.compose.ui.graphics.ImageBitmap
 
-import org.joml.Matrix4f
+import com.example.myapplication.board3d.math.Matrix4f
+import com.example.myapplication.board3d.math.Vector3f
 
 const val FenStart = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
@@ -63,10 +64,22 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     private var envView: GPUTextureView? = null
     private var envSampler: GPUSampler? = null
 
+    // Engraved board frame: the real vkChess `frame` geometry from chess.glb (material
+    // marble-speckled-albedo, with the A-H/rank labels), drawn as an isolated group on the scene pipeline.
+    private val frameMesh: MeshData?
+    private val frameImage: TextureImage?
+    private var frameTexture: GPUTexture? = null
+    private var frameVBuf: GPUBuffer? = null
+    private var frameIBuf: GPUBuffer? = null
+    private var frameIndexCount: Int = 0
+    private var frameBindGroup: GPUBindGroup? = null
+
     init {
         meshes = GltfChessMeshes.load(glb)
         require(meshes.isNotEmpty()) { "No chess piece meshes found in glb" }
         textureImages = GltfChessTextures.load(glb)
+        frameMesh = GltfChessMeshes.loadFrame(glb)
+        frameImage = frameMesh?.let { GltfChessTextures.loadImage(glb, "marble-speckled-albedo") }
     }
 
     override fun attach(surface: Chess3DSurface) {
@@ -207,8 +220,72 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             )
         )
 
+        // --- Engraved board frame: real glb geometry (scaled 0.5) textured with marble-speckled. ---
+        val fm = frameMesh
+        val fimg = frameImage
+        if (fm != null && fimg != null && fm.indices.isNotEmpty()) {
+            val ftex = device!!.createTexture(
+                TextureDescriptor(
+                    size = Extent3D(fimg.width.toUInt(), fimg.height.toUInt(), 1u),
+                    format = GPUTextureFormat.RGBA8Unorm,
+                    usage = GPUTextureUsage.TextureBinding or GPUTextureUsage.CopyDst
+                )
+            )
+            val fbpr = fimg.width.toUInt() * 4u
+            val fstaging = device!!.createBuffer(
+                BufferDescriptor(
+                    size = (fbpr * fimg.height.toUInt()).toULong(),
+                    usage = GPUBufferUsage.CopySrc or GPUBufferUsage.MapWrite,
+                    mappedAtCreation = true
+                )
+            )
+            fstaging.getMappedRange().setBytes(0uL, fimg.rgba)
+            fstaging.unmap()
+            val fenc = device!!.createCommandEncoder()
+            fenc.copyBufferToTexture(
+                TexelCopyBufferInfo(buffer = fstaging, bytesPerRow = fbpr, rowsPerImage = fimg.height.toUInt()),
+                TexelCopyTextureInfo(texture = ftex),
+                Extent3D(fimg.width.toUInt(), fimg.height.toUInt(), 1u)
+            )
+            device!!.queue.submit(listOf(fenc.finish()))
+            fstaging.close()
+            frameTexture = ftex
+
+            val fmat = device!!.createBuffer(
+                BufferDescriptor(size = 16uL, usage = GPUBufferUsage.Uniform or GPUBufferUsage.CopyDst)
+            )
+            device!!.queue.writeBuffer(fmat, 0u, floatArrayOf(0.5f, 0f, 0f, 0f), 0u, 4uL)
+
+            val fverts = buildFrameVertices(fm)
+            val fvb = device!!.createBuffer(
+                BufferDescriptor(size = (fverts.size * 4).toULong(), usage = GPUBufferUsage.Vertex or GPUBufferUsage.CopyDst)
+            )
+            device!!.queue.writeBuffer(fvb, 0u, fverts, 0u, fverts.size.toULong())
+            val fib = device!!.createBuffer(
+                BufferDescriptor(size = (fm.indices.size * 4).toULong(), usage = GPUBufferUsage.Index or GPUBufferUsage.CopyDst)
+            )
+            device!!.queue.writeBuffer(fib, 0u, fm.indices, 0u, fm.indices.size.toULong())
+            frameVBuf = fvb
+            frameIBuf = fib
+            frameIndexCount = fm.indices.size
+
+            frameBindGroup = device!!.createBindGroup(
+                BindGroupDescriptor(
+                    layout = renderPipeline!!.getBindGroupLayout(0u),
+                    entries = listOf(
+                        BindGroupEntry(binding = 0u, resource = ftex.createView()),
+                        BindGroupEntry(binding = 1u, resource = BufferBinding(buffer = uniformBuffer!!)),
+                        BindGroupEntry(binding = 2u, resource = sampler!!),
+                        BindGroupEntry(binding = 3u, resource = envView!!),
+                        BindGroupEntry(binding = 4u, resource = envSampler!!),
+                        BindGroupEntry(binding = 5u, resource = BufferBinding(buffer = fmat))
+                    )
+                )
+            )
+        }
+
         rebuildGeometry(FenStart)
-        
+
         // Capture size once; textures/staging below are sized to it. On resize the surface is
         // recreated and attach() restarts this loop at the new size.
         val w = surface.widthPx
@@ -283,6 +360,13 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
                 pass.setIndexBuffer(gb.iBuf!!, GPUIndexFormat.Uint32)
                 pass.drawIndexed(gb.indexCount.toUInt())
             }
+            // Engraved frame (real glb geometry) — same pipeline + vertex layout as the scene groups.
+            frameBindGroup?.let { fbg ->
+                pass.setBindGroup(0u, fbg)
+                pass.setVertexBuffer(0u, frameVBuf!!)
+                pass.setIndexBuffer(frameIBuf!!, GPUIndexFormat.Uint32)
+                pass.drawIndexed(frameIndexCount.toUInt())
+            }
             pass.end()
 
             encoder.copyTextureToBuffer(
@@ -337,6 +421,11 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         envView = null
         envSampler = null
         envTexture = null
+        frameBindGroup = null
+        frameVBuf = null
+        frameIBuf = null
+        frameIndexCount = 0
+        frameTexture = null
         device?.close(); device = null
         adapter?.close(); adapter = null
         surfaceWrapper = null
@@ -483,7 +572,7 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
                 usage = GPUBufferUsage.Uniform or GPUBufferUsage.CopyDst,
             )
         )
-        val roughness = if (tex == ChessTexture.BOARD) 0.25f else 0.45f
+        val roughness = if (tex == ChessTexture.BOARD) 0.25f else 0.35f
         val matData = floatArrayOf(roughness, 0f, 0f, 0f)
         device!!.queue.writeBuffer(matBuffer, 0u, matData, 0u, 4uL)
         tg.materialBuffer = matBuffer
@@ -539,6 +628,22 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         )
     }
 
+    /** Interleave the frame mesh into the scene vertex format (pos3,normal3,uv2,tint3); the tint bakes
+     *  material 'Material' baseColorFactor (dark blue-grey stone). */
+    private fun buildFrameVertices(mesh: MeshData): FloatArray {
+        val tr = 0.27f; val tg = 0.27f; val tb = 0.30f
+        val n = mesh.positions.size / 3
+        val out = FloatArray(n * 11)
+        for (v in 0 until n) {
+            val o = v * 11
+            out[o] = mesh.positions[v * 3]; out[o + 1] = mesh.positions[v * 3 + 1]; out[o + 2] = mesh.positions[v * 3 + 2]
+            out[o + 3] = mesh.normals[v * 3]; out[o + 4] = mesh.normals[v * 3 + 1]; out[o + 5] = mesh.normals[v * 3 + 2]
+            out[o + 6] = mesh.uvs[v * 2]; out[o + 7] = mesh.uvs[v * 2 + 1]
+            out[o + 8] = tr; out[o + 9] = tg; out[o + 10] = tb
+        }
+        return out
+    }
+
     private fun createUniformBuffer() {
         if (device == null) return
         val size = 64uL * 4uL // 4 mat4x4
@@ -568,14 +673,10 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     }
 
     private fun lightViewProj(): Matrix4f {
-        val lightDir = org.joml.Vector3f(0.45f, 1.0f, 0.35f).normalize()
-        val lightPos = org.joml.Vector3f(camera.target.x, camera.target.y, camera.target.z).add(org.joml.Vector3f(lightDir).mul(30f))
+        val lightDir = Vector3f(0.45f, 1.0f, 0.35f).normalize()
+        val lightPos = Vector3f(camera.target.x, camera.target.y, camera.target.z).add(Vector3f(lightDir).mul(30f))
         val proj = Matrix4f().ortho(-20f, 20f, -20f, 20f, 0.1f, 100f, true)
-        val view = Matrix4f().lookAt(
-            lightPos, 
-            org.joml.Vector3f(camera.target.x, camera.target.y, camera.target.z), 
-            org.joml.Vector3f(0f, 1f, 0f)
-        )
+        val view = Matrix4f().lookAt(lightPos, Vector3f(camera.target.x, camera.target.y, camera.target.z), Vector3f(0f, 1f, 0f))
         return proj.mul(view)
     }
 

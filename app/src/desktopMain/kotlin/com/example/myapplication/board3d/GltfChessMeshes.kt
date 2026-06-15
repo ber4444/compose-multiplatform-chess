@@ -10,26 +10,6 @@ import org.joml.Matrix4f
 import org.joml.Vector3f
 import java.io.ByteArrayInputStream
 
-/**
- * Indexed, normalized geometry for one piece kind. Vertex streams are parallel
- * (one entry per vertex): [positions] (3), [normals] (3, smooth, unit), [uvs] (2, TEXCOORD_0).
- */
-class MeshData(
-    val positions: FloatArray,
-    val normals: FloatArray,
-    val uvs: FloatArray,
-    val indices: IntArray,
-) {
-    val vertexCount get() = positions.size / 3
-    val triangleCount get() = indices.size / 3
-    fun boundingHeight(): Float {
-        if (positions.isEmpty()) return 0f
-        var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-        var i = 1
-        while (i < positions.size) { val y = positions[i]; if (y < minY) minY = y; if (y > maxY) maxY = y; i += 3 }
-        return maxY - minY
-    }
-}
 
 /**
  * Loads the six piece template meshes (positions + UVs + smooth normals) from `chess.glb`, keyed by
@@ -69,6 +49,21 @@ object GltfChessMeshes {
         val scale = if (maxHeight > 0f) TARGET_KING_HEIGHT / maxHeight else 1f
 
         return raw.mapValues { (_, r) -> normalize(r.pos, r.uv, r.idx, scale) }
+    }
+
+    /**
+     * Loads the engraved board frame (the `frame`/`Cube` node, material `Material`) from `chess.glb`,
+     * scaled by 0.5 so the glb board (square size 2, 8x8 spanning +/-8) lines up with the procedural
+     * board (square size 1, +/-4): glb a1 center (-7,7) -> (-3.5,3.5). UVs map the A-H/rank labels onto
+     * the marble-speckled texture. Returns null if the node is absent.
+     */
+    fun loadFrame(glb: ByteArray): MeshData? {
+        val model = GltfModelReader().readWithoutReferences(ByteArrayInputStream(glb))
+        val node = model.nodeModels.firstOrNull { it.name == "frame" } ?: return null
+        val (pos, uv, idx) = collectNodeGeometry(node) ?: return null
+        val scaled = FloatArray(pos.size) { pos[it] * 0.5f }
+        val uvs = if (uv.size == (pos.size / 3) * 2) uv else FloatArray((pos.size / 3) * 2)
+        return MeshData(scaled, computeSmoothNormals(scaled, idx), uvs, idx)
     }
 
     private fun normalize(pos: FloatArray, uv: FloatArray, idx: IntArray, scale: Float): MeshData {

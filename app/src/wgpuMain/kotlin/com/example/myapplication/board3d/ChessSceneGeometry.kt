@@ -1,7 +1,7 @@
 package com.example.myapplication.board3d
 
-import org.joml.Matrix4f
-import org.joml.Vector3f
+import com.example.myapplication.board3d.math.Matrix4f
+import com.example.myapplication.board3d.math.Vector3f
 
 /** Which embedded texture a draw group samples. */
 enum class ChessTexture { BOARD, WHITE, BLACK }
@@ -41,9 +41,10 @@ class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, Scene
 
             for (piece in scene.pieces) {
                 val mesh = meshes[piece.kind] ?: continue
+                val angleRad = piece.rotationYDegrees * (kotlin.math.PI.toFloat() / 180f)
                 val model = Matrix4f()
                     .translate(piece.position.x, piece.position.y, piece.position.z)
-                    .rotateY(Math.toRadians(piece.rotationYDegrees.toDouble()).toFloat())
+                    .rotateY(angleRad)
                 addMesh(if (piece.color == PieceColor.WHITE) white else black, mesh, model)
             }
             return ChessSceneGeometry(

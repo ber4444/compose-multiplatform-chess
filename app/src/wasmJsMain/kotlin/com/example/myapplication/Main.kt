@@ -28,7 +28,10 @@ fun main() {
         }
 
         MyApplicationTheme(darkTheme = false) {
-            ChessApp(viewModel = viewModel)
+            ChessApp(
+                viewModel = viewModel,
+                board3D = com.example.myapplication.board3d.wasmBoard3DSupport(viewModel)
+            )
         }
     }
 }

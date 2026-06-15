@@ -26,7 +26,7 @@ class Wgpu4kFrameDumpTest {
 
         val renderer = DesktopWgpuChessRenderer(glb)
         val firstFrame = CompletableDeferred<ImageBitmap>()
-        val surface = ImageBitmapChess3DSurface(640, 640) { bmp ->
+        val surface = ImageBitmapChess3DSurface(720, 720) { bmp ->
             if (!firstFrame.isCompleted) firstFrame.complete(bmp)
         }
         try {

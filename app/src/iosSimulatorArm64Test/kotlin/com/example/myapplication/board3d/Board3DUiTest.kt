@@ -100,4 +100,50 @@ class Board3DUiTest {
         // Unavailable message is shown
         assertTrue(onAllNodesWithTag("board_3d_unavailable").fetchSemanticsNodes().isNotEmpty())
     }
+
+    @Test
+    fun test3DAnimationDelivery() = runComposeUiTest {
+        val fakeRenderer = FakeChess3DRenderer()
+        val board3DSupport = Board3DSupport(
+            rendererFactory = { fakeRenderer },
+            surfaceContent = { renderer, modifier -> 
+                androidx.compose.runtime.DisposableEffect(renderer) {
+                    val fakeSurface = FakeChess3DSurface()
+                    renderer.attach(fakeSurface)
+                    onDispose { renderer.detach() }
+                }
+                Box(modifier) 
+            }
+        )
+
+        val viewModel = GameViewModel()
+
+        setContent {
+            GameScreen(
+                windowSize = WindowWidthSizeClass.Medium,
+                viewModel = viewModel,
+                board3D = board3DSupport
+            )
+        }
+
+        waitForIdle()
+        fakeRenderer.events.clear()
+
+        // Make a move
+        val e2 = Pair(6, 4)
+        val e4 = Pair(4, 4)
+        viewModel.updateSelected(e2)
+        waitForIdle()
+        
+        // Find index of pawn at e2
+        val state = viewModel.gameState.value
+        val index = state.positionsWhite.indexOf(e2)
+        
+        viewModel.playerMove(index, e4)
+        waitForIdle()
+
+        // Ensure updatePosition with animation was delivered
+        val animationEvents = fakeRenderer.events.filter { it.startsWith("updatePosition:") && it.endsWith(":animate") }
+        assertTrue(animationEvents.isNotEmpty(), "Expected at least one animated updatePosition event")
+    }
 }

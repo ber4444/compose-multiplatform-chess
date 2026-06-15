@@ -26,10 +26,12 @@ class FakeChess3DRenderer : Chess3DBoardRenderer {
         }
     }
 
-    override fun updatePosition(fen: String) {
+    override fun updatePosition(fen: String) = updatePosition(fen, null)
+
+    override fun updatePosition(fen: String, transition: Board3DTransition?) {
         lastFen = fen
         if (isAttached) {
-            events.add("updatePosition:$fen")
+            events.add("updatePosition:$fen" + if (transition != null && transition !is Board3DTransition.Reset) ":animate" else "")
         }
     }
 

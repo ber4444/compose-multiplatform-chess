@@ -80,7 +80,6 @@ kotlin {
             dependsOn(commonMain.get())
             dependencies {
                 implementation(libs.wgpu4k.toolkit)
-                implementation(libs.joml)
             }
         }
 
@@ -143,6 +142,7 @@ kotlin {
                 implementation(libs.lwjgl.vulkan)
                 implementation(libs.lwjgl.shaderc)
                 implementation(libs.jgltf.model)
+                implementation(libs.joml)
 
                 // Add native runtimes for the current OS (and eventually all OSs for distribution)
                 val lwjglVersion = "3.3.6"

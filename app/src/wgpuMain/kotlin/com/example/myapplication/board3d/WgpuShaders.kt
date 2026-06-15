@@ -51,9 +51,39 @@ struct FragmentInput {
     @location(3) vWorldPos: vec3<f32>,
 };
 
+const PI = 3.1415926535;
+
 fn F_SchlickR(cosTheta: f32, F0: vec3<f32>, roughness: f32) -> vec3<f32> {
     let oneMinusR = 1.0 - roughness;
-    return F0 + (max(vec3<f32>(oneMinusR, oneMinusR, oneMinusR), F0) - F0) * pow(1.0 - cosTheta, 5.0);
+    return F0 + (max(vec3<f32>(oneMinusR), F0) - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
+fn F_Schlick(cosTheta: f32, F0: vec3<f32>) -> vec3<f32> {
+    return F0 + (vec3<f32>(1.0) - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
+fn D_GGX(NoH: f32, roughness: f32) -> f32 {
+    let a = roughness * roughness;
+    let a2 = a * a;
+    let d = NoH * NoH * (a2 - 1.0) + 1.0;
+    return a2 / (PI * d * d + 1e-5);
+}
+
+fn G_SchlickSmithGGX(NoL: f32, NoV: f32, roughness: f32) -> f32 {
+    let r = roughness + 1.0;
+    let k = (r * r) / 8.0;
+    let gl = NoL / (NoL * (1.0 - k) + k);
+    let gv = NoV / (NoV * (1.0 - k) + k);
+    return gl * gv;
+}
+
+// Karis analytic environment BRDF, standing in for vkChess's precomputed BRDF LUT.
+fn envBRDFApprox(NoV: f32, roughness: f32) -> vec2<f32> {
+    let c0 = vec4<f32>(-1.0, -0.0275, -0.572, 0.022);
+    let c1 = vec4<f32>(1.0, 0.0425, 1.04, -0.04);
+    let r = roughness * c0 + c1;
+    let a004 = min(r.x * r.x, exp2(-9.28 * NoV)) * r.x + r.y;
+    return vec2<f32>(-1.04, 1.04) * a004 + vec2<f32>(r.z, r.w);
 }
 
 fn uncharted2(x: vec3<f32>) -> vec3<f32> {
@@ -61,45 +91,51 @@ fn uncharted2(x: vec3<f32>) -> vec3<f32> {
     return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
 }
 
+// Ported from vkChess pbr.frag: Cook-Torrance direct light + IBL (env cube), Uncharted2 tonemap.
 @fragment
 fn fs_main(input: FragmentInput) -> @location(0) vec4<f32> {
     let N = normalize(input.vNormal);
-    let L = normalize(vec3<f32>(0.45, 1.0, 0.35));
-    let ndl = max(dot(N, L), 0.0);
     let V = normalize(ubo.camPos.xyz - input.vWorldPos);
     let R = reflect(-V, N);
-    
-    let sh = 1.0;
-    
+    let NoV = max(dot(N, V), 0.0);
+
     let albedoData = textureSample(tex, samp, input.vUv);
-    let base = pow(albedoData.rgb, vec3<f32>(2.2, 2.2, 2.2));
-    let albedo = base * input.vTint;
-    
-    let roughness = material.roughness;
-    
-    let F0 = vec3<f32>(0.04, 0.04, 0.04);
-    let F = F_SchlickR(max(dot(N, V), 0.0), F0, roughness);
-    
-    let kD = (vec3<f32>(1.0, 1.0, 1.0) - F);
-    
-    let irradiance = textureSampleLevel(envTex, envSamp, N, 8.0).rgb;
+    let albedo = pow(albedoData.rgb, vec3<f32>(2.2)) * input.vTint;
+    let roughness = clamp(material.roughness, 0.04, 1.0);
+    let F0 = vec3<f32>(0.04);
+
+    // Direct Cook-Torrance for one key directional light (gives the crisp specular highlight).
+    let L = normalize(vec3<f32>(0.5, 0.9, 0.45));
+    let H = normalize(V + L);
+    let NoL = max(dot(N, L), 0.0);
+    let NoH = max(dot(N, H), 0.0);
+    let D = D_GGX(NoH, roughness);
+    let G = G_SchlickSmithGGX(NoL, NoV, roughness);
+    let Fd = F_Schlick(max(dot(H, V), 0.0), F0);
+    let specD = (D * G) * Fd / (4.0 * NoL * NoV + 1e-4);
+    let kDl = vec3<f32>(1.0) - Fd;
+    let Lo = (kDl * albedo / PI + specD) * NoL * 2.5;
+
+    // Image-based lighting from the env cube (simplified: sample mips directly, no precompute).
+    let maxMip = 9.0;
+    let irradiance = textureSampleLevel(envTex, envSamp, N, maxMip).rgb;
     let diffuse = irradiance * albedo;
-    
-    let prefiltered = textureSampleLevel(envTex, envSamp, R, roughness * 9.0).rgb;
-    let specular = prefiltered * (F * 1.0 + 0.0);
-    
-    let ambient = kD * diffuse + specular;
-    let lit = ambient + albedo * (0.75 * ndl * sh);
-    
-    let glow = max(input.vTint - vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.0, 0.0, 0.0)) * base * 1.6;
-    var color = clamp(lit + glow, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
-    
+    let prefiltered = textureSampleLevel(envTex, envSamp, R, roughness * maxMip).rgb;
+    let Fr = F_SchlickR(NoV, F0, roughness);
+    let brdf = envBRDFApprox(NoV, roughness);
+    let specularIBL = prefiltered * (Fr * brdf.x + brdf.y);
+    let kD = vec3<f32>(1.0) - Fr;
+    let ambient = kD * diffuse + specularIBL;
+
+    // Keep everything in HDR through the tonemap (NO pre-clamp; clamping here flattened the image).
+    var color = ambient + Lo;
+    color = color + max(input.vTint - vec3<f32>(1.0), vec3<f32>(0.0)) * albedoData.rgb * 1.6; // selection glow
+
     let exposure = 4.5;
     let gamma = 2.2;
     color = uncharted2(color * exposure);
-    color = color * (1.0 / uncharted2(vec3<f32>(11.2, 11.2, 11.2)));
-    color = pow(color, vec3<f32>(1.0 / gamma, 1.0 / gamma, 1.0 / gamma));
-    
+    color = color * (1.0 / uncharted2(vec3<f32>(11.2)));
+    color = pow(color, vec3<f32>(1.0 / gamma));
     return vec4<f32>(color, 1.0);
 }
 """

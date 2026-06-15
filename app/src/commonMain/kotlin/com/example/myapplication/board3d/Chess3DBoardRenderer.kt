@@ -15,6 +15,7 @@ interface Chess3DBoardRenderer {
     fun attach(surface: Chess3DSurface)
     fun detach()
     fun updatePosition(fen: String)
+    fun updatePosition(fen: String, transition: Board3DTransition?) = updatePosition(fen)
     fun onUserInteraction(event: Board3DInput)
     fun dispose()
 

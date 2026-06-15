@@ -37,9 +37,19 @@ fun Board3D(
     if (initAttempted && currentRenderer != null) {
         val cameraController = remember { OrbitCameraController(1f) }
         val currentOnTap by rememberUpdatedState(onSquareTapped)
+        var previousScene by remember { mutableStateOf<Board3DScene?>(null) }
 
         // Position (FEN) and selection are pushed to the renderer as they change.
-        LaunchedEffect(currentRenderer, fen) { currentRenderer.updatePosition(fen) }
+        LaunchedEffect(currentRenderer, fen) {
+            val nextScene = Board3DSceneMapper.fromFen(fen)
+            val transition = if (previousScene != null) {
+                Board3DSceneDiffer.diff(previousScene!!, nextScene)
+            } else {
+                null
+            }
+            previousScene = nextScene
+            currentRenderer.updatePosition(fen, transition)
+        }
         LaunchedEffect(currentRenderer, selectedSquare) { currentRenderer.setSelectedSquare(selectedSquare) }
 
         val inputModifier = modifier
