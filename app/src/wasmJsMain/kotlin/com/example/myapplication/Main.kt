@@ -17,7 +17,7 @@ fun main() {
         LaunchedEffect(Unit) {
             val engine = WasmStockfishEngine()
             if (engine.start()) {
-                viewModel.attachEngine(engine)   // flips "Stockfish: on"; viewModel now owns engine.close()
+                viewModel.attachEngine(engine)   // viewModel now owns engine.close()
             } else {
                 Logger.w("Main") { "Stockfish wasm worker failed to start; using CPU fallback" }
                 engine.close()
@@ -28,7 +28,10 @@ fun main() {
         }
 
         MyApplicationTheme(darkTheme = false) {
-            ChessApp(viewModel = viewModel)
+            ChessApp(
+                viewModel = viewModel,
+                board3D = com.example.myapplication.board3d.wasmBoard3DSupport(viewModel)
+            )
         }
     }
 }

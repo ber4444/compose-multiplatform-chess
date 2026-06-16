@@ -3,9 +3,13 @@ import ChessApp        // Kotlin framework (ChessEngine protocol, UciEvaluation,
 import ChessKitEngine
 
 private let sharedMoveTimeMs = 1_000
-private let sharedEvalDepth: Int = 12
+// Eval uses a wall-clock budget (not a fixed depth): a depth-bounded search has unbounded time and
+// can exceed sharedEvalResponseTimeout on slow/contended machines (e.g. a debug build oversubscribed on
+// a 3-core CI runner), returning nil. A movetime bound always finishes within the response timeout.
+private let sharedEvalMoveTimeMs = 2_000
 private let sharedReadyTimeout: TimeInterval = 15
-private let sharedResponseTimeout: TimeInterval = 8
+private let sharedBestMoveResponseTimeout: TimeInterval = 20
+private let sharedEvalResponseTimeout: TimeInterval = 8
 
 private final class SharedStockfishCore {
     static let shared = SharedStockfishCore()
@@ -58,12 +62,16 @@ private final class SharedStockfishCore {
     
     func waitUntilReady() -> Bool {
         if stateQueue.sync(execute: { isReady }) { return true }
-        _ = readySemaphore.wait(timeout: .now() + sharedReadyTimeout)
-        readySemaphore.signal()
+        guard readySemaphore.wait(timeout: .now() + sharedReadyTimeout) == .success else { return false }
         return stateQueue.sync { isReady }
     }
     
-    func runSearch(fen: String, go: EngineCommand, checkClosed: () -> Bool) -> String? {
+    func runSearch(
+        fen: String,
+        go: EngineCommand,
+        timeout: TimeInterval,
+        checkClosed: () -> Bool
+    ) -> String? {
         guard !Thread.isMainThread else { return nil }
         requestLock.lock(); defer { requestLock.unlock() }
         
@@ -81,7 +89,7 @@ private final class SharedStockfishCore {
             await engine.send(command: .position(.fen(fen)))
             await engine.send(command: go)
         }
-        if done.wait(timeout: .now() + sharedResponseTimeout) == .timedOut {
+        if done.wait(timeout: .now() + timeout) == .timedOut {
             stateQueue.sync { pendingCompletion = nil }
             return nil
         }
@@ -103,16 +111,25 @@ final class StockfishChessEngine: NSObject, ChessEngine {
     }
 
     func getBestMove(fen: String, completionHandler: @escaping (String?, Error?) -> Void) {
-        let move = SharedStockfishCore.shared.runSearch(fen: fen, go: .go(movetime: sharedMoveTimeMs)) {
+        let move = SharedStockfishCore.shared.runSearch(
+            fen: fen,
+            go: .go(movetime: sharedMoveTimeMs),
+            timeout: sharedBestMoveResponseTimeout
+        ) {
             self.localQueue.sync { self.isClosed }
         }
         completionHandler(move, nil)
     }
 
     func evaluate(fen: String, completionHandler: @escaping (KotlinInt?, Error?) -> Void) {
-        guard SharedStockfishCore.shared.runSearch(fen: fen, go: .go(depth: sharedEvalDepth), checkClosed: {
-            self.localQueue.sync { self.isClosed }
-        }) != nil else {
+        guard SharedStockfishCore.shared.runSearch(
+            fen: fen,
+            go: .go(movetime: sharedEvalMoveTimeMs),
+            timeout: sharedEvalResponseTimeout,
+            checkClosed: {
+                self.localQueue.sync { self.isClosed }
+            }
+        ) != nil else {
             completionHandler(nil, nil)
             return
         }

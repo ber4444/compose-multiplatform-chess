@@ -13,10 +13,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+import com.example.myapplication.board3d.Board3DSupport
+
 @Composable
 fun ChessApp(
     viewModel: GameViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    board3D: Board3DSupport? = null
 ) {
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -32,7 +35,8 @@ fun ChessApp(
             }
             GameScreen(
                 windowSize = windowSize,
-                viewModel = viewModel
+                viewModel = viewModel,
+                board3D = board3D
             )
         }
     }

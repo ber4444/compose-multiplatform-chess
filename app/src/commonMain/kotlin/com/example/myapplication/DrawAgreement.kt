@@ -32,12 +32,12 @@ fun shouldBlackAcceptDraw(evalCp: Int): Boolean = evalCp >= DRAW_ACCEPT_THRESHOL
 fun shouldBlackOfferDraw(evalCp: Int): Boolean = abs(evalCp) <= DRAW_OFFER_EVAL_WINDOW_CP
 
 fun blackDrawOfferPreconditions(state: GameUiState): Boolean {
-    return state.winState == WinState.NONE && !state.autoPlay && state.drawOffer == null && state.pendingPromotion == null &&
+    return state.winState == WinState.NONE && state.drawOffer == null && state.pendingPromotion == null &&
         state.fullmoveNumber >= DRAW_OFFER_MIN_FULLMOVE && state.halfmoveClock >= DRAW_OFFER_MIN_HALFMOVE_CLOCK &&
         (state.lastDrawOfferFullmove == 0 || state.fullmoveNumber - state.lastDrawOfferFullmove >= DRAW_OFFER_COOLDOWN_FULLMOVES)
 }
 
 fun canOfferDraw(state: GameUiState): Boolean {
-    return state.turn == Set.WHITE && state.winState == WinState.NONE && !state.autoPlay && state.pendingPromotion == null &&
+    return state.turn == Set.WHITE && state.winState == WinState.NONE && state.pendingPromotion == null &&
         state.drawOffer == null && state.fullmoveNumber > state.lastDrawOfferFullmove
 }

@@ -72,21 +72,6 @@ class PromotionTest {
     }
 
     @Test
-    fun testAutoPlayClearsPending() {
-        val viewModel = GameViewModel(FenConverter.fenToGameState(WHITE_PROMO))
-        val state = viewModel.gameState.value
-        val pawnIdx = state.piecesWhite.indexOfFirst { it is Pawn }
-        
-        viewModel.playerMove(pawnIdx, Pair(0, 0))
-        assertNotNull(viewModel.gameState.value.pendingPromotion)
-        
-        viewModel.setAutoPlay(true)
-        assertNull(viewModel.gameState.value.pendingPromotion)
-        
-        viewModel.close()
-    }
-
-    @Test
     fun testCPUPromotion() = kotlinx.coroutines.test.runTest {
         val viewModel = GameViewModel(FenConverter.fenToGameState(BLACK_PROMO))
         val state = viewModel.gameState.value

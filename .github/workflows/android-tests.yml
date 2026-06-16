@@ -82,6 +82,11 @@ jobs:
           echo "Running on device: ${{ matrix.profile }}"
           echo "Building Android, Linux desktop, and Wasm targets"
 
+      # The desktop wgpu4k renderer (exercised headlessly by Wgpu4kFrameDumpTest inside :app:check)
+      # uses the Vulkan backend on Linux; lavapipe (mesa-vulkan-drivers) provides a CPU Vulkan device.
+      - name: Install Vulkan drivers (lavapipe) for wgpu4k headless render tests
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
+
       - name: Build Android, Linux desktop, and Wasm targets
         run: ./gradlew :androidApp:assembleDebug :app:assembleAndroidDeviceTest :app:check :app:desktopJar :app:packageDistributionForCurrentOS :app:wasmJsBrowserDistribution
 
@@ -94,6 +99,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           force-avd-creation: true
+          boot-timeout: 600  # Increase boot timeout to 10 minutes
           emulator-options: >
             -no-snapshot-save
             -noaudio
@@ -103,6 +109,8 @@ jobs:
             -no-window
             -grpc 8554
             -grpc-use-jwt
+            -memory 2048
+            -cores 2
           script: |
             echo "grpc.allowlist=*" >> ~/.android/avd/test.avd/config.ini
             ./gradlew :app:connectedAndroidDeviceTest

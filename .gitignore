@@ -11,3 +11,8 @@ local.properties
 iosApp/iosApp.xcodeproj/xcuserdata
 iosApp/iosApp.xcodeproj/project.xcworkspace/xcuserdata
 iosApp/build/*
+
+# M6 3D spike: wgpu native lib extracted at runtime + JVM crash logs
+app/libWGPU-*.dylib
+app/hs_err_pid*.log
+hs_err_pid*.log

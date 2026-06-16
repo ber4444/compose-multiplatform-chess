@@ -5,6 +5,7 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.gradle.api.file.DirectoryProperty
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.compose.ExperimentalComposeLibrary
+import org.jetbrains.kotlin.gradle.tasks.Kotlin2JsCompile
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -48,7 +49,9 @@ kotlin {
 
     jvm("desktop") {
         compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_11)
+            // wgpu4k's JVM artifact uses Panama FFM (java.lang.foreign), available since JDK 22,
+            // so the desktop target must compile at >= 22 (M6 3D spike). Android stays on JVM_11.
+            jvmTarget.set(JvmTarget.JVM_24)
         }
     }
 
@@ -74,6 +77,13 @@ kotlin {
         }
         androidMain { dependsOn(jvmCommonMain) }
 
+        val wgpuMain by creating {
+            dependsOn(commonMain.get())
+            dependencies {
+                implementation(libs.wgpu4k.toolkit)
+            }
+        }
+
         commonMain.dependencies {
             implementation(compose.runtime)
             implementation(compose.foundation)
@@ -96,11 +106,16 @@ kotlin {
             }
         }
 
+        val wasmJsMain by getting {
+            dependsOn(wgpuMain)
+        }
+
         androidMain.dependencies {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.core.ktx)
             implementation(libs.androidx.lifecycle.runtime.compose)
+            implementation(libs.sceneview)
         }
 
         val androidDeviceTest by getting {
@@ -110,17 +125,50 @@ kotlin {
                 implementation(libs.androidx.compose.ui.test.junit4.android)
                 implementation(libs.androidx.compose.ui.test.manifest)
                 implementation(libs.androidx.activity.compose)
+                // kotlin.test assertions (board3d UI tests). androidDeviceTest is an
+                // instrumented source set and does NOT see commonTest, so the test
+                // fakes are duplicated locally (see board3d/FakeChess3DRenderer.kt).
+                implementation(kotlin("test"))
             }
         }
 
         val desktopMain by getting {
             dependsOn(jvmCommonMain)
+            dependsOn(wgpuMain)
             dependencies {
                 implementation(compose.desktop.currentOs)
+                // lwjgl core only — KtxLoader uses org.lwjgl.system.MemoryUtil to decode the
+                // papermill environment cubemap for the wgpu4k renderer.
+                implementation(libs.lwjgl)
+                implementation(libs.jgltf.model)
+                implementation(libs.joml)
+
+                // Add the lwjgl core native runtime for the current OS.
+                val lwjglVersion = "3.3.6"
+                val osName = System.getProperty("os.name").lowercase()
+                val osArch = System.getProperty("os.arch").lowercase()
+                val lwjglNatives = when {
+                    osName.contains("win") -> "natives-windows"
+                    osName.contains("mac") -> if (osArch.contains("aarch64") || osArch.contains("arm")) "natives-macos-arm64" else "natives-macos"
+                    else -> "natives-linux"
+                }
+                runtimeOnly("org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives")
             }
         }
 
-        val iosMain by creating { dependsOn(commonMain.get()) }
+        val desktopTest by getting {
+            dependencies {
+                @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
+                implementation(compose.desktop.uiTestJUnit4)
+            }
+        }
+
+        val iosMain by creating {
+            dependsOn(commonMain.get())
+            dependencies {
+                // Removed materia from iosMain
+            }
+        }
         val iosArm64Main by getting { dependsOn(iosMain) }
         val iosSimulatorArm64Main by getting { dependsOn(iosMain) }
 
@@ -136,6 +184,45 @@ kotlin {
 compose.resources {
     packageOfResClass = "game.app.generated.resources"
     publicResClass = true
+}
+
+
+
+tasks.withType<Test>().configureEach {
+    // wgpu4k's JVM binding is Java-22 bytecode and uses Panama FFM, so it needs a >= 22 runtime.
+    // The Gradle daemon runs on JDK 21 (gradle-daemon-jvm.properties), so run the desktop tests on
+    // the installed JDK 26 via a scoped toolchain launcher; Android/other tests stay on the daemon JDK.
+    if (name == "desktopTest") {
+        javaLauncher.set(
+            javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(26)) }
+        )
+        // Rococoa uses CGLIB which requires reflection access to java.lang.ClassLoader on newer JDKs
+        jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
+    }
+}
+
+// The Compose Desktop run tasks (JavaExec) must also use the >= 22 JDK for wgpu4k's FFM path and the
+// same Rococoa --add-opens. The Gradle daemon is on JDK 21. (M6 3D spike.)
+tasks.withType<JavaExec>().configureEach {
+    if (name == "run" || name == "runDistributable" || name == "runRelease") {
+        javaLauncher.set(
+            javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(26)) }
+        )
+        jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
+    }
+}
+
+// Kotlin 2.3.x wasm klib incremental compilation crashes the KLIB export-name checker
+// ("WasmIrFileMetadata.fromByteArray ArrayIndexOutOfBoundsException") on every incremental
+// recompile of :app:compileKotlinWasmJs. The kotlin.incremental.js.klib/.wasm/.ir gradle
+// properties are not honored by this KGP, so disable IC directly on the wasm klib compile task.
+// `incremental` is the public toggle; `incrementalJsKlib` is the klib-specific one (internal in
+// KGP, set reflectively). Remove both once on Kotlin 2.4+, where wasm IC is stable.
+tasks.withType<Kotlin2JsCompile>().configureEach {
+    incremental = false
+    javaClass.methods
+        .firstOrNull { it.name.startsWith("setIncrementalJsKlib") }
+        ?.invoke(this, false)
 }
 
 tasks.configureEach {
@@ -155,6 +242,9 @@ tasks.configureEach {
 compose.desktop {
     application {
         mainClass = "com.example.myapplication.MainKt"
+        val launcher = javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(26)) }
+        javaHome = launcher.get().metadata.installationPath.asFile.absolutePath
+        jvmArgs += listOf("--add-opens=java.base/java.lang=ALL-UNNAMED")
 
         nativeDistributions {
             packageName = "game"
@@ -167,10 +257,16 @@ compose.desktop {
 tasks.configureEach {
     if (name == "mergeAndroidDeviceTestAssets") {
         dependsOn("copyAndroidMainComposeResourcesToAndroidAssets")
+        val srcDir = project.layout.buildDirectory.dir("generated/compose/resourceGenerator/androidAssets/copyAndroidMainComposeResourcesToAndroidAssets")
+        // Track the generated compose resources as an input so the merge (and the re-copy below)
+        // re-runs when they change. Without this the task stays UP-TO-DATE on an incremental build
+        // after editing strings.xml, leaving a stale strings blob in the device-test assets. The
+        // compiled Res.string offsets then read misaligned bytes from it -> "input is not properly
+        // padded" Base64 crash in every stringResource(), failing every device test.
+        inputs.dir(srcDir)
         doLast {
-            val srcDir = project.layout.buildDirectory.dir("generated/compose/resourceGenerator/androidAssets/copyAndroidMainComposeResourcesToAndroidAssets").get().asFile
             val destDir = project.layout.buildDirectory.dir("intermediates/assets/androidDeviceTest/mergeAndroidDeviceTestAssets").get().asFile
-            srcDir.copyRecursively(destDir, overwrite = true)
+            srcDir.get().asFile.copyRecursively(destDir, overwrite = true)
         }
     }
 }

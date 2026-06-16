@@ -6,7 +6,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -31,9 +30,6 @@ class GameViewModel(
     private val _viewState = MutableStateFlow(ViewState())
     val viewState: StateFlow<ViewState> = _viewState
 
-    private val _stockfishEnabled = MutableStateFlow(false)
-    val stockfishEnabled: StateFlow<Boolean> = _stockfishEnabled
-
     private var gameMoves: Job? = null
     private var chessEngine: ChessEngine? = null
 
@@ -44,23 +40,32 @@ class GameViewModel(
     fun attachEngine(engine: ChessEngine?) {
         chessEngine?.close()
         chessEngine = engine
-        _stockfishEnabled.value = engine != null
     }
 
     fun close() {
         gameMoves?.cancel()
         chessEngine?.close()
         chessEngine = null
-        _stockfishEnabled.value = false
         scope.cancel()
-    }
-
-    fun setAutoPlay(newVal: Boolean) {
-        _gameState.value = gameState.value.copy(autoPlay = newVal, pendingPromotion = null, drawOffer = null)
     }
 
     fun hideWindow() {
         _viewState.value = viewState.value.copy(buttonLock = true, hideWindow = true)
+    }
+
+    data class GameViewState(
+        val hideWindow: Boolean = false,
+        val show3D: Boolean = false,
+        val buttonLock: Boolean = false,
+        val board3DUnavailable: Boolean = false
+    )
+
+    fun setShow3D(enabled: Boolean) {
+        _viewState.value = viewState.value.copy(show3D = enabled, board3DUnavailable = false)
+    }
+
+    fun markBoard3DUnavailable() {
+        _viewState.value = viewState.value.copy(show3D = false, board3DUnavailable = true)
     }
 
     fun updateSelected(position: Pair<Int, Int>) {
@@ -150,27 +155,6 @@ class GameViewModel(
 
     fun cancelPromotion() {
         _gameState.value = _gameState.value.copy(pendingPromotion = null)
-    }
-
-    fun startUserTurn() {
-        logger.d { "START USER TURN" }
-        if (_viewState.value.moveButtonLock) return
-        logger.d { "MOVEBUTTONLOCK=TRUE" }; _viewState.value = _viewState.value.copy(moveButtonLock = true)
-
-        gameMoves?.cancel()
-        gameMoves = scope.launch {
-            delay(500)
-            moveCPU { enemyPositions, enemyPieces, allyPositions, allyPieces ->
-                pickMoveStockfish(
-                    chessEngine,
-                    _gameState.value,
-                    enemyPositions,
-                    enemyPieces,
-                    allyPositions,
-                    allyPieces
-                )
-            }
-        }
     }
 
     fun animationEnd() {
@@ -472,7 +456,8 @@ class GameViewModel(
                 halfmoveClock = newHalfmoveClock,
                 fullmoveNumber = newFullmoveNumber,
                 drawOffer = null,
-                drawOfferDeclinedBy = null
+                drawOfferDeclinedBy = null,
+                selectedSquare = INVALID_POSITION
             )
 
             Set.BLACK -> _gameState.value.copy(
@@ -489,7 +474,8 @@ class GameViewModel(
                 halfmoveClock = newHalfmoveClock,
                 fullmoveNumber = newFullmoveNumber,
                 drawOffer = null,
-                drawOfferDeclinedBy = null
+                drawOfferDeclinedBy = null,
+                selectedSquare = INVALID_POSITION
             )
         }
 

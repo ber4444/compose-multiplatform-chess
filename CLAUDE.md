@@ -14,10 +14,15 @@ Compose Multiplatform chess app (Kotlin 2.3.x, Compose Multiplatform 1.10.x) tar
 ./gradlew :androidApp:assembleDebug :androidApp:installDebug              # build + install Android app
 ./gradlew :app:run                              # launch desktop app (needs system stockfish installed)
 ./gradlew :app:wasmJsBrowserDevelopmentRun      # run web target
+./gradlew :app:wasmJsBrowserDevelopmentWebpack  # build web dev bundle without dev server
 ./gradlew :app:connectedAndroidDeviceTest       # Android UI tests (needs device/emulator)
 ./gradlew :app:iosSimulatorArm64Test            # iOS Compose UI tests
 xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug -destination "platform=iOS Simulator,name=iPhone 17" CODE_SIGNING_ALLOWED=NO test # iOS Swift tests
+./gradlew :app:desktopTest --tests "*board3d*"  # run 3D desktop tests (Wgpu4kFrameDumpTest writes build/wgpu-frame.png to eyeball)
+tools/ios_3d_screenshot.sh                      # screenshot the real iOS 3D board in a booted sim -> build/ios-3d-screenshot.png
 ```
+
+Verifying the iOS SceneKit 3D *look* can't be done from a unit test — SceneKit needs Metal, which `MTLCreateSystemDefaultDevice()` cannot provide under the headless `simctl spawn` Kotlin/Native test runner. Use `tools/ios_3d_screenshot.sh` instead: it launches the real app with `CHESS_START_3D=1` (read in `MainViewController`) so it opens directly on the 3D board, then captures via `simctl io screenshot`. The konan `IosBoard3DSnapshotTest` is only a CPU-side smoke test (asset load, Core Image cube-map decode, scene build) and gracefully skips the GPU render.
 
 CI (`.github/workflows/android-tests.yml`) builds every target with:
 
@@ -56,7 +61,7 @@ Stockfish binaries are vendored at `app/src/androidMain/jniLibs/{arm64-v8a,armea
 
 ## State and UI
 
-`GameViewModel` (commonMain) is a plain class, **not** an androidx ViewModel — it owns its own `CoroutineScope` and exposes `StateFlow`s (`gameState`, `animState`, `viewState`, `stockfishEnabled`); callers must call `close()`. Game rules are top-level functions in `Move.kt` and `Piece.kt`. Board state in `GameUiState` is parallel lists (`piecesWhite`/`positionsWhite`, etc.) indexed together, along with a `castlingRights` field tracking availability for both colors. Turn alternation is driven by animation completion: `animationEnd()` triggers Black's move after White's animation finishes.
+`GameViewModel` (commonMain) is a plain class, **not** an androidx ViewModel — it owns its own `CoroutineScope` and exposes `StateFlow`s (`gameState`, `animState`, `viewState`); callers must call `close()`. Game rules are top-level functions in `Move.kt` and `Piece.kt`. Board state in `GameUiState` is parallel lists (`piecesWhite`/`positionsWhite`, etc.) indexed together, along with a `castlingRights` field tracking availability for both colors. Turn alternation is driven by animation completion: `animationEnd()` triggers Black's move after White's animation finishes.
 
 **Recent Features:**
 - **Castling:** King moves of 2 squares automatically update the corresponding rook's position and castling rights. `PieceAnimationState` supports a `secondaryPiece` to animate the Rook alongside the King.
@@ -64,6 +69,10 @@ Stockfish binaries are vendored at `app/src/androidMain/jniLibs/{arm64-v8a,armea
 - **En Passant:** Captured pawns are removed from their original square (not the destination) in `deriveNewGameState`. The `enPassantTarget` state field tracks double pushes, and `FenConverter` correctly emits/parses the en passant FEN field.
 - **Draw detection:** Threefold repetition (`positionHistory` of FEN position keys, cleared on irreversible moves), fifty-move rule (real `halfmoveClock`/`fullmoveNumber`, now emitted/parsed by `FenConverter` and sent to Stockfish), and insufficient material — all evaluated in `deriveNewGameState` via `applyDrawConditions` (`DrawConditions.kt`), setting `WinState.DRAW`.
 - **Draw agreements:** Players can offer draws to the engine, which accepts or declines based on positional evaluation (`UciEvaluation.kt`) or material fallback. The engine may also proactively offer draws in drawish positions. Supported via new `drawOffer` fields in `GameUiState`.
+- **3D Board View:** The `GameScreen` settings row shows a 3D toggle (`viewState.show3D`), but only when a `Board3DSupport` is injected (desktop, web, iOS, and Android entry points pass their respective `Board3DSupport`; unsupported platforms pass `null`, hiding the toggle). Toggling **swaps** the board: exactly one board (2D `chess_board` or 3D `board_3d`) is visible at a time. The 3D view is defined by the `Chess3DBoardRenderer` interface in `commonMain`, injected mirroring `ChessEngine`. `Board3DSceneMapper.fromFen` turns a FEN into a renderer-agnostic `Board3DScene`. Interaction (camera drag, pinch zoom, ray-picked tap-to-move, and piece transitions) uses shared commonMain logic (`OrbitCameraController`, `CameraMath.rayFromScreen`, `BoardRayPicker`, `Board3DSceneDiffer`) so backend cameras stay in sync with the picker.
+  - **Desktop and web backends:** The current shared path is **wgpu4k/WebGPU + WGSL**. Desktop (`DesktopWgpuChessRenderer`) renders offscreen through a `TextureRenderingContext`/`CAMetalLayer`, then copies into a Compose `ImageBitmap`; web (`WebGpuChessRenderer`) renders directly into an absolutely positioned overlay `<canvas>`. Both reuse `WgpuShaders`, the papermill environment cubemap, and `ChessSceneGeometry` from the `wgpuMain` source set. (An earlier LWJGL `VulkanChessRenderer` was the M1 spike; it has been removed now that wgpu4k is the shipped desktop renderer — see `docs/plans/issue-32-3d-ui-m1-foundation.md` for that history.)
+  - **iOS backend:** A native SceneKit renderer (`IosSceneKitChessRenderer`). It wraps an `SCNView` inside a `UIKitView` with `interactive = false`, allowing Compose `pointerInput` to intercept touches and seamlessly reuse the common raycast math. It loads geometries via OBJ files exported seamlessly from the Java/Desktop models. (Materia/MoltenVK were evaluated and rejected; see `docs/plans/issue-32-3d-ui-m2-apple.md`).
+  - **Android backend:** A Filament renderer via **SceneView** (`io.github.sceneview:sceneview`), the Jetpack-Compose-native Filament wrapper (`AndroidSceneViewChessRenderer`). The renderer is a Compose-observable state holder behind `Chess3DBoardRenderer`; `AndroidBoard3DSurface` hosts SceneView with `SurfaceType.Surface`, papermill IBL/skybox KTX assets, and a transparent Compose overlay that receives the shared gestures because SceneView consumes touches. SceneView's model loader loads the `chess.glb` asset and fixed `ModelNode` pools render the board, pieces, and selected-square highlight. This replaced the original hand-written Filament `Engine`/`Renderer`/`SwapChain` + `SurfaceHolder.Callback` plumbing; Materia and a raw NDK Vulkan renderer were evaluated and rejected (see `docs/plans/issue-32-3d-ui-m3-android.md` and `docs/plans/issue-32-3d-ui-unresolved-questions.md`).
 
 ## Build quirks (don't "clean up")
 
@@ -71,3 +80,5 @@ Stockfish binaries are vendored at `app/src/androidMain/jniLibs/{arm64-v8a,armea
 - `androidApp/build.gradle.kts` registers `:app`'s generated compose-resource assets dir as its own assets source and adds task dependencies for it.
 - `androidApp` uses `jniLibs.useLegacyPackaging = true` so the Stockfish binary is extracted to `nativeLibraryDir` and can be executed.
 - iOS framework uses `baseName = "ChessApp"`; `embedAndSignAppleFrameworkForXcode` must stay the first build phase with `ENABLE_USER_SCRIPT_SANDBOXING=NO`; simulator device pinned via `iosSimulatorDeviceId` property.
+- Desktop 3D uses Panama FFM through wgpu4k. Desktop compile output is JVM 24, while `:app:run` and desktop tests use a scoped JDK 26 toolchain launcher.
+- Wasm klib incremental compilation is intentionally disabled in `app/build.gradle.kts`; Kotlin 2.3.x otherwise crashes the klib export-name checker on incremental wasm recompiles.

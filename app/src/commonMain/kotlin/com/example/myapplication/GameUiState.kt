@@ -43,7 +43,6 @@ data class GameUiState(
     val inCheckBlack : Boolean = false,
 
     val winState: WinState = WinState.NONE, // The current WinState of the game
-    val autoPlay : Boolean = false,         // If the game is in autoplay mode
 
     val selectedSquare : Pair<Int, Int> = INVALID_POSITION, // The Position on the board that the user has selected
     val pendingPromotion: PendingPromotion? = null,
@@ -73,4 +72,6 @@ data class ViewState (
     val hideWindow: Boolean = false,        // If the gameOver window should be hidden
     val buttonLock : Boolean = false,       // Lock all game modifying buttons (doesn't include reset/exit)
     val moveButtonLock: Boolean = false,    // If the 'Move' button is locked
+    val show3D: Boolean = true,            // If the 3D board should be displayed instead of 2D
+    val board3DUnavailable: Boolean = false // Set to true if 3D initialization fails
 )

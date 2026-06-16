@@ -11,9 +11,12 @@ import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.example.myapplication.board3d.desktopBoard3DSupport
 
 fun main() = application {
     val viewModel = remember { GameViewModel() }
+    val board3D = remember { desktopBoard3DSupport() }
+
     DisposableEffect(Unit) {
         val engine = DesktopStockfishEngine()
         CoroutineScope(Dispatchers.IO).launch {
@@ -35,7 +38,10 @@ fun main() = application {
         state = WindowState(width = 800.dp, height = 900.dp)
     ) {
         MyApplicationTheme {
-            ChessApp(viewModel = viewModel)
+            ChessApp(
+                viewModel = viewModel,
+                board3D = board3D
+            )
         }
     }
 }

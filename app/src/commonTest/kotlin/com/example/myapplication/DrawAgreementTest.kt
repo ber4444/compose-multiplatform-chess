@@ -53,7 +53,6 @@ class DrawAgreementTest {
     fun testBlackDrawOfferPreconditions() {
         var state = GameUiState(
             winState = WinState.NONE,
-            autoPlay = false,
             drawOffer = null,
             pendingPromotion = null,
             fullmoveNumber = 20,
@@ -64,7 +63,6 @@ class DrawAgreementTest {
 
         assertFalse(blackDrawOfferPreconditions(state.copy(fullmoveNumber = 19)))
         assertFalse(blackDrawOfferPreconditions(state.copy(halfmoveClock = 7)))
-        assertFalse(blackDrawOfferPreconditions(state.copy(autoPlay = true)))
         assertFalse(blackDrawOfferPreconditions(state.copy(drawOffer = Set.BLACK)))
         
         // Cooldown check
@@ -80,7 +78,6 @@ class DrawAgreementTest {
         val state = GameUiState(
             turn = Set.WHITE,
             winState = WinState.NONE,
-            autoPlay = false,
             pendingPromotion = null,
             drawOffer = null,
             fullmoveNumber = 5,
@@ -90,7 +87,6 @@ class DrawAgreementTest {
 
         assertFalse(canOfferDraw(state.copy(turn = Set.BLACK)))
         assertFalse(canOfferDraw(state.copy(winState = WinState.BLACK)))
-        assertFalse(canOfferDraw(state.copy(autoPlay = true)))
         assertFalse(canOfferDraw(state.copy(pendingPromotion = PendingPromotion(0, Pair(0,0), Pair(0,0)))))
         assertFalse(canOfferDraw(state.copy(drawOffer = Set.WHITE)))
         assertFalse(canOfferDraw(state.copy(lastDrawOfferFullmove = 5))) // Same fullmove
@@ -193,21 +189,6 @@ class DrawAgreementTest {
         viewModel.awaitState { it.drawOffer == Set.BLACK }
         
         assertEquals(WinState.NONE, viewModel.gameState.value.winState)
-    }
-
-    @Test
-    fun testBlackProactivelyOffers_Autoplay_NoOffer() = kotlinx.coroutines.test.runTest {
-        val state = FenConverter.fenToGameState("r3k3/p7/8/8/8/8/P7/R3K3 w - - 10 30")
-        val viewModel = GameViewModel(state)
-        
-        val a1RookIdx = viewModel.gameState.value.positionsWhite.indexOf(Pair(7, 0))
-        viewModel.playerMove(a1RookIdx, Pair(7, 3))
-        
-        viewModel.setAutoPlay(true)
-        viewModel.animationEnd()
-        viewModel.awaitState { it.turn == Set.WHITE }
-        
-        assertNull(viewModel.gameState.value.drawOffer)
     }
 
     @Test
