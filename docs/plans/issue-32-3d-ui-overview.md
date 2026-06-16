@@ -7,28 +7,26 @@ Implementation plan for [issue #32](https://github.com/ber4444/compose-multiplat
 > platform" conclusion in *Engine choice* below. The `Chess3DBoardRenderer` abstraction, the scene
 > layer, and Decisions A/B/C are unchanged and are exactly what makes the swap possible; Decision D
 > (desktop = LWJGL) is superseded by wgpu4k's headless `TextureRenderingContext` (readback per Decision
-> C is kept). Execution is **wasm-first, incremental** — see [M6](issue-32-3d-ui-m6-wgpu4k.md) and the
-> approved plan `is-this-a-feasible-smooth-lemon.md`. The shipping native backends (M1 desktop/LWJGL,
-> M2 iOS/SceneKit, M3 Android/Filament) **stay until each wgpu4k replacement proves parity**, and
-> wgpu4k's Android/iOS backends must leave WIP first. The per-platform engine-decision prose below is
-> retained as historical rationale.
+> C is kept). Desktop and web now ship through this shared `wgpuMain` WebGPU path. The mobile native
+> backends (M2 iOS/SceneKit, M3 Android/SceneView/Filament) **stay until each wgpu4k replacement proves
+> parity**, and wgpu4k's Android/iOS backends must leave WIP first. The per-platform engine-decision prose
+> below is retained as historical rationale.
 
 This document holds the decisions and the shared commonMain API. Each milestone has its own execution-ready plan doc:
 
 | Milestone | Doc | Scope |
 |---|---|---|
-| M1 | [issue-32-3d-ui-m1-foundation.md](issue-32-3d-ui-m1-foundation.md) | Materia spike (**done → desktop uses LWJGL headless Vulkan**), commonMain abstraction + scene mapping, 2D/3D toggle with graceful fallback on all platforms, real desktop JVM backend, assets, CI |
+| M1 | [issue-32-3d-ui-m1-foundation.md](issue-32-3d-ui-m1-foundation.md) | Materia spike (**done → original desktop backend used LWJGL headless Vulkan**), commonMain abstraction + scene mapping, 2D/3D toggle with graceful fallback on all platforms, desktop JVM backend, assets, CI |
 | M2 | [issue-32-3d-ui-m2-apple.md](issue-32-3d-ui-m2-apple.md) | iOS backend (MoltenVK via Materia, or Metal-direct — mini-spike decides) |
-| M3 | [issue-32-3d-ui-m3-android.md](issue-32-3d-ui-m3-android.md) | Android backend (Vulkan from a `SurfaceView` — Materia or NDK-native) |
-| M4 | [issue-32-3d-ui-m4-wasm.md](issue-32-3d-ui-m4-wasm.md) | Wasm backend (WebGPU overlay canvas — Materia or native WebGPU) |
+| M3 | [issue-32-3d-ui-m3-android.md](issue-32-3d-ui-m3-android.md) | Android backend (landed through SceneView/Filament after Materia/raw Vulkan were rejected) |
+| M4 | [issue-32-3d-ui-m4-wasm.md](issue-32-3d-ui-m4-wasm.md) | Wasm backend (landed through the shared wgpu4k WebGPU renderer and overlay canvas) |
 | M5 | [issue-32-3d-ui-m5-interaction-animation.md](issue-32-3d-ui-m5-interaction-animation.md) | 3D tap-to-move via ray picking, smooth piece animation, camera polish (backend-agnostic) |
-| **M6** | [issue-32-3d-ui-m6-wgpu4k.md](issue-32-3d-ui-m6-wgpu4k.md) | **Committed unification: single wgpu4k (WebGPU) + WGSL backend.** Resolves M4's engine choice; incrementally replaces the M1–M3 native backends (wasm-first). Desktop done incl. F1 env; F2 PBR/IBL remaining. |
+| **M6** | [issue-32-3d-ui-m6-wgpu4k.md](issue-32-3d-ui-m6-wgpu4k.md) | **Committed unification: shared wgpu4k (WebGPU) + WGSL backend.** Desktop and web are implemented with papermill skybox plus PBR/IBL; Android/iOS wait for mature wgpu4k native targets. |
 | **M7** | [issue-32-3d-ui-m7-apple-android-fidelity.md](issue-32-3d-ui-m7-apple-android-fidelity.md) | **vkChess-fidelity for iOS (SceneKit) + Android (Filament)** via their native IBL/skybox — interim until wgpu4k Apple/Android leave WIP. |
 
-> Milestones M1–M3 shipped platform-native backends (LWJGL / SceneKit / Filament); M4 was deferred.
-> Per the committed direction above, these are now **interim** — M6 replaces them with one wgpu4k
-> backend, incrementally and only as each target proves parity. M5 is unaffected (it's above the
-> renderer interface).
+> Current implementation: desktop + web use wgpu4k/WebGPU; iOS uses SceneKit; Android uses SceneView
+> over Filament. M5's interaction layer is above the renderer interface and is shared across all four
+> active backends.
 
 ## Scrutiny of the issue's hints
 
@@ -50,7 +48,7 @@ The issue offers hints, not requirements. Each was evaluated against the codebas
 
 **Hint 3 — "Host the 3D surface in a Composable; keep FEN/selection in Compose; render visual state in the engine. Keep the 2D board as the canonical interaction model initially; 3D as a view layer."**
 - ✅ **Adopt the Compose-integration pattern** (Decision B + the `Board3D` host): game state stays in Compose, the renderer receives only FEN.
-- ⚠️ **Deliberate divergence on "2D stays canonical/visible."** The product decision is to **hide** the 2D board in 3D mode (swap, not co-display). Consequence worth surfacing: this **promotes M5's 3D tap-to-move from polish to a requirement** — until it lands, 3D mode is view-only and a human can't move while in it (engine/autoplay aside). 2D remains the canonical interaction model *when shown*; it just isn't shown in 3D mode.
+- ⚠️ **Deliberate divergence on "2D stays canonical/visible."** The product decision is to **hide** the 2D board in 3D mode (swap, not co-display). That made M5's 3D tap-to-move a requirement, and it has now landed: 3D taps are ray-picked in common code and routed to the same selection/move callbacks as the 2D board. 2D remains the canonical interaction model *when shown*; it just isn't shown in 3D mode.
 
 Meta-point: the issue names vkChess for the look and Materia for the engine, but both proved partial — we take only vkChess's **asset** (its C++ engine isn't reusable here) and Materia is rejected on desktop. "Adopt the UI from vkChess" therefore means adopt its visual style/asset, not its code.
 
@@ -122,8 +120,10 @@ interface Chess3DBoardRenderer {
     fun attach(surface: Chess3DSurface)
     fun detach()
     fun updatePosition(fen: String)
+    fun updatePosition(fen: String, transition: Board3DTransition?) = updatePosition(fen)
     fun onUserInteraction(event: Board3DInput)
     fun dispose()
+    fun setSelectedSquare(square: BoardSquare?) {}
 }
 
 /** Marker for a platform drawing target. Platform impls wrap native handles
@@ -147,13 +147,13 @@ class Board3DSupport(
 )
 ```
 
-`dispose()` is the one addition over the issue's sketch — without it the factory-created renderer leaks GPU resources when the toggle is switched off (`detach()` only severs the surface).
+`dispose()` is the one addition over the issue's sketch — without it the factory-created renderer leaks GPU resources when the toggle is switched off (`detach()` only severs the surface). The `transition` overload and `setSelectedSquare` were added by M5 so animation and selection highlighting stay visual-only.
 
 ### `Board3DInput.kt`
 
 ```kotlin
 sealed interface Board3DInput {
-    /** Normalized [0,1] surface coords, origin top-left. M1 renderers may ignore; M5 consumes via ray pick. */
+    /** Normalized [0,1] surface coords, origin top-left. Historical; taps are now ray-picked in Board3DHost. */
     data class Tap(val xNorm: Float, val yNorm: Float) : Board3DInput
     /** Camera orbit — purely visual state, owned by the 3D layer per the issue. */
     data class Drag(val deltaXNorm: Float, val deltaYNorm: Float) : Board3DInput
@@ -186,7 +186,7 @@ data class Piece3DInstance(
 data class Board3DScene(
     val pieces: List<Piece3DInstance>,
     val sideToMove: PieceColor,
-    val selectedSquare: BoardSquare? = null,  // unused until M5 highlight
+    val selectedSquare: BoardSquare? = null,  // visual highlight state
 )
 ```
 
@@ -233,15 +233,16 @@ object BoardRayPicker {
     /** Intersects the ray with the y=0 plane, then BoardGeometry.squareFromWorld.
      *  Null if parallel/behind/off-board. */
     fun pickSquare(ray: Ray): BoardSquare?
+    fun pickSquare(ray: Ray, scene: Board3DScene?): BoardSquare?
 }
 
 /** Pure visual camera state machine (yaw/pitch/distance around board center). */
 class OrbitCameraController(aspect: Float) {
     val camera: CameraParams
     fun onDrag(deltaXNorm: Float, deltaYNorm: Float)   // pitch clamped [15°, 85°]
-    fun onZoom(factor: Float)                          // distance clamped [6, 20]
+    fun onZoom(factor: Float)                          // distance clamped [6, 26]
     fun onResize(aspect: Float)
-    companion object { val DEFAULT_WHITE_VIEW: CameraParams /* behind White, ~45° pitch */ }
+    companion object { val DEFAULT_WHITE_VIEW: CameraParams /* behind White, ~35° pitch */ }
 }
 ```
 
@@ -256,22 +257,23 @@ fun Board3D(
     fen: String,
     modifier: Modifier = Modifier,
     onUnavailable: () -> Unit,
+    selectedSquare: BoardSquare? = null,
+    onSquareTapped: (BoardSquare) -> Unit = {},
 )
 ```
 
-Behavior: `LaunchedEffect(Unit)` calls `support.rendererFactory.create()`; null → `onUnavailable()`. With a renderer: render `support.surfaceContent(renderer, modifier.testTag("board_3d"))` (the surfaceContent attaches/detaches the platform surface); `LaunchedEffect(renderer, fen) { renderer.updatePosition(fen) }`; pointer input (drag/scroll) feeds an `OrbitCameraController` whose camera is forwarded via `Board3DInput.SetCamera`; `DisposableEffect(renderer) { onDispose { renderer.detach(); renderer.dispose() } }`.
+Behavior: `LaunchedEffect(Unit)` calls `support.rendererFactory.create()`; null → `onUnavailable()`. With a renderer: render `support.surfaceContent(renderer, modifier.testTag("board_3d"))` (the surfaceContent attaches/detaches the platform surface); `LaunchedEffect(renderer, fen)` maps the FEN to a scene, diffs it against the previous scene with `Board3DSceneDiffer`, and calls `renderer.updatePosition(fen, transition)`; `LaunchedEffect(renderer, selectedSquare)` forwards highlight state via `setSelectedSquare`. Pointer input uses an `OrbitCameraController` for drag/pinch zoom, forwards `Board3DInput.SetCamera`, and ray-picks taps with `CameraMath`/`BoardRayPicker` before routing the square back through `onSquareTapped`. `DisposableEffect(renderer) { onDispose { renderer.detach(); renderer.dispose() } }`.
 
 ### `FakeChess3DRenderer` (commonTest)
 
-`app/src/commonTest/kotlin/com/example/myapplication/board3d/FakeChess3DRenderer.kt` — records an ordered `events: MutableList<String>` (`"attach"`, `"detach"`, `"updatePosition:<fen>"`, `"input:<type>"`, `"dispose"`), exposes `lastFen` and `isAttached`. Reused by every platform's UI tests (commonTest is visible to all test source sets in this repo).
+`app/src/commonTest/kotlin/com/example/myapplication/board3d/FakeChess3DRenderer.kt` — records an ordered `events: MutableList<String>` (`"attach"`, `"detach"`, `"updatePosition:<fen>"`, `"updatePositionWithTransition:<fen>:<bool>"`, `"input:<type>"`, `"select:<square>"`, `"dispose"`), exposes `lastFen` and `isAttached`. Reused by every platform's UI tests (commonTest is visible to all test source sets in this repo).
 
 ## State and UI wiring (commonMain)
 
 - `ViewState` (`GameUiState.kt`) gains `show3D: Boolean = false` and `board3DUnavailable: Boolean = false`.
 - `GameViewModel` gains `fun setShow3D(enabled: Boolean)` (clears `board3DUnavailable` when enabling) and `fun markBoard3DUnavailable()` (sets the flag, flips `show3D` back off).
 - `ChessApp(viewModel, modifier, board3D: Board3DSupport? = null)` and `GameScreen(windowSize, viewModel, board3D: Board3DSupport? = null)` — default null means entry points without a backend keep compiling unchanged.
-- `GameScreen`: in the settings row next to the AutoPlay `Checkbox`, add (only when `board3D != null`) a `Checkbox` with `Modifier.testTag("board_3d_toggle")` + label. The board area shows **exactly one** board at a time: `if (viewState.show3D && board3D != null)` render `Board3D(...)` (testTag `board_3d`, `fillMaxWidth().aspectRatio(1f)`); otherwise render the 2D `Board(...)`. Enabling 3D **hides** the 2D board — the 2D `chess_board` is *not* composed while 3D is shown. When `viewState.board3DUnavailable`, show a `Text` with `Modifier.testTag("board_3d_unavailable")`. FEN derived with `remember(gameState) { FenConverter.gameStateToFen(gameState) }`.
-  - **Interaction note (M1):** because the 2D board is hidden in 3D mode and 3D tap-to-move doesn't arrive until M5, 3D mode is **view-only** in M1 — the human toggles back to 2D to make a move (engine/autoplay still progress). 3D becomes interactive in M5.
+- `GameScreen`: in the settings row add a 3D `Checkbox` only when `board3D != null`, with `Modifier.testTag("board_3d_toggle")` + label. The board area shows **exactly one** board at a time: `if (viewState.show3D && board3D != null)` render `Board3D(...)` (testTag `board_3d`, `fillMaxWidth().aspectRatio(1f)`); otherwise render the 2D `Board(...)`. Enabling 3D **hides** the 2D board — the 2D `chess_board` is *not* composed while 3D is shown. When `viewState.board3DUnavailable`, show a `Text` with `Modifier.testTag("board_3d_unavailable")`. FEN derived with `remember(gameState) { FenConverter.gameStateToFen(gameState) }`. Selection and move callbacks are shared with the 2D board, so 3D tap-to-move follows the same legal-move path.
 - New strings in `app/src/commonMain/composeResources/values/strings.xml`: `board_3d_toggle_label`, `board_3d_unavailable`.
 
 ## Execution rules
@@ -287,14 +289,14 @@ Behavior: `LaunchedEffect(Unit)` calls `support.rendererFactory.create()`; null 
 
 | Risk | Status / Mitigation |
 |---|---|
-| Materia offscreen render/readback unsupported on JVM | **Resolved (spike): confirmed unsupported → desktop uses LWJGL headless Vulkan (Decision D).** |
+| Materia offscreen render/readback unsupported on JVM | **Resolved (spike): confirmed unsupported.** M1 used LWJGL headless Vulkan; the current desktop factory has since moved to wgpu4k offscreen WebGPU. |
 | Materia consumed via Gradle composite build (`includeBuild`) | **Resolved (spike): composite build fails under Gradle 9.x.** If Materia is used at all, build it with its own Gradle 8.13 and publish to a Maven repo. |
-| Kotlin 2.2.20-built klibs unreadable from 2.3.20 | **JVM: resolved (spike) — reads cleanly.** wasm: still open and highest-risk — M4 day-1 mini-spike must re-validate; rescope = fork Materia and bump Kotlin, or use a platform-native WebGPU renderer. |
+| Kotlin 2.2.20-built klibs unreadable from 2.3.20 | **Resolved by not using Materia.** wgpu4k resolves for desktop and wasm in this branch; wasm builds and tests compile. |
 | Materia Apple backend is beta | M2 go/no-go mini-spike; rescope path = Metal-direct renderer behind the same interface |
-| Two renderer codebases if M2–M4 adopt Materia (desktop is LWJGL) | Each milestone's mini-spike decides Materia vs platform-native behind the same `Chess3DBoardRenderer` interface; weigh against the publish-to-Maven plumbing cost |
+| Two renderer codebases if M2–M4 adopt Materia (desktop is LWJGL) | **Resolved by direction change.** Desktop/web use shared wgpu4k; iOS/Android keep native interim engines until wgpu4k native targets mature. |
 | chess.gltf piece-model license unverified (Matt Joos via Sketchfab) | **Resolved:** Replacing with CC-licensed model (see [issue-32-3d-ui-unresolved-questions.md](issue-32-3d-ui-unresolved-questions.md)). |
-| FEN reflects the post-move state while the 2D animation is still playing | Accepted for M1–M4 (3D snaps); resolved by M5 transitions |
+| FEN reflects the post-move state while the 2D animation is still playing | **Resolved by M5 transitions.** `Board3DSceneDiffer` supplies backend-agnostic movement transitions. |
 | **(wgpu4k) Dependency is a pre-release SNAPSHOT** | `io.ygdrasil:wgpu4k-toolkit` has no stable release (latest `0.2.0-SNAPSHOT`, only milestone `0.1.0.M2`); from a GitLab Maven repo, not Central. Mitigation: pin the timestamped snapshot; track upstream for a 0.2.0 release before shipping. |
 | **(wgpu4k) Android + iOS backends are WIP** | Confirmed WIP at v27.x — full unification can't complete yet. Mitigation: wasm-first; keep Filament/SceneKit until wgpu4k's native targets mature; gate each migration on visual parity ([M6](issue-32-3d-ui-m6-wgpu4k.md)). |
-| **(wgpu4k) Desktop needs JDK 22+ / jvmTarget 22 (Panama FFM)** | Desktop target raised to `JVM_22`; runtime requires JDK 22+. Mitigation: dev/CI on JDK 26 (✓); the packaged desktop distribution must bundle/require a ≥22 JRE. |
+| **(wgpu4k) Desktop needs modern JDK / Panama FFM** | Desktop code currently targets JVM 24; `:app:run` and desktop tests use a scoped JDK 26 launcher. Mitigation: dev/CI on JDK 26 (✓); packaged desktop distribution must bundle/require a compatible modern JRE. |
 | **(superseded) Materia rows above** | The Materia-specific risks are historical — the committed direction is wgpu4k, not Materia. |

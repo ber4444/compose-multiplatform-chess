@@ -46,17 +46,22 @@ Changes:
   vkChess's Uncharted2-ish exposure (~4.5 feel). Keep `metalness=0`, roughness ~0.45 wood / ~0.25 marble.
 - Drop the separate grey floor (the env is the ground), mirroring desktop's `includeGround = false`.
 
-## Android (Filament) — `AndroidVulkanChessRenderer`
+## Android (Filament) — `AndroidSceneViewChessRenderer`
 
-Current state (`app/src/androidMain/.../board3d/AndroidVulkanChessRenderer.kt`): a directional light and a
-**solid-colour `Skybox`**, and **no `IndirectLight`** — i.e. no IBL at all, so PBR materials look flat.
+Current state (`app/src/androidMain/.../board3d/AndroidBoard3D.kt` +
+`AndroidSceneViewChessRenderer.kt`): Android uses SceneView's Compose-native Filament wrapper, with
+`SurfaceType.Surface`, a transparent Compose gesture overlay, fixed board/piece `ModelNode` pools, and
+offline-generated papermill IBL/skybox KTX assets loaded through `EnvironmentLoader.createKTX1Environment`.
 
-Changes:
-- Add **`IndirectLight`** built from the papermill IBL (cmgen KTX): `KTX1Loader.createIndirectLight(...)`,
-  set `scene.indirectLight`, with intensity tuned to match.
-- Replace the solid `Skybox` with the environment **`Skybox`** (cmgen skybox KTX) → forest background.
-- Tonemapping: Filament's `View`/`ColorGrading` (ACES/filmic) + exposure on the `Camera` to match vkChess.
-- Keep the existing glTF material instances (white/black wood, marble); they'll now receive IBL.
+Implemented:
+- Papermill **IndirectLight + Skybox** are generated offline with Filament tooling and bundled as
+  `files/env/papermill_ibl.ktx` and `files/env/papermill_skybox.ktx`.
+- `AndroidBoard3DSurface` validates those Compose resources before reporting support, then passes their
+  Android asset paths to SceneView's `EnvironmentLoader`.
+- SceneView owns the Filament engine/render loop; `AndroidSceneViewChessRenderer` is a Compose-observable
+  state holder for scene, selection, camera, and lifecycle events.
+- The shared `Board3DHost` tap/drag/pinch overlay remains the input path, preserving the common ray picker
+  and preventing SceneView's internal touch listener from selecting the wrong square.
 
 ## Verification
 

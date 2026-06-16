@@ -39,11 +39,11 @@ Filament engine.
 
 **Why.** M3 landed on raw Filament (`Engine`/`Renderer`/`Scene`/`SwapChain`/`Choreographer` + manual
 `SurfaceHolder.Callback` + `gltfio.AssetLoader`). SceneView wraps exactly that, with automatic lifecycle and a
-`SurfaceType` enum that resolves the dialog-above-`SurfaceView` z-ordering this milestone worried about. Net:
+`SurfaceType` enum that resolves the dialog-above-surface z-ordering this milestone worried about. Net:
 ~300 lines of imperative plumbing collapse to a declarative `SceneView { }` with node composables.
 
 **How it fits the interface (no commonMain changes).**
-- `AndroidSceneViewChessRenderer` (renamed from `AndroidVulkanChessRenderer`) becomes a thin
+- `AndroidSceneViewChessRenderer` becomes a thin
   Compose-observable state holder implementing `Chess3DBoardRenderer`, backed by `mutableStateOf` for the
   FEN-derived `Board3DScene`, `CameraParams`, and the selected `BoardSquare`.
 - `attach`/`detach` no longer own a `SwapChain`/`Choreographer` loop (SceneView owns the engine + render
@@ -104,8 +104,8 @@ transforms/rotations), extract it to a pure function and add a focused unit test
 - `Board3DUiTest` (fake-based: toggle / null-factory fallback / animation delivery) — unchanged; must keep
   passing untouched.
 - `AndroidBoard3DUiTest.dialogRendersAboveSurfaceView` — unchanged intent, now the **regression guard** that
-  `SurfaceType.SurfaceView` lets a Compose `Dialog` layer above the SceneView surface: 3D on + seeded
-  `pendingPromotion` → `promotion_choice_QUEEN` is displayed and clickable.
+  the SceneView `SurfaceType.Surface` setup plus Compose dialog windowing keeps dialogs above the 3D
+  surface: 3D on + seeded `pendingPromotion` → `promotion_choice_QUEEN` is displayed and clickable.
 - `AndroidBoard3DUiTest.board3DRendererSmokeTest` — unchanged intent, now exercises the real SceneView
   `androidBoard3DSupport()`. `Assume`-guard on factory-null. Toggle on → `board_3d` exists; make a move
   (drives `updatePosition`); toggle off cleanly. Verifies the SceneView renderer builds, accepts a position

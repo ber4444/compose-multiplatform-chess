@@ -6,7 +6,7 @@
 > the unified wgpu4k backend**, i.e. the *shared* commonMain renderer compiled to `wasmJs`, **not** a
 > wasm-specific Materia/Three.js renderer.
 > - **Still valid here (reused as-is):** the canvas-overlay strategy, the `navigator.gpu` fallback,
->   the `WasmBoard3D.kt` / `overlayCssRect` / test layout, and the DoD.
+>   the `WasmBoard3D.kt` / `overlayCssRect` + `overlayPhysicalSize` / test layout, and the DoD.
 > - **Superseded:** all Materia-specific parts (consumption recipe, Gradle 8.13 publish, fork branch,
 >   the "publish Materia to a Maven repo first" CI step) and the wasm-only `WebGpuChessRenderer`.
 > - **vkChess-fidelity is in scope here too:** wasm reuses the desktop WGSL (skybox + PBR+IBL) and the
@@ -31,7 +31,7 @@ No-go → three options, in rough preference order: (a) **a Three.js / Babylon.j
 Compose-on-wasm renders the entire app into its own canvas inside the `ComposeTarget` element, so the 3D surface must be a **second, absolutely positioned WebGPU canvas** overlaid on the board slot:
 
 - The overlay canvas gets `pointer-events: none` — Compose keeps receiving all input; the M1 host already forwards drags/taps/zoom from Compose's `pointerInput` into `Board3DInput`.
-- The overlay is rect-synced to the composed `Board3D` slot via `Modifier.onGloballyPositioned` → `boundsInWindow()`, divided by `window.devicePixelRatio`, written to the canvas's CSS `left/top/width/height`.
+- The overlay is rect-synced to the composed `Board3D` slot via `Modifier.onGloballyPositioned` → `boundsInWindow()`. The bounds are already in CSS/window coordinates, so they are written unchanged to the canvas CSS `left/top/width/height`; `window.devicePixelRatio` is used only to scale the canvas backing-store `width`/`height`.
 - While any Compose dialog is open (promotion / game over / draw offer), the overlay must hide, since Compose dialogs draw inside the Compose canvas **below** the overlay. Implement by toggling `canvas.style.visibility` from a `LaunchedEffect` keyed on `gameState.pendingPromotion != null || gameState.winState != WinState.NONE || gameState.drawOffer == Set.BLACK`.
 - Rejected alternative (record, don't relitigate): making the Compose canvas transparent over the board and putting the WebGPU canvas underneath — Compose-wasm's canvas alpha behavior is not guaranteed across versions.
 
@@ -69,8 +69,9 @@ All in `app/src/wasmJsMain/kotlin/com/example/myapplication/board3d/` unless not
 
 - **`WasmBoard3D.kt`** —
   - `class WasmChess3DSurface(val canvas: HTMLCanvasElement, override val widthPx: Int, override val heightPx: Int) : Chess3DSurface`
-  - `@Composable fun WasmBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier)`: `DisposableEffect` creates `<canvas id="board3d-overlay">` appended to `document.body` (`position: absolute; pointer-events: none`), attaches the renderer, removes the canvas and detaches on dispose; `onGloballyPositioned` drives the rect sync; dialog-state visibility toggle as above.
-  - `internal fun overlayCssRect(boundsInWindow: Rect, devicePixelRatio: Double): CssRect` — the rect-sync math extracted as a pure function for unit testing.
+  - `@Composable fun WasmBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier)`: `DisposableEffect` creates `<canvas id="board3d-overlay">` appended to `document.body` (`position: absolute; pointer-events: none`), attaches the renderer when the physical canvas size changes, removes the canvas and detaches on dispose; `onGloballyPositioned` drives the rect sync; dialog-state visibility toggle as above.
+  - `internal fun overlayCssRect(boundsInWindow: Rect, devicePixelRatio: Double): CssRect` — keeps CSS/window coordinates unchanged; the `devicePixelRatio` parameter is retained so tests cover the historical high-DPI bug.
+  - `internal fun overlayPhysicalSize(css: CssRect, devicePixelRatio: Double): Pair<Int, Int>` — scales the canvas backing store from CSS pixels to physical pixels for crisp WebGPU rendering.
   - `fun wasmBoard3DSupport(): Board3DSupport` — factory: `if (navigator.gpu == null) null else runCatching { WebGpuChessRenderer(Res.readBytes("files/models/chess.glb")) }.getOrNull()`.
 - **`WebGpuChessRenderer.kt`** — the **wgpu4k** WebGPU backend bound to the overlay canvas, reusing the
   shared WGSL + env/PBR from M6; same structure as the other renderers (scene from `Board3DSceneMapper`,
@@ -85,7 +86,7 @@ All in `app/src/wasmJsMain/kotlin/com/example/myapplication/board3d/` unless not
 
 Unit tests (`app/src/wasmJsTest/kotlin/com/example/myapplication/board3d/`):
 
-- **`OverlayCssRectTest`** — `overlayCssRect` for devicePixelRatio 1.0, 2.0, fractional; zero-size bounds.
+- **`OverlayCssRectTest`** — `overlayCssRect` for devicePixelRatio 1.0, 2.0, fractional; zero-size bounds; DPR 2 keeps CSS coordinates unchanged while `overlayPhysicalSize` doubles the backing dimensions.
 
 UI tests (`app/src/wasmJsTest/kotlin/com/example/myapplication/`):
 
@@ -101,13 +102,14 @@ UI tests (`app/src/wasmJsTest/kotlin/com/example/myapplication/`):
 ## Definition of done
 
 - In a WebGPU-capable browser the toggle renders the 3D board, rect-synced under resize/scroll, hidden behind dialogs; without WebGPU the fallback message shows and the game is unaffected.
-- `./gradlew :app:check :app:wasmJsBrowserDistribution` green.
+- `./gradlew :app:check :app:wasmJsBrowserDistribution` green; `./gradlew :app:wasmJsBrowserDevelopmentWebpack` also compiles for the dev-bundle path.
 - Full CI matrix builds (overview "Execution rules").
 
 ## Spike result
 
 **Resolved by [M6](issue-32-3d-ui-m6-wgpu4k.md).** Engine = **wgpu4k** (option (b)). The Kotlin-klib
-forward-compat risk that this milestone flagged as "highest here" is retired in principle — wgpu4k
-tracks Kotlin 2.3.21 (repo is 2.3.20) and resolved + compiled cleanly on desktop. **Still open (M6
-Phase 2):** confirm the `wasmJs` *variant* resolves/compiles and binds to a caller-supplied
-`HTMLCanvasElement` via the overlay strategy above. Fork-branch question is moot (no Materia).
+forward-compat risk that this milestone flagged as "highest here" is retired for this branch: the
+`wasmJs` variant resolves/compiles, binds to the caller-supplied overlay `HTMLCanvasElement`, and the
+production fallback remains `navigator.gpu`/adapter gated. Verified with `:app:wasmJsTest`,
+`:app:wasmJsBrowserDistribution`, and `:app:wasmJsBrowserDevelopmentWebpack`. Fork-branch question is
+moot (no Materia).
