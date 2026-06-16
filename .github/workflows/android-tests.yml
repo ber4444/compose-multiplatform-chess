@@ -99,6 +99,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           force-avd-creation: true
+          boot-timeout: 600  # Increase boot timeout to 10 minutes
           emulator-options: >
             -no-snapshot-save
             -noaudio
@@ -108,6 +109,8 @@ jobs:
             -no-window
             -grpc 8554
             -grpc-use-jwt
+            -memory 2048
+            -cores 2
           script: |
             echo "grpc.allowlist=*" >> ~/.android/avd/test.avd/config.ini
             ./gradlew :app:connectedAndroidDeviceTest
