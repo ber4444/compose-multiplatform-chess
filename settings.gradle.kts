@@ -11,6 +11,14 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
+// Lets Gradle auto-provision a matching JDK toolchain (e.g. the JDK 26 the desktop target needs
+// for wgpu4k's Panama FFM path) on machines/CI runners that don't have one installed, instead of
+// failing with "Toolchain download repositories have not been configured". (M6 3D spike.)
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "0.10.0"
+}
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
     repositories {
