@@ -66,8 +66,4 @@ Third-party asset and dependency notices live in [THIRD_PARTY_NOTICES.md](THIRD_
 - `./gradlew :app:desktopTest --tests "*board3d*"` runs the 3D desktop tests (Wgpu4kFrameDumpTest writes `build/wgpu-frame.png` to eyeball the render)
 - `tools/ios_3d_screenshot.sh` captures the real iOS 3D board from a booted simulator
 
-Mobile and desktop screenshots:
-
-<img width="1768" height="2208" alt="Screenshot_20260416_142830" src="https://github.com/user-attachments/assets/3dc55dee-90e0-4aad-85ea-fab60a22a132" />
-
-<img width="1602" height="1874" alt="Screenshot From 2026-04-19 14-43-11" src="https://github.com/user-attachments/assets/899e1085-6810-41df-83e4-6940d4e9c505" />
+Articles with screenshots: WIP
