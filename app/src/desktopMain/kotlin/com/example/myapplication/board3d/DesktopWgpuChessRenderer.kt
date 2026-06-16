@@ -27,8 +27,7 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     private var renderJob: Job? = null
 
     // All wgpu/device work is confined to ONE thread: wgpu device access must not be interleaved
-    // across threads, and the render loop + geometry uploads must be serialized. Mirrors the working
-    // VulkanChessRenderer.renderDispatcher.
+    // across threads, and the render loop + geometry uploads must be serialized.
     @OptIn(DelicateCoroutinesApi::class)
     private val renderDispatcher = newSingleThreadContext("wgpu-desktop-render")
     private val scope = CoroutineScope(renderDispatcher + SupervisorJob())

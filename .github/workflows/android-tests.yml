@@ -82,15 +82,13 @@ jobs:
           echo "Running on device: ${{ matrix.profile }}"
           echo "Building Android, Linux desktop, and Wasm targets"
 
-      - name: Install Vulkan drivers for headless testing
+      # The desktop wgpu4k renderer (exercised headlessly by Wgpu4kFrameDumpTest inside :app:check)
+      # uses the Vulkan backend on Linux; lavapipe (mesa-vulkan-drivers) provides a CPU Vulkan device.
+      - name: Install Vulkan drivers (lavapipe) for wgpu4k headless render tests
         run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
 
       - name: Build Android, Linux desktop, and Wasm targets
         run: ./gradlew :androidApp:assembleDebug :app:assembleAndroidDeviceTest :app:check :app:desktopJar :app:packageDistributionForCurrentOS :app:wasmJsBrowserDistribution
-
-      - name: Run 3D Smoke Tests
-        run: ./gradlew :app:desktopTest --tests "*board3d*" -Dchess3d.smoke=true
-        continue-on-error: true
 
       - name: Run instrumentation tests
         uses: reactivecircus/android-emulator-runner@v2.34.0
@@ -147,10 +145,6 @@ jobs:
 
       - name: Kotlin checks (simulator unit+UI tests, desktop tests, device link, DMG)
         run: ./gradlew :app:iosSimulatorArm64Test :app:desktopTest :app:linkReleaseFrameworkIosArm64 :app:packageDistributionForCurrentOS "-PiosSimulatorDeviceId=iPhone 16"
-
-      - name: Run 3D smoke tests (MoltenVK, non-blocking)
-        run: ./gradlew :app:desktopTest --tests "*board3d*" -Dchess3d.smoke=true
-        continue-on-error: true
 
       - name: Build and test iosApp
         run: |
