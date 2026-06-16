@@ -1,6 +1,6 @@
 # game
 
-Compose Multiplatform chess app targeting:
+Compose Multiplatform chess app with full support for all standard chess rules and a 3D view mode, targeting:
 
 - Android
 - Desktop (JVM): Linux and macOS
@@ -8,6 +8,8 @@ Compose Multiplatform chess app targeting:
 - iOS
 
 ## Setup
+
+For the desktop target on Linux and macOS, **JDK 22+** is required due to the use of the Panama FFM API for the 3D WebGPU renderer.
 
 For the desktop target on Linux, install stockfish first:
 
@@ -30,6 +32,16 @@ macOS, Xcode 16+, and JDK 17 are required.
 
 The Stockfish engine is bundled automatically, nothing to install manually.
 
+## Architecture & Features
+
+- **Full Chess Rules:** The application covers all standard chess rules and includes an explicit draw-by-agreement flow where the Stockfish engine evaluates whether to accept or decline draw offers.
+- **3D WebGPU Unification:** The app features a 3D board view. The project's strategic direction is to unify all platforms onto a single WebGPU (`wgpu4k` + WGSL) backend. Desktop and web currently use this, while mobile platforms use temporary native engines (SceneKit on iOS, Filament via SceneView on Android) until the `wgpu4k` mobile targets mature.
+- **Stockfish Engine Integrations:**
+  - **Android:** Pinned to Stockfish 17, as the Stockfish 18 binary exceeds GitHub's 100 MB file limit.
+  - **Desktop:** Relies on system-installed binaries (e.g., via `apt` or `brew`).
+  - **Web (Wasm):** Uses a lightweight `stockfish-18-lite-single.js` running in a Web Worker.
+  - **iOS:** Wraps `ChessKitEngine` using an async-sync bridge and utilizes NNUE via `EvalFileSmall`.
+
 ## Project layout
 
 - `app/src/commonMain` shared chess UI, game rules, and compose resources
@@ -39,6 +51,8 @@ The Stockfish engine is bundled automatically, nothing to install manually.
 - `app/src/wasmJsMain` web launcher
 - `app/src/iosMain` shared iOS implementation
 - `iosApp/` Xcode project and Swift adapter
+
+Third-party asset and dependency notices live in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Useful Gradle tasks
 

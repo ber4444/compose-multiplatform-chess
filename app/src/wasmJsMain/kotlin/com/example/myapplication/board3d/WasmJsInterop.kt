@@ -48,4 +48,7 @@ internal fun drawImage(ctx: JsAny, bitmap: JsAny): Unit = js("ctx.drawImage(bitm
 internal fun getImageDataLen(ctx: JsAny, w: Int, h: Int): Int = js("ctx.getImageData(0, 0, w, h).data.length")
 
 @Suppress("UNUSED_PARAMETER")
-internal fun getImageDataByte(ctx: JsAny, w: Int, h: Int, i: Int): Int = js("ctx.getImageData(0, 0, w, h).data[i]")
+internal fun getImageDataArray(ctx: JsAny, w: Int, h: Int): JsAny = js("ctx.getImageData(0, 0, w, h).data")
+
+@Suppress("UNUSED_PARAMETER")
+internal fun getU8ArrayByte(arr: JsAny, i: Int): Int = js("arr[i]")

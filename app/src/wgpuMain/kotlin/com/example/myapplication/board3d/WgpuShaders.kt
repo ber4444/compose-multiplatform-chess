@@ -118,9 +118,11 @@ fn fs_main(input: FragmentInput) -> @location(0) vec4<f32> {
 
     // Image-based lighting from the env cube (simplified: sample mips directly, no precompute).
     let maxMip = 9.0;
-    let irradiance = textureSampleLevel(envTex, envSamp, N, maxMip).rgb;
+    var envN = N; envN.y = -envN.y;
+    let irradiance = textureSampleLevel(envTex, envSamp, envN, maxMip).rgb;
     let diffuse = irradiance * albedo;
-    let prefiltered = textureSampleLevel(envTex, envSamp, R, roughness * maxMip).rgb;
+    var envR = R; envR.y = -envR.y;
+    let prefiltered = textureSampleLevel(envTex, envSamp, envR, roughness * maxMip).rgb;
     let Fr = F_SchlickR(NoV, F0, roughness);
     let brdf = envBRDFApprox(NoV, roughness);
     let specularIBL = prefiltered * (Fr * brdf.x + brdf.y);
@@ -178,7 +180,11 @@ fn uncharted2(x: vec3<f32>) -> vec3<f32> {
 fn fs_sky(input: SkyOut) -> @location(0) vec4<f32> {
     let exposure = 4.5;
     let gamma = 2.2;
-    var color = textureSampleLevel(envTex, envSamp, normalize(input.dir), 0.0).rgb;
+    var sampleDir = normalize(input.dir);
+    sampleDir.y = -sampleDir.y;
+    // Sample a high (blurry) mip so the environment reads as a defocused bokeh backdrop behind the
+    // in-focus board, instead of the sharp garden photo. The cube has ~10 mips; mip 5 ~ 32x blur.
+    var color = textureSampleLevel(envTex, envSamp, sampleDir, 5.0).rgb;
     color = uncharted2(color * exposure);
     color = color * (1.0 / uncharted2(vec3<f32>(11.2, 11.2, 11.2)));
     color = pow(color, vec3<f32>(1.0 / gamma, 1.0 / gamma, 1.0 / gamma));

@@ -20,6 +20,13 @@ data class Vec3(val x: Float, val y: Float, val z: Float) {
         val len = length()
         return if (len > 0f) this * (1f / len) else Vec3(0f, 0f, 0f)
     }
+    fun lerp(other: Vec3, t: Float): Vec3 {
+        return Vec3(
+            x + (other.x - x) * t,
+            y + (other.y - y) * t,
+            z + (other.z - z) * t
+        )
+    }
 }
 
 data class Ray(val origin: Vec3, val direction: Vec3)
@@ -30,9 +37,24 @@ data class CameraParams(
 )
 
 object CameraMath {
+    /**
+     * The vertical FOV the renderers actually project with. In portrait (aspect < 1) every backend
+     * widens the vertical FOV to hold a fixed ~60° horizontal FOV so the board still fits the narrow
+     * width (see the `aspect < 1` branch in each renderer's camera update). Picking has to invert the
+     * projection that's on screen, so ray/screen math must use this, not the raw fovYDegrees —
+     * otherwise taps land one or more ranks off in portrait. Landscape (aspect ≥ 1) is unchanged.
+     */
+    private fun effectiveFovYRad(camera: CameraParams): Float =
+        if (camera.aspect < 1f) {
+            val tanHalfFovX = kotlin.math.tan((60f * PI.toFloat() / 180f) / 2f)
+            2f * kotlin.math.atan(tanHalfFovX / camera.aspect)
+        } else {
+            camera.fovYDegrees * PI.toFloat() / 180f
+        }
+
     /** xNorm/yNorm in [0,1], origin top-left (matches Board3DInput.Tap). */
     fun rayFromScreen(camera: CameraParams, xNorm: Float, yNorm: Float): Ray {
-        val fovYRad = camera.fovYDegrees * PI.toFloat() / 180f
+        val fovYRad = effectiveFovYRad(camera)
         val tanHalfFov = kotlin.math.tan(fovYRad / 2f)
         val ndcX = (2f * xNorm - 1f)
         val ndcY = -(2f * yNorm - 1f) // flip Y so top-left is +y in camera space
@@ -67,8 +89,8 @@ object CameraMath {
         
         val x = toPoint.dot(right)
         val y = toPoint.dot(up)
-        
-        val fovYRad = camera.fovYDegrees * PI.toFloat() / 180f
+
+        val fovYRad = effectiveFovYRad(camera)
         val tanHalfFov = kotlin.math.tan(fovYRad / 2f)
         
         val viewX = x / -z
@@ -85,24 +107,105 @@ object CameraMath {
 }
 
 object BoardRayPicker {
-    /** Intersects the ray with the y=0 plane, then BoardGeometry.squareFromWorld.
-     *  Null if parallel/behind/off-board. */
-    fun pickSquare(ray: Ray): BoardSquare? {
-        // Plane y = 0. t = -ray.origin.y / ray.direction.y
-        if (kotlin.math.abs(ray.direction.y) < 1e-6f) return null // Parallel
-        val t = -ray.origin.y / ray.direction.y
-        if (t < 0f) return null // Behind origin
-        
-        val hitPoint = ray.origin + (ray.direction * t)
-        return BoardGeometry.squareFromWorld(hitPoint.x, hitPoint.z)
+    private data class PieceHitProxy(val radius: Float, val height: Float)
+
+    /**
+     * Cylinders approximate the normalized chess mesh bounds, with a small touch target pad. Keeping
+     * these close to the rendered geometry matters on iOS/SceneKit: an oversized foreground proxy
+     * can steal taps from the visible pawn or square behind it.
+     */
+    private fun hitProxy(kind: PieceKind): PieceHitProxy = when (kind) {
+        PieceKind.KING -> PieceHitProxy(radius = 0.26f, height = 0.95f)
+        PieceKind.QUEEN -> PieceHitProxy(radius = 0.24f, height = 0.83f)
+        PieceKind.BISHOP -> PieceHitProxy(radius = 0.21f, height = 0.71f)
+        PieceKind.KNIGHT -> PieceHitProxy(radius = 0.22f, height = 0.64f)
+        PieceKind.ROOK -> PieceHitProxy(radius = 0.22f, height = 0.60f)
+        PieceKind.PAWN -> PieceHitProxy(radius = 0.20f, height = 0.53f)
+    }
+
+    /**
+     * Picks the board square the ray meets first. Candidates are the y=0 board plane and (when a
+     * [scene] is given) one vertical cylinder per piece; the nearest hit to the camera wins, so a
+     * tap on a tall piece selects that piece rather than the empty square its top projects onto.
+     * Null if the ray is parallel/behind/off-board.
+     */
+    fun pickSquare(ray: Ray, scene: Board3DScene?): BoardSquare? {
+        // Board plane y = 0.
+        var planeT = Float.MAX_VALUE
+        var planeSquare: BoardSquare? = null
+        if (kotlin.math.abs(ray.direction.y) >= 1e-6f) {
+            val t = -ray.origin.y / ray.direction.y
+            if (t >= 0f) {
+                val hit = ray.origin + (ray.direction * t)
+                planeSquare = BoardGeometry.squareFromWorld(hit.x, hit.z)
+                planeT = t
+            }
+        }
+
+        // Nearest piece body the ray enters (if any). Sorting by entry distance, NOT perpendicular
+        // distance, is what makes this correct: the ray passes within radius of several pieces, but
+        // only the one it reaches first is the one actually on screen at that pixel.
+        var bestT = planeT
+        var bestSquare = planeSquare
+        if (scene != null) {
+            for (piece in scene.pieces) {
+                val proxy = hitProxy(piece.kind)
+                val t = rayCylinderEntry(ray, piece.position.x, piece.position.z, proxy.radius, proxy.height)
+                if (t != null && t < bestT) {
+                    bestT = t
+                    bestSquare = piece.square
+                }
+            }
+        }
+        return bestSquare
+    }
+
+    /** Nearest positive t at which [ray] enters a vertical cylinder (center x/z, radius r, y in
+     *  [0,height]), via the side wall or the top cap; null if it misses. */
+    private fun rayCylinderEntry(ray: Ray, cx: Float, cz: Float, r: Float, height: Float): Float? {
+        var best = Float.MAX_VALUE
+        val ox = ray.origin.x - cx
+        val oz = ray.origin.z - cz
+        val dx = ray.direction.x
+        val dz = ray.direction.z
+
+        // Side wall: |horizontal(origin + t*dir)| = r.
+        val a = dx * dx + dz * dz
+        if (a > 1e-8f) {
+            val b = 2f * (ox * dx + oz * dz)
+            val c = ox * ox + oz * oz - r * r
+            val disc = b * b - 4f * a * c
+            if (disc >= 0f) {
+                val sq = kotlin.math.sqrt(disc)
+                for (t in floatArrayOf((-b - sq) / (2f * a), (-b + sq) / (2f * a))) {
+                    if (t > 1e-4f) {
+                        val y = ray.origin.y + ray.direction.y * t
+                        if (y in 0f..height && t < best) best = t
+                    }
+                }
+            }
+        }
+
+        // Top cap (y = height): relevant when looking down onto a piece.
+        if (kotlin.math.abs(ray.direction.y) > 1e-6f) {
+            val t = (height - ray.origin.y) / ray.direction.y
+            if (t > 1e-4f && t < best) {
+                val hx = ox + dx * t
+                val hz = oz + dz * t
+                if (hx * hx + hz * hz <= r * r) best = t
+            }
+        }
+
+        return if (best == Float.MAX_VALUE) null else best
     }
 }
 
 /** Pure visual camera state machine (yaw/pitch/distance around board center). */
 class OrbitCameraController(private var aspect: Float) {
     private var yawDegrees = 0f
-    private var pitchDegrees = 22f   // matches DEFAULT_WHITE_VIEW so a fresh controller == the default white view
-    private var distance = 10.5f
+    // Defaults match DEFAULT_WHITE_VIEW so a fresh controller == the default white view.
+    private var pitchDegrees = DEFAULT_PITCH_DEG
+    private var distance = DEFAULT_DISTANCE
     private val center = Vec3(0f, 0f, 0f)
 
     val camera: CameraParams
@@ -116,7 +219,7 @@ class OrbitCameraController(private var aspect: Float) {
                 position = Vec3(x, y, z),
                 target = center,
                 up = Vec3(0f, 1f, 0f),
-                fovYDegrees = 42f,
+                fovYDegrees = FOV_Y_DEG,
                 aspect = aspect,
                 near = 0.1f,
                 far = 100f
@@ -133,7 +236,7 @@ class OrbitCameraController(private var aspect: Float) {
     fun onZoom(factor: Float) {
         distance *= factor
         if (distance < 6f) distance = 6f
-        if (distance > 20f) distance = 20f
+        if (distance > 26f) distance = 26f
     }
 
     fun onResize(newAspect: Float) {
@@ -141,11 +244,20 @@ class OrbitCameraController(private var aspect: Float) {
     }
 
     companion object {
+        // The 3D board is laid out square (GameScreen: fillMaxWidth().aspectRatio(1f)), so the
+        // viewport aspect is ~1 on every platform. These defaults frame the whole board — marble
+        // frame included — inside that square with a margin, instead of the old close low-angle
+        // crop that spilled the board past the screen edges.
+        private const val DEFAULT_PITCH_DEG = 35f
+        private const val DEFAULT_DISTANCE = 17f
+        /** Vertical FOV the renderers project with (equals horizontal FOV in the square viewport). */
+        const val FOV_Y_DEG = 50f
+
         val DEFAULT_WHITE_VIEW: CameraParams
             get() = OrbitCameraController(1f).apply {
                 yawDegrees = 0f
-                pitchDegrees = 22f
-                distance = 10.5f
+                pitchDegrees = DEFAULT_PITCH_DEG
+                distance = DEFAULT_DISTANCE
             }.camera
     }
 }

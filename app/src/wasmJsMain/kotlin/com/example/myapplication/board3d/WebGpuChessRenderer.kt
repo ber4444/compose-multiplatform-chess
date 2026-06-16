@@ -8,6 +8,7 @@ import kotlin.math.PI
 class WebGpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
 
     private var meshes: Map<PieceKind, MeshData>? = null
+    private var frameMesh: MeshData? = null
     private var textureImages: Map<ChessTexture, TextureImage>? = null
     private val glbData = glb
 
@@ -58,8 +59,16 @@ class WebGpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
                 if (meshes == null || textureImages == null) {
                     meshes = WasmGltfLoader.loadMeshes(glbData)
                     textureImages = WasmGltfLoader.loadTextures(glbData)
+                    frameMesh = WasmGltfLoader.loadFrame(glbData)
                 }
                 runRenderLoop(surface)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // Catch Throwable, not Exception: Kotlin/Wasm JsException extends Throwable, so an
+                // Exception-only catch lets JS interop errors escape to coroutine completion.
+                println("WebGpuChessRenderer renderJob failed: ${e.message}")
+                e.printStackTrace()
             } finally {
                 releaseGpu()
             }
@@ -68,8 +77,8 @@ class WebGpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
 
     private suspend fun runRenderLoop(surface: WasmChess3DSurface) {
         val navigatorGpu = getNavigatorGpu() ?: error("WebGPU not supported")
-        adapter = requestAdapterJs(navigatorGpu).await() ?: error("Failed to request adapter")
-        device = requestDeviceJs(adapter!!).await() ?: error("Failed to request device")
+        adapter = awaitPromiseSafe(requestAdapterJs(navigatorGpu)) ?: error("Failed to request adapter")
+        device = awaitPromiseSafe(requestDeviceJs(adapter!!)) ?: error("Failed to request device")
         
         context = getGpuContextJs(surface.canvas)
         val format = getPreferredCanvasFormatJs(navigatorGpu)
@@ -148,8 +157,8 @@ class WebGpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     }
     
     private suspend fun awaitAnimationFrame() = suspendCancellableCoroutine<Unit> { cont ->
-        val id = kotlinx.browser.window.requestAnimationFrame { cont.resumeWith(Result.success(Unit)) }
-        cont.invokeOnCancellation { kotlinx.browser.window.cancelAnimationFrame(id) }
+        val id = requestAnimationFrameSafe { cont.resumeWith(Result.success(Unit)) }
+        cont.invokeOnCancellation { cancelAnimationFrameSafe(id) }
     }
 
     override fun detach() {
@@ -206,15 +215,15 @@ class WebGpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
                                 // Interpolate position
                                 val fromPos = BoardGeometry.squareCenter(t.from)
                                 val toPos = BoardGeometry.squareCenter(t.to)
-                                val currentPos = org.joml.Vector3f(fromPos.x, fromPos.y, fromPos.z).lerp(
-                                    org.joml.Vector3f(toPos.x, toPos.y, toPos.z), progress
+                                val currentPos = Vec3(fromPos.x, fromPos.y, fromPos.z).lerp(
+                                    Vec3(toPos.x, toPos.y, toPos.z), progress
                                 )
                                 piece.copy(position = Vec3(currentPos.x, currentPos.y, currentPos.z))
                             } else if (t.secondary != null && piece.square == t.secondary.to && piece.kind == t.secondary.kind && piece.color == t.secondary.color) {
                                 val fromPos = BoardGeometry.squareCenter(t.secondary.from)
                                 val toPos = BoardGeometry.squareCenter(t.secondary.to)
-                                val currentPos = org.joml.Vector3f(fromPos.x, fromPos.y, fromPos.z).lerp(
-                                    org.joml.Vector3f(toPos.x, toPos.y, toPos.z), progress
+                                val currentPos = Vec3(fromPos.x, fromPos.y, fromPos.z).lerp(
+                                    Vec3(toPos.x, toPos.y, toPos.z), progress
                                 )
                                 piece.copy(position = Vec3(currentPos.x, currentPos.y, currentPos.z))
                             } else {
@@ -225,8 +234,8 @@ class WebGpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
                             if (piece.square == t.move.to && piece.kind == t.move.kind && piece.color == t.move.color) {
                                 val fromPos = BoardGeometry.squareCenter(t.move.from)
                                 val toPos = BoardGeometry.squareCenter(t.move.to)
-                                val currentPos = org.joml.Vector3f(fromPos.x, fromPos.y, fromPos.z).lerp(
-                                    org.joml.Vector3f(toPos.x, toPos.y, toPos.z), progress
+                                val currentPos = Vec3(fromPos.x, fromPos.y, fromPos.z).lerp(
+                                    Vec3(toPos.x, toPos.y, toPos.z), progress
                                 )
                                 piece.copy(position = Vec3(currentPos.x, currentPos.y, currentPos.z))
                             } else {
@@ -237,8 +246,8 @@ class WebGpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
                             if (piece.square == t.move.to && piece.kind == t.promotedTo && piece.color == t.move.color) {
                                 val fromPos = BoardGeometry.squareCenter(t.move.from)
                                 val toPos = BoardGeometry.squareCenter(t.move.to)
-                                val currentPos = org.joml.Vector3f(fromPos.x, fromPos.y, fromPos.z).lerp(
-                                    org.joml.Vector3f(toPos.x, toPos.y, toPos.z), progress
+                                val currentPos = Vec3(fromPos.x, fromPos.y, fromPos.z).lerp(
+                                    Vec3(toPos.x, toPos.y, toPos.z), progress
                                 )
                                 // Show pawn until the very end, then snap to new piece
                                 if (progress < 1f) {
@@ -270,7 +279,7 @@ class WebGpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
 
                 val interpolatedScene = baseScene.copy(pieces = injectedPieces)
                 if (device != null && meshes != null) {
-                    val geo = ChessSceneGeometry.build(interpolatedScene, meshes!!, includeGround = false)
+                    val geo = ChessSceneGeometry.build(interpolatedScene, meshes!!, frameMesh, includeGround = false)
                     for ((tex, group) in geo.groups) uploadGroup(tex, group)
                 }
                 
@@ -297,7 +306,7 @@ class WebGpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     private suspend fun rebuildGeometry(fen: String) {
         if (device == null || meshes == null) return
         val scene = Board3DSceneMapper.fromFen(fen).copy(selectedSquare = selectedSquare)
-        val geo = ChessSceneGeometry.build(scene, meshes!!, includeGround = false)
+        val geo = ChessSceneGeometry.build(scene, meshes!!, frameMesh, includeGround = false)
         for ((tex, group) in geo.groups) uploadGroup(tex, group)
     }
     
@@ -333,24 +342,30 @@ class WebGpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
 
     private fun uploadTexture(tex: ChessTexture, img: TextureImage): TextureGroup {
         val tg = TextureGroup()
-        val texture = createTextureJs(device!!, img.width, img.height, "rgba8unorm")
         
-        writeTextureJs(device!!, texture, img.width, img.height, img.rgba)
+        val width = img.width
+        val height = img.height
+        
+        val texture = createTextureJs(device!!, width, height, "rgba8unorm")
+        writeTextureJs(device!!, texture, width, height, img.rgba)
         
         tg.image = texture
         tg.view = createTextureViewJs(texture)
         
-        val matBuffer = createUniformBufferJs(device!!, 16)
-        val roughness = if (tex == ChessTexture.BOARD) 0.25f else 0.45f
-        val matData = floatArrayOf(roughness, 0f, 0f, 0f)
-        writeBufferFloatArrayJs(device!!, matBuffer, matData)
-        tg.materialBuffer = matBuffer
+        val roughness = when (tex) {
+            ChessTexture.BOARD -> 0.1f
+            ChessTexture.FRAME -> 0.5f
+            else -> 0.4f
+        }
+        val matBuf = createUniformBufferJs(device!!, 16)
+        writeBufferFloatArrayJs(device!!, matBuf, floatArrayOf(roughness, 0f, 0f, 0f))
+        tg.materialBuffer = matBuf
         
         return tg
     }
     
     private suspend fun uploadEnvCube() {
-        val bytes = game.app.generated.resources.Res.readBytes("files/papermill_hdr16f_cube.ktx")
+        val bytes = game.app.generated.resources.Res.readBytes("files/env/papermill_hdr16f_cube.ktx")
         val ktx = WasmKtxLoader.load(bytes) ?: error("Failed to parse env cubemap KTX")
         val tex = createCubeTextureJs(device!!, ktx.width, ktx.height, ktx.mipLevels)
         for (m in 0 until ktx.mipLevels) {
@@ -412,3 +427,9 @@ class WebGpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         scope.cancel()
     }
 }
+
+@JsFun("(cb) => window.requestAnimationFrame(() => cb())")
+private external fun requestAnimationFrameSafe(cb: () -> Unit): Int
+
+@JsFun("(id) => window.cancelAnimationFrame(id)")
+private external fun cancelAnimationFrameSafe(id: Int)

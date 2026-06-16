@@ -29,9 +29,7 @@ Both platforms need the papermill environment. It currently lives at
   - **Filament** wants a **prefiltered IBL** (mip-chain + spherical-harmonics), produced by Filament's
     `cmgen` from an HDR/equirect, then loaded with `KTX1Loader.createIndirectLight` (+ a matching
     `Skybox` KTX). The raw cube is not directly a Filament IBL.
-  - Decision to make: generate platform-specific assets from the same source HDR (cleanest, matches each
-    engine), vs. runtime conversion. Recommend offline `cmgen` for Filament + a 6-face/equirect export
-    for SceneKit, committed alongside the source.
+  - **Decision Resolved:** We will use offline-generated platform-specific assets (see [issue-32-3d-ui-unresolved-questions.md](issue-32-3d-ui-unresolved-questions.md)).
 
 ## iOS (SceneKit) — `IosSceneKitChessRenderer`
 

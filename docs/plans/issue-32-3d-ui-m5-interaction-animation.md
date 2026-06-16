@@ -44,7 +44,7 @@ fun updatePosition(fen: String, transition: Board3DTransition?) = updatePosition
 ```
 
 - The host computes `diff(previousScene, nextScene)` on each FEN change and calls the new overload. Backends that implement it tween the moving piece (and the castling rook) over ~500 ms to match the 2D `tween(500)` feel; capture victims fade/sink; promotion swaps the mesh at the end.
-- Optional polish, behind the same PR: `viewState.hide2DWhile3D` — once 3D input is trusted, allow collapsing the 2D board to a thumbnail. Default stays off; the 2D board remains canonical.
+- **Decision Resolved:** We are rejecting the optional polish to collapse the 2D board into a thumbnail; the 2D board will remain fully hidden in 3D mode (see [issue-32-3d-ui-unresolved-questions.md](issue-32-3d-ui-unresolved-questions.md)).
 
 ## Tests
 

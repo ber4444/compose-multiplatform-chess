@@ -69,7 +69,7 @@ class Math3DTest {
 
         // Ray from center
         val centerRay = CameraMath.rayFromScreen(camera, 0.5f, 0.5f)
-        val pickedSquare = BoardRayPicker.pickSquare(centerRay)
+        val pickedSquare = BoardRayPicker.pickSquare(centerRay, null)
         
         // At origin (0,0,0) which is boundary of e4/e5/d4/d5. Let's pick a clear square.
         val e4Center = BoardGeometry.squareCenter(BoardSquare(4, 4))
@@ -77,7 +77,7 @@ class Math3DTest {
         assertNotNull(e4Screen)
         
         val rayE4 = CameraMath.rayFromScreen(camera, e4Screen.first, e4Screen.second)
-        val pickedE4 = BoardRayPicker.pickSquare(rayE4)
+        val pickedE4 = BoardRayPicker.pickSquare(rayE4, null)
         assertEquals(BoardSquare(4, 4), pickedE4)
     }
 }

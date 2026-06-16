@@ -1,13 +1,13 @@
 package com.example.myapplication.board3d
 
-import kotlinx.coroutines.await
-
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.background
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -27,12 +27,20 @@ class WasmChess3DSurface(
 
 internal data class CssRect(val left: Double, val top: Double, val width: Double, val height: Double)
 
+@Suppress("UNUSED_PARAMETER")
 internal fun overlayCssRect(boundsInWindow: Rect, devicePixelRatio: Double): CssRect {
     return CssRect(
-        left = boundsInWindow.left / devicePixelRatio,
-        top = boundsInWindow.top / devicePixelRatio,
-        width = boundsInWindow.width / devicePixelRatio,
-        height = boundsInWindow.height / devicePixelRatio
+        left = boundsInWindow.left.toDouble(),
+        top = boundsInWindow.top.toDouble(),
+        width = boundsInWindow.width.toDouble(),
+        height = boundsInWindow.height.toDouble()
+    )
+}
+
+internal fun overlayPhysicalSize(css: CssRect, devicePixelRatio: Double): Pair<Int, Int> {
+    return Pair(
+        (css.width * devicePixelRatio).toInt().coerceAtLeast(1),
+        (css.height * devicePixelRatio).toInt().coerceAtLeast(1)
     )
 }
 
@@ -79,8 +87,7 @@ fun WasmBoard3DSurface(
             canvas.style.setProperty("width", "${css.width}px")
             canvas.style.setProperty("height", "${css.height}px")
             
-            val physicalWidth = bounds.width.toInt()
-            val physicalHeight = bounds.height.toInt()
+            val (physicalWidth, physicalHeight) = overlayPhysicalSize(css, dpr)
             
             if (canvas.width != physicalWidth || canvas.height != physicalHeight) {
                 canvas.width = physicalWidth
@@ -89,7 +96,9 @@ fun WasmBoard3DSurface(
             }
         }
     }.let {
-        androidx.compose.foundation.layout.Box(modifier = it)
+        androidx.compose.foundation.layout.Box(
+            modifier = it.background(Color.Black.copy(alpha = 0.01f))
+        )
     }
 }
 
@@ -100,7 +109,7 @@ fun wasmBoard3DSupport(viewModel: GameViewModel): Board3DSupport? {
         rendererFactory = {
             runCatching {
                 val gpu = getNavigatorGpu() ?: return@runCatching null
-                val adapter = kotlinx.coroutines.withTimeoutOrNull(2000) { requestAdapterJs(gpu).await<JsAny?>() }
+                val adapter = kotlinx.coroutines.withTimeoutOrNull(2000) { awaitPromiseSafe(requestAdapterJs(gpu)) }
                 if (adapter == null) return@runCatching null
 
                 val glb = kotlinx.coroutines.withTimeoutOrNull(5000) { Res.readBytes("files/models/chess.glb") }

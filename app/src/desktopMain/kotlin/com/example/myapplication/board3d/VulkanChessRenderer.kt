@@ -720,6 +720,12 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
 
     private fun uploadAllTextures() {
         for (tex in ChessTexture.entries) {
+            val file = when (tex) {
+                ChessTexture.BOARD -> "board3"
+                ChessTexture.WHITE -> "whites"
+                ChessTexture.BLACK -> "blacks"
+                ChessTexture.FRAME -> "marble-speckled-albedo"
+            }
             val img = textureImages[tex] ?: continue
             textures[tex] = uploadTexture(img)
         }

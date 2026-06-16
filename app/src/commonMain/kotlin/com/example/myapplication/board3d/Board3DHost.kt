@@ -1,10 +1,10 @@
 package com.example.myapplication.board3d
 
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 
@@ -57,30 +57,31 @@ fun Board3D(
             .onSizeChanged { size ->
                 if (size.height > 0) {
                     cameraController.onResize(size.width.toFloat() / size.height.toFloat())
+                    // Propagate updated aspect immediately so renderers don't stay at the
+                    // initial aspect=1 until the user drags.
+                    currentRenderer.onUserInteraction(Board3DInput.SetCamera(cameraController.camera))
                 }
             }
             .pointerInput(currentRenderer) {
                 detectTapGestures { offset ->
                     // Tap -> ray pick -> board square. Picking is pure common code (camera + math);
-                    // the resulting square is routed back to Compose (selection/move stay there).
+                    // the scene lets it pick a tall piece over the empty square its top projects onto.
+                    // The resulting square is routed back to Compose (selection/move stay there).
                     val xNorm = offset.x / size.width.toFloat()
                     val yNorm = offset.y / size.height.toFloat()
                     val ray = CameraMath.rayFromScreen(cameraController.camera, xNorm, yNorm)
-                    BoardRayPicker.pickSquare(ray)?.let { currentOnTap(it) }
+                    BoardRayPicker.pickSquare(ray, previousScene)?.let { currentOnTap(it) }
                 }
             }
             .pointerInput(currentRenderer) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    val dxNorm = dragAmount.x / size.width.toFloat()
-                    val dyNorm = dragAmount.y / size.height.toFloat()
-                    cameraController.onDrag(dxNorm, dyNorm)
-                    currentRenderer.onUserInteraction(Board3DInput.SetCamera(cameraController.camera))
-                }
-            }
-            .pointerInput(currentRenderer) {
-                detectTransformGestures { _, _, zoom, _ ->
-                    cameraController.onZoom(1f / zoom)
+                // One detector for both orbit (single-finger pan) and zoom (pinch). Splitting drag
+                // and transform into separate pointerInput blocks made detectTransformGestures
+                // swallow single-finger drags as no-op zoom=1 gestures, so the board never orbited.
+                detectTransformGestures { _, pan, zoom, _ ->
+                    if (zoom != 1f) cameraController.onZoom(1f / zoom)
+                    if (pan != Offset.Zero) {
+                        cameraController.onDrag(pan.x / size.width.toFloat(), pan.y / size.height.toFloat())
+                    }
                     currentRenderer.onUserInteraction(Board3DInput.SetCamera(cameraController.camera))
                 }
             }

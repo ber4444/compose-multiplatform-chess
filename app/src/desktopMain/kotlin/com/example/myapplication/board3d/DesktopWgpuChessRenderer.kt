@@ -220,69 +220,7 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             )
         )
 
-        // --- Engraved board frame: real glb geometry (scaled 0.5) textured with marble-speckled. ---
-        val fm = frameMesh
-        val fimg = frameImage
-        if (fm != null && fimg != null && fm.indices.isNotEmpty()) {
-            val ftex = device!!.createTexture(
-                TextureDescriptor(
-                    size = Extent3D(fimg.width.toUInt(), fimg.height.toUInt(), 1u),
-                    format = GPUTextureFormat.RGBA8Unorm,
-                    usage = GPUTextureUsage.TextureBinding or GPUTextureUsage.CopyDst
-                )
-            )
-            val fbpr = fimg.width.toUInt() * 4u
-            val fstaging = device!!.createBuffer(
-                BufferDescriptor(
-                    size = (fbpr * fimg.height.toUInt()).toULong(),
-                    usage = GPUBufferUsage.CopySrc or GPUBufferUsage.MapWrite,
-                    mappedAtCreation = true
-                )
-            )
-            fstaging.getMappedRange().setBytes(0uL, fimg.rgba)
-            fstaging.unmap()
-            val fenc = device!!.createCommandEncoder()
-            fenc.copyBufferToTexture(
-                TexelCopyBufferInfo(buffer = fstaging, bytesPerRow = fbpr, rowsPerImage = fimg.height.toUInt()),
-                TexelCopyTextureInfo(texture = ftex),
-                Extent3D(fimg.width.toUInt(), fimg.height.toUInt(), 1u)
-            )
-            device!!.queue.submit(listOf(fenc.finish()))
-            fstaging.close()
-            frameTexture = ftex
-
-            val fmat = device!!.createBuffer(
-                BufferDescriptor(size = 16uL, usage = GPUBufferUsage.Uniform or GPUBufferUsage.CopyDst)
-            )
-            device!!.queue.writeBuffer(fmat, 0u, floatArrayOf(0.5f, 0f, 0f, 0f), 0u, 4uL)
-
-            val fverts = buildFrameVertices(fm)
-            val fvb = device!!.createBuffer(
-                BufferDescriptor(size = (fverts.size * 4).toULong(), usage = GPUBufferUsage.Vertex or GPUBufferUsage.CopyDst)
-            )
-            device!!.queue.writeBuffer(fvb, 0u, fverts, 0u, fverts.size.toULong())
-            val fib = device!!.createBuffer(
-                BufferDescriptor(size = (fm.indices.size * 4).toULong(), usage = GPUBufferUsage.Index or GPUBufferUsage.CopyDst)
-            )
-            device!!.queue.writeBuffer(fib, 0u, fm.indices, 0u, fm.indices.size.toULong())
-            frameVBuf = fvb
-            frameIBuf = fib
-            frameIndexCount = fm.indices.size
-
-            frameBindGroup = device!!.createBindGroup(
-                BindGroupDescriptor(
-                    layout = renderPipeline!!.getBindGroupLayout(0u),
-                    entries = listOf(
-                        BindGroupEntry(binding = 0u, resource = ftex.createView()),
-                        BindGroupEntry(binding = 1u, resource = BufferBinding(buffer = uniformBuffer!!)),
-                        BindGroupEntry(binding = 2u, resource = sampler!!),
-                        BindGroupEntry(binding = 3u, resource = envView!!),
-                        BindGroupEntry(binding = 4u, resource = envSampler!!),
-                        BindGroupEntry(binding = 5u, resource = BufferBinding(buffer = fmat))
-                    )
-                )
-            )
-        }
+        // Engraved board frame is now automatically built into ChessTexture.FRAME by ChessSceneGeometry.
 
         rebuildGeometry(FenStart)
 
@@ -360,13 +298,6 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
                 pass.setIndexBuffer(gb.iBuf!!, GPUIndexFormat.Uint32)
                 pass.drawIndexed(gb.indexCount.toUInt())
             }
-            // Engraved frame (real glb geometry) — same pipeline + vertex layout as the scene groups.
-            frameBindGroup?.let { fbg ->
-                pass.setBindGroup(0u, fbg)
-                pass.setVertexBuffer(0u, frameVBuf!!)
-                pass.setIndexBuffer(frameIBuf!!, GPUIndexFormat.Uint32)
-                pass.drawIndexed(frameIndexCount.toUInt())
-            }
             pass.end()
 
             encoder.copyTextureToBuffer(
@@ -421,11 +352,6 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         envView = null
         envSampler = null
         envTexture = null
-        frameBindGroup = null
-        frameVBuf = null
-        frameIBuf = null
-        frameIndexCount = 0
-        frameTexture = null
         device?.close(); device = null
         adapter?.close(); adapter = null
         surfaceWrapper = null
@@ -466,7 +392,7 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         val scene = Board3DSceneMapper.fromFen(fen).copy(selectedSquare = selectedSquare)
         // No giant ground plane: the skybox is the background (vkChess look), so the board sits in the
         // environment rather than on a grey floor that would occlude the sky.
-        val geo = ChessSceneGeometry.build(scene, meshes, includeGround = false)
+        val geo = ChessSceneGeometry.build(scene, meshes, frameMesh, includeGround = false)
         for ((tex, group) in geo.groups) {
             uploadGroup(tex, group)
         }
@@ -525,54 +451,45 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             TextureDescriptor(
                 size = texSize,
                 format = GPUTextureFormat.RGBA8Unorm,
-                usage = GPUTextureUsage.TextureBinding or GPUTextureUsage.CopyDst
+                usage = GPUTextureUsage.TextureBinding or GPUTextureUsage.CopyDst or GPUTextureUsage.RenderAttachment
             )
         )
         
         val bytesPerRow = width * 4u
-        val size = bytesPerRow * height
-        
         val stagingBuffer = device!!.createBuffer(
             BufferDescriptor(
-                size = size.toULong(),
+                size = (bytesPerRow * height).toULong(),
                 usage = GPUBufferUsage.CopySrc or GPUBufferUsage.MapWrite,
                 mappedAtCreation = true
             )
         )
         
-        val mappedRange = stagingBuffer.getMappedRange()
-        mappedRange.setBytes(0uL, img.rgba)
+        stagingBuffer.getMappedRange().setBytes(0uL, img.rgba)
         stagingBuffer.unmap()
         
         val encoder = device!!.createCommandEncoder()
         encoder.copyBufferToTexture(
-            TexelCopyBufferInfo(
-                buffer = stagingBuffer,
-                bytesPerRow = bytesPerRow,
-                rowsPerImage = height
-            ),
-            TexelCopyTextureInfo(
-                texture = texture
-            ),
+            TexelCopyBufferInfo(buffer = stagingBuffer, bytesPerRow = bytesPerRow, rowsPerImage = height),
+            TexelCopyTextureInfo(texture = texture),
             texSize
         )
-        val commandBuffer = encoder.finish()
-        device!!.queue.submit(listOf(commandBuffer))
-        
-        // Wait for copy before freeing
-        // For simplicity, we just close it, WebGPU handles it
+        device!!.queue.submit(listOf(encoder.finish()))
         stagingBuffer.close()
         
         tg.image = texture
         tg.view = texture.createView()
         
+        val roughness = when (tex) {
+            ChessTexture.BOARD -> 0.1f
+            ChessTexture.FRAME -> 0.5f
+            else -> 0.4f
+        }
         val matBuffer = device!!.createBuffer(
             BufferDescriptor(
                 size = 16uL,
                 usage = GPUBufferUsage.Uniform or GPUBufferUsage.CopyDst,
             )
         )
-        val roughness = if (tex == ChessTexture.BOARD) 0.25f else 0.35f
         val matData = floatArrayOf(roughness, 0f, 0f, 0f)
         device!!.queue.writeBuffer(matBuffer, 0u, matData, 0u, 4uL)
         tg.materialBuffer = matBuffer

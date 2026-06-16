@@ -4,7 +4,7 @@ import com.example.myapplication.board3d.math.Matrix4f
 import com.example.myapplication.board3d.math.Vector3f
 
 /** Which embedded texture a draw group samples. */
-enum class ChessTexture { BOARD, WHITE, BLACK }
+enum class ChessTexture { BOARD, WHITE, BLACK, FRAME }
 
 /** Interleaved vertices [pos(3), normal(3), uv(2), tint(3)] (11 floats) + indices for one texture. */
 class SceneGroup(val vertices: FloatArray, val indices: IntArray) {
@@ -24,20 +24,29 @@ class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, Scene
         private const val BOARD_TILES = 4 // board3.jpg is a 4x4 marble-tile checkerboard
         private val NO_TINT = floatArrayOf(1f, 1f, 1f)
         private val SELECT_TINT = floatArrayOf(0.45f, 1.7f, 0.55f)
+        // The frame's light marble blows out to near-white under the bright env IBL; knock it down to
+        // a mid stone grey so the rim reads as stone, not a white halo around the board.
+        private val FRAME_TINT = floatArrayOf(0.6f, 0.6f, 0.6f)
 
         fun build(
             scene: Board3DScene,
             meshes: Map<PieceKind, MeshData>,
+            frameMesh: MeshData? = null,
             includeGround: Boolean = true,
         ): ChessSceneGeometry {
             val board = Builder()
             val white = Builder()
             val black = Builder()
+            val frame = Builder()
 
             // The big grey floor only makes sense without an environment. With a skybox (wgpu/vkChess
             // look) it would occlude the sky, so callers can skip it and let the board sit in the env.
             if (includeGround) addGround(board)
             addBoard(board, scene.selectedSquare)
+
+            if (frameMesh != null) {
+                addMesh(frame, frameMesh, Matrix4f(), FRAME_TINT)
+            }
 
             for (piece in scene.pieces) {
                 val mesh = meshes[piece.kind] ?: continue
@@ -52,11 +61,12 @@ class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, Scene
                     ChessTexture.BOARD to board.toGroup(),
                     ChessTexture.WHITE to white.toGroup(),
                     ChessTexture.BLACK to black.toGroup(),
-                )
+                    ChessTexture.FRAME to frame.toGroup(),
+                ).filterValues { it.indexCount > 0 }
             )
         }
 
-        private fun addMesh(b: Builder, mesh: MeshData, model: Matrix4f) {
+        private fun addMesh(b: Builder, mesh: MeshData, model: Matrix4f, tint: FloatArray = NO_TINT) {
             val normalMatrix = Matrix4f(model).invert().transpose()
             val base = b.vertexCount()
             val p = Vector3f(); val n = Vector3f()
@@ -65,7 +75,7 @@ class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, Scene
                 model.transformPosition(p)
                 n.set(mesh.normals[v * 3], mesh.normals[v * 3 + 1], mesh.normals[v * 3 + 2])
                 normalMatrix.transformDirection(n).normalize()
-                b.vertex(p.x, p.y, p.z, n.x, n.y, n.z, mesh.uvs[v * 2], mesh.uvs[v * 2 + 1], NO_TINT)
+                b.vertex(p.x, p.y, p.z, n.x, n.y, n.z, mesh.uvs[v * 2], mesh.uvs[v * 2 + 1], tint)
             }
             for (i in mesh.indices) b.index(base + i)
         }

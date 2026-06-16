@@ -12,17 +12,18 @@ import javax.imageio.ImageIO
  * `board3` (marble checkerboard) for the board, `whites` / `blacks` (wood atlases) for the pieces.
  */
 object GltfChessTextures {
-    private val NAME_BY_TEXTURE = mapOf(
+    private val texNames = mapOf(
         ChessTexture.BOARD to "board3",
         ChessTexture.WHITE to "whites",
         ChessTexture.BLACK to "blacks",
+        ChessTexture.FRAME to "marble-speckled-albedo"
     )
 
     fun load(glb: ByteArray): Map<ChessTexture, TextureImage> {
         val model = GltfModelReader().readWithoutReferences(ByteArrayInputStream(glb))
         val byName = model.imageModels.associateBy { it.name }
         val result = HashMap<ChessTexture, TextureImage>()
-        for ((tex, name) in NAME_BY_TEXTURE) {
+        for ((tex, name) in texNames) {
             val image = byName[name] ?: continue
             val data = image.imageData ?: continue
             val bytes = ByteArray(data.remaining()).also { data.duplicate().get(it) }

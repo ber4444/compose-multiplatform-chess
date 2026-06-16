@@ -53,6 +53,13 @@ class GameViewModel(
         _viewState.value = viewState.value.copy(buttonLock = true, hideWindow = true)
     }
 
+    data class GameViewState(
+        val hideWindow: Boolean = false,
+        val show3D: Boolean = false,
+        val buttonLock: Boolean = false,
+        val board3DUnavailable: Boolean = false
+    )
+
     fun setShow3D(enabled: Boolean) {
         _viewState.value = viewState.value.copy(show3D = enabled, board3DUnavailable = false)
     }

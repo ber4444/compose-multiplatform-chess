@@ -1,6 +1,25 @@
 package com.example.myapplication.board3d
 
+import org.khronos.webgl.Float32Array
+import org.khronos.webgl.Int32Array
+import org.khronos.webgl.Uint16Array
+import org.khronos.webgl.Uint32Array
 import kotlin.js.Promise
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.suspendCancellableCoroutine
+
+@JsFun("(promise, onFulfilled, onRejected) => promise.then((v) => onFulfilled(v), (e) => onRejected(e))")
+private external fun thenSafe(promise: JsAny, onFulfilled: (JsAny?) -> Unit, onRejected: (JsAny?) -> Unit)
+
+// Awaits a JS Promise without kotlinx.coroutines' Promise.await(), whose interop internals throw
+// "Cannot set property for WebAssembly GC object" under Kotlin 2.3.x Wasm GC. Returns null when the
+// promise resolves to null/undefined (e.g. requestAdapter()'s no-adapter case).
+suspend fun awaitPromiseSafe(promise: Promise<JsAny?>): JsAny? = suspendCancellableCoroutine { cont ->
+    thenSafe(promise,
+        onFulfilled = { value -> cont.resumeWith(Result.success(value)) },
+        onRejected = { error -> cont.resumeWithException(Exception("Promise rejected: $error")) }
+    )
+}
 
 // Top-level JS interop for WebGPU
 internal fun hasWebGpu(): Boolean = js("navigator.gpu !== undefined && navigator.gpu !== null")

@@ -1,6 +1,5 @@
 package com.example.myapplication.board3d
 
-import kotlinx.coroutines.await
 import com.example.myapplication.board3d.math.Matrix4f
 import com.example.myapplication.board3d.math.Vector3f
 import org.w3c.dom.ImageBitmap
@@ -21,7 +20,7 @@ object WasmGltfLoader {
         val accessors = getArrayProp(json, "accessors")
         val bufferViews = getArrayProp(json, "bufferViews")
 
-        class Raw(val pos: FloatArray, val uv: FloatArray, val idx: IntArray)
+        class Raw(val pos: FloatArray, val uv: FloatArray, val idx: IntArray, val normal: FloatArray)
         val raw = HashMap<PieceKind, Raw>()
 
         for (i in 0 until nodes.length) {
@@ -32,23 +31,45 @@ object WasmGltfLoader {
 
             val collected = collectNodeGeometry(node, nodes, meshes, accessors, bufferViews, binData, Matrix4f()) ?: continue
             if (collected.first.isNotEmpty() && collected.third.isNotEmpty()) {
-                raw[kind] = Raw(collected.first, collected.second, collected.third)
+                raw[kind] = Raw(collected.first, collected.second, collected.third, collected.fourth)
             }
         }
 
         if (raw.isEmpty()) return emptyMap()
 
-        var maxHeight = 0f
-        for ((_, r) in raw) {
-            var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-            var i = 1
-            while (i < r.pos.size) { val y = r.pos[i]; if (y < minY) minY = y; if (y > maxY) maxY = y; i += 3 }
-            val h = maxY - minY
-            if (h > maxHeight) maxHeight = h
+        return raw.mapValues { (_, r) -> 
+            val out = FloatArray(r.pos.size)
+            for (i in r.pos.indices) out[i] = r.pos[i] * 0.5f
+            MeshData(out, r.normal, r.uv, r.idx)
         }
-        val scale = if (maxHeight > 0f) TARGET_KING_HEIGHT / maxHeight else 1f
+    }
 
-        return raw.mapValues { (_, r) -> normalize(r.pos, r.uv, r.idx, scale) }
+    suspend fun loadFrame(glb: ByteArray): MeshData? {
+        val (jsonStr, binData) = parseGlb(glb)
+        val json = parseJson(jsonStr)
+
+        val nodes = getArrayProp(json, "nodes") ?: return null
+        val meshes = getArrayProp(json, "meshes")
+        val accessors = getArrayProp(json, "accessors")
+        val bufferViews = getArrayProp(json, "bufferViews")
+
+        for (i in 0 until nodes.length) {
+            val node = nodes[i]!!
+            val name = getStringProp(node, "name")
+            if (name == "frame") {
+                val collected = collectNodeGeometry(node, nodes, meshes, accessors, bufferViews, binData, Matrix4f()) ?: return null
+                val pos = collected.first
+                val uv = collected.second
+                val idx = collected.third
+                val norm = collected.fourth
+                
+                val scaled = FloatArray(pos.size)
+                for (j in scaled.indices) scaled[j] = pos[j] * 0.5f
+                val uvs = if (uv.size == (pos.size / 3) * 2) uv else FloatArray((pos.size / 3) * 2)
+                return MeshData(scaled, norm, uvs, idx)
+            }
+        }
+        return null
     }
 
     suspend fun loadTextures(glb: ByteArray): Map<ChessTexture, TextureImage> {
@@ -61,6 +82,7 @@ object WasmGltfLoader {
             ChessTexture.BOARD to "board3",
             ChessTexture.WHITE to "whites",
             ChessTexture.BLACK to "blacks",
+            ChessTexture.FRAME to "marble-speckled-albedo"
         )
 
         val result = HashMap<ChessTexture, TextureImage>()
@@ -85,10 +107,13 @@ object WasmGltfLoader {
     }
 
     private suspend fun decodeImage(bytes: ByteArray, mimeType: String): TextureImage {
+        // Build a real JS Uint8Array. Pass it directly (it is a JsAny): toJsReference() would wrap it
+        // in an opaque Wasm GC handle, and `arr[index] = value` on that throws
+        // "Cannot set property for WebAssembly GC object".
         val u8array = org.khronos.webgl.Uint8Array(bytes.size)
-        for (i in bytes.indices) setByteJs(u8array.toJsReference(), i, bytes[i])
+        for (i in bytes.indices) setByteJs(u8array, i, bytes[i])
         val blob = createBlob(u8array, mimeType)
-        val bitmap = createImageBitmap(blob).await<JsAny>()
+        val bitmap = awaitPromiseSafe(createImageBitmap(blob)) ?: error("Failed to decode image")
         
         val w = getBitmapWidth(bitmap)
         val h = getBitmapHeight(bitmap)
@@ -99,8 +124,9 @@ object WasmGltfLoader {
         
         val len = getImageDataLen(ctx, w, h)
         val arr = ByteArray(len)
+        val dataArray = getImageDataArray(ctx, w, h)
         for (i in 0 until len) {
-            arr[i] = getImageDataByte(ctx, w, h, i).toByte()
+            arr[i] = getU8ArrayByte(dataArray, i).toByte()
         }
         return TextureImage(w, h, arr)
     }
@@ -138,10 +164,11 @@ object WasmGltfLoader {
         bufferViews: JsArray<JsAny>?, 
         binData: ByteArray,
         transform: Matrix4f
-    ): Triple<FloatArray, FloatArray, IntArray>? {
+    ): Tuple4<FloatArray, FloatArray, IntArray, FloatArray>? {
         val positions = ArrayList<Float>()
         val uvs = ArrayList<Float>()
         val indices = ArrayList<Int>()
+        val normals = ArrayList<Float>()
 
         val nodeTransform = computeLocalTransform(node)
         val combined = Matrix4f(transform).mul(nodeTransform)
@@ -152,7 +179,7 @@ object WasmGltfLoader {
             val prims = getArrayProp(mesh, "primitives")
             if (prims != null) {
                 for (i in 0 until prims.length) {
-                    appendPrimitive(prims[i]!!, combined, accessors, bufferViews, binData, positions, uvs, indices)
+                    appendPrimitive(prims[i]!!, combined, accessors, bufferViews, binData, positions, uvs, indices, normals)
                 }
             }
         }
@@ -167,13 +194,16 @@ object WasmGltfLoader {
                     for (u in it.second) uvs.add(u)
                     val base = indices.size
                     for (idx in it.third) indices.add(base + idx)
+                    for (n in it.fourth) normals.add(n)
                 }
             }
         }
 
         if (positions.isEmpty() || indices.isEmpty()) return null
-        return Triple(positions.toFloatArray(), uvs.toFloatArray(), indices.toIntArray())
+        return Tuple4(positions.toFloatArray(), uvs.toFloatArray(), indices.toIntArray(), normals.toFloatArray())
     }
+
+    private class Tuple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
     private fun computeLocalTransform(node: JsAny): Matrix4f {
         val mat = Matrix4f()
@@ -183,8 +213,7 @@ object WasmGltfLoader {
             for (i in 0 until 16) {
                 f[i] = jsNumberToFloat(matrix[i]!!)
             }
-            mat.m.copyInto(f) // this seems backward but Wait!
-            for(i in 0 until 16) mat.m[i] = f[i]
+            for (i in 0 until 16) mat.m[i] = f[i]
         } else {
             val translation = getArrayProp(node, "translation")
             if (translation != null) {
@@ -222,7 +251,8 @@ object WasmGltfLoader {
         binData: ByteArray, 
         positions: ArrayList<Float>, 
         uvs: ArrayList<Float>, 
-        indices: ArrayList<Int>
+        indices: ArrayList<Int>,
+        normals: ArrayList<Float>
     ) {
         val mode = getIntProp(prim, "mode") ?: 4
         if (mode != 4) return // TRIANGLES only
@@ -230,24 +260,34 @@ object WasmGltfLoader {
         val attributes = getProp(prim, "attributes") ?: return
         val posIdx = getIntProp(attributes, "POSITION") ?: return
         val uvIdx = getIntProp(attributes, "TEXCOORD_0")
+        val normIdx = getIntProp(attributes, "NORMAL")
 
         val posAccessor = accessors!![posIdx]!!
         val posCount = getIntProp(posAccessor, "count") ?: 0
         val posBvIdx = getIntProp(posAccessor, "bufferView") ?: 0
         val posBv = bufferViews!![posBvIdx]!!
         val posOffset = (getIntProp(posBv, "byteOffset") ?: 0) + (getIntProp(posAccessor, "byteOffset") ?: 0)
+        val posStride = getIntProp(posBv, "byteStride") ?: 12
 
         val uvBvIdx = uvIdx?.let { getIntProp(accessors[it]!!, "bufferView") }
         val uvOffset = uvIdx?.let {
             (getIntProp(bufferViews[uvBvIdx!!]!!, "byteOffset") ?: 0) + (getIntProp(accessors[it]!!, "byteOffset") ?: 0)
         }
+        val uvStride = uvBvIdx?.let { getIntProp(bufferViews[it]!!, "byteStride") } ?: 8
+        val normBvIdx = normIdx?.let { getIntProp(accessors[it]!!, "bufferView") }
+        val normOffset = normIdx?.let {
+            (getIntProp(bufferViews[normBvIdx!!]!!, "byteOffset") ?: 0) + (getIntProp(accessors[it]!!, "byteOffset") ?: 0)
+        }
+        val normStride = normBvIdx?.let { getIntProp(bufferViews[it]!!, "byteStride") } ?: 12
 
         val baseVertex = positions.size / 3
         val v = Vector3f()
+        val n = Vector3f()
+        val normalMatrix = Matrix4f(transform).invert().transpose()
 
         // Read positions (Float32x3)
         for (i in 0 until posCount) {
-            val ox = posOffset + i * 12
+            val ox = posOffset + i * posStride
             val x = Float.fromBits(readIntLE(binData, ox))
             val y = Float.fromBits(readIntLE(binData, ox + 4))
             val z = Float.fromBits(readIntLE(binData, ox + 8))
@@ -257,12 +297,24 @@ object WasmGltfLoader {
             positions.add(v.x); positions.add(v.y); positions.add(v.z)
 
             if (uvOffset != null) {
-                val ou = uvOffset + i * 8
+                val ou = uvOffset + i * uvStride
                 val u = Float.fromBits(readIntLE(binData, ou))
                 val vv = Float.fromBits(readIntLE(binData, ou + 4))
                 uvs.add(u); uvs.add(vv)
             } else {
                 uvs.add(0f); uvs.add(0f)
+            }
+
+            if (normOffset != null) {
+                val on = normOffset + i * normStride
+                val nx = Float.fromBits(readIntLE(binData, on))
+                val ny = Float.fromBits(readIntLE(binData, on + 4))
+                val nz = Float.fromBits(readIntLE(binData, on + 8))
+                n.set(nx, ny, nz)
+                normalMatrix.transformDirection(n).normalize()
+                normals.add(n.x); normals.add(n.y); normals.add(n.z)
+            } else {
+                normals.add(0f); normals.add(1f); normals.add(0f)
             }
         }
 
@@ -300,55 +352,5 @@ object WasmGltfLoader {
                ((b[offset + 3].toInt() and 0xFF) shl 24)
     }
 
-    private fun normalize(pos: FloatArray, uv: FloatArray, idx: IntArray, scale: Float): MeshData {
-        var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
-        var minY = Float.MAX_VALUE
-        var minZ = Float.MAX_VALUE; var maxZ = -Float.MAX_VALUE
-        run {
-            var i = 0
-            while (i < pos.size) {
-                val x = pos[i]; val y = pos[i + 1]; val z = pos[i + 2]
-                if (x < minX) minX = x; if (x > maxX) maxX = x
-                if (y < minY) minY = y
-                if (z < minZ) minZ = z; if (z > maxZ) maxZ = z
-                i += 3
-            }
-        }
-        val cx = (minX + maxX) / 2f
-        val cz = (minZ + maxZ) / 2f
-        val out = FloatArray(pos.size)
-        var i = 0
-        while (i < pos.size) {
-            out[i] = (pos[i] - cx) * scale
-            out[i + 1] = (pos[i + 1] - minY) * scale
-            out[i + 2] = (pos[i + 2] - cz) * scale
-            i += 3
-        }
-        val uvs = if (uv.size == (pos.size / 3) * 2) uv else FloatArray((pos.size / 3) * 2)
-        return MeshData(out, computeSmoothNormals(out, idx), uvs, idx)
-    }
-
-    private fun computeSmoothNormals(pos: FloatArray, idx: IntArray): FloatArray {
-        val normals = FloatArray(pos.size)
-        var t = 0
-        while (t < idx.size) {
-            val a = idx[t] * 3; val b = idx[t + 1] * 3; val c = idx[t + 2] * 3
-            val ux = pos[b] - pos[a]; val uy = pos[b + 1] - pos[a + 1]; val uz = pos[b + 2] - pos[a + 2]
-            val vx = pos[c] - pos[a]; val vy = pos[c + 1] - pos[a + 1]; val vz = pos[c + 2] - pos[a + 2]
-            val nx = uy * vz - uz * vy
-            val ny = uz * vx - ux * vz
-            val nz = ux * vy - uy * vx
-            for (vi in intArrayOf(a, b, c)) { normals[vi] += nx; normals[vi + 1] += ny; normals[vi + 2] += nz }
-            t += 3
-        }
-        var i = 0
-        while (i < normals.size) {
-            val x = normals[i]; val y = normals[i + 1]; val z = normals[i + 2]
-            val len = kotlin.math.sqrt(x * x + y * y + z * z)
-            if (len > 1e-6f) { normals[i] = x / len; normals[i + 1] = y / len; normals[i + 2] = z / len }
-            else { normals[i] = 0f; normals[i + 1] = 1f; normals[i + 2] = 0f }
-            i += 3
-        }
-        return normals
-    }
+    // Removed normalize and computeSmoothNormals
 }

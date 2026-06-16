@@ -5,6 +5,7 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.gradle.api.file.DirectoryProperty
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.compose.ExperimentalComposeLibrary
+import org.jetbrains.kotlin.gradle.tasks.Kotlin2JsCompile
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -114,9 +115,7 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.core.ktx)
             implementation(libs.androidx.lifecycle.runtime.compose)
-            implementation(libs.filament.android)
-            implementation(libs.filament.gltfio)
-            implementation(libs.filament.utils)
+            implementation(libs.sceneview)
         }
 
         val androidDeviceTest by getting {
@@ -221,6 +220,19 @@ tasks.withType<JavaExec>().configureEach {
         )
         jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
     }
+}
+
+// Kotlin 2.3.x wasm klib incremental compilation crashes the KLIB export-name checker
+// ("WasmIrFileMetadata.fromByteArray ArrayIndexOutOfBoundsException") on every incremental
+// recompile of :app:compileKotlinWasmJs. The kotlin.incremental.js.klib/.wasm/.ir gradle
+// properties are not honored by this KGP, so disable IC directly on the wasm klib compile task.
+// `incremental` is the public toggle; `incrementalJsKlib` is the klib-specific one (internal in
+// KGP, set reflectively). Remove both once on Kotlin 2.4+, where wasm IC is stable.
+tasks.withType<Kotlin2JsCompile>().configureEach {
+    incremental = false
+    javaClass.methods
+        .firstOrNull { it.name.startsWith("setIncrementalJsKlib") }
+        ?.invoke(this, false)
 }
 
 tasks.configureEach {

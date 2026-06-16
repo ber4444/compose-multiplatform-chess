@@ -61,3 +61,5 @@ Executed 2026-06-13.
 **Verdict: FAIL.** Materia was rejected during the M1 spike (no offscreen support) and M2 (iOS chose SceneKit). For Android, introducing a bespoke engine (Materia) solely for one target is not justifiable. The spike requirements (klib consumption, surface injection) are not met cleanly without maintaining a complex build fork.
 
 **Rescope**: As specified in the doc, we fall back to an "NDK-native Vulkan renderer". However, instead of writing raw C++ Vulkan code (with JNI bridges and a C++ glTF parser) from scratch, we will use **Google Filament** (`com.google.android.filament`). Filament is an industry-standard, lightweight, C++-based renderer by Google that uses Vulkan by default on Android, provides a Kotlin API, natively parses `.glb` files, and binds perfectly to a `SurfaceView`. This matches the architectural precedent set by iOS M2 (which used SceneKit rather than raw Metal).
+
+**Update:** the shipped Filament implementation was later moved off hand-written `Engine`/`SurfaceHolder` plumbing onto **SceneView** (Compose-native Filament) — see [issue-32-3d-ui-unresolved-questions.md §5](issue-32-3d-ui-unresolved-questions.md).

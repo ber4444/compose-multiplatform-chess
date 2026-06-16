@@ -113,5 +113,24 @@ class ObjExportTest {
             texFile.writeBytes(bytes)
             println("Exported Texture: ${texFile.absolutePath}")
         }
+
+        // Fourth pass: extract the engraved stone Frame WITH UVs. loadFrame carries TEXCOORD_0 and
+        // pre-scales by 0.5 to logical board scale. The earlier hand-made frame.obj had no UVs, so it
+        // could only take a flat colour; these UVs map the marble-speckled-albedo veining + A-H labels.
+        GltfChessMeshes.loadFrame(glbBytes)?.let { frame ->
+            val sb = java.lang.StringBuilder()
+            sb.append("o FRAME\n")
+            val p = frame.positions; val n = frame.normals; val uv = frame.uvs; val idx = frame.indices
+            for (i in 0 until p.size - 2 step 3) sb.append("v ${p[i]} ${p[i + 1]} ${p[i + 2]}\n")
+            for (i in 0 until uv.size - 1 step 2) sb.append("vt ${uv[i]} ${1.0f - uv[i + 1]}\n") // Obj flips V
+            for (i in 0 until n.size - 2 step 3) sb.append("vn ${n[i]} ${n[i + 1]} ${n[i + 2]}\n")
+            for (i in 0 until idx.size - 2 step 3) {
+                val a = idx[i] + 1; val b = idx[i + 1] + 1; val c = idx[i + 2] + 1
+                sb.append("f $a/$a/$a $b/$b/$b $c/$c/$c\n")
+            }
+            val outFileFrame = File(outputDir, "frame.obj")
+            outFileFrame.writeText(sb.toString())
+            println("Exported ${outFileFrame.absolutePath}")
+        }
     }
 }
