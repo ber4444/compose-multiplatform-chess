@@ -3,7 +3,10 @@ import ChessApp        // Kotlin framework (ChessEngine protocol, UciEvaluation,
 import ChessKitEngine
 
 private let sharedMoveTimeMs = 1_000
-private let sharedEvalDepth: Int = 12
+// Eval uses a wall-clock budget (not a fixed depth): a depth-bounded search has unbounded time and
+// can exceed sharedResponseTimeout on slow/contended machines (e.g. a debug build oversubscribed on
+// a 3-core CI runner), returning nil. A movetime bound always finishes within the response timeout.
+private let sharedEvalMoveTimeMs = 2_000
 private let sharedReadyTimeout: TimeInterval = 15
 private let sharedResponseTimeout: TimeInterval = 8
 
@@ -110,7 +113,7 @@ final class StockfishChessEngine: NSObject, ChessEngine {
     }
 
     func evaluate(fen: String, completionHandler: @escaping (KotlinInt?, Error?) -> Void) {
-        guard SharedStockfishCore.shared.runSearch(fen: fen, go: .go(depth: sharedEvalDepth), checkClosed: {
+        guard SharedStockfishCore.shared.runSearch(fen: fen, go: .go(movetime: sharedEvalMoveTimeMs), checkClosed: {
             self.localQueue.sync { self.isClosed }
         }) != nil else {
             completionHandler(nil, nil)
