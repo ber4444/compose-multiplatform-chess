@@ -16,7 +16,7 @@ pluginManagement {
 // for wgpu4k's Panama FFM path) on machines/CI runners that don't have one installed, instead of
 // failing with "Toolchain download repositories have not been configured". (M6 3D spike.)
 plugins {
-    id("org.gradle.toolchains.foojay-resolver-convention") version "0.10.0"
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
 dependencyResolutionManagement {
