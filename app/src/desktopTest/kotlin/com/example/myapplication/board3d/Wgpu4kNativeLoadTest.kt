@@ -10,6 +10,7 @@ import ffi.JvmNativeAddress
 import java.lang.foreign.MemorySegment
 import io.ygdrasil.webgpu.GPUPowerPreference
 import kotlinx.coroutines.runBlocking
+import org.junit.Assume
 
 /**
  * M6 3D spike (issue #32) — desktop runtime step 1: native load.
@@ -42,6 +43,9 @@ class Wgpu4kNativeLoadTest {
     /** Step 3: create an adapter using an offscreen CAMetalLayer to provide the surface. */
     @Test
     fun createsAdapter() {
+        // The surface here is a CAMetalLayer (Rococoa/Metal), so adapter creation only works on
+        // macOS. Skip on Linux CI, where desktopTest also runs via :app:check. (M6 3D spike.)
+        Assume.assumeTrue("macOS-only (Metal/CAMetalLayer)", System.getProperty("os.name").contains("Mac"))
         LibraryLoader.load()
         val wgpu = WGPU.createInstance()
         assertNotNull(wgpu, "WGPU.createInstance() returned null")
@@ -70,6 +74,8 @@ class Wgpu4kNativeLoadTest {
     /** Step 4: request a device from the adapter. */
     @Test
     fun createsDevice() = runBlocking {
+        // CAMetalLayer surface ⇒ macOS-only; skip on Linux CI. (M6 3D spike.)
+        Assume.assumeTrue("macOS-only (Metal/CAMetalLayer)", System.getProperty("os.name").contains("Mac"))
         LibraryLoader.load()
         val wgpu = WGPU.createInstance()!!
         val layer = CAMetalLayer.layer()!!

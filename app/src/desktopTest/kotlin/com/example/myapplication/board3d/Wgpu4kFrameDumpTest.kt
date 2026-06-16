@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.jetbrains.skia.EncodedImageFormat
 import org.jetbrains.skia.Image
+import org.junit.Assume
 import java.io.File
 import kotlin.test.Test
 
@@ -19,6 +20,9 @@ import kotlin.test.Test
 class Wgpu4kFrameDumpTest {
     @Test
     fun rendersFirstFrameToPng() = runBlocking {
+        // DesktopWgpuChessRenderer renders into a CAMetalLayer (Metal), so this only works on macOS.
+        // Skip on Linux CI, where desktopTest also runs via :app:check. (M6 3D spike.)
+        Assume.assumeTrue("macOS-only (Metal/CAMetalLayer)", System.getProperty("os.name").contains("Mac"))
         val glb = listOf(
             File("src/commonMain/composeResources/files/models/chess.glb"),
             File("app/src/commonMain/composeResources/files/models/chess.glb"),
