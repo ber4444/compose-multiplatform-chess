@@ -30,12 +30,12 @@ class DrawAgreementTest {
 
     @Test
     fun testShouldBlackAcceptDraw() {
-        assertTrue(shouldBlackAcceptDraw(0))
-        assertTrue(shouldBlackAcceptDraw(-100))
-        assertTrue(shouldBlackAcceptDraw(500))
+        assertFalse(shouldBlackAcceptDraw(0))
+        assertFalse(shouldBlackAcceptDraw(60))
+        assertTrue(shouldBlackAcceptDraw(100))
         assertTrue(shouldBlackAcceptDraw(99997))
-        
-        assertFalse(shouldBlackAcceptDraw(-101))
+
+        assertFalse(shouldBlackAcceptDraw(-100))
         assertFalse(shouldBlackAcceptDraw(-99997))
     }
 
@@ -93,14 +93,28 @@ class DrawAgreementTest {
     }
 
     @Test
-    fun testWhiteOffers_mockEval0_Accepted() = kotlinx.coroutines.test.runTest {
+    fun testWhiteOffers_mockEval0_EarlyPositionDeclined() = kotlinx.coroutines.test.runTest {
         val viewModel = GameViewModel()
         viewModel.attachEngine(mockEngine(0))
         
         viewModel.offerDraw()
         
+        assertEquals(WinState.NONE, viewModel.gameState.value.winState)
+        assertNull(viewModel.gameState.value.drawOffer)
+        assertEquals(Set.BLACK, viewModel.gameState.value.drawOfferDeclinedBy)
+    }
+
+    @Test
+    fun testWhiteOffers_mockEval0_LateQuietPositionAccepted() = kotlinx.coroutines.test.runTest {
+        val state = GameUiState(fullmoveNumber = 30, halfmoveClock = 12)
+        val viewModel = GameViewModel(state)
+        viewModel.attachEngine(mockEngine(0))
+
+        viewModel.offerDraw()
+
         assertEquals(WinState.DRAW, viewModel.gameState.value.winState)
         assertNull(viewModel.gameState.value.drawOffer)
+        assertNull(viewModel.gameState.value.drawOfferDeclinedBy)
     }
 
     @Test
@@ -116,12 +130,24 @@ class DrawAgreementTest {
     }
 
     @Test
-    fun testWhiteOffers_NoEngine_EqualMaterial_Accepted() = kotlinx.coroutines.test.runTest {
+    fun testWhiteOffers_NoEngine_EqualMaterial_EarlyPositionDeclined() = kotlinx.coroutines.test.runTest {
         val viewModel = GameViewModel(GameUiState()) // start pos material is 0
         
         viewModel.offerDraw()
         
+        assertEquals(WinState.NONE, viewModel.gameState.value.winState)
+        assertEquals(Set.BLACK, viewModel.gameState.value.drawOfferDeclinedBy)
+    }
+
+    @Test
+    fun testWhiteOffers_NoEngine_WhiteAhead_Accepted() = kotlinx.coroutines.test.runTest {
+        val state = FenConverter.fenToGameState("4k3/8/8/8/8/8/8/R3K3 w - - 0 1") // White rook
+        val viewModel = GameViewModel(state)
+
+        viewModel.offerDraw()
+
         assertEquals(WinState.DRAW, viewModel.gameState.value.winState)
+        assertNull(viewModel.gameState.value.drawOffer)
     }
 
     @Test

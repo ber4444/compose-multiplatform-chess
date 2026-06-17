@@ -3,6 +3,7 @@ package com.example.myapplication
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -23,7 +24,10 @@ class MainActivity : ComponentActivity() {
             Logger.setMinSeverity(Severity.Assert)
         }
 
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(SYSTEM_BAR_SCRIM),
+            navigationBarStyle = SystemBarStyle.dark(SYSTEM_BAR_SCRIM)
+        )
 
         holder.gameViewModel.attachEngine(createStockfishEngine())
 
@@ -51,6 +55,10 @@ class MainActivity : ComponentActivity() {
             Logger.w("MainActivity") { "Stockfish engine is unavailable" }
             null
         }
+    }
+
+    private companion object {
+        private const val SYSTEM_BAR_SCRIM = 0x66000000
     }
 }
 

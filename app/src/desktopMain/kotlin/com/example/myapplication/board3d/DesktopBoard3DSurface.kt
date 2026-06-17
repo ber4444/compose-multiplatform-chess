@@ -12,6 +12,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.onSizeChanged
+import com.example.myapplication.ChessLoader
+import androidx.compose.ui.Alignment
 
 @Composable
 fun DesktopBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier = Modifier) {
@@ -19,34 +21,41 @@ fun DesktopBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier = M
     var surfaceSize by remember { mutableStateOf(Pair(1, 1)) }
     
     val surface = remember(surfaceSize) {
-        ImageBitmapChess3DSurface(surfaceSize.first, surfaceSize.second) { newFrame ->
-            frame = newFrame
-        }
+        if (surfaceSize.first > 1 && surfaceSize.second > 1) {
+            ImageBitmapChess3DSurface(surfaceSize.first, surfaceSize.second) { newFrame ->
+                frame = newFrame
+            }
+        } else null
     }
 
     DisposableEffect(renderer, surface) {
-        renderer.attach(surface)
+        if (surface != null) {
+            renderer.onUserInteraction(Board3DInput.Resize(surfaceSize.first, surfaceSize.second))
+            renderer.attach(surface)
+        }
         onDispose {
-            renderer.detach()
+            if (surface != null) renderer.detach()
         }
     }
 
     Box(
         modifier = modifier.onSizeChanged { size ->
-            if (size.width > 0 && size.height > 0) {
+            if (size.width > 1 && size.height > 1) {
                 if (surfaceSize.first != size.width || surfaceSize.second != size.height) {
                     surfaceSize = Pair(size.width, size.height)
-                    renderer.onUserInteraction(Board3DInput.Resize(size.width, size.height))
                 }
             }
-        }
+        },
+        contentAlignment = Alignment.Center
     ) {
-        frame?.let { bmp ->
+        if (frame != null) {
             Image(
-                bitmap = bmp,
+                bitmap = frame!!,
                 contentDescription = "3D Chess Board",
                 modifier = Modifier.fillMaxSize()
             )
+        } else {
+            ChessLoader("Initializing Graphics")
         }
     }
 }

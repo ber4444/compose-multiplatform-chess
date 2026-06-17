@@ -2,6 +2,27 @@ import XCTest
 import ChessApp
 @testable import iosApp
 
+final class StockfishSearchTimeoutTests: XCTestCase {
+
+    func testTimeoutStopsSearchAndAcceptsBestMoveDuringGracePeriod() {
+        let done = DispatchSemaphore(value: 0)
+        var stopCount = 0
+
+        let completed = waitForSearchCompletion(
+            done: done,
+            timeout: 0,
+            stop: {
+                stopCount += 1
+                done.signal()
+            },
+            stopGraceTimeout: 0.1
+        )
+
+        XCTAssertTrue(completed)
+        XCTAssertEqual(stopCount, 1)
+    }
+}
+
 final class StockfishChessEngineTests: XCTestCase {
 
     let startFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"

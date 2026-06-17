@@ -194,8 +194,9 @@ class GameViewModel(
             drawOffer = Set.WHITE,
             lastDrawOfferFullmove = _gameState.value.fullmoveNumber
         )
-        val eval = evaluatePositionCp(chessEngine, _gameState.value)
-        if (shouldBlackAcceptDraw(eval)) {
+        val offeredState = _gameState.value
+        val eval = evaluatePositionCp(chessEngine, offeredState)
+        if (shouldBlackAcceptDraw(eval, offeredState)) {
             _gameState.value = _gameState.value.copy(
                 winState = WinState.DRAW,
                 drawOffer = null

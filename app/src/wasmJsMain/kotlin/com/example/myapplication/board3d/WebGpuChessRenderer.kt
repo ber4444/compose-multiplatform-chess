@@ -375,7 +375,7 @@ class WebGpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             for (face in 0 until 6) {
                 val arr = ByteArray(faceSize)
                 ktx.data.copyInto(arr, 0, ktx.mipOffsets[m] + face * faceSize, ktx.mipOffsets[m] + face * faceSize + faceSize)
-                writeCubeFaceJs(device!!, tex, m, face, mipW, mipH, arr)
+                writeCubeFaceJs(device!!, tex, m, face, mipW, mipH, flipRgba16FloatRows(arr, mipW, mipH))
             }
         }
         envTexture = tex

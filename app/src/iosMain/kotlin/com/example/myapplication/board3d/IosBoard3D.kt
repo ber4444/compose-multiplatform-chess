@@ -22,14 +22,16 @@ import platform.Foundation.create
 fun iosBoard3DSupport(): Board3DSupport {
     return Board3DSupport(
         rendererFactory = {
-            val (geometries, textures) = try {
-                buildIosChessAssets { Res.readBytes(it) }
-            } catch (e: Exception) {
-                // If anything fails, drop back to primitives / solid-colour environment.
-                mutableMapOf<String, platform.SceneKit.SCNGeometry>() to
-                    mutableMapOf<String, platform.Foundation.NSData>()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                val (geometries, textures) = try {
+                    buildIosChessAssets { Res.readBytes(it) }
+                } catch (e: Exception) {
+                    // If anything fails, drop back to primitives / solid-colour environment.
+                    mutableMapOf<String, platform.SceneKit.SCNGeometry>() to
+                        mutableMapOf<String, platform.Foundation.NSData>()
+                }
+                IosSceneKitChessRenderer(geometries, textures)
             }
-            IosSceneKitChessRenderer(geometries, textures)
         },
         surfaceContent = { renderer, modifier ->
             IosBoard3DSurface(renderer, modifier)

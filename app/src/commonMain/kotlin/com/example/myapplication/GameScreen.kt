@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
@@ -32,10 +33,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,6 +46,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -86,21 +90,18 @@ import kotlin.math.roundToInt
 fun GameScreen(
     windowSize: WindowWidthSizeClass,
     viewModel: GameViewModel,
-    board3D: Board3DSupport? = null
+    board3D: Board3DSupport? = null,
+    switchTopPadding: Dp = 8.dp
 ) {
     val gameState by viewModel.gameState.collectAsState()
     val animState by viewModel.animState.collectAsState()
     val viewState by viewModel.viewState.collectAsState()
     val scrollState = rememberScrollState()
+    val show3D = viewState.show3D && board3D != null
+    var isTearingDown3D by remember { mutableStateOf(false) }
+    val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
         if (gameState.winState != WinState.NONE && !viewState.hideWindow) {
             val resetGame = { reset: Boolean ->
                 if (reset) {
@@ -158,7 +159,14 @@ fun GameScreen(
             DrawOfferDialog(onAccept = viewModel::acceptDrawOffer, onDecline = viewModel::declineDrawOffer)
         }
 
-        if (viewState.show3D && board3D != null) {
+        if (isTearingDown3D) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                ChessLoader("Tearing down 3D board")
+            }
+        } else if (show3D) {
             LaunchedEffect(animState.pieceToAnimate) {
                 if (animState.pieceToAnimate != null) {
                     kotlinx.coroutines.delay(50)
@@ -169,7 +177,7 @@ fun GameScreen(
             Board3D(
                 support = board3D,
                 fen = fen,
-                modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                modifier = Modifier.fillMaxSize(),
                 onUnavailable = { viewModel.markBoard3DUnavailable() },
                 selectedSquare = gameState.selectedSquare
                     .takeIf { it != INVALID_POSITION }
@@ -196,31 +204,114 @@ fun GameScreen(
                     }
                 }
             )
-        } else {
-            Board(
+
+            GameControls(
                 gameState = gameState,
                 animState = animState,
-                windowSize = windowSize,
-                updateSelected = viewModel::updateSelected,
-                playerMove = viewModel::playerMove,
-                animationEnd = viewModel::animationEnd
+                viewState = viewState,
+                viewModel = viewModel,
+                transparentButtons = true,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+                    .padding(16.dp)
             )
-        }
-
-        Spacer(modifier = Modifier.padding(8.dp))
-
-        if (board3D != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = viewState.show3D,
-                    onCheckedChange = { viewModel.setShow3D(it) },
-                    enabled = !viewState.buttonLock,
-                    modifier = Modifier.testTag("board_3d_toggle")
+        } else {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+            ) {
+                Board(
+                    gameState = gameState,
+                    animState = animState,
+                    windowSize = windowSize,
+                    updateSelected = viewModel::updateSelected,
+                    playerMove = viewModel::playerMove,
+                    animationEnd = viewModel::animationEnd
                 )
-                Text(text = stringResource(Res.string.board_3d_toggle_label))
+
+                Spacer(modifier = Modifier.padding(8.dp))
+
+                GameControls(
+                    gameState = gameState,
+                    animState = animState,
+                    viewState = viewState,
+                    viewModel = viewModel
+                )
             }
         }
 
+        if (board3D != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .zIndex(1f)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                    .offset(y = switchTopPadding)
+                    .padding(end = 12.dp)
+                    .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
+            ) {
+                Text(
+                    text = stringResource(Res.string.board_3d_toggle_label),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Switch(
+                    checked = viewState.show3D,
+                    onCheckedChange = { checked ->
+                        if (!checked && viewState.show3D) {
+                            isTearingDown3D = true
+                            coroutineScope.launch {
+                                // Give UI a moment to show the progress bar
+                                kotlinx.coroutines.delay(50)
+                                viewModel.setShow3D(false)
+                                isTearingDown3D = false
+                            }
+                        } else {
+                            viewModel.setShow3D(checked)
+                        }
+                    },
+                    enabled = !viewState.buttonLock && !isTearingDown3D,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = Color.Gray.copy(alpha = 0.48f),
+                        checkedBorderColor = Color.White.copy(alpha = 0.22f),
+                        uncheckedThumbColor = Color.White,
+                        uncheckedTrackColor = Color.Gray.copy(alpha = 0.28f),
+                        uncheckedBorderColor = Color.White.copy(alpha = 0.32f),
+                        disabledCheckedThumbColor = Color.White.copy(alpha = 0.42f),
+                        disabledCheckedTrackColor = Color.Gray.copy(alpha = 0.22f),
+                        disabledCheckedBorderColor = Color.White.copy(alpha = 0.16f),
+                        disabledUncheckedThumbColor = Color.White.copy(alpha = 0.32f),
+                        disabledUncheckedTrackColor = Color.Gray.copy(alpha = 0.14f),
+                        disabledUncheckedBorderColor = Color.White.copy(alpha = 0.16f)
+                    ),
+                    modifier = Modifier.testTag("board_3d_toggle")
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GameControls(
+    gameState: GameUiState,
+    animState: PieceAnimationState,
+    viewState: ViewState,
+    viewModel: GameViewModel,
+    transparentButtons: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+    ) {
         if (viewState.board3DUnavailable) {
             Text(
                 text = stringResource(Res.string.board_3d_unavailable),
@@ -230,12 +321,27 @@ fun GameScreen(
         }
 
         Row {
-            Button(onClick = viewModel::resetGame) {
+            val buttonColors = if (transparentButtons) {
+                ButtonDefaults.buttonColors(
+                    containerColor = Color.Transparent,
+                    contentColor = Color.White,
+                    disabledContainerColor = Color.Transparent,
+                    disabledContentColor = Color.White.copy(alpha = 0.38f)
+                )
+            } else {
+                ButtonDefaults.buttonColors()
+            }
+
+            Button(
+                onClick = viewModel::resetGame,
+                colors = buttonColors
+            ) {
                 Text(stringResource(Res.string.reset_button))
             }
             Button(
                 onClick = viewModel::requestDrawOffer,
                 enabled = canOfferDraw(gameState) && animState.pieceToAnimate == null,
+                colors = buttonColors,
                 modifier = Modifier.testTag("offer_draw_button")
             ) { Text(stringResource(Res.string.offer_draw_button)) }
         }

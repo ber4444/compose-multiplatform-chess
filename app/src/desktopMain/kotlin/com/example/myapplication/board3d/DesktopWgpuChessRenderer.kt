@@ -519,9 +519,10 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             for (face in 0 until 6) {
                 val arr = ByteArray(faceSize)
                 ktx.data.duplicate().apply { position(ktx.mipOffsets[m] + face * faceSize) }.get(arr)
+                val faceBytes = flipRgba16FloatRows(arr, mipW, mipH)
                 device!!.queue.writeTexture(
                     TexelCopyTextureInfo(texture = tex, mipLevel = m.toUInt(), origin = Origin3D(0u, 0u, face.toUInt())),
-                    ArrayBuffer.of(arr),
+                    ArrayBuffer.of(faceBytes),
                     TexelCopyBufferLayout(offset = 0uL, bytesPerRow = (mipW * 8).toUInt(), rowsPerImage = mipH.toUInt()),
                     Extent3D(mipW.toUInt(), mipH.toUInt(), 1u),
                 )
@@ -619,12 +620,17 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         device!!.queue.writeBuffer(ub, 0u, data, 0u, data.size.toULong())
     }
 
+    @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
     override fun dispose() {
-        // Stop the loop and let its finally (releaseGpu) finish on the render thread before tearing
-        // down the single-thread dispatcher.
-        runBlocking { renderJob?.cancelAndJoin() }
-        scope.cancel()
-        renderDispatcher.close()
+        // We must not block the UI thread waiting for the render loop to stop.
+        val job = renderJob
+        val disp = renderDispatcher
+        val s = scope
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            job?.cancelAndJoin()
+            s.cancel()
+            disp.close()
+        }
     }
 
     private fun safeMapAsync(buffer: io.ygdrasil.webgpu.Buffer, device: Device, mode: GPUMapMode, offset: GPUSize64, size: GPUSize64) {

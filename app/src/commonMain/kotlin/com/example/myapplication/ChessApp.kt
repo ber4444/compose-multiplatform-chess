@@ -2,9 +2,6 @@ package com.example.myapplication
 
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -19,16 +16,15 @@ import com.example.myapplication.board3d.Board3DSupport
 fun ChessApp(
     viewModel: GameViewModel,
     modifier: Modifier = Modifier,
-    board3D: Board3DSupport? = null
+    board3D: Board3DSupport? = null,
+    switchTopPadding: Dp = 8.dp
 ) {
     Surface(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
         BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing)
+            modifier = Modifier.fillMaxSize()
         ) {
             val windowSize = remember(maxWidth) {
                 calculateWindowWidthSizeClass(maxWidth)
@@ -36,7 +32,8 @@ fun ChessApp(
             GameScreen(
                 windowSize = windowSize,
                 viewModel = viewModel,
-                board3D = board3D
+                board3D = board3D,
+                switchTopPadding = switchTopPadding
             )
         }
     }

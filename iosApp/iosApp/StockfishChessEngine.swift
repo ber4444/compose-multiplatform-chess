@@ -10,6 +10,18 @@ private let sharedEvalMoveTimeMs = 2_000
 private let sharedReadyTimeout: TimeInterval = 15
 private let sharedBestMoveResponseTimeout: TimeInterval = 20
 private let sharedEvalResponseTimeout: TimeInterval = 8
+private let sharedStopGraceTimeout: TimeInterval = 5
+
+func waitForSearchCompletion(
+    done: DispatchSemaphore,
+    timeout: TimeInterval,
+    stop: () -> Void,
+    stopGraceTimeout: TimeInterval
+) -> Bool {
+    if done.wait(timeout: .now() + timeout) == .success { return true }
+    stop()
+    return done.wait(timeout: .now() + stopGraceTimeout) == .success
+}
 
 private final class SharedStockfishCore {
     static let shared = SharedStockfishCore()
@@ -89,7 +101,15 @@ private final class SharedStockfishCore {
             await engine.send(command: .position(.fen(fen)))
             await engine.send(command: go)
         }
-        if done.wait(timeout: .now() + timeout) == .timedOut {
+        let completed = waitForSearchCompletion(
+            done: done,
+            timeout: timeout,
+            stop: {
+                Task { [engine] in await engine.send(command: .stop) }
+            },
+            stopGraceTimeout: sharedStopGraceTimeout
+        )
+        if !completed {
             stateQueue.sync { pendingCompletion = nil }
             return nil
         }
