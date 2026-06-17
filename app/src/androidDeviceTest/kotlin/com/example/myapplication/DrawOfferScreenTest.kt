@@ -5,9 +5,9 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import org.junit.Rule
@@ -46,7 +46,7 @@ class DrawOfferScreenTest {
     }
 
     @Test
-    fun testOfferAccepted_Fallback() {
+    fun testOfferDeclined_FallbackAtStart() {
         composeTestRule.setContent {
             MyApplicationTheme {
                 GameScreen(WindowWidthSizeClass.Medium, GameViewModel())
@@ -56,12 +56,13 @@ class DrawOfferScreenTest {
         composeTestRule.onNodeWithTag("offer_draw_button").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
-            composeTestRule.onAllNodesWithTag("winnerText", useUnmergedTree = true)
+            composeTestRule.onAllNodesWithTag("draw_offer_declined_text", useUnmergedTree = true)
                 .fetchSemanticsNodes()
                 .isNotEmpty()
         }
 
-        composeTestRule.onNodeWithText("Game ended in a DRAW!").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("draw_offer_declined_text").assertIsDisplayed()
+        assert(composeTestRule.onAllNodesWithTag("winnerText", useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
     }
 
     @Test

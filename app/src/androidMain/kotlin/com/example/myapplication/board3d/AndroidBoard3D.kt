@@ -188,7 +188,8 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                     ) {}
                     val meshName = piece?.let { ChessSetMeshNames.getMeshName(it.kind, it.color) }
                     androidx.compose.runtime.LaunchedEffect(nodeState.value, meshName) {
-                        nodeState.value?.renderableNodes?.forEach { rn ->
+                        val node = nodeState.value ?: return@LaunchedEffect
+                        node.renderableNodes.forEach { rn ->
                             rn.isVisible = (meshName != null && rn.name == meshName)
                         }
                     }
@@ -216,15 +217,17 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
 @OptIn(ExperimentalResourceApi::class)
 fun androidBoard3DSupport(): Board3DSupport = Board3DSupport(
     rendererFactory = {
-        runCatching {
-            // Validate resources before reporting 3D support. SceneView consumes the KTX files by
-            // Android asset path, but the same compose-resource copy task makes these bytes
-            // available, so a missing asset becomes the existing nullable fallback path.
-            val glb = Res.readBytes("files/models/chess.glb")
-            Res.readBytes("files/env/papermill_ibl.ktx")
-            Res.readBytes("files/env/papermill_skybox.ktx")
-            AndroidSceneViewChessRenderer(glb)
-        }.getOrNull()
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            runCatching {
+                // Validate resources before reporting 3D support. SceneView consumes the KTX files by
+                // Android asset path, but the same compose-resource copy task makes these bytes
+                // available, so a missing asset becomes the existing nullable fallback path.
+                val glb = Res.readBytes("files/models/chess.glb")
+                Res.readBytes("files/env/papermill_ibl.ktx")
+                Res.readBytes("files/env/papermill_skybox.ktx")
+                AndroidSceneViewChessRenderer(glb)
+            }.getOrNull()
+        }
     },
     surfaceContent = { renderer, modifier ->
         AndroidBoard3DSurface(renderer, modifier)

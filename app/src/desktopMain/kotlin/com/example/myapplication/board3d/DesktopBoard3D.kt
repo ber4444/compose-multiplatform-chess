@@ -7,10 +7,12 @@ import org.jetbrains.compose.resources.ExperimentalResourceApi
 fun desktopBoard3DSupport(): Board3DSupport {
     return Board3DSupport(
         rendererFactory = {
-            runCatching {
-                val bytes = Res.readBytes("files/models/chess.glb")
-                DesktopWgpuChessRenderer(bytes)
-            }.getOrNull()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                runCatching {
+                    val bytes = Res.readBytes("files/models/chess.glb")
+                    DesktopWgpuChessRenderer(bytes)
+                }.getOrNull()
+            }
         },
         surfaceContent = { renderer, modifier ->
             DesktopBoard3DSurface(renderer, modifier)

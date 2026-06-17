@@ -59,8 +59,9 @@ class IosSceneKitChessRenderer(
         cam.screenSpaceAmbientOcclusionRadius = 0.5
         // Depth of field: focus on the board, let the distant skybox melt into bokeh (matches Android).
         cam.wantsDepthOfField = true
-        cam.focusDistance = 10.5      // ~camera-to-board-centre distance (orbit radius)
-        cam.fStop = 3.2               // shallow enough to blur the far environment...
+        cam.focusDistance = 4.0      // Focus tightly on the board
+        cam.fStop = 0.1               // Extreme shallow depth of field for heavy bokeh
+        cam.focalBlurSampleCount = 0  // Maximum quality blur
         cam.focalLength = 22.0        // ...but the board's shallow depth stays readable
         cam.apertureBladeCount = 6    // hexagonal bokeh highlights
         cameraNode?.camera = cam
@@ -82,7 +83,7 @@ class IosSceneKitChessRenderer(
         light.shadowRadius = 8.0
         light.shadowSampleCount = 16.toULong()
         light.shadowColor = UIColor.colorWithRed(0.0, green = 0.0, blue = 0.0, alpha = 0.45)
-        light.intensity = 1100.0
+        light.intensity = 300.0
         lightNode.light = light
         lightNode.eulerAngles = SCNVector3Make((-kotlin.math.PI / 3.0).toFloat(), (kotlin.math.PI / 4.0).toFloat(), 0.0f)
         scene?.rootNode?.addChildNode(lightNode)
@@ -91,7 +92,7 @@ class IosSceneKitChessRenderer(
         val ambientNode = SCNNode.node()
         val ambient = SCNLight.light()
         ambient.type = platform.SceneKit.SCNLightTypeAmbient
-        ambient.intensity = 150.0  // low: the cube-map IBL now provides the bulk of the fill
+        ambient.intensity = 0.0
         ambient.color = UIColor.colorWithRed(0.60, green = 0.66, blue = 0.76, alpha = 1.0)
         ambientNode.light = ambient
         scene?.rootNode?.addChildNode(ambientNode)
@@ -146,11 +147,12 @@ class IosSceneKitChessRenderer(
                 val albedo = textures["marble-speckled-albedo.png"]
                 if (albedo != null) {
                     frameMat.diffuse.contents = platform.UIKit.UIImage.imageWithData(albedo)
+                    frameMat.multiply.contents = UIColor.colorWithRed(0.27, green = 0.27, blue = 0.30, alpha = 1.0)
                     textures["marble-speckled-normal.png"]?.let {
                         frameMat.normal.contents = platform.UIKit.UIImage.imageWithData(it)
                     }
                 } else {
-                    frameMat.diffuse.contents = UIColor.colorWithRed(0.66, green = 0.65, blue = 0.63, alpha = 1.0)
+                    frameMat.diffuse.contents = UIColor.colorWithRed(0.66 * 0.27, green = 0.65 * 0.27, blue = 0.63 * 0.30, alpha = 1.0)
                 }
                 frameNode.geometry?.materials = listOf(frameMat)
                 rootNode?.addChildNode(frameNode)
@@ -244,7 +246,7 @@ class IosSceneKitChessRenderer(
 
         val whiteMat = SCNMaterial.material()
         whiteMat.lightingModelName = platform.SceneKit.SCNLightingModelPhysicallyBased
-        whiteMat.roughness.contents = 0.22 // varnished wood: glossy enough to catch the IBL
+        whiteMat.roughness.contents = 0.4
         whiteMat.metalness.contents = 0.0
         if (textures["whites.png"] != null) {
             whiteMat.diffuse.contents = platform.UIKit.UIImage.imageWithData(textures["whites.png"]!!)
@@ -254,7 +256,7 @@ class IosSceneKitChessRenderer(
 
         val blackMat = SCNMaterial.material()
         blackMat.lightingModelName = platform.SceneKit.SCNLightingModelPhysicallyBased
-        blackMat.roughness.contents = 0.22
+        blackMat.roughness.contents = 0.4
         blackMat.metalness.contents = 0.0
         if (textures["blacks.png"] != null) {
             blackMat.diffuse.contents = platform.UIKit.UIImage.imageWithData(textures["blacks.png"]!!)

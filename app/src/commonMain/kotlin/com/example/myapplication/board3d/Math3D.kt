@@ -245,11 +245,10 @@ class OrbitCameraController(private var aspect: Float) {
 
     companion object {
         // The 3D board is laid out square (GameScreen: fillMaxWidth().aspectRatio(1f)), so the
-        // viewport aspect is ~1 on every platform. These defaults frame the whole board — marble
-        // frame included — inside that square with a margin, instead of the old close low-angle
-        // crop that spilled the board past the screen edges.
-        private const val DEFAULT_PITCH_DEG = 35f
-        private const val DEFAULT_DISTANCE = 17f
+        // viewport aspect is ~1 on every platform. These defaults keep the playable 8x8 board
+        // inside the square while allowing the decorative rim to crop at the screen edge.
+        private const val DEFAULT_PITCH_DEG = 33f
+        private const val DEFAULT_DISTANCE = 12.0f
         /** Vertical FOV the renderers project with (equals horizontal FOV in the square viewport). */
         const val FOV_Y_DEG = 50f
 

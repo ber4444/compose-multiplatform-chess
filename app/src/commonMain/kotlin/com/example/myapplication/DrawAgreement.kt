@@ -2,7 +2,7 @@ package com.example.myapplication
 
 import kotlin.math.abs
 
-const val DRAW_ACCEPT_THRESHOLD_CP = -100     // Black accepts unless ahead by > 1 pawn
+const val DRAW_ACCEPT_THRESHOLD_CP = 100      // Black accepts immediately when worse by at least 1 pawn
 const val DRAW_OFFER_EVAL_WINDOW_CP = 60      // Black offers when |eval| <= this
 const val DRAW_OFFER_MIN_FULLMOVE = 20
 const val DRAW_OFFER_MIN_HALFMOVE_CLOCK = 8
@@ -29,7 +29,15 @@ suspend fun evaluatePositionCp(engine: ChessEngine?, state: GameUiState): Int =
 
 fun shouldBlackAcceptDraw(evalCp: Int): Boolean = evalCp >= DRAW_ACCEPT_THRESHOLD_CP
 
+fun shouldBlackAcceptDraw(evalCp: Int, state: GameUiState): Boolean =
+    shouldBlackAcceptDraw(evalCp) ||
+        (isQuietMatureDrawOfferPosition(state) && shouldBlackOfferDraw(evalCp))
+
 fun shouldBlackOfferDraw(evalCp: Int): Boolean = abs(evalCp) <= DRAW_OFFER_EVAL_WINDOW_CP
+
+private fun isQuietMatureDrawOfferPosition(state: GameUiState): Boolean =
+    state.fullmoveNumber >= DRAW_OFFER_MIN_FULLMOVE &&
+        state.halfmoveClock >= DRAW_OFFER_MIN_HALFMOVE_CLOCK
 
 fun blackDrawOfferPreconditions(state: GameUiState): Boolean {
     return state.winState == WinState.NONE && state.drawOffer == null && state.pendingPromotion == null &&

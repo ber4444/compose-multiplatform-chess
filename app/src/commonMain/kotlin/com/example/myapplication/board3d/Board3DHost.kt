@@ -2,11 +2,15 @@ package com.example.myapplication.board3d
 
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import com.example.myapplication.ChessLoader
 
 import androidx.compose.ui.layout.onSizeChanged
 
@@ -34,7 +38,18 @@ fun Board3D(
 
     val currentRenderer = renderer
 
-    if (initAttempted && currentRenderer != null) {
+    if (currentRenderer == null) {
+        if (!initAttempted) {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .testTag("board_3d_loading"),
+                contentAlignment = Alignment.Center
+            ) {
+                ChessLoader("Loading 3D Engine")
+            }
+        }
+    } else {
         val cameraController = remember { OrbitCameraController(1f) }
         val currentOnTap by rememberUpdatedState(onSquareTapped)
         var previousScene by remember { mutableStateOf<Board3DScene?>(null) }
@@ -52,21 +67,21 @@ fun Board3D(
         }
         LaunchedEffect(currentRenderer, selectedSquare) { currentRenderer.setSelectedSquare(selectedSquare) }
 
+        // Push the initial camera once.
+        LaunchedEffect(currentRenderer) {
+            currentRenderer.onUserInteraction(Board3DInput.SetCamera(cameraController.camera))
+        }
+
         val inputModifier = modifier
             .testTag("board_3d")
             .onSizeChanged { size ->
-                if (size.height > 0) {
+                if (size.width > 1 && size.height > 1) {
                     cameraController.onResize(size.width.toFloat() / size.height.toFloat())
-                    // Propagate updated aspect immediately so renderers don't stay at the
-                    // initial aspect=1 until the user drags.
                     currentRenderer.onUserInteraction(Board3DInput.SetCamera(cameraController.camera))
                 }
             }
             .pointerInput(currentRenderer) {
                 detectTapGestures { offset ->
-                    // Tap -> ray pick -> board square. Picking is pure common code (camera + math);
-                    // the scene lets it pick a tall piece over the empty square its top projects onto.
-                    // The resulting square is routed back to Compose (selection/move stay there).
                     val xNorm = offset.x / size.width.toFloat()
                     val yNorm = offset.y / size.height.toFloat()
                     val ray = CameraMath.rayFromScreen(cameraController.camera, xNorm, yNorm)
@@ -74,22 +89,16 @@ fun Board3D(
                 }
             }
             .pointerInput(currentRenderer) {
-                // One detector for both orbit (single-finger pan) and zoom (pinch). Splitting drag
-                // and transform into separate pointerInput blocks made detectTransformGestures
-                // swallow single-finger drags as no-op zoom=1 gestures, so the board never orbited.
                 detectTransformGestures { _, pan, zoom, _ ->
-                    if (zoom != 1f) cameraController.onZoom(1f / zoom)
-                    if (pan != Offset.Zero) {
-                        cameraController.onDrag(pan.x / size.width.toFloat(), pan.y / size.height.toFloat())
+                    if (zoom != 1f || pan != Offset.Zero) {
+                        if (zoom != 1f && zoom > 0.5f && zoom < 2.0f) cameraController.onZoom(1f / zoom)
+                        if (pan != Offset.Zero) {
+                            cameraController.onDrag(pan.x / size.width.toFloat(), pan.y / size.height.toFloat())
+                        }
+                        currentRenderer.onUserInteraction(Board3DInput.SetCamera(cameraController.camera))
                     }
-                    currentRenderer.onUserInteraction(Board3DInput.SetCamera(cameraController.camera))
                 }
             }
-
-        // Push the initial camera once.
-        LaunchedEffect(currentRenderer) {
-            currentRenderer.onUserInteraction(Board3DInput.SetCamera(cameraController.camera))
-        }
 
         support.surfaceContent(currentRenderer, inputModifier)
 
