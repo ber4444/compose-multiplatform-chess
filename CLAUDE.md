@@ -39,9 +39,32 @@ Two Gradle modules:
 - `:app` — KMP library holding all UI, game rules, and resources. Targets: `android` (via `com.android.kotlin.multiplatform.library` plugin), `jvm("desktop")`, `wasmJs`.
 - `:androidApp` — thin Android application wrapper (manifest, launcher icons) that depends on `:app`.
 
-`gradle.properties` sets `kotlin.mpp.applyDefaultHierarchyTemplate=false`, so the source-set hierarchy is manual. A custom intermediate source set `jvmCommonMain` sits between `commonMain` and the two JVM-backed targets (`androidMain`, `desktopMain`); it holds process/IO code that can't live in commonMain (Wasm has no `java.lang.Process`). `iosMain` dependsOn commonMain holding `MainViewController`; `iosSimulatorArm64Test` holds Compose UI tests; `iosApp/` Xcode project is generated using XcodeGen (`project.yml` as source of truth — regenerate with `xcodegen generate`).
+`gradle.properties` sets `kotlin.mpp.applyDefaultHierarchyTemplate=false`, so the source-set hierarchy is manual. The KMP module graph is organized as follows:
+
+```text
+commonMain
+ ├── jvmCommonMain
+ │    ├── androidMain
+ │    └── desktopMain
+ ├── wasmJsMain
+ └── iosMain
+```
+
+A custom intermediate source set `jvmCommonMain` sits between `commonMain` and the two JVM-backed targets (`androidMain`, `desktopMain`); it holds process/IO code that can't live in commonMain (Wasm has no `java.lang.Process`). `iosMain` dependsOn commonMain holding `MainViewController`; `iosSimulatorArm64Test` holds Compose UI tests; `iosApp/` Xcode project is generated using XcodeGen (`project.yml` as source of truth — regenerate with `xcodegen generate`).
 
 All code uses package `com.example.myapplication` even though the project is named `game`. Generated compose resources class is `game.app.generated.resources`.
+
+### Expect/Actual Boundaries & Platform Glue Fences
+
+> [!CAUTION]
+> **DO NOT TOUCH** platform glue and `actual` implementations unless explicitly instructed.
+>
+> The 3D actual implementations are finely tuned for each platform's rendering graphics APIs (WebGPU, Filament, SceneKit). Agents will often try to "helpfully" rewrite them to match generic KMP patterns or other platforms' code, which will break the build or rendering pipeline. **Treat these actual implementations as frozen.**
+
+Key `expect/actual` boundaries and platform glue:
+- **`Chess3DBoardRenderer` / `Board3DSupport` (3D Renderers)**: Each target has a dedicated implementation relying on platform-specific C/C++/Swift/JS interop. WebGPU is used for desktop and wasm, SceneKit for iOS, and Filament for Android. DO NOT attempt to unify these rendering paths or rewrite the actuals.
+- **`StockfishEngine` / `BaseStockfishEngine`**: Each target has a very distinct way of locating, loading, and communicating with Stockfish (vendored binaries on Android, system processes on Desktop, Web Workers on Wasm, ChessKitEngine Swift bridge on iOS). Do not merge or modify these platform-specific bridges.
+- **Process and I/O**: Process handling is isolated to `jvmCommonMain` (via `java.lang.Process`). `wasmJsMain` lacks this capability and relies on async JS APIs, while iOS manages it through Swift interop. Do not attempt to move `java.lang.*` usage into `commonMain`.
 
 ## Engine architecture
 
@@ -70,7 +93,7 @@ Stockfish binaries are vendored at `app/src/androidMain/jniLibs/{arm64-v8a,armea
 - **Draw detection:** Threefold repetition (`positionHistory` of FEN position keys, cleared on irreversible moves), fifty-move rule (real `halfmoveClock`/`fullmoveNumber`, now emitted/parsed by `FenConverter` and sent to Stockfish), and insufficient material — all evaluated in `deriveNewGameState` via `applyDrawConditions` (`DrawConditions.kt`), setting `WinState.DRAW`.
 - **Draw agreements:** Players can offer draws to the engine, which accepts or declines based on positional evaluation (`UciEvaluation.kt`) or material fallback. The engine may also proactively offer draws in drawish positions. Supported via new `drawOffer` fields in `GameUiState`.
 - **3D Board View:** The `GameScreen` settings row shows a 3D toggle (`viewState.show3D`), but only when a `Board3DSupport` is injected (desktop, web, iOS, and Android entry points pass their respective `Board3DSupport`; unsupported platforms pass `null`, hiding the toggle). Toggling **swaps** the board: exactly one board (2D `chess_board` or 3D `board_3d`) is visible at a time. The 3D view is defined by the `Chess3DBoardRenderer` interface in `commonMain`, injected mirroring `ChessEngine`. `Board3DSceneMapper.fromFen` turns a FEN into a renderer-agnostic `Board3DScene`. Interaction (camera drag, pinch zoom, ray-picked tap-to-move, and piece transitions) uses shared commonMain logic (`OrbitCameraController`, `CameraMath.rayFromScreen`, `BoardRayPicker`, `Board3DSceneDiffer`) so backend cameras stay in sync with the picker.
-  - **Desktop and web backends:** The current shared path is **wgpu4k/WebGPU + WGSL**. Desktop (`DesktopWgpuChessRenderer`) renders offscreen through a `TextureRenderingContext`/`CAMetalLayer`, then copies into a Compose `ImageBitmap`; web (`WebGpuChessRenderer`) renders directly into an absolutely positioned overlay `<canvas>`. Both reuse `WgpuShaders`, the papermill environment cubemap, and `ChessSceneGeometry` from the `wgpuMain` source set. (An earlier LWJGL `VulkanChessRenderer` was the M1 spike; it has been removed now that wgpu4k is the shipped desktop renderer — see `docs/plans/issue-32-3d-ui-m1-foundation.md` for that history.)
+  - **Desktop and web backends:** The current shared path is **WebGPU + WGSL**. Desktop (`DesktopWgpuChessRenderer`) renders offscreen through a `TextureRenderingContext`/`CAMetalLayer`, then copies into a Compose `ImageBitmap`; web (`WebGpuChessRenderer`) renders directly into an absolutely positioned overlay `<canvas>`. Both reuse `WgpuShaders`, the papermill environment cubemap, and `ChessSceneGeometry` from the `wgpuMain` source set. (An earlier LWJGL `VulkanChessRenderer` was the M1 spike; it has been removed now that WebGPU is the shipped desktop renderer — see `docs/plans/issue-32-3d-ui-m1-foundation.md` for that history.)
   - **iOS backend:** A native SceneKit renderer (`IosSceneKitChessRenderer`). It wraps an `SCNView` inside a `UIKitView` with `interactive = false`, allowing Compose `pointerInput` to intercept touches and seamlessly reuse the common raycast math. It loads geometries via OBJ files exported seamlessly from the Java/Desktop models. (Materia/MoltenVK were evaluated and rejected; see `docs/plans/issue-32-3d-ui-m2-apple.md`).
   - **Android backend:** A Filament renderer via **SceneView** (`io.github.sceneview:sceneview`), the Jetpack-Compose-native Filament wrapper (`AndroidSceneViewChessRenderer`). The renderer is a Compose-observable state holder behind `Chess3DBoardRenderer`; `AndroidBoard3DSurface` hosts SceneView with `SurfaceType.Surface`, papermill IBL/skybox KTX assets, and a transparent Compose overlay that receives the shared gestures because SceneView consumes touches. SceneView's model loader loads the `chess.glb` asset and fixed `ModelNode` pools render the board, pieces, and selected-square highlight. This replaced the original hand-written Filament `Engine`/`Renderer`/`SwapChain` + `SurfaceHolder.Callback` plumbing; Materia and a raw NDK Vulkan renderer were evaluated and rejected (see `docs/plans/issue-32-3d-ui-m3-android.md` and `docs/plans/issue-32-3d-ui-unresolved-questions.md`).
 
@@ -80,5 +103,5 @@ Stockfish binaries are vendored at `app/src/androidMain/jniLibs/{arm64-v8a,armea
 - `androidApp/build.gradle.kts` registers `:app`'s generated compose-resource assets dir as its own assets source and adds task dependencies for it.
 - `androidApp` uses `jniLibs.useLegacyPackaging = true` so the Stockfish binary is extracted to `nativeLibraryDir` and can be executed.
 - iOS framework uses `baseName = "ChessApp"`; `embedAndSignAppleFrameworkForXcode` must stay the first build phase with `ENABLE_USER_SCRIPT_SANDBOXING=NO`; simulator device pinned via `iosSimulatorDeviceId` property.
-- Desktop 3D uses Panama FFM through wgpu4k. Desktop compile output is JVM 24, while `:app:run` and desktop tests use a scoped JDK 26 toolchain launcher.
+- Desktop 3D uses Panama FFM through its WebGPU binding. Desktop compile output is JVM 24, while `:app:run` and desktop tests use a scoped JDK 26 toolchain launcher.
 - Wasm klib incremental compilation is intentionally disabled in `app/build.gradle.kts`; Kotlin 2.3.x otherwise crashes the klib export-name checker on incremental wasm recompiles.

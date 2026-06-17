@@ -41,8 +41,9 @@ cross-target WebGPU port — not vkChess's full IBL precompute (see decisions).
   renderer added soft shadows as an extra — out of scope for parity (would be a separate F3).
 - **wgpu4k is a pre-release SNAPSHOT** (`io.ygdrasil:wgpu4k-toolkit:0.2.0-SNAPSHOT`) from a **GitLab
   Maven repo** (not Maven Central). **Decision Resolved:** We accept the stability risk of the SNAPSHOT and will proceed (see [issue-32-3d-ui-unresolved-questions.md](issue-32-3d-ui-unresolved-questions.md)).
-- **Android & iOS wgpu4k backends are WIP** → the wgpu4k unification covers **Desktop + Web only** for
-  now. Native fidelity goes through the existing SceneKit/Filament engines ([M7](issue-32-3d-ui-m7-apple-android-fidelity.md)).
+- **Mobile stays native.** The shared WebGPU/WGSL work covers **Desktop + Web**. Native fidelity goes
+  through the existing SceneKit/Filament engines ([M7](issue-32-3d-ui-m7-apple-android-fidelity.md));
+  M8 records why Android replacement would require separate JNI/NDK surface work.
 - **Desktop keeps CPU readback** (offscreen texture → `ImageBitmap`); Compose Desktop has no zero-copy
   surface interop. Negligible cost for a near-static board. (Web renders straight to the canvas — no readback.)
 - **Desktop uses JVM target 24 and a JDK-26 launcher** (Panama FFM). `:app:desktopTest` and `:app:run`

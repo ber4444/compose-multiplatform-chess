@@ -4,13 +4,11 @@ Goal: bring the **vkChess look** (papermill HDR environment + image-based lighti
 to the **iOS (SceneKit)** and **Android (Filament)** 3D renderers, matching what
 [M6](issue-32-3d-ui-m6-wgpu4k.md) (desktop) + [M4](issue-32-3d-ui-m4-wasm.md) (web) achieve on WebGPU.
 
-> **Why the native engines, not wgpu4k?** The committed direction is one wgpu4k/WGSL backend
-> ([overview](issue-32-3d-ui-overview.md)), but **wgpu4k's Android & iOS targets are WIP** (M6 §"Backend
-> maturity"), so they can't ship fidelity today. iOS already renders via **SceneKit** and Android via
-> **Filament** — both have first-class IBL + skybox support, so we get the vkChess look *now* by feeding
-> them the same environment. This is **interim**: when wgpu4k Apple/Android mature, these renderers are
-> replaced by the shared WGSL path and M7 is retired. The *visual target* (this env + tonemapping) is
-> identical across all four backends, so it converges cleanly.
+> **Why the native engines?** The mobile surface spike showed that a shared Android/iOS WebGPU path is
+> not just a library-version question: Android needs an `ANativeWindow*` bridge that the JVM artifact
+> does not provide. iOS already renders via **SceneKit** and Android via **Filament** — both have first-class
+> IBL + skybox support, so the maintainable path is to give the native mobile backends the same vkChess
+> visual target instead of treating them as placeholders.
 
 Reference look: `/Users/presence/AndroidStudioProjects/vkChess` (Sascha-Willems glTF PBR+IBL, papermill
 env). The desktop port (M6) is the in-repo proof; iOS/Android just drive their engines to the same result.
@@ -72,7 +70,8 @@ Implemented:
 - Full CI matrix builds (overview "Execution rules").
 
 ## Decisions / risks
-- **Interim by design** — replaced by the unified wgpu4k WGSL backend once wgpu4k Apple/Android mature.
+- **Native mobile renderers are the product path** — SceneKit and Filament stay behind the shared renderer
+  contract unless a separate JNI/surface-ownership effort is explicitly approved.
 - **Asset conversion is the main unknown** — Filament IBL (cmgen) and SceneKit env formats differ from the
   raw `*_cube.ktx`; resolve the asset pipeline first (above) before wiring the renderers.
 - **No dynamic shadows** (match vkChess + the other backends); SceneKit/Filament soft shadows are an

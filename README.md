@@ -35,7 +35,7 @@ The Stockfish engine is bundled automatically, nothing to install manually.
 ## Architecture & Features
 
 - **Full Chess Rules:** The application covers all standard chess rules and includes an explicit draw-by-agreement flow where the Stockfish engine evaluates whether to accept or decline draw offers.
-- **3D Board View:** The app features a playable 3D board with shared camera, tap-to-move, ray picking, and move animation logic. Desktop and web use the shared WebGPU path (`wgpu4k` + WGSL); iOS uses SceneKit and Android uses Filament through SceneView until the `wgpu4k` mobile targets mature.
+- **3D Board View:** The app features a playable 3D board with shared camera, tap-to-move, ray picking, and move animation logic. Desktop and web use the shared WebGPU/WGSL path; iOS uses SceneKit and Android uses Filament through SceneView.
 - **Stockfish Engine Integrations:**
   - **Android:** Pinned to Stockfish 17, as the Stockfish 18 binary exceeds GitHub's 100 MB file limit.
   - **Desktop:** Relies on system-installed binaries (e.g., via `apt` or `brew`).

@@ -25,17 +25,17 @@ asset provenance and the approved replacement attribution.
 ## 3. Keep 2D Board Hidden (M5 Polish)
 - The optional M5 polish of collapsing the 2D board into a thumbnail is rejected. The 2D board will remain fully hidden when 3D mode is active to keep the interaction model unambiguous.
 
-## 4. Ignore wgpu4k Stability Warning (M6)
-- The stability risk of using the `io.ygdrasil:wgpu4k-toolkit:0.2.0-SNAPSHOT` dependency is accepted. We will proceed with the SNAPSHOT and ignore the warning to wait for the 0.2.0 upstream release.
+## 4. Accept WebGPU Dependency Risk for Desktop/Web (M6)
+- The stability risk of using the `io.ygdrasil:wgpu4k-toolkit:0.2.0-SNAPSHOT` dependency is accepted for the desktop/web renderer. It remains pinned and can be upgraded as maintenance, but its release status does not make it the planned mobile backend.
 
 ## 5. Replace M3's Filament Boilerplate with SceneView
 
 **Resolution.** Replace the hand-written Filament plumbing on Android with **SceneView**
 (`io.github.sceneview:sceneview:4.18.0`), the Jetpack-Compose-native Filament wrapper. The
 `Chess3DBoardRenderer` abstraction is unchanged — SceneView is the Android backend's *internal mechanism*.
-This is interim and Android-only; it does **not** affect the wgpu4k unification (M6) — Android stays on
-Filament until wgpu4k's Android backend leaves WIP, and SceneView is simply a cleaner way to host that same
-Filament engine.
+This is Android-only; Android stays on Filament through SceneView as the product backend. The M8 mobile
+surface spike showed that replacing it with a shared WebGPU path would require separate JNI/NDK surface
+ownership work, so SceneView remains the Android product backend.
 
 **Why.** M3 landed on raw Filament (`Engine`/`Renderer`/`Scene`/`SwapChain`/`Choreographer` + manual
 `SurfaceHolder.Callback` + `gltfio.AssetLoader`). SceneView wraps exactly that, with automatic lifecycle and a

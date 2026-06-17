@@ -2,8 +2,8 @@
 
 > **Status update — engine decision RESOLVED by [M6](issue-32-3d-ui-m6-wgpu4k.md).** The deferred
 > spike below is answered: the renderer is **wgpu4k** (`io.ygdrasil:wgpu4k-toolkit`) — this milestone's
-> own no-go **option (b)** ("a native WebGPU renderer in Kotlin"). Wasm is now delivered as **Phase 2 of
-> the unified wgpu4k backend**, i.e. the *shared* commonMain renderer compiled to `wasmJs`, **not** a
+> own no-go **option (b)** ("a native WebGPU renderer in Kotlin"). Wasm is now delivered as **the web half
+> of the shared desktop/web WebGPU backend**, i.e. the *shared* commonMain renderer compiled to `wasmJs`, **not** a
 > wasm-specific Materia/Three.js renderer.
 > - **Still valid here (reused as-is):** the canvas-overlay strategy, the `navigator.gpu` fallback,
 >   the `WasmBoard3D.kt` / `overlayCssRect` + `overlayPhysicalSize` / test layout, and the DoD.
