@@ -72,7 +72,14 @@ kotlin {
         }
 
         androidMain.dependencies {
-            implementation("com.google.mlkit:genai-prompt:1.0.0-beta2")
+            // LiteRT-LM (Gemma bundled-model runtime, plan §6.1). Maven coordinate
+            // verified at https://developers.google.com/edge/litert-lm/android:
+            // `com.google.ai.edge.litertlm:litertlm-android`. This is the only
+            // Maven-published on-device LLM runtime for Android that doesn't go
+            // through AICore/Gemini Nano (which has narrow device support).
+            // Model `.litertlm` asset is bundled in app assets; see
+            // `defaultLitertLmModelPath()` and the move-coach demo instructions.
+            implementation("com.google.ai.edge.litertlm:litertlm-android:0.13.1")
         }
 
         val androidDeviceTest by getting {

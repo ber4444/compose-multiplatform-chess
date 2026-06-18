@@ -9,11 +9,15 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
 import com.example.myapplication.ui.theme.MyApplicationTheme
+import com.example.ondeviceai.AndroidCoachWiring
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
 import com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory
 import android.content.pm.ApplicationInfo
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val holder: AndroidGameViewModel by viewModels()
@@ -61,34 +65,50 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Attach the on-device move coach (plan §8). On Android the default factory
-     * prefers ML Kit Prompt API (Gemini Nano on supported devices) and falls back
-     * to LiteRT-LM Gemma if the debug flag `chess.coach.litert.enabled` is set
-     * AND a model is packaged (plan §6.1 / M4 spike). On devices with no local
-     * model the orchestrator falls back deterministically per plan §1.4.
+     * Attach the on-device move coach (plan §8). The Android path is LiteRT-LM
+     * (`com.google.ai.edge.litertlm:litertlm-android`) with a bundled Gemma
+     * `.litertlm` model — no AICore / Gemini Nano dependency. The earlier
+     * ML Kit Prompt API path was dropped because AICore isn't available on
+     * most devices.
      *
-     * The context snapshot reports isAppForegrounded from the activity lifecycle;
-     * ML Kit blocks background inference so the route policy converts that to a
-     * fallback automatically (plan §5).
+     * Model asset: unpacked from `assets/models/gemma.litertlm` into
+     * `filesDir` on first launch by [MoveCoachModelAsset]. When no model is
+     * bundled (the default until you drop one in), the coach falls back to
+     * deterministic rule-based text — the panel still mounts.
+     *
+     * The orchestrator is built off-thread because the first `Engine.initialize()`
+     * call (inside the factory) can take seconds. The context snapshot reports
+     * foreground state so ML Kit-style background gating stays in place if the
+     * LiteRT-LM backend is ever swapped for one that needs it.
      */
     private fun attachMoveCoach(isDebug: Boolean) {
-        // Gate the coach to debug builds for the M3 ship-behind-a-flag milestone
-        // (plan §11). Promoting to release waits on the §6.3 benchmark gate.
+        // Gate to debug builds per plan §11 M3 "ship behind a debug flag".
         if (!isDebug) {
             holder.gameViewModel.attachCoachOrchestrator(null)
             return
         }
-        val orchestrator = DefaultAiCoachOrchestrator(
-            factory = defaultOnDeviceTextGeneratorFactory(),
-            contextProvider = {
-                com.example.ondeviceai.AiContextSnapshot(
-                    isDeviceModelAvailable = true, // The factory probes real availability per-call.
-                    isAppForegrounded = holder.isForeground,
-                    userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
+        CoroutineScope(Dispatchers.IO).launch {
+            val modelPath = MoveCoachModelAsset.ensureUnpacked(this@MainActivity)
+            if (modelPath != null) {
+                AndroidCoachWiring.install(
+                    AndroidCoachWiring.Config(
+                        modelPath = modelPath,
+                        cacheDir = cacheDir.absolutePath,
+                    )
                 )
-            },
-        )
-        holder.gameViewModel.attachCoachOrchestrator(orchestrator)
+            }
+            val orchestrator = DefaultAiCoachOrchestrator(
+                factory = defaultOnDeviceTextGeneratorFactory(),
+                contextProvider = {
+                    com.example.ondeviceai.AiContextSnapshot(
+                        isDeviceModelAvailable = modelPath != null,
+                        isAppForegrounded = holder.isForeground,
+                        userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
+                    )
+                },
+            )
+            holder.gameViewModel.attachCoachOrchestrator(orchestrator)
+        }
     }
 
     override fun onStart() {

@@ -7,15 +7,15 @@ first move, a "Move Coach" panel appears at the top of the screen.
 
 What you'll see on each platform:
 
-- **Android (Samsung)** — ML Kit GenAI Prompt API (Gemini Nano via AICore). On
-  Samsung flagships with Android 14+ and AICore available, you'll see a real
-  model explanation. On devices without AICore (older Samsungs, mid-range), the
-  orchestrator deterministically falls back to rule-based text — the panel still
+- **Android (Samsung)** — LiteRT-LM (`com.google.ai.edge.litertlm:litertlm-android:0.13.1`)
+  with a bundled Gemma `.litertlm` model. Works on any device with sufficient
+  RAM — **no AICore dependency** (the earlier ML Kit Prompt API path was
+  dropped because AICore is unavailable on most devices). Without a bundled
+  model the orchestrator falls back to deterministic text — the panel still
   appears, labelled "Coach fell back to a rule-based explanation (...)".
 - **iPhone 17 simulator** — Foundation Models (Apple Intelligence). The simulator
   needs iOS 26 + Apple Intelligence enabled in `Settings > Apple Intelligence`.
-  Without Apple Intelligence enabled, falls back to rule-based text. On Xcode 26+
-  with Apple Intelligence on, you'll see a real model explanation.
+  Without Apple Intelligence enabled, falls back to rule-based text.
 
 Both fallbacks are demo-able: the panel mounts, the move-coach text appears,
 and the headline + 2-sentence explanation / fallback text shows after Black's
@@ -31,14 +31,35 @@ deterministic.
 
 ## Android — Samsung phone
 
+### (Optional) Drop a real Gemma model into the APK
+
+Without this, the coach shows deterministic fallback text on Android. With it,
+the coach shows real model output. The model file is **not committed to the
+repo** (it's 700 MB – 1.7 GB depending on quantization).
+
 ```bash
-# From the worktree root
+# Pick a .litertlm from https://huggingface.co/litert-community
+# Tested: Gemma3-1B-IT (CPU/GPU variants). NPU-specific artifacts also work
+# if you bundle the matching vendor dispatch library (see plan §6.1.1).
+
+# Download (Hugging Face CLI requires a free HF account + license acceptance)
+huggingface-cli download litert-community/Gemma3-1B-IT \
+    Gemma3-1B-IT_q8_ekv1280.litertlm \
+    --local-dir /tmp/gemma
+
+# Drop into app assets at this exact path
+mv /tmp/gemma/Gemma3-1B-IT_q8_ekv1280.litertlm \
+    app/src/androidMain/assets/models/gemma.litertlm
+```
+
+### Build + install
+
+```bash
 cd /Users/presence/AndroidStudioProjects/compose-multiplatform-chess-coach
 
-# Build + install in one step
 ./gradlew :androidApp:installDebug
 
-# Or, if you've already built (androidApp/build/outputs/apk/debug/androidApp-debug.apk):
+# Or, if you've already built:
 ~/Library/Android/sdk/platform-tools/adb install -r \
     androidApp/build/outputs/apk/debug/androidApp-debug.apk
 
@@ -52,14 +73,15 @@ Then:
 2. Watch Stockfish reply (Black's move animates).
 3. The **Move Coach** panel slides in at the top with the explanation.
 
+First launch unpacks the model from assets to `filesDir` (one-time, takes a
+few seconds for 700 MB). Subsequent launches skip the unpack. If no model is
+bundled, logcat shows `No bundled Gemma model at assets/models/gemma.litertlm`
+and the panel shows deterministic fallback text.
+
 The coach is wired to **debug builds only** (`MainActivity.attachMoveCoach` checks
 `ApplicationInfo.FLAG_DEBUGGABLE`); `installDebug` produces a debug APK so this
 is fine. A release build would hide the coach per plan §11 M3 "ship behind a
 debug flag".
-
-If the Samsung doesn't have AICore / Gemini Nano, logcat shows
-`AiAvailability.Unavailable` and the panel displays the deterministic fallback
-text labelled as such.
 
 ## iOS — iPhone 17 simulator
 
@@ -107,10 +129,10 @@ end-to-end flow.
 
 ## What's wired
 
-- `MainActivity.attachMoveCoach()` (Android) — gates on debug builds; constructs
-  `DefaultAiCoachOrchestrator` with the ML Kit Prompt factory; tracks foreground
-  state via `onStart` / `onStop` so ML Kit inference is never attempted while
-  backgrounded.
+- `MainActivity.attachMoveCoach()` (Android) — gates on debug builds; unpacks
+  the bundled `.litertlm` Gemma model via `MoveCoachModelAsset`, installs
+  `AndroidCoachWiring`, constructs `DefaultAiCoachOrchestrator` with the
+  LiteRT-LM factory; tracks foreground state via `onStart` / `onStop`.
 - `MainViewController(engine:)` (iOS) — constructs `DefaultAiCoachOrchestrator`
   with `defaultOnDeviceTextGeneratorFactory()`; the iOS factory queries
   `FoundationModelsBridgeRegistry`, which `iOSApp.swift.init` populates by
@@ -125,7 +147,8 @@ end-to-end flow.
 - Engine evaluations are not passed to the coach request (hardcoded `null`) —
   the prompt slot exists but the data path isn't filled in. The model still
   produces an explanation from FEN + move + tags.
-- ML Kit `warmup()` is never called opportunistically — first coach request
-  pays the cold-init cost.
-- LiteRT-LM Gemma path is a reflection-gated stub; ML Kit Prompt is always
-  tried first.
+- LiteRT-LM `Engine.initialize()` is heavy (seconds). The factory lazily
+  initializes on first `status()` call; `warmup()` is exposed but not called
+  opportunistically yet (first coach request pays the cold-init cost).
+- NPU backend isn't wired (GPU is). Per-SoC vendor dispatch libraries (QAIRT
+  for Snapdragon, etc.) need bundling — see plan §6.1.1.

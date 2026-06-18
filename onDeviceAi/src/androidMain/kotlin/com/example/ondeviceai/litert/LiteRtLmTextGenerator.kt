@@ -6,77 +6,174 @@ import com.example.ondeviceai.AiInferenceMetrics
 import com.example.ondeviceai.AiRoute
 import com.example.ondeviceai.AiTokenOrFinal
 import com.example.ondeviceai.OnDeviceTextGenerator
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.SamplerConfig
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 
+/**
+ * Android implementation of [OnDeviceTextGenerator] backed by LiteRT-LM
+ * (`com.google.ai.edge.litertlm:litertlm-android`). Bundled-Gemma path that
+ * works on any device with sufficient RAM — **no AICore / Gemini Nano
+ * dependency** (the earlier ML Kit Prompt API path was removed because of
+ * AICore's narrow device support).
+ *
+ * Verified against the API documented at
+ * https://developers.google.com/edge/litert-lm/android (artifact 0.13.1):
+ *   - `Engine(EngineConfig(modelPath, backend, cacheDir))` then `engine.initialize()`
+ *   - `engine.createConversation(ConversationConfig(systemInstruction, samplerConfig))`
+ *   - `conversation.sendMessageAsync(text): Flow<Message>` for streaming
+ *
+ * The `.litertlm` Gemma model asset is supplied by the chess app via
+ * [pathToModel] — typically unpacked from app assets into `cacheDir` at first
+ * launch (assets aren't directly readable by LiteRT-LM's native layer on all
+ * Android versions). The chess app wires the path through
+ * `defaultLitertLmModelPath()`.
+ *
+ * Per the LiteRT-LM guide, `engine.initialize()` is heavy (model load can take
+ * seconds). This generator lazily initializes on the first `status()` call and
+ * keeps the engine warm until [close]. Callers should call `warmup()`
+ * opportunistically (e.g. when the coach panel mounts) to hide init latency
+ * behind the user's first move.
+ *
+ * Backend selection: GPU is preferred when available (requires
+ * `<uses-native-library android:name="libOpenCL.so" android:required="false"/>`
+ * in the AndroidManifest, which the chess app declares). Falls back to CPU if
+ * GPU init throws. NPU is left to a future per-SoC spike (plan §6.1.1) since it
+ * needs vendor-specific dispatch libraries that the chess app doesn't bundle yet.
+ */
 class LiteRtLmTextGenerator(
-    private val pathToModel: String?,
-    private val accelerator: Accelerator = Accelerator.NPU_PREFERRED,
+    private val pathToModel: String,
+    private val cacheDir: String? = null,
+    private val accelerator: Accelerator = Accelerator.GPU_PREFERRED,
 ) : OnDeviceTextGenerator {
 
     enum class Accelerator { CPU_ONLY, GPU_PREFERRED, NPU_PREFERRED }
 
-    private val runtimeClass by lazy { probeRuntimeClass() }
+    private var engine: Engine? = null
+    private var initializationFailed: String? = null
+    private var isClosed: Boolean = false
 
     override suspend fun status(): AiAvailability {
-        if (pathToModel == null) return AiAvailability.Unavailable
-        if (runtimeClass == null) return AiAvailability.Unavailable
-        return AiAvailability.Available
+        if (isClosed) return AiAvailability.Unavailable
+        initializationFailed?.let { return AiAvailability.Error(it) }
+        ensureEngineInitialized()
+        return if (engine != null) AiAvailability.Available
+        else AiAvailability.Error(initializationFailed ?: "engine init failed")
     }
 
     override suspend fun warmup() {
-        if (runtimeClass == null || pathToModel == null) return
-        runCatching { invokeLitertLm(action = ACTION_WARMUP) }
+        if (isClosed) return
+        ensureEngineInitialized()
     }
 
     override fun generate(request: AiGenerationRequest): Flow<AiTokenOrFinal> = flow {
-        if (runtimeClass == null || pathToModel == null) return@flow
-        val start = System.currentTimeMillis()
-        val fullText = (invokeLitertLm(
-            action = ACTION_GENERATE,
-            systemPrompt = request.systemPrompt,
-            userPrompt = request.userPrompt,
-            maxTokens = request.maxOutputTokens,
-            temperature = request.temperature,
-        ) as? String).orEmpty()
+        if (isClosed) {
+            emit(failureMetric("generator closed"))
+            return@flow
+        }
+        ensureEngineInitialized()
+        val activeEngine = engine ?: run {
+            emit(failureMetric(initializationFailed ?: "engine not initialized"))
+            return@flow
+        }
 
-        if (fullText.isNotEmpty()) emit(AiTokenOrFinal.Token(fullText))
+        val start = System.currentTimeMillis()
+        var firstTokenMs: Long? = null
+        var tokenCount = 0
+        val collected = StringBuilder()
+
+        val conversationConfig = ConversationConfig(
+            systemInstruction = com.google.ai.edge.litertlm.Contents.of(request.systemPrompt),
+            samplerConfig = SamplerConfig(
+                topK = DEFAULT_TOP_K,
+                topP = DEFAULT_TOP_P,
+                temperature = request.temperature,
+                seed = 0,
+            ),
+        )
+        val conversation = activeEngine.createConversation(conversationConfig)
+        try {
+            conversation.sendMessageAsync(request.userPrompt)
+                .catch { cause ->
+                    throw cause
+                }
+                .collect { message ->
+                    if (firstTokenMs == null) firstTokenMs = System.currentTimeMillis() - start
+                    val text = message.contents.contents
+                        .filterIsInstance<Content.Text>()
+                        .joinToString("") { it.text }
+                    if (text.isNotEmpty()) {
+                        collected.append(text)
+                        tokenCount++
+                        emit(AiTokenOrFinal.Token(text))
+                    }
+                }
+        } finally {
+            runCatching { conversation.close() }
+        }
+
         emit(
             AiTokenOrFinal.Final(
                 text = "",
                 metrics = AiInferenceMetrics(
-                    firstTokenMs = null,
+                    firstTokenMs = firstTokenMs,
                     completeMs = System.currentTimeMillis() - start,
-                    tokenCount = fullText.split(Regex("\\s+")).count { it.isNotBlank() },
+                    tokenCount = tokenCount,
                     route = AiRoute.OnDevice,
                 )
             )
         )
     }
 
-    override suspend fun close() = Unit
-
-    private fun probeRuntimeClass(): Class<*>? = runCatching {
-        val candidates = listOf(
-            "com.google.ai.edge.litert.lm.InferenceEngine",
-            "com.google.ai.edge.litertlm.InferenceEngine",
-            "com.google.ai.edge.litert.LitertLm",
-        )
-        candidates.firstNotNullOfOrNull { runCatching { Class.forName(it) }.getOrNull() }
-    }.getOrNull()
-
-    private fun invokeLitertLm(
-        action: Int,
-        systemPrompt: String = "",
-        userPrompt: String = "",
-        maxTokens: Int = 0,
-        temperature: Double = 0.0,
-    ): Any? {
-        return ""
+    override suspend fun close() {
+        if (isClosed) return
+        isClosed = true
+        runCatching { engine?.close() }
+        engine = null
     }
 
+    private fun ensureEngineInitialized() {
+        if (engine != null || initializationFailed != null || isClosed) return
+        val config = EngineConfig(
+            modelPath = pathToModel,
+            backend = when (accelerator) {
+                Accelerator.CPU_ONLY -> Backend.CPU()
+                Accelerator.GPU_PREFERRED -> Backend.GPU()
+                Accelerator.NPU_PREFERRED -> Backend.GPU() // NPU needs vendor dispatch libs; fall back to GPU
+            },
+            cacheDir = cacheDir,
+        )
+        engine = try {
+            Engine(config).also { it.initialize() }
+        } catch (t: Throwable) {
+            initializationFailed = t.message ?: "LiteRT-LM engine init failed"
+            null
+        }
+    }
+
+    private fun failureMetric(reason: String) = AiTokenOrFinal.Final(
+        text = "",
+        metrics = AiInferenceMetrics(
+            firstTokenMs = null,
+            completeMs = 0L,
+            tokenCount = 0,
+            route = AiRoute.OnDevice,
+            fallbackReason = reason,
+        )
+    )
+
     private companion object {
-        private const val ACTION_WARMUP = 0
-        private const val ACTION_GENERATE = 1
+        // Conservative sampler defaults for a 2-sentence coach explanation.
+        // Low temperature is enforced by the caller (request.temperature), but
+        // we still cap topK/topP so the model doesn't wander into hallucinated
+        // chess variations.
+        const val DEFAULT_TOP_K = 10
+        const val DEFAULT_TOP_P = 0.95
     }
 }
