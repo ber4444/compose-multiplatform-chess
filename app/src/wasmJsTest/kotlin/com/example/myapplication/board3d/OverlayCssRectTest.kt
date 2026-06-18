@@ -3,6 +3,7 @@ package com.example.myapplication.board3d
 import androidx.compose.ui.geometry.Rect
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class OverlayCssRectTest {
 
@@ -45,5 +46,13 @@ class OverlayCssRectTest {
         assertEquals(0.0, css.top)
         assertEquals(0.0, css.width)
         assertEquals(0.0, css.height)
+    }
+
+    @Test
+    fun testOverlayCanvasIsInsertedBehindComposeContent() {
+        val stacking = overlayCanvasStacking()
+
+        assertTrue(stacking.insertAsFirstBodyChild)
+        assertEquals("none", stacking.pointerEvents)
     }
 }

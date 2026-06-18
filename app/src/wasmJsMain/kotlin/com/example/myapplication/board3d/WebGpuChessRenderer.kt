@@ -352,11 +352,7 @@ class WebGpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         tg.image = texture
         tg.view = createTextureViewJs(texture)
         
-        val roughness = when (tex) {
-            ChessTexture.BOARD -> 0.1f
-            ChessTexture.FRAME -> 0.5f
-            else -> 0.4f
-        }
+        val roughness = wgpuMaterialRoughness(tex)
         val matBuf = createUniformBufferJs(device!!, 16)
         writeBufferFloatArrayJs(device!!, matBuf, floatArrayOf(roughness, 0f, 0f, 0f))
         tg.materialBuffer = matBuf

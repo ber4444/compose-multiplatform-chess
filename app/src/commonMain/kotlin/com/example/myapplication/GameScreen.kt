@@ -3,6 +3,7 @@ package com.example.myapplication
 import com.example.myapplication.board3d.Board3D
 import com.example.myapplication.board3d.Board3DSupport
 import com.example.myapplication.board3d.BoardSquare
+import com.example.myapplication.board3d.Board3DSessionState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -47,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -98,6 +100,8 @@ fun GameScreen(
     val viewState by viewModel.viewState.collectAsState()
     val scrollState = rememberScrollState()
     val show3D = viewState.show3D && board3D != null
+    val board3DCameraSession = remember { Board3DSessionState() }
+    var isEntering3D by remember { mutableStateOf(false) }
     var isTearingDown3D by remember { mutableStateOf(false) }
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
@@ -159,14 +163,7 @@ fun GameScreen(
             DrawOfferDialog(onAccept = viewModel::acceptDrawOffer, onDecline = viewModel::declineDrawOffer)
         }
 
-        if (isTearingDown3D) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                ChessLoader("Tearing down 3D board")
-            }
-        } else if (show3D) {
+        if (show3D) {
             LaunchedEffect(animState.pieceToAnimate) {
                 if (animState.pieceToAnimate != null) {
                     kotlinx.coroutines.delay(50)
@@ -174,15 +171,21 @@ fun GameScreen(
                 }
             }
             val fen = remember(gameState) { FenConverter.gameStateToFen(gameState) }
-            Board3D(
-                support = board3D,
-                fen = fen,
-                modifier = Modifier.fillMaxSize(),
-                onUnavailable = { viewModel.markBoard3DUnavailable() },
-                selectedSquare = gameState.selectedSquare
-                    .takeIf { it != INVALID_POSITION }
-                    ?.let { BoardSquare(it.first, it.second) },
-                onSquareTapped = onSquareTapped@{ sq ->
+            Box(modifier = Modifier.fillMaxSize()) {
+                Board3D(
+                    support = board3D,
+                    fen = fen,
+                    modifier = Modifier.fillMaxSize(),
+                    onUnavailable = {
+                        isEntering3D = false
+                        viewModel.markBoard3DUnavailable()
+                    },
+                    cameraSession = board3DCameraSession,
+                    onRendererReady = { isEntering3D = false },
+                    selectedSquare = gameState.selectedSquare
+                        .takeIf { it != INVALID_POSITION }
+                        ?.let { BoardSquare(it.first, it.second) },
+                    onSquareTapped = onSquareTapped@{ sq ->
                     // Route a 3D tap through the same selection/move logic the 2D board uses.
                     if (animState.pieceToAnimate != null || gameState.turn != Set.WHITE) return@onSquareTapped
                     val pos = Pair(sq.row, sq.col)
@@ -202,8 +205,21 @@ fun GameScreen(
                         pos in legalMoves -> viewModel.playerMove(selectedPieceIndex, pos)
                         pos in gameState.positionsWhite -> viewModel.updateSelected(pos)
                     }
+                    }
+                )
+
+                if (isTearingDown3D) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(2f)
+                            .testTag("board_3d_tearing_down"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        ChessLoader("Tearing down 3D board")
+                    }
                 }
-            )
+            }
 
             GameControls(
                 gameState = gameState,
@@ -268,16 +284,26 @@ fun GameScreen(
                         if (!checked && viewState.show3D) {
                             isTearingDown3D = true
                             coroutineScope.launch {
-                                // Give UI a moment to show the progress bar
-                                kotlinx.coroutines.delay(50)
+                                // Keep the existing surface mounted while Compose presents the
+                                // loader. Frame boundaries guarantee visible progress without a
+                                // timing guess; the second frame lets its animation advance before
+                                // SceneView/Filament teardown can occupy the UI thread.
+                                withFrameNanos { }
+                                withFrameNanos { }
                                 viewModel.setShow3D(false)
+                                // Disposal/recomposition has completed before controls re-enable.
+                                withFrameNanos { }
                                 isTearingDown3D = false
                             }
                         } else {
-                            viewModel.setShow3D(checked)
+                            isEntering3D = checked
+                            coroutineScope.launch {
+                                withFrameNanos { }
+                                viewModel.setShow3D(checked)
+                            }
                         }
                     },
-                    enabled = !viewState.buttonLock && !isTearingDown3D,
+                    enabled = !viewState.buttonLock && !isEntering3D && !isTearingDown3D,
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.White,
                         checkedTrackColor = Color.Gray.copy(alpha = 0.48f),

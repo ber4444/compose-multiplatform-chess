@@ -27,6 +27,16 @@ class WasmChess3DSurface(
 
 internal data class CssRect(val left: Double, val top: Double, val width: Double, val height: Double)
 
+internal data class OverlayCanvasStacking(
+    val insertAsFirstBodyChild: Boolean,
+    val pointerEvents: String,
+)
+
+internal fun overlayCanvasStacking() = OverlayCanvasStacking(
+    insertAsFirstBodyChild = true,
+    pointerEvents = "none",
+)
+
 @Suppress("UNUSED_PARAMETER")
 internal fun overlayCssRect(boundsInWindow: Rect, devicePixelRatio: Double): CssRect {
     return CssRect(
@@ -57,10 +67,17 @@ fun WasmBoard3DSurface(
 
     DisposableEffect(Unit) {
         val canvas = document.createElement("canvas") as HTMLCanvasElement
+        val stacking = overlayCanvasStacking()
         canvas.id = "board3d-overlay"
         canvas.style.setProperty("position", "absolute")
-        canvas.style.setProperty("pointer-events", "none")
-        document.body?.appendChild(canvas)
+        canvas.style.setProperty("pointer-events", stacking.pointerEvents)
+        // Compose renders into its own DOM canvas. Appending WebGPU after it made the board canvas
+        // paint over Reset / Offer Draw / the 3D switch. Put the non-interactive WebGPU canvas at
+        // the start of body so Compose remains the top visual and input layer.
+        document.body?.let { body ->
+            if (stacking.insertAsFirstBodyChild) body.insertBefore(canvas, body.firstChild)
+            else body.appendChild(canvas)
+        }
 
         onDispose {
             renderer.detach()

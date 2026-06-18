@@ -9,6 +9,7 @@ import com.example.myapplication.GameScreen
 import com.example.myapplication.GameViewModel
 import com.example.myapplication.WindowWidthSizeClass
 import kotlin.test.Test
+import kotlin.test.assertEquals
 
 /**
  * Tests for the GameScreen 3D wiring.
@@ -23,6 +24,14 @@ import kotlin.test.Test
  */
 @OptIn(ExperimentalTestApi::class)
 class AndroidBoard3DUiTest {
+
+    @Test
+    fun whiteAndBlackPiecesSelectDifferentGlTfMaterials() {
+        val names = listOf("board", "white", "black")
+
+        assertEquals("white", selectPieceMaterialName(names, PieceColor.WHITE))
+        assertEquals("black", selectPieceMaterialName(names, PieceColor.BLACK))
+    }
 
     @Test
     fun board3DRendererSmokeTest() = runComposeUiTest {

@@ -478,11 +478,7 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         tg.image = texture
         tg.view = texture.createView()
         
-        val roughness = when (tex) {
-            ChessTexture.BOARD -> 0.1f
-            ChessTexture.FRAME -> 0.5f
-            else -> 0.4f
-        }
+        val roughness = wgpuMaterialRoughness(tex)
         val matBuffer = device!!.createBuffer(
             BufferDescriptor(
                 size = 16uL,

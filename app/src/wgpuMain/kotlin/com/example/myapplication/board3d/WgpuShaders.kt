@@ -118,11 +118,11 @@ fn fs_main(input: FragmentInput) -> @location(0) vec4<f32> {
 
     // Image-based lighting from the env cube (simplified: sample mips directly, no precompute).
     let maxMip = 9.0;
-    var envN = N; envN.y = -envN.y;
-    let irradiance = textureSampleLevel(envTex, envSamp, envN, maxMip).rgb;
+    // Cube faces are converted to WebGPU row orientation during upload. Keep world +Y here;
+    // flipping it a second time put the garden floor above the board and the sky below it.
+    let irradiance = textureSampleLevel(envTex, envSamp, N, maxMip).rgb;
     let diffuse = irradiance * albedo;
-    var envR = R; envR.y = -envR.y;
-    let prefiltered = textureSampleLevel(envTex, envSamp, envR, roughness * maxMip).rgb;
+    let prefiltered = textureSampleLevel(envTex, envSamp, R, roughness * maxMip).rgb;
     let Fr = F_SchlickR(NoV, F0, roughness);
     let brdf = envBRDFApprox(NoV, roughness);
     let specularIBL = prefiltered * (Fr * brdf.x + brdf.y);
@@ -180,8 +180,7 @@ fn uncharted2(x: vec3<f32>) -> vec3<f32> {
 fn fs_sky(input: SkyOut) -> @location(0) vec4<f32> {
     let exposure = 4.5;
     let gamma = 2.2;
-    var sampleDir = normalize(input.dir);
-    sampleDir.y = -sampleDir.y;
+    let sampleDir = normalize(input.dir);
     // Sample a high (blurry) mip so the environment reads as a defocused bokeh backdrop behind the
     // in-focus board, instead of the sharp garden photo. The cube has ~10 mips; mip 5 ~ 32x blur.
     var color = textureSampleLevel(envTex, envSamp, sampleDir, 5.0).rgb;

@@ -260,3 +260,24 @@ class OrbitCameraController(private var aspect: Float) {
             }.camera
     }
 }
+
+/**
+ * Camera owner whose lifetime is the game screen, not an individual platform renderer.
+ *
+ * Renderer surfaces are disposable (notably SceneView during 2D/3D switches), but camera input is
+ * user state. Keeping one controller above those surfaces means every renderer creation consumes
+ * the same canonical snapshot instead of deriving a new projection from backend state.
+ */
+class Board3DSessionState(initialAspect: Float = 1f) {
+    private val controller = OrbitCameraController(initialAspect)
+
+    val camera: CameraParams get() = controller.camera
+
+    fun cameraForRenderer(): CameraParams = camera
+
+    fun onDrag(deltaXNorm: Float, deltaYNorm: Float) = controller.onDrag(deltaXNorm, deltaYNorm)
+
+    fun onZoom(factor: Float) = controller.onZoom(factor)
+
+    fun onResize(aspect: Float) = controller.onResize(aspect)
+}

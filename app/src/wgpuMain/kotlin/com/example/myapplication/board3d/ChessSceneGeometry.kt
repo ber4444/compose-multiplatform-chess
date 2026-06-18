@@ -26,7 +26,8 @@ class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, Scene
         private val SELECT_TINT = floatArrayOf(0.45f, 1.7f, 0.55f)
         // The frame's light marble blows out to near-white under the bright env IBL; knock it down to
         // a mid stone grey so the rim reads as stone, not a white halo around the board.
-        private val FRAME_TINT = floatArrayOf(0.6f, 0.6f, 0.6f)
+        internal const val FRAME_TINT_VALUE = 0.27f
+        private val FRAME_TINT = floatArrayOf(FRAME_TINT_VALUE, FRAME_TINT_VALUE, FRAME_TINT_VALUE)
 
         fun build(
             scene: Board3DScene,
@@ -135,4 +136,11 @@ class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, Scene
         fun index(i: Int) { idx.add(i) }
         fun toGroup() = SceneGroup(verts.toFloatArray(), idx.toIntArray())
     }
+}
+
+/** Shared material response for desktop and web so frame lighting cannot drift by backend. */
+internal fun wgpuMaterialRoughness(texture: ChessTexture): Float = when (texture) {
+    ChessTexture.BOARD -> 0.1f
+    ChessTexture.FRAME -> 0.68f
+    else -> 0.4f
 }
