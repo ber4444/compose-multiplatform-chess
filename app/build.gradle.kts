@@ -92,6 +92,7 @@ kotlin {
             implementation(compose.components.resources)
             implementation(compose.components.uiToolingPreview)
             implementation(libs.kermit)
+            implementation(project(":onDeviceAi"))
         }
 
         commonTest.dependencies {

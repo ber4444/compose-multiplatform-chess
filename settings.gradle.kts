@@ -65,3 +65,4 @@ dependencyResolutionManagement {
 rootProject.name = "game"
 include(":app")
 include(":androidApp")
+include(":onDeviceAi")
