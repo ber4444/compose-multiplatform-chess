@@ -65,6 +65,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
+import com.example.myapplication.movecoach.MoveCoachPanel
+import com.example.myapplication.movecoach.MoveCoachUiState
 import game.app.generated.resources.Res
 import game.app.generated.resources.cancel_button
 import game.app.generated.resources.game_end_message_no_winner
@@ -98,6 +100,7 @@ fun GameScreen(
     val gameState by viewModel.gameState.collectAsState()
     val animState by viewModel.animState.collectAsState()
     val viewState by viewModel.viewState.collectAsState()
+    val coachState by viewModel.coachUiState.collectAsState()
     val scrollState = rememberScrollState()
     val show3D = viewState.show3D && board3D != null
     val board3DCameraSession = remember { Board3DSessionState() }
@@ -249,6 +252,12 @@ fun GameScreen(
                     playerMove = viewModel::playerMove,
                     animationEnd = viewModel::animationEnd
                 )
+
+                Spacer(modifier = Modifier.padding(8.dp))
+
+                // Move Coach panel (only mounts when the orchestrator has emitted a
+                // non-Hidden state — i.e. on platforms where a coach is attached).
+                MoveCoachPanel(state = coachState)
 
                 Spacer(modifier = Modifier.padding(8.dp))
 

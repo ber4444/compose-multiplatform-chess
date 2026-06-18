@@ -19,3 +19,15 @@ object FoundationModelsBridgeRegistry {
         fun create(): OnDeviceTextGenerator?
     }
 }
+
+/**
+ * Swift-friendly registration helper. Kotlin/Native exposes `fun interface`
+ *SAM types awkwardly to Swift (Swift has to adopt a generated protocol); this
+ * helper takes a plain Kotlin function type, which Swift can pass a closure for
+ * directly. The Swift side calls `registerFoundationModelsProvider { ... }`.
+ */
+fun registerFoundationModelsProvider(provider: () -> OnDeviceTextGenerator?) {
+    FoundationModelsBridgeRegistry.register(
+        FoundationModelsBridgeRegistry.Provider(provider)
+    )
+}

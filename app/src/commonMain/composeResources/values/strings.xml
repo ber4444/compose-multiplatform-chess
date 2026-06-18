@@ -13,4 +13,9 @@
     <string name="draw_offer_declined">Black declined the draw offer</string>
     <string name="board_3d_toggle_label">3D</string>
     <string name="board_3d_unavailable">3D renderer failed to initialize</string>
+    <string name="move_coach_title">Move Coach</string>
+    <string name="move_coach_loading">Coach is thinking about %1$s…</string>
+    <string name="move_coach_unavailable">Move Coach unavailable</string>
+    <string name="move_coach_fallback_label">Coach fell back to a rule-based explanation (%1$s)</string>
+    <string name="move_coach_error_label">Coach error: %1$s</string>
 </resources>

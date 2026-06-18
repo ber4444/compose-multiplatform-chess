@@ -1,6 +1,10 @@
 package com.example.myapplication
 
 import co.touchlab.kermit.Logger
+import com.example.myapplication.movecoach.MoveCoachContextExtractor
+import com.example.myapplication.movecoach.MoveCoachUiState
+import com.example.ondeviceai.AiCoachOrchestrator
+import com.example.ondeviceai.MoveCoachEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,8 +34,17 @@ class GameViewModel(
     private val _viewState = MutableStateFlow(ViewState())
     val viewState: StateFlow<ViewState> = _viewState
 
+    // Move coach state (plan §8.1). Hidden by default. The panel mounts only when
+    // an [AiCoachOrchestrator] is attached AND a coached move has been triggered
+    // (after Stockfish returns Black's move, plan §8.2). When no orchestrator is
+    // attached (desktop/wasm), the panel never mounts.
+    private val _coachUiState = MutableStateFlow<MoveCoachUiState>(MoveCoachUiState.Hidden)
+    val coachUiState: StateFlow<MoveCoachUiState> = _coachUiState
+
     private var gameMoves: Job? = null
     private var chessEngine: ChessEngine? = null
+    private var coachOrchestrator: AiCoachOrchestrator? = null
+    private var coachJob: Job? = null
 
     companion object {
         private val logger = Logger.withTag("GameViewModel")
@@ -42,10 +55,25 @@ class GameViewModel(
         chessEngine = engine
     }
 
+    /**
+     * Inject the move-coach orchestrator (or null to disable). On Android this is
+     * wired to [DefaultAiCoachOrchestrator] with [com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory];
+     * on iOS, Swift registers a Foundation Models provider with
+     * [com.example.ondeviceai.FoundationModelsBridgeRegistry] before this is called.
+     * Desktop/wasm pass null and the coach panel stays hidden.
+     */
+    fun attachCoachOrchestrator(orchestrator: AiCoachOrchestrator?) {
+        coachJob?.cancel()
+        coachOrchestrator = orchestrator
+        _coachUiState.value = if (orchestrator == null) MoveCoachUiState.Hidden else MoveCoachUiState.Hidden
+    }
+
     fun close() {
         gameMoves?.cancel()
+        coachJob?.cancel()
         chessEngine?.close()
         chessEngine = null
+        coachOrchestrator = null
         scope.cancel()
     }
 
@@ -87,6 +115,10 @@ class GameViewModel(
             if (selectedPieceIndex == -1) {
                 throw IllegalStateException("Cannot identify selected Piece!")
             }
+
+            // Plan §8.2: cancel any stale coach job when the player starts a new move.
+            coachJob?.cancel()
+            _coachUiState.value = MoveCoachUiState.Hidden
 
             val legalMoves = getAllLegalMoves(
                 enemyPositions = gameState.value.positionsBlack,
@@ -250,6 +282,8 @@ class GameViewModel(
 
     fun resetGame() {
         logger.i { "Game reset" }
+        coachJob?.cancel()
+        _coachUiState.value = MoveCoachUiState.Hidden
         _gameState.value = GameUiState()
         _viewState.value = ViewState()
         _animState.value = PieceAnimationState()
@@ -295,6 +329,10 @@ class GameViewModel(
             return
         }
 
+        // Snapshot the pre-move state so the coach (if attached) can build a
+        // grounded request from before/after positions (plan §1.2, §8.2).
+        val stateBeforeCoach = _gameState.value
+
         val selectedMove = pickMove(enemyPositions, enemyPieces, allyPositions, allyPieces)
         val newPosition = selectedMove.position
         val movingPiece = allyPieces[selectedMove.pieceIndex]
@@ -310,6 +348,23 @@ class GameViewModel(
             allyPieces = allyPieces,
             promotion = selectedMove.promotion
         )
+
+        // Plan §8.2: trigger the coach after Stockfish returns Black's move and
+        // before/while the move animation plays. Never blocks move application.
+        // Skip if the move ended the game (checkmate/stalemate/draw).
+        if (turn == Set.BLACK &&
+            coachOrchestrator != null &&
+            _gameState.value.winState == WinState.NONE
+        ) {
+            triggerCoach(
+                stateBefore = stateBeforeCoach,
+                stateAfter = _gameState.value,
+                movingPieceSide = Set.BLACK,
+                fromSquare = preMovePosition,
+                toSquare = newPosition,
+                promotionType = selectedMove.promotion,
+            )
+        }
 
         val rookMove = castlingRookMove(movingPiece, preMovePosition, newPosition)
 
@@ -525,5 +580,64 @@ class GameViewModel(
             }
         }
         return updatedState
+    }
+
+    /**
+     * Drive the move-coach panel for the supplied Black move (plan §8). Builds the
+     * request from before/after snapshots + tags, launches the orchestrator on the
+     * viewModel scope, and emits [MoveCoachUiState] updates as events arrive.
+     *
+     * The coach job is cancelled on reset, on a new White move, on a draw offer
+     * acceptance, and on close. Per plan §8.2 it never blocks move application.
+     */
+    private fun triggerCoach(
+        stateBefore: GameUiState,
+        stateAfter: GameUiState,
+        movingPieceSide: Set,
+        fromSquare: Pair<Int, Int>,
+        toSquare: Pair<Int, Int>,
+        promotionType: PromotionType?,
+    ) {
+        val orchestrator = coachOrchestrator ?: return
+        coachJob?.cancel()
+
+        val request = MoveCoachContextExtractor.build(
+            stateBefore = stateBefore,
+            stateAfter = stateAfter,
+            movingPieceSide = movingPieceSide,
+            fromSquare = fromSquare,
+            toSquare = toSquare,
+            promotionType = promotionType,
+            evaluationBeforeCp = null, // Wired when engine eval caching lands; coach tolerates null.
+            evaluationAfterCp = null,
+        )
+
+        _coachUiState.value = MoveCoachUiState.Loading(request.bestMoveDisplay)
+        coachJob = scope.launch {
+            try {
+                orchestrator.explainMoveStreaming(request).collect { event ->
+                    when (event) {
+                        is MoveCoachEvent.Streaming ->
+                            _coachUiState.value = MoveCoachUiState.Streaming(
+                                move = request.bestMoveDisplay,
+                                text = event.partialText,
+                            )
+                        is MoveCoachEvent.Complete -> when (val result = event.result) {
+                            is com.example.ondeviceai.MoveCoachResult.Success ->
+                                _coachUiState.value = MoveCoachUiState.Ready(result.explanation)
+                            is com.example.ondeviceai.MoveCoachResult.FellBack ->
+                                _coachUiState.value = MoveCoachUiState.Fallback(result.text, result.reason)
+                            is com.example.ondeviceai.MoveCoachResult.Failed ->
+                                _coachUiState.value = MoveCoachUiState.Error(result.message)
+                        }
+                    }
+                }
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                logger.w(t) { "Coach orchestrator failed" }
+                _coachUiState.value = MoveCoachUiState.Error(t.message ?: "coach failed")
+            }
+        }
     }
 }
