@@ -11,8 +11,10 @@
 		1C81D6F669B7BB6D2FFCCEB3 /* ChessKitEngine in Frameworks */ = {isa = PBXBuildFile; productRef = DB95EAE1EB3A07DF03F63DAF /* ChessKitEngine */; };
 		307C2654CD5972A25FB7FD87 /* iOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 668CECA83ACC03A83C85A623 /* iOSApp.swift */; };
 		3F4B6FE98FC3A112054A4766 /* StockfishChessEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28C7F05371BE73DC00FFB6B0 /* StockfishChessEngine.swift */; };
+		50BF68CB3B9A9AE663DD1C04 /* FoundationMoveCoachBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8DEA84B9AC22560FFB71872 /* FoundationMoveCoachBridge.swift */; };
 		56B0305B5D3847FC6B326502 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE8509E5A49E4A5CAAEB3ADB /* ContentView.swift */; };
 		7DAA6B2A3EBDDF2583C94275 /* nn-1111cefa1111.nnue in Resources */ = {isa = PBXBuildFile; fileRef = 0083126833BD37C48CC51E07 /* nn-1111cefa1111.nnue */; };
+		B250EBADD97EE529BBE39344 /* FoundationMoveCoach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A352BDCC1050FE5E8CF490 /* FoundationMoveCoach.swift */; };
 		B5CA9B9E6C1205698D8723A5 /* nn-37f18f62d772.nnue in Resources */ = {isa = PBXBuildFile; fileRef = DBCCFF2A8437C866DD0AAE79 /* nn-37f18f62d772.nnue */; };
 /* End PBXBuildFile section */
 
@@ -28,10 +30,12 @@
 
 /* Begin PBXFileReference section */
 		0083126833BD37C48CC51E07 /* nn-1111cefa1111.nnue */ = {isa = PBXFileReference; path = "nn-1111cefa1111.nnue"; sourceTree = "<group>"; };
+		21A352BDCC1050FE5E8CF490 /* FoundationMoveCoach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationMoveCoach.swift; sourceTree = "<group>"; };
 		28C7F05371BE73DC00FFB6B0 /* StockfishChessEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockfishChessEngine.swift; sourceTree = "<group>"; };
 		56583BC252B5F01ED9DEA19D /* iosAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = iosAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		668CECA83ACC03A83C85A623 /* iOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iOSApp.swift; sourceTree = "<group>"; };
 		86038AE1032E284E79B32AD6 /* iosApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = iosApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A8DEA84B9AC22560FFB71872 /* FoundationMoveCoachBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationMoveCoachBridge.swift; sourceTree = "<group>"; };
 		BAEBFE68677C845B5A891EB9 /* StockfishChessEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockfishChessEngineTests.swift; sourceTree = "<group>"; };
 		C117AD187833E2513BD2F553 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		CE8509E5A49E4A5CAAEB3ADB /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -54,6 +58,8 @@
 			isa = PBXGroup;
 			children = (
 				CE8509E5A49E4A5CAAEB3ADB /* ContentView.swift */,
+				21A352BDCC1050FE5E8CF490 /* FoundationMoveCoach.swift */,
+				A8DEA84B9AC22560FFB71872 /* FoundationMoveCoachBridge.swift */,
 				C117AD187833E2513BD2F553 /* Info.plist */,
 				668CECA83ACC03A83C85A623 /* iOSApp.swift */,
 				28C7F05371BE73DC00FFB6B0 /* StockfishChessEngine.swift */,
@@ -206,7 +212,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ -z \"${JAVA_HOME:-}\" ]; then export JAVA_HOME=$(/usr/libexec/java_home 2>/dev/null || true); fi\ncd \"$SRCROOT/..\"\n./gradlew :app:embedAndSignAppleFrameworkForXcode\n";
+			shellScript = "if [ -z \"${JAVA_HOME:-}\" ]; then export JAVA_HOME=$(/usr/libexec/java_home 2>/dev/null || true); fi\ncd \"$SRCROOT/..\"\n./gradlew :app:embedAndSignAppleFrameworkForXcode\n./gradlew :onDeviceAi:embedAndSignAppleFrameworkForXcode\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -216,6 +222,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				56B0305B5D3847FC6B326502 /* ContentView.swift in Sources */,
+				B250EBADD97EE529BBE39344 /* FoundationMoveCoach.swift in Sources */,
+				50BF68CB3B9A9AE663DD1C04 /* FoundationMoveCoachBridge.swift in Sources */,
 				3F4B6FE98FC3A112054A4766 /* StockfishChessEngine.swift in Sources */,
 				307C2654CD5972A25FB7FD87 /* iOSApp.swift in Sources */,
 			);
@@ -401,13 +409,13 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
+				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME) $(SRCROOT)/../onDeviceAi/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
 				INFOPLIST_FILE = iosApp/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				OTHER_LDFLAGS = "$(inherited) -framework ChessApp";
+				OTHER_LDFLAGS = "$(inherited) -framework ChessApp -framework OnDeviceAi";
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.myapplication;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -420,13 +428,13 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
+				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME) $(SRCROOT)/../onDeviceAi/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
 				INFOPLIST_FILE = iosApp/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				OTHER_LDFLAGS = "$(inherited) -framework ChessApp";
+				OTHER_LDFLAGS = "$(inherited) -framework ChessApp -framework OnDeviceAi";
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.myapplication;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";

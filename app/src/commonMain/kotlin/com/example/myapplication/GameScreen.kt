@@ -235,6 +235,20 @@ fun GameScreen(
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
                     .padding(16.dp)
             )
+
+            // Move Coach panel overlay (3D mode). Aligned to TopCenter so it
+            // reads over the 3D scene without obscuring the bottom controls.
+            // Sibling to the 3D toggle (TopEnd); both stack via safeDrawing insets.
+            if (coachState !is MoveCoachUiState.Hidden) {
+                MoveCoachPanel(
+                    state = coachState,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                        .padding(start = 12.dp, end = 60.dp, top = 4.dp)
+                        .background(Color.Black.copy(alpha = 0.58f))
+                )
+            }
         } else {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,

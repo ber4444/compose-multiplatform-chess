@@ -88,19 +88,19 @@ final class FoundationMoveCoach {
         userPrompt: String,
         maxTokens: Int
     ) async throws -> String {
+        // Apple Foundation Models: system prompt via `instructions:`, user input
+        // via `respond(to:)`. Plain-String response — no `generating:` parameter
+        // (that's for `Generable`-conforming structured output). Per plan §7.1
+        // the session is short-lived per call.
         let session = LanguageModelSession(
-            instructions: Instructions(systemPrompt)
+            model: .default,
+            instructions: systemPrompt
         )
-        let config = GenerationConfig(
-            constraints: nil,
-            additionalSessionInstructions: nil,
-            maximumOutputTokens: maxTokens
+        let options = GenerationOptions(
+            temperature: 0.2,
+            maximumResponseTokens: maxTokens
         )
-        let response = try await session.respond(
-            to: userPrompt,
-            generating: String.self,
-            options: config
-        )
+        let response = try await session.respond(to: userPrompt, options: options)
         return response.content
     }
     #endif
