@@ -6,6 +6,7 @@ androidApp/build/*
 .kotlin/*
 .gradle/*
 .idea/*
+.superpowers/
 local.properties
 
 iosApp/iosApp.xcodeproj/xcuserdata
