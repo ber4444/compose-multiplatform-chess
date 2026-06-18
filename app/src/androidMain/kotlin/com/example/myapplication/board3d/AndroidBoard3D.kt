@@ -33,6 +33,12 @@ private const val SKYBOX_KTX = "$RES_PREFIX/files/env/papermill_skybox.ktx"
 /** A chess board holds at most 32 pieces (promotion replaces a pawn, never adds). */
 private const val MAX_PIECES = 32
 
+internal fun selectPieceMaterialName(materialNames: List<String>, color: PieceColor): String? {
+    val expected = ChessSetMeshNames.getMaterialName(color)
+    return materialNames.firstOrNull { it == expected }
+        ?: materialNames.firstOrNull { it.substringAfterLast('/').startsWith(expected) }
+}
+
 /**
  * SceneView-backed 3D chess board surface.
  *
@@ -175,6 +181,9 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                 val piece = boardScene?.pieces?.getOrNull(i)
                 val instance = remember(i) { newInstance() }
                 if (instance != null) {
+                    val materialInstances = remember(instance) {
+                        instance.materialInstances.associateBy { it.name }
+                    }
                     val nodeState = remember {
                         androidx.compose.runtime.mutableStateOf<io.github.sceneview.node.ModelNode?>(null)
                     }
@@ -187,10 +196,21 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                         apply = { nodeState.value = this }
                     ) {}
                     val meshName = piece?.let { ChessSetMeshNames.getMeshName(it.kind, it.color) }
-                    androidx.compose.runtime.LaunchedEffect(nodeState.value, meshName) {
+                    val materialName = piece?.let { ChessSetMeshNames.getMaterialName(it.color) }
+                    androidx.compose.runtime.LaunchedEffect(nodeState.value, meshName, materialName) {
                         val node = nodeState.value ?: return@LaunchedEffect
+                        val selectedMaterialName = piece?.color?.let {
+                            selectPieceMaterialName(materialInstances.keys.toList(), it)
+                        }
+                        val selectedMaterial = selectedMaterialName?.let(materialInstances::get)
                         node.renderableNodes.forEach { rn ->
                             rn.isVisible = (meshName != null && rn.name == meshName)
+                            if (rn.isVisible && selectedMaterial != null) {
+                                // The glTF has one geometry template per piece kind. Its embedded
+                                // material is not the piece colour, so every reused pool slot must
+                                // explicitly bind white/black when its logical piece changes.
+                                rn.setMaterialInstances(selectedMaterial)
+                            }
                         }
                     }
                 }

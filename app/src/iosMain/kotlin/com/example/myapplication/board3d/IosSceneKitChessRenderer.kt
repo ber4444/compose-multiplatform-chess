@@ -22,6 +22,12 @@ import platform.UIKit.UIColor
 import platform.UIKit.UIImage
 import platform.SceneKit.SCNVector3Make
 
+internal fun sceneKitCubeFaceOrder(): List<Int> = listOf(0, 1, 2, 3, 4, 5)
+
+internal fun sceneKitCubeFacesNeedVerticalFlip(): Boolean = true
+
+internal fun sceneKitEnvironmentRotationRadians(): Float = kotlin.math.PI.toFloat()
+
 class IosSceneKitSurface(
     val scnView: SCNView,
     override val widthPx: Int,
@@ -70,6 +76,8 @@ class IosSceneKitChessRenderer(
         cameraNode?.position = SCNVector3Make(0.0f, 6.5f, 6.5f)
         
         val lookAt = platform.SceneKit.SCNLookAtConstraint.lookAtConstraintWithTarget(rootNode)
+        lookAt.gimbalLockEnabled = true
+        lookAt.worldUp = SCNVector3Make(0.0f, 1.0f, 0.0f)
         cameraNode?.constraints = listOf(lookAt)
         
         scene?.rootNode?.addChildNode(cameraNode!!)
@@ -104,9 +112,17 @@ class IosSceneKitChessRenderer(
         // reflections on the marble board and varnished pieces.
         val cubeMap = loadCubeMapImages()
         if (cubeMap != null) {
+            val environmentTransform = platform.SceneKit.SCNMatrix4MakeRotation(
+                sceneKitEnvironmentRotationRadians(),
+                1.0f,
+                0.0f,
+                0.0f,
+            )
             scene?.lightingEnvironment?.contents = cubeMap
+            scene?.lightingEnvironment?.contentsTransform = environmentTransform
             scene?.lightingEnvironment?.intensity = 2.2
             scene?.background?.contents = cubeMap
+            scene?.background?.contentsTransform = environmentTransform
         } else {
             scene?.lightingEnvironment?.contents = UIColor.colorWithRed(0.70, green = 0.76, blue = 0.85, alpha = 1.0)
             scene?.lightingEnvironment?.intensity = 1.2
@@ -191,14 +207,26 @@ class IosSceneKitChessRenderer(
         val ciContext = CIContext.context()
         val tempDir = platform.Foundation.NSTemporaryDirectory()
         val images = platform.Foundation.NSMutableArray()
-        for (i in 0..5) {
+        for (i in sceneKitCubeFaceOrder()) {
             val data = textures["face_$i.exr"] ?: return null
             val path = tempDir + "face_$i.exr"
             data.writeToFile(path, atomically = true)
             val url = platform.Foundation.NSURL.fileURLWithPath(path)
             val ci = CIImage.imageWithContentsOfURL(url) ?: return null
             val cg = ciContext.createCGImage(ci, fromRect = ci.extent) ?: return null
-            images.addObject(UIImage.imageWithCGImage(cg))
+            val image = if (sceneKitCubeFacesNeedVerticalFlip()) {
+                // Core Image's EXR coordinates start at the lower-left while UIImage/SceneKit cube
+                // faces are consumed top-left first. Without this boundary conversion every face
+                // is vertically mirrored: vegetation climbs the walls and the sky falls downward.
+                UIImage.imageWithCGImage(
+                    cgImage = cg,
+                    scale = 1.0,
+                    orientation = platform.UIKit.UIImageOrientation.UIImageOrientationDownMirrored,
+                )
+            } else {
+                UIImage.imageWithCGImage(cg)
+            }
+            images.addObject(image)
         }
         return images
     }

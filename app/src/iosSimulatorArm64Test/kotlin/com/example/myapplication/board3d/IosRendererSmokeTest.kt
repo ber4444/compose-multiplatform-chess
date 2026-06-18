@@ -3,6 +3,7 @@ package com.example.myapplication.board3d
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.QuartzCore.CAMetalLayer
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 
 /**
@@ -10,6 +11,13 @@ import kotlin.test.assertNotNull
  * Creates an IosSceneKitChessRenderer and verifies it initializes without crashing.
  */
 class IosRendererSmokeTest {
+
+    @Test
+    fun sceneKitCubeFacesMapPositiveAndNegativeYWithoutSwappingWorldUp() {
+        assertEquals(listOf(0, 1, 2, 3, 4, 5), sceneKitCubeFaceOrder())
+        assertEquals(true, sceneKitCubeFacesNeedVerticalFlip())
+        assertEquals(kotlin.math.PI.toFloat(), sceneKitEnvironmentRotationRadians())
+    }
 
     @OptIn(ExperimentalForeignApi::class)
     @Test

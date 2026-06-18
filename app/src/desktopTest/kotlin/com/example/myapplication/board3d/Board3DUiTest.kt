@@ -3,6 +3,8 @@ package com.example.myapplication.board3d
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
 import com.example.myapplication.GameScreen
 import com.example.myapplication.GameViewModel
@@ -13,6 +15,41 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class Board3DUiTest {
+
+    @Test
+    fun teardownLoaderIsVisibleBeforeRendererDisposal() = runComposeUiTest {
+        val fakeRenderer = FakeChess3DRenderer()
+        val support = Board3DSupport(
+            rendererFactory = { fakeRenderer },
+            surfaceContent = { renderer, modifier ->
+                androidx.compose.runtime.DisposableEffect(renderer) {
+                    renderer.attach(FakeChess3DSurface())
+                    onDispose { renderer.detach() }
+                }
+                Box(modifier)
+            },
+        )
+        val viewModel = GameViewModel()
+        mainClock.autoAdvance = false
+
+        setContent {
+            GameScreen(WindowWidthSizeClass.Medium, viewModel, support)
+        }
+        mainClock.advanceTimeByFrame()
+        mainClock.advanceTimeByFrame()
+
+        onNodeWithTag("board_3d_toggle").performClick()
+        mainClock.advanceTimeByFrame()
+
+        onNodeWithTag("board_3d_tearing_down").assertExists()
+        assertEquals(0, fakeRenderer.events.count { it == "dispose" })
+
+        mainClock.advanceTimeByFrame()
+        mainClock.advanceTimeByFrame()
+        mainClock.autoAdvance = true
+        waitForIdle()
+        assertEquals(1, fakeRenderer.events.count { it == "dispose" })
+    }
 
     @Test
     fun test3DToggleAndFallback() = runComposeUiTest {
