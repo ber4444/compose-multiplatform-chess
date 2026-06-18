@@ -83,3 +83,18 @@ If red, do exactly this:
 - The random walk uses a fixed seed (`PerftVsStockfishTest.RANDOM_WALK_SEED = 0xC0FFEEL`). A red
   walk reproduces the same path every time; the failing FEN(s) appear in `perft-divergence.txt`.
 - The canonical gate has no RNG; failures are deterministic.
+
+## Depth tiers at a glance
+
+| Tier | Class | Depths | When it runs |
+|---|---|---|---|
+| Portable shallow | `PerftTest` (commonTest) | start d3, others d2/d3 | every PR, every target (`:app:check`) |
+| Canonical deep | `PerftCanonicalGateTest` (desktopTest) | start d4, Kiwipete d3, Pos3 d4, Pos4/5/6 d3 | every PR, desktop only |
+| Opt-in deeper | `PerftDeepTest` (desktopTest) | start d5, Kiwipete d4, Pos3 d5, Pos4/5/6 d4 | CI nightly (`perft-nightly` job) via `-Dperft.deep=true` |
+| Stockfish oracle | `PerftVsStockfishTest` (desktopTest) | d3 divide diff | every PR on macOS runner (binary installed via brew); nightly on Linux (apt) |
+
+Run the opt-in tier locally with:
+
+```
+./gradlew :app:desktopTest --tests "*PerftDeepTest*" -Dperft.deep=true
+```

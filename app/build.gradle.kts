@@ -199,6 +199,13 @@ tasks.withType<Test>().configureEach {
         // Rococoa uses CGLIB which requires reflection access to java.lang.ClassLoader on newer JDKs
         jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
     }
+
+    // Forward `perft.*` gradle/system properties (e.g. `-Dperft.deep=true`) into the test JVM so
+    // opt-in tests like PerftDeepTest can gate on System.getProperty. Without this, -D on the
+    // gradle command line only sets the property on the gradle daemon, not on the forked test JVM.
+    System.getProperties()
+        .filterKeys { it.toString().startsWith("perft.") }
+        .forEach { (k, v) -> systemProperty(k.toString(), v.toString()) }
 }
 
 // The Compose Desktop run tasks (JavaExec) must also use the >= 22 JDK for wgpu4k's FFM path and the

@@ -5,6 +5,10 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  schedule:
+    # 07:00 UTC daily — runs the opt-in depth-5/6 perft gate (PerftDeepTest) plus the full
+    # Stockfish-backed Oracle 2 that's too slow / off-path for the per-commit gate.
+    - cron: '0 7 * * *'
 
 permissions:
   contents: read
@@ -141,6 +145,11 @@ jobs:
           xcodebuild -version
           xcrun simctl list devices available | head -30
 
+      - name: Install Stockfish (for Oracle 2 perft divide diff)
+        # PerftVsStockfishTest degrades to "skipped" without a binary; installing stockfish
+        # here makes the canonical + random-walk diff actually run on every PR.
+        run: brew install stockfish
+
       - name: Ensure test simulator exists
         run: |
           xcrun simctl list devices available | grep -q "iPhone 16" || \
@@ -165,4 +174,48 @@ jobs:
         uses: actions/upload-artifact@v4.6.2
         with:
           name: apple-test-reports
+          path: app/build/reports/tests/
+
+  perft-nightly:
+    name: Perft deep + Stockfish oracle (nightly)
+    # Runs on schedule (see top-level `on:`) and on manual dispatch. Skipped on ordinary
+    # push/PR — the per-commit perft gate is already covered by :app:check (commonTest) and
+    # :app:desktopTest in the jobs above.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5.0.0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5.0.0
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # PerftDeepTest gates on -Dperft.deep=true (see app/build.gradle.kts systemProperty
+      # forwarding). Without the flag the deep tests assume-skip; the broad --tests filter
+      # also re-runs the always-on canonical gate + Oracle 2 so the nightly exercises the
+      # full perft surface, not just the deep half.
+      - name: Install Stockfish (for Oracle 2 perft divide diff)
+        run: sudo apt-get update && sudo apt-get install -y stockfish
+
+      - name: Run deep perft gate + full Stockfish oracle
+        run: ./gradlew :app:desktopTest --tests "*Perft*" -Dperft.deep=true
+
+      - name: Upload divergence report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: perft-divergence-report
+          path: build/perft-divergence.txt
+          if-no-files-found: ignore
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: perft-nightly-reports
           path: app/build/reports/tests/
