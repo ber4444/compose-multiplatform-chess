@@ -9,6 +9,10 @@ onDeviceAi/build/*
 .idea/*
 local.properties
 
+# The Gemma .litertlm model is gated on Hugging Face and ~700 MB.
+# Drop it at this path manually per docs/benchmarks/on-device-ai/demo-instructions.md
+app/src/androidMain/assets/models/*.litertlm
+
 iosApp/iosApp.xcodeproj/xcuserdata
 iosApp/iosApp.xcodeproj/project.xcworkspace/xcuserdata
 iosApp/build/*

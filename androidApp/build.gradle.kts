@@ -12,6 +12,14 @@ val sharedComposeAssetsDir = project(":app").layout.buildDirectory
     .get()
     .asFile
 
+// :app's hand-placed `src/androidMain/assets/` (e.g. the LiteRT-LM Gemma model at
+// `assets/models/gemma.litertlm`) is NOT auto-merged into the androidApp APK by
+// `com.android.kotlin.multiplatform.library` in this project — the existing wiring
+// only pulls in compose-resources generated assets. Add it explicitly so hand-
+// placed assets get packaged.
+val appSourceAssetsDir = project(":app").layout.projectDirectory.dir("src/androidMain/assets")
+    .asFile
+
 android {
     namespace = "com.example.myapplication.app"
     compileSdk = 36
@@ -51,6 +59,7 @@ android {
 
     sourceSets {
         getByName("main").assets.srcDir(sharedComposeAssetsDir)
+        getByName("main").assets.srcDir(appSourceAssetsDir)
     }
 }
 
