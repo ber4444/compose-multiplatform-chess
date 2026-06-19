@@ -224,14 +224,17 @@ fun GameScreen(
                 }
             }
 
-            // Stack controls + coach panel at the bottom so both are visible
-            // without scrolling. Coach text sits just under the buttons.
+            // Stack controls + coach panel at the bottom. Panel fills remaining
+            // vertical space below the buttons down to the bottom of the screen;
+            // internally scrolls with a 5s auto-scroll delay if text overflows.
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
-                    .padding(16.dp)
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 4.dp)
             ) {
                 GameControls(
                     gameState = gameState,
@@ -241,17 +244,18 @@ fun GameScreen(
                     transparentButtons = true,
                 )
                 if (coachState !is MoveCoachUiState.Hidden) {
-                    Spacer(modifier = Modifier.padding(4.dp))
-                    MoveCoachPanel(state = coachState)
+                    MoveCoachPanel(
+                        state = coachState,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
                 }
             }
         } else {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
+                verticalArrangement = Arrangement.Top,
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(scrollState)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
             ) {
                 Board(
@@ -263,7 +267,7 @@ fun GameScreen(
                     animationEnd = viewModel::animationEnd
                 )
 
-                Spacer(modifier = Modifier.padding(8.dp))
+                Spacer(modifier = Modifier.padding(4.dp))
 
                 GameControls(
                     gameState = gameState,
@@ -272,10 +276,12 @@ fun GameScreen(
                     viewModel = viewModel
                 )
 
-                // Move Coach panel — just under the buttons, visible without scrolling.
+                // Move Coach panel — fills remaining space below the buttons.
                 if (coachState !is MoveCoachUiState.Hidden) {
-                    Spacer(modifier = Modifier.padding(4.dp))
-                    MoveCoachPanel(state = coachState)
+                    MoveCoachPanel(
+                        state = coachState,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
                 }
             }
         }

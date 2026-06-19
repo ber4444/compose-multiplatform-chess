@@ -5,27 +5,28 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import game.app.generated.resources.Res
 import game.app.generated.resources.move_coach_loading
 import game.app.generated.resources.move_coach_unavailable
-import game.app.generated.resources.move_coach_unavailable_hint
 import org.jetbrains.compose.resources.stringResource
+import kotlinx.coroutines.delay
 
-/**
- * Compact coach panel — no title, just the explanation text with an inline spinner
- * for loading states. Mounted directly below the control buttons so it's visible
- * without scrolling.
- */
 @Composable
 fun MoveCoachPanel(
     state: MoveCoachUiState,
@@ -49,12 +50,27 @@ fun MoveCoachPanel(
         state is MoveCoachUiState.Streaming ||
         state is MoveCoachUiState.LoadingModel
 
+    val scrollState = rememberScrollState()
+    var autoScrolled by remember(text) { mutableStateOf(false) }
+
+    // Auto-scroll to the bottom after 5 seconds so the user can read the
+    // beginning first, then see the rest if the text overflows.
+    LaunchedEffect(text) {
+        autoScrolled = false
+        delay(5000)
+        if (scrollState.maxValue > 0 && !autoScrolled) {
+            scrollState.animateScrollTo(scrollState.maxValue)
+            autoScrolled = true
+        }
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .verticalScroll(scrollState)
             .testTag("move_coach_panel")
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.Top,
     ) {
         if (showSpinner) {
             CircularProgressIndicator(
@@ -67,8 +83,6 @@ fun MoveCoachPanel(
             text = text,
             style = MaterialTheme.typography.bodySmall,
             color = Color.White,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
         )
     }
 }
