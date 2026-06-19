@@ -20,17 +20,6 @@ class Board3DSessionStateTest {
     }
 
     @Test
-    fun `resetCamera restores default position after zoom and drag`() {
-        val session = Board3DSessionState()
-        session.onZoom(0.5f)       // halve distance: 12 → 6
-        session.onDrag(0.3f, 0.1f) // change yaw/pitch
-
-        session.resetCamera()
-
-        assertEquals(OrbitCameraController.DEFAULT_WHITE_VIEW.position, session.camera.position)
-    }
-
-    @Test
     fun `repeated vertical drags never invert camera up`() {
         val session = Board3DSessionState()
 

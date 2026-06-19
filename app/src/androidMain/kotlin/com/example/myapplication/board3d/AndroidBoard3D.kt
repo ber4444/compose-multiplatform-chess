@@ -7,7 +7,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.google.android.filament.Camera
-import com.google.android.filament.gltfio.FilamentInstance
 import dev.romainguy.kotlin.math.Float3
 import game.app.generated.resources.Res
 import java.nio.ByteBuffer
@@ -63,15 +62,19 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
     val materialLoader = rememberMaterialLoader(engine)
     val envLoader      = rememberEnvironmentLoader(engine)
 
-    // Read chess.glb once and create each node's FilamentInstance synchronously from the cached
-    // bytes. (SceneView's rememberModelInstance() helper loads asynchronously — fine for a single
-    // viewer model, but here we create one instance per board/piece node up front and want them all
-    // present in the first composition's node batch.)
+    // Parse chess.glb exactly once and create every board/piece instance in a single call. The
+    // earlier approach called createModelInstance() once per node, re-parsing the whole GLB for all
+    // MAX_PIECES + 1 nodes synchronously on the UI thread — that stalled composition (freezing the
+    // loading spinner) each time the 3D board opened. createInstancedModel() parses once and returns
+    // instances that share the parsed geometry while keeping independent transforms, visibility, and
+    // material instances, so the per-node selection logic below is unchanged and every instance is
+    // still present in the first composition's node batch. Index 0 is the board; 1..MAX_PIECES are
+    // the piece pool slots.
     val glbBytes = svRenderer.glbBytes
-    val newInstance: () -> FilamentInstance? = {
+    val modelInstances = remember(modelLoader, glbBytes) {
         val buffer = ByteBuffer.allocateDirect(glbBytes.size).order(ByteOrder.nativeOrder())
         buffer.put(glbBytes).rewind()
-        runCatching { modelLoader.createModelInstance(buffer) }.getOrNull()
+        runCatching { modelLoader.createInstancedModel(buffer, MAX_PIECES + 1) }.getOrNull().orEmpty()
     }
 
     val environment = remember(envLoader) {
@@ -158,7 +161,7 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
 
             // Board node: the GLB carries the 64 marble square tiles (nodes a1..h8) plus the engraved
             // "frame" border; show those and hide everything else.
-            val boardInstance = remember { newInstance() }
+            val boardInstance = modelInstances.getOrNull(0)
             if (boardInstance != null) {
                 ModelNode(
                     modelInstance = boardInstance,
@@ -179,7 +182,7 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
             // slot shows boardScene.pieces[i] and is updated reactively.
             repeat(MAX_PIECES) { i ->
                 val piece = boardScene?.pieces?.getOrNull(i)
-                val instance = remember(i) { newInstance() }
+                val instance = modelInstances.getOrNull(i + 1)
                 if (instance != null) {
                     val materialInstances = remember(instance) {
                         instance.materialInstances.associateBy { it.name }

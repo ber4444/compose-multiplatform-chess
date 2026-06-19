@@ -243,12 +243,6 @@ class OrbitCameraController(private var aspect: Float) {
         aspect = newAspect
     }
 
-    fun reset() {
-        yawDegrees = 0f
-        pitchDegrees = DEFAULT_PITCH_DEG
-        distance = DEFAULT_DISTANCE
-    }
-
     companion object {
         // The 3D board is laid out square (GameScreen: fillMaxWidth().aspectRatio(1f)), so the
         // viewport aspect is ~1 on every platform. These defaults keep the playable 8x8 board
@@ -286,8 +280,4 @@ class Board3DSessionState(initialAspect: Float = 1f) {
     fun onZoom(factor: Float) = controller.onZoom(factor)
 
     fun onResize(aspect: Float) = controller.onResize(aspect)
-
-    /** Resets orbit (yaw/pitch/distance) to the default white-side view. Aspect is preserved
-     *  because it reflects the current screen and will be re-set by the next onResize callback. */
-    fun resetCamera() = controller.reset()
 }

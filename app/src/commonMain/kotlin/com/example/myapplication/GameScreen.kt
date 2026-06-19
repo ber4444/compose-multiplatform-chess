@@ -110,9 +110,9 @@ private fun TransparentUnderlineButton(
         enabled = enabled,
         colors = ButtonDefaults.buttonColors(
             containerColor = THREE_D_CONTROL_CONTAINER_COLOR,
-            contentColor = THREE_D_CONTROL_CONTENT_COLOR,
+            contentColor = THREE_D_CONTROL_ACCENT_COLOR,
             disabledContainerColor = THREE_D_CONTROL_CONTAINER_COLOR,
-            disabledContentColor = THREE_D_CONTROL_DISABLED_CONTENT_COLOR,
+            disabledContentColor = THREE_D_CONTROL_DISABLED_ACCENT_COLOR,
         ),
         modifier = modifier.drawBehind {
             val strokeWidth = 1.dp.toPx()
@@ -210,7 +210,18 @@ fun GameScreen(
                 }
             }
             val fen = remember(gameState) { FenConverter.gameStateToFen(gameState) }
+            // Let the loading overlay paint and start animating before the 3D surface composes.
+            // The platform surface (notably Android SceneView/Filament) builds its scene
+            // synchronously on the UI thread during composition; composing it in the same frame as
+            // the loader leaves the spinner no frame to draw. Hold it back two frames.
+            var surfaceComposeReady by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                withFrameNanos { }
+                withFrameNanos { }
+                surfaceComposeReady = true
+            }
             Box(modifier = Modifier.fillMaxSize()) {
+                if (surfaceComposeReady) {
                 Board3D(
                     support = board3D,
                     fen = fen,
@@ -246,6 +257,20 @@ fun GameScreen(
                     }
                     }
                 )
+                }
+
+                if (isEntering3D || !surfaceComposeReady) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.White.copy(alpha = 0.85f))
+                            .zIndex(2f)
+                            .testTag("board_3d_entering"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        ChessLoader("Loading 3D Engine")
+                    }
+                }
 
                 if (isTearingDown3D) {
                     Box(
@@ -321,7 +346,7 @@ fun GameScreen(
             ) {
                 Text(
                     text = stringResource(Res.string.board_3d_toggle_label),
-                    color = THREE_D_CONTROL_CONTENT_COLOR,
+                    color = THREE_D_CONTROL_ACCENT_COLOR,
                     style = MaterialTheme.typography.labelLarge
                 )
                 Spacer(modifier = Modifier.width(8.dp))
