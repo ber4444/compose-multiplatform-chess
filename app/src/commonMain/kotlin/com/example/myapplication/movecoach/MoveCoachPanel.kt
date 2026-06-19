@@ -1,12 +1,10 @@
 package com.example.myapplication.movecoach
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -55,10 +53,6 @@ fun MoveCoachPanel(
         modifier = modifier
             .fillMaxWidth()
             .testTag("move_coach_panel")
-            .background(
-                color = Color.Black.copy(alpha = 0.55f),
-                shape = RoundedCornerShape(8.dp),
-            )
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
