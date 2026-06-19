@@ -198,10 +198,11 @@ compose.resources {
 
 
 
-// Forward the 3D smoke-test toggle to the forked test JVM. Gradle's `-Dchess3d.smoke=true` only
-// sets the property on the build JVM; tests run in a separate JVM, so propagate it explicitly.
+// Forward the 3D smoke-test + benchmark toggles to the forked test JVM. Gradle's `-Dchess3d.smoke=true`
+// only sets the property on the build JVM; tests run in a separate JVM, so propagate explicitly.
 tasks.withType<Test>().configureEach {
     providers.systemProperty("chess3d.smoke").orNull?.let { systemProperty("chess3d.smoke", it) }
+    providers.systemProperty("chess3d.bench").orNull?.let { systemProperty("chess3d.bench", it) }
     // wgpu4k's JVM binding is Java-22 bytecode and uses Panama FFM, so it needs a >= 22 runtime.
     // The Gradle daemon runs on JDK 21 (gradle-daemon-jvm.properties), so run the desktop tests on
     // the installed JDK 26 via a scoped toolchain launcher; Android/other tests stay on the daemon JDK.
