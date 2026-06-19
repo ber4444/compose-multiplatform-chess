@@ -2,7 +2,6 @@ package com.example.ondeviceai
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.datetime.Clock
 
 interface FoundationModelsBridge {
     suspend fun status(): AiAvailability
@@ -20,7 +19,7 @@ class FoundationModelsTextGenerator(
     override suspend fun warmup() = bridge.warmup()
 
     override fun generate(request: AiGenerationRequest): Flow<AiTokenOrFinal> = flow {
-        val start = Clock.System.now().toEpochMilliseconds()
+        val start = defaultNowMs()
         val text = bridge.generate(
             systemPrompt = request.systemPrompt,
             userPrompt = request.userPrompt,
@@ -32,7 +31,7 @@ class FoundationModelsTextGenerator(
                 text = "",
                 metrics = AiInferenceMetrics(
                     firstTokenMs = null,
-                    completeMs = Clock.System.now().toEpochMilliseconds() - start,
+                    completeMs = defaultNowMs() - start,
                     tokenCount = text.split(Regex("\\s+")).count { it.isNotBlank() },
                     route = AiRoute.OnDevice,
                 )

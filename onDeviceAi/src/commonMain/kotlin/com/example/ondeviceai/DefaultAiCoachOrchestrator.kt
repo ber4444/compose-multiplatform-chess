@@ -5,7 +5,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.datetime.Clock
 
 sealed interface MoveCoachEvent {
     data class Streaming(val partialText: String) : MoveCoachEvent
@@ -15,7 +14,7 @@ sealed interface MoveCoachEvent {
 class DefaultAiCoachOrchestrator(
     private val factory: OnDeviceTextGeneratorFactory,
     private val contextProvider: suspend () -> AiContextSnapshot = DefaultContextProvider,
-    private val clock: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+    private val clock: () -> Long = ::defaultNowMs,
     private val logger: Logger = Logger.withTag("AiCoach"),
 ) : AiCoachOrchestrator {
 

@@ -53,3 +53,6 @@ object UnsupportedTextGenerator : OnDeviceTextGenerator {
 }
 
 expect fun defaultOnDeviceTextGeneratorFactory(): OnDeviceTextGeneratorFactory
+
+/** Multiplatform wall-clock ms (no kotlinx-datetime dep — avoids export headaches on iOS). */
+internal expect fun defaultNowMs(): Long
