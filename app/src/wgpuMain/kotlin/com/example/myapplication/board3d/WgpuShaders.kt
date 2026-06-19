@@ -4,7 +4,7 @@ package com.example.myapplication.board3d
  * Builds the scene PBR fragment/vertex shader with the given tonemap exposure substituted in.
  *
  * The default-argument output is byte-identical to the pre-preset `WGPU_SHADER` literal, so the
- * `DEFAULT` [DesktopRendererQualityPreset] path renders the same pixels it did before Phase D.2.
+ * web wgpu renderer renders the same pixels it did before Phase D.2.
  *
  * `HIGH_QUALITY` (Phase D.5 shadow pass) passes `shadowsEnabled = true`, which extends the bind
  * group with a `texture_depth_2d` + `sampler_comparison` and injects PCF shadow sampling into the

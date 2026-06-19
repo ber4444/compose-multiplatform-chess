@@ -3,14 +3,14 @@ package com.example.myapplication.board3d
 /**
  * Phase D.4 — single source of truth for shared wgpu PBR constants.
  *
- * The wgpu renderer path is shared between the desktop (`DesktopWgpuChessRenderer`) and wasm
- * (`WebGpuChessRenderer`) targets via the `wgpuMain` source set, so both backends read the **same**
- * material constants here. This keeps desktop and web visually locked together, and gives the
- * `DesktopRendererQualityPreset` (Phase D.2) a clean place to inherit defaults from.
+ * The wgpu renderer path is used by the wasm target (`WebGpuChessRenderer`) via the `wgpuMain`
+ * source set. Desktop previously shared this path via `DesktopWgpuChessRenderer` but has since
+ * moved to the Vulkan renderer (`VulkanChessRenderer`); these constants now back the wasm
+ * renderer only.
  *
  * Centralized values:
  * - [DEFAULT_TONEMAP_EXPOSURE] — referenced by `WgpuShaders.wgpuShader` / `skyShader` so the
- *   DEFAULT preset is the only place the exposure number is written.
+ *   exposure number is written in one place.
  * - [ROUGHNESS_BOARD] / [ROUGHNESS_PIECE] / [ROUGHNESS_FRAME] — referenced by
  *   [wgpuMaterialRoughness] so all three (roughness values for the board surface, the pieces, and
  *   the engraved stone rim) are named rather than buried in a `when` arm.

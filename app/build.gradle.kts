@@ -139,7 +139,7 @@ kotlin {
                 implementation(compose.desktop.currentOs)
                 // lwjgl core: KtxLoader uses org.lwjgl.system.MemoryUtil to decode the papermill
                 // environment cubemap. lwjgl-vulkan + lwjgl-shaderc back VulkanChessRenderer
-                // (the default desktop renderer); wgpu4k remains available via CHESS_DESKTOP_RENDERER=wgpu.
+                // (the desktop renderer).
                 implementation(libs.lwjgl)
                 implementation(libs.lwjgl.vulkan)
                 implementation(libs.lwjgl.shaderc)
