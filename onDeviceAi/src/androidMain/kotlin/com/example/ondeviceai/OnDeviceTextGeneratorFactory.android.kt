@@ -7,29 +7,30 @@ import com.example.ondeviceai.litert.LiteRtLmTextGenerator
  * Nano) was removed because of AICore's narrow device support; LiteRT-LM with
  * a bundled `.litertlm` Gemma model is now the only Android inference path.
  *
- * The chess app supplies the on-device model path + cache dir through
- * [AndroidCoachWiring] before constructing the orchestrator. Until then the
- * factory returns null and the orchestrator deterministically falls back.
+ * The generator is **cached as a singleton** — LiteRT-LM's `Engine.initialize()`
+ * loads the ~557 MB model from disk and takes 2-10 seconds. Creating a new
+ * engine per coached move would re-load the model every time, exceed the
+ * latency budget, and OOM after a few moves (multiple model copies in memory).
+ * The cached engine stays warm across moves; `close()` on LiteRtLmTextGenerator
+ * is a no-op to preserve the warm engine.
  */
 actual fun defaultOnDeviceTextGeneratorFactory(): OnDeviceTextGeneratorFactory =
     OnDeviceTextGeneratorFactory {
         val wiring = AndroidCoachWiring.current ?: return@OnDeviceTextGeneratorFactory null
         if (wiring.modelPath.isBlank()) return@OnDeviceTextGeneratorFactory null
-        LiteRtLmTextGenerator(
+        cachedGenerator ?: LiteRtLmTextGenerator(
             pathToModel = wiring.modelPath,
             cacheDir = wiring.cacheDir,
             accelerator = LiteRtLmTextGenerator.Accelerator.GPU_PREFERRED,
-        )
+        ).also { cachedGenerator = it }
     }
+
+@Volatile
+private var cachedGenerator: LiteRtLmTextGenerator? = null
 
 /**
  * Set by the chess-app Android entry point before constructing the orchestrator.
- * Holds the path to the unpacked `.litertlm` Gemma model + a writable cacheDir
- * (LiteRT-LM uses it to speed up second-load).
- *
- * The chess app typically unpacks the model from `assets/models/<gemma>.litertlm`
- * to `context.filesDir/<gemma>.litertlm` at first launch and registers the
- * resulting absolute path here. See MainActivity / demo instructions.
+ * Holds the path to the unpacked `.litertlm` Gemma model + a writable cacheDir.
  */
 object AndroidCoachWiring {
     @Volatile

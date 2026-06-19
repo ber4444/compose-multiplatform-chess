@@ -84,9 +84,6 @@ class LiteRtLmTextGenerator(
         }
 
         val start = System.currentTimeMillis()
-        var firstTokenMs: Long? = null
-        var tokenCount = 0
-        val collected = StringBuilder()
 
         val conversationConfig = ConversationConfig(
             systemInstruction = com.google.ai.edge.litertlm.Contents.of(request.systemPrompt),
@@ -99,21 +96,21 @@ class LiteRtLmTextGenerator(
         )
         val conversation = activeEngine.createConversation(conversationConfig)
         try {
-            conversation.sendMessageAsync(request.userPrompt)
-                .catch { cause ->
-                    throw cause
-                }
-                .collect { message ->
-                    if (firstTokenMs == null) firstTokenMs = System.currentTimeMillis() - start
-                    val text = message.contents.contents
-                        .filterIsInstance<Content.Text>()
-                        .joinToString("") { it.text }
-                    if (text.isNotEmpty()) {
-                        collected.append(text)
-                        tokenCount++
-                        emit(AiTokenOrFinal.Token(text))
-                    }
-                }
+            // Use synchronous sendMessage() instead of sendMessageAsync() (Flow).
+            // The Flow/streaming path spawns a native callback_thread that
+            // SIGSEGVs at 0.13.1 (null pointer deref ~6ms after thread creation).
+            // The sync API runs inference on the calling thread — no callback
+            // thread, no crash. The coach only needs ~2 sentences so blocking
+            // for a few seconds is acceptable.
+            val response = conversation.sendMessage(
+                com.google.ai.edge.litertlm.Contents.of(request.userPrompt)
+            )
+            val text = response.contents.contents
+                .filterIsInstance<Content.Text>()
+                .joinToString("") { it.text }
+            if (text.isNotEmpty()) {
+                emit(AiTokenOrFinal.Token(text))
+            }
         } finally {
             runCatching { conversation.close() }
         }
@@ -122,20 +119,23 @@ class LiteRtLmTextGenerator(
             AiTokenOrFinal.Final(
                 text = "",
                 metrics = AiInferenceMetrics(
-                    firstTokenMs = firstTokenMs,
+                    firstTokenMs = null,
                     completeMs = System.currentTimeMillis() - start,
-                    tokenCount = tokenCount,
+                    tokenCount = 1,
                     route = AiRoute.OnDevice,
                 )
             )
         )
     }
 
+    /**
+     * No-op — the engine stays warm across moves. The orchestrator calls close()
+     * after each coached move; actually closing the LiteRT-LM engine here would
+     * destroy the model and force a 2-10s re-initialization on the next move.
+     * Cleanup happens when the Activity is destroyed / process dies.
+     */
     override suspend fun close() {
-        if (isClosed) return
-        isClosed = true
-        runCatching { engine?.close() }
-        engine = null
+        // Intentionally not closing engine or conversation pool.
     }
 
     private fun ensureEngineInitialized() {
