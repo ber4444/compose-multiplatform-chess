@@ -224,30 +224,26 @@ fun GameScreen(
                 }
             }
 
-            GameControls(
-                gameState = gameState,
-                animState = animState,
-                viewState = viewState,
-                viewModel = viewModel,
-                transparentButtons = true,
+            // Stack controls + coach panel at the bottom so both are visible
+            // without scrolling. Coach text sits just under the buttons.
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
                     .padding(16.dp)
-            )
-
-            // Move Coach panel overlay (3D mode). Aligned to TopCenter so it
-            // reads over the 3D scene without obscuring the bottom controls.
-            // Sibling to the 3D toggle (TopEnd); both stack via safeDrawing insets.
-            if (coachState !is MoveCoachUiState.Hidden) {
-                MoveCoachPanel(
-                    state = coachState,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
-                        .padding(start = 12.dp, end = 60.dp, top = 4.dp)
-                        .background(Color.Black.copy(alpha = 0.58f))
+            ) {
+                GameControls(
+                    gameState = gameState,
+                    animState = animState,
+                    viewState = viewState,
+                    viewModel = viewModel,
+                    transparentButtons = true,
                 )
+                if (coachState !is MoveCoachUiState.Hidden) {
+                    Spacer(modifier = Modifier.padding(4.dp))
+                    MoveCoachPanel(state = coachState)
+                }
             }
         } else {
             Column(
@@ -269,18 +265,18 @@ fun GameScreen(
 
                 Spacer(modifier = Modifier.padding(8.dp))
 
-                // Move Coach panel (only mounts when the orchestrator has emitted a
-                // non-Hidden state — i.e. on platforms where a coach is attached).
-                MoveCoachPanel(state = coachState)
-
-                Spacer(modifier = Modifier.padding(8.dp))
-
                 GameControls(
                     gameState = gameState,
                     animState = animState,
                     viewState = viewState,
                     viewModel = viewModel
                 )
+
+                // Move Coach panel — just under the buttons, visible without scrolling.
+                if (coachState !is MoveCoachUiState.Hidden) {
+                    Spacer(modifier = Modifier.padding(4.dp))
+                    MoveCoachPanel(state = coachState)
+                }
             }
         }
 
