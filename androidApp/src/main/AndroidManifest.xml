@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Cactus downloads the LLM model from Hugging Face on first launch -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -9,14 +12,6 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="false"
         android:theme="@style/Theme.Chess">
-
-        <!-- LiteRT-LM GPU backend requires these native libraries to be requested
-             explicitly on Android. `required="false"` because not all devices have
-             them and the CPU backend is the fallback. Per the LiteRT-LM Android
-             guide: https://developers.google.com/edge/litert-lm/android -->
-        <uses-native-library android:name="libvndksupport.so" android:required="false" />
-        <uses-native-library android:name="libOpenCL.so" android:required="false" />
-
         <activity
             android:name="com.example.myapplication.MainActivity"
             android:exported="true">

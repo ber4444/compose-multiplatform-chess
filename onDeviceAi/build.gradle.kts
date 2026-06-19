@@ -71,14 +71,14 @@ kotlin {
         }
 
         androidMain.dependencies {
-            // LiteRT-LM (Gemma bundled-model runtime, plan §6.1). Maven coordinate
-            // verified at https://developers.google.com/edge/litert-lm/android:
-            // `com.google.ai.edge.litertlm:litertlm-android`. This is the only
-            // Maven-published on-device LLM runtime for Android that doesn't go
-            // through AICore/Gemini Nano (which has narrow device support).
-            // Model `.litertlm` asset is bundled in app assets; see
-            // `defaultLitertLmModelPath()` and the move-coach demo instructions.
-            implementation("com.google.ai.edge.litertlm:litertlm-android:0.13.1")
+            // Cactus (llama.cpp KMP wrapper) for on-device LLM inference.
+            // Replaces LiteRT-LM (too slow: 557 MB model, 7-9s cold start,
+            // GPU compilation, streaming SIGSEGV at 0.13.1).
+            // Cactus uses llama.cpp CPU kernels (fast for mobile LLM), offers
+            // small pre-packaged models (gemma3-270m ~200 MB, qwen3-0.6 ~400 MB)
+            // with built-in HF download, and handles tokenization + KV cache +
+            // generation internally.
+            implementation("com.cactuscompute:cactus:1.4.1-beta")
         }
 
         val androidDeviceTest by getting {

@@ -9,9 +9,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
 import com.example.myapplication.ui.theme.MyApplicationTheme
-import com.example.ondeviceai.AndroidCoachWiring
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
 import com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory
+import com.example.ondeviceai.initializeCactus
 import android.content.pm.ApplicationInfo
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
@@ -65,89 +65,51 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Attach the on-device move coach (plan §8). The Android path is LiteRT-LM
-     * (`com.google.ai.edge.litertlm:litertlm-android`) with a bundled Gemma
-     * `.litertlm` model — no AICore / Gemini Nano dependency. The earlier
-     * ML Kit Prompt API path was dropped because AICore isn't available on
-     * most devices.
-     *
-     * Model asset: unpacked from `assets/models/gemma.litertlm` into
-     * `filesDir` on first launch by [MoveCoachModelAsset]. When no model is
-     * bundled (the default until you drop one in), the coach falls back to
-     * deterministic rule-based text — the panel still mounts.
-     *
-     * The orchestrator is built off-thread because the first `Engine.initialize()`
-     * call (inside the factory) can take seconds. The context snapshot reports
-     * foreground state so ML Kit-style background gating stays in place if the
-     * LiteRT-LM backend is ever swapped for one that needs it.
+     * Attach the on-device move coach using Cactus (llama.cpp).
+     * Cactus downloads the model from Hugging Face on first launch (~200 MB for
+     * gemma3-270m) and caches it locally. Subsequent launches use the cached
+     * model (~1-2s init). This replaces the earlier LiteRT-LM path (557 MB,
+     * 7-9s cold start) and ML Kit Prompt API (AICore, narrow device support).
      */
     private fun attachMoveCoach(isDebug: Boolean) {
-        // Gate to debug builds per plan §11 M3 "ship behind a debug flag".
         if (!isDebug) {
             holder.gameViewModel.attachCoachOrchestrator(null)
             return
         }
-        // Surface a "loading model" state IMMEDIATELY so the user can distinguish
-        // "warming up" from "model genuinely missing" (the Unavailable state).
-        // Without this the panel stays Hidden during unpack and a first-move
-        // during the unpack window looks indistinguishable from no-model.
+
+        // Initialize Cactus native runtime (required before any CactusLM use)
+        initializeCactus(this)
+
         holder.gameViewModel.setCoachModelState(
             com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
-                message = "Unpacking Gemma model from app assets…"
+                message = "Downloading Gemma 270M model (first launch only)…"
             )
         )
+
         CoroutineScope(Dispatchers.IO).launch {
-            val modelPath = MoveCoachModelAsset.ensureUnpacked(this@MainActivity)
-            if (modelPath != null) {
-                AndroidCoachWiring.install(
-                    AndroidCoachWiring.Config(
-                        modelPath = modelPath,
-                        cacheDir = cacheDir.absolutePath,
-                    )
-                )
+            val factory = defaultOnDeviceTextGeneratorFactory()
+            val generator = factory.create()
+            // Pre-initialize: download model (first launch) + load into memory
+            runCatching { generator?.warmup() }
 
-                // Pre-initialize the LiteRT-LM engine BEFORE attaching the
-                // orchestrator. Engine.initialize() loads the 557 MB model and
-                // takes 10-30s on a phone; if this happens lazily inside the
-                // first coached move's status() call, the UI shows "Coach is
-                // thinking…" for that entire window, and subsequent move
-                // cancellations leave the engine in a partially-initialized
-                // state. Pre-init ensures the engine is warm by the time the
-                // first coached move fires.
-                holder.gameViewModel.setCoachModelState(
-                    com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
-                        message = "Starting Gemma engine (loading 557 MB model)…"
-                    )
+            holder.gameViewModel.setCoachModelState(
+                com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
+                    message = "Starting Gemma engine…"
                 )
-                val factory = defaultOnDeviceTextGeneratorFactory()
-                val generator = factory.create()
-                runCatching { generator?.warmup() }
+            )
 
-                // attachCoachOrchestrator resets the state to Hidden; the next
-                // coached move will set Loading(move) → Ready/Fallback/Error.
-                holder.gameViewModel.attachCoachOrchestrator(
-                    DefaultAiCoachOrchestrator(
-                        factory = factory,
-                        contextProvider = {
-                            com.example.ondeviceai.AiContextSnapshot(
-                                isDeviceModelAvailable = true,
-                                isAppForegrounded = holder.isForeground,
-                                userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
-                            )
-                        },
-                    )
+            holder.gameViewModel.attachCoachOrchestrator(
+                DefaultAiCoachOrchestrator(
+                    factory = factory,
+                    contextProvider = {
+                        com.example.ondeviceai.AiContextSnapshot(
+                            isDeviceModelAvailable = true,
+                            isAppForegrounded = holder.isForeground,
+                            userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
+                        )
+                    },
                 )
-            } else {
-                // Genuinely missing — surface Unavailable with an actionable hint
-                // so the user knows the coach isn't coming and the panel will show
-                // deterministic fallback text only when a coached move fires.
-                holder.gameViewModel.setCoachModelState(
-                    com.example.myapplication.movecoach.MoveCoachUiState.Unavailable(
-                        reason = "No bundled Gemma .litertlm. Drop one at " +
-                            "app/src/androidMain/assets/models/gemma.litertlm and rebuild."
-                    )
-                )
-            }
+            )
         }
     }
 
