@@ -119,11 +119,14 @@ class MainActivity : ComponentActivity() {
                 )
                 holder.gameViewModel.attachCoachOrchestrator(orchestrator)
             } else {
-                // Genuinely missing — surface Unavailable so the user knows the
-                // coach isn't coming and the panel will show deterministic
-                // fallback text only when a coached move fires.
+                // Genuinely missing — surface Unavailable with an actionable hint
+                // so the user knows the coach isn't coming and the panel will show
+                // deterministic fallback text only when a coached move fires.
                 holder.gameViewModel.setCoachModelState(
-                    com.example.myapplication.movecoach.MoveCoachUiState.Unavailable
+                    com.example.myapplication.movecoach.MoveCoachUiState.Unavailable(
+                        reason = "No bundled Gemma .litertlm. Drop one at " +
+                            "app/src/androidMain/assets/models/gemma.litertlm and rebuild."
+                    )
                 )
             }
         }

@@ -25,6 +25,7 @@ import game.app.generated.resources.move_coach_title
 import game.app.generated.resources.move_coach_loading
 import game.app.generated.resources.move_coach_loading_model
 import game.app.generated.resources.move_coach_unavailable
+import game.app.generated.resources.move_coach_unavailable_hint
 import game.app.generated.resources.move_coach_fallback_label
 import game.app.generated.resources.move_coach_error_label
 import org.jetbrains.compose.resources.stringResource
@@ -144,11 +145,18 @@ fun MoveCoachPanel(
                     color = Color(0xFFB00020),
                 )
 
-                MoveCoachUiState.Unavailable -> Text(
-                    modifier = Modifier.testTag("move_coach_unavailable"),
-                    text = stringResource(Res.string.move_coach_unavailable),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                is MoveCoachUiState.Unavailable -> {
+                    val text = if (state.reason.isNullOrBlank()) {
+                        stringResource(Res.string.move_coach_unavailable)
+                    } else {
+                        stringResource(Res.string.move_coach_unavailable_hint, state.reason)
+                    }
+                    Text(
+                        modifier = Modifier.testTag("move_coach_unavailable"),
+                        text = text,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
 
                 MoveCoachUiState.Hidden -> Unit
             }

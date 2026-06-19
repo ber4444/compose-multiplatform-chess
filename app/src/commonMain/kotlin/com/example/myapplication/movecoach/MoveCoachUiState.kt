@@ -15,7 +15,11 @@ import com.example.ondeviceai.MoveCoachExplanation
 @Immutable
 sealed interface MoveCoachUiState {
     data object Hidden : MoveCoachUiState
-    data object Unavailable : MoveCoachUiState
+
+    /** Coach is unavailable on this device/configuration. [reason] carries an
+     *  actionable hint (e.g. "Enable Apple Intelligence in Settings" or
+     *  "Drop a Gemma .litertlm in app/src/androidMain/assets/models/"). */
+    data class Unavailable(val reason: String? = null) : MoveCoachUiState
 
     /** The local model is being prepared (unpacked from assets, initialized, etc).
      *  Shown by platform glue BEFORE the orchestrator is attached so the user can
