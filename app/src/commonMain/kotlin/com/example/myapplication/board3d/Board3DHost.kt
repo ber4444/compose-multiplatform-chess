@@ -109,6 +109,10 @@ fun Board3D(
             onDispose {
                 currentRenderer.detach()
                 currentRenderer.dispose()
+                // Reset orbit so each new 3D session starts from the default view. Without this,
+                // a spurious zoom gesture fired by Android's SceneView surface creation on each
+                // entry accumulates across 3D→2D→3D cycles and causes excessive zoom.
+                cameraSession.resetCamera()
             }
         }
     }
