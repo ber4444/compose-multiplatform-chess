@@ -16,3 +16,4 @@ iosApp/build/*
 app/libWGPU-*.dylib
 app/hs_err_pid*.log
 hs_err_pid*.log
+app/app/
