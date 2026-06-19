@@ -13,7 +13,10 @@
 		3F4B6FE98FC3A112054A4766 /* StockfishChessEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28C7F05371BE73DC00FFB6B0 /* StockfishChessEngine.swift */; };
 		56B0305B5D3847FC6B326502 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE8509E5A49E4A5CAAEB3ADB /* ContentView.swift */; };
 		7DAA6B2A3EBDDF2583C94275 /* nn-1111cefa1111.nnue in Resources */ = {isa = PBXBuildFile; fileRef = 0083126833BD37C48CC51E07 /* nn-1111cefa1111.nnue */; };
+		83C131FF4DF845EB044A1205 /* chess.glb in Resources */ = {isa = PBXBuildFile; fileRef = 39DD6E47D4950503102B28AE /* chess.glb */; };
+		8AB4FBE85B9BC0AB0F289E80 /* chess3d-host.html in Resources */ = {isa = PBXBuildFile; fileRef = 7D8DD3253426D5CAAB9B26A6 /* chess3d-host.html */; };
 		B5CA9B9E6C1205698D8723A5 /* nn-37f18f62d772.nnue in Resources */ = {isa = PBXBuildFile; fileRef = DBCCFF2A8437C866DD0AAE79 /* nn-37f18f62d772.nnue */; };
+		EC4D6E2D120728E92036B852 /* chess3d-bundle.js in Resources */ = {isa = PBXBuildFile; fileRef = 9C8FE0FD78570770D4CDCE73 /* chess3d-bundle.js */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -29,9 +32,12 @@
 /* Begin PBXFileReference section */
 		0083126833BD37C48CC51E07 /* nn-1111cefa1111.nnue */ = {isa = PBXFileReference; path = "nn-1111cefa1111.nnue"; sourceTree = "<group>"; };
 		28C7F05371BE73DC00FFB6B0 /* StockfishChessEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockfishChessEngine.swift; sourceTree = "<group>"; };
+		39DD6E47D4950503102B28AE /* chess.glb */ = {isa = PBXFileReference; path = chess.glb; sourceTree = "<group>"; };
 		56583BC252B5F01ED9DEA19D /* iosAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = iosAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		668CECA83ACC03A83C85A623 /* iOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iOSApp.swift; sourceTree = "<group>"; };
+		7D8DD3253426D5CAAB9B26A6 /* chess3d-host.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "chess3d-host.html"; sourceTree = "<group>"; };
 		86038AE1032E284E79B32AD6 /* iosApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = iosApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9C8FE0FD78570770D4CDCE73 /* chess3d-bundle.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "chess3d-bundle.js"; sourceTree = "<group>"; };
 		BAEBFE68677C845B5A891EB9 /* StockfishChessEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockfishChessEngineTests.swift; sourceTree = "<group>"; };
 		C117AD187833E2513BD2F553 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		CE8509E5A49E4A5CAAEB3ADB /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -65,6 +71,9 @@
 		1EEC3D4E9285A39087C3ADA0 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				39DD6E47D4950503102B28AE /* chess.glb */,
+				9C8FE0FD78570770D4CDCE73 /* chess3d-bundle.js */,
+				7D8DD3253426D5CAAB9B26A6 /* chess3d-host.html */,
 				DBCCFF2A8437C866DD0AAE79 /* nn-37f18f62d772.nnue */,
 				0083126833BD37C48CC51E07 /* nn-1111cefa1111.nnue */,
 			);
@@ -181,6 +190,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				83C131FF4DF845EB044A1205 /* chess.glb in Resources */,
+				EC4D6E2D120728E92036B852 /* chess3d-bundle.js in Resources */,
+				8AB4FBE85B9BC0AB0F289E80 /* chess3d-host.html in Resources */,
 				7DAA6B2A3EBDDF2583C94275 /* nn-1111cefa1111.nnue in Resources */,
 				B5CA9B9E6C1205698D8723A5 /* nn-37f18f62d772.nnue in Resources */,
 			);

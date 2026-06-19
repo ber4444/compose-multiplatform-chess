@@ -25,6 +25,11 @@ import kotlin.test.assertTrue
  * Run: `./gradlew :app:iosSimulatorArm64Test --tests "*IosBoard3DSnapshotTest*"`
  * Output: `build/ios-3d-snapshot.png` (look for the `IOS_3D_SNAPSHOT=` line in the test log).
  *
+ * Also exposes [renderAllBaselineScenes] — the Phase A.2 batch baseline flow that iterates
+ * [VisualBaselineScenes.ALL] and writes one PNG per scene under `app/build/baseline/ios/`, mirroring
+ * `VisualBaselineDumpTest` on desktop and `WebBaselineCapture` on web so all three non-Android
+ * platforms can be eyeballed at the same scenes/resolution.
+ *
  * Skips (does not fail) when assets can't be read or no Metal device is present, so it stays green
  * on headless CI; the real assertion only bites on a Metal-capable host where it actually rendered.
  */
@@ -72,6 +77,61 @@ class IosBoard3DSnapshotTest {
         assertTrue(png.size > 10_000, "snapshot suspiciously small (${png.size} bytes) — render likely broke")
     }
 
+    /**
+     * Phase A.2 batch baseline flow — renders every [VisualBaselineScene] via the same SceneKit
+     * renderer path as [rendersStartPositionToPng], at the shared canonical 1024×1024 resolution,
+     * and writes a PNG per scene to `app/build/baseline/ios/scene-<id>-ios.png`.
+     *
+     * Output dir matches `VisualBaselineDumpTest`'s `app/build/baseline/desktop/` convention so the
+     * `docs/assets/baselines/<platform>/` curated set can be assembled from any platform's run with
+     * the same filenames. Skips silently (no fail) under the same headless-CI conditions as the
+     * single-scene test — this lets the test stay green in CI while still doing real work on a
+     * developer Mac.
+     */
+    @OptIn(ExperimentalForeignApi::class, ExperimentalResourceApi::class)
+    @Test
+    fun renderAllBaselineScenes() = runBlocking {
+        val (geometries, textures) = try {
+            buildIosChessAssets { readAsset(it) }
+        } catch (t: Throwable) {
+            println("IOS_BASELINE skipped: assets unavailable (${t.message})")
+            return@runBlocking
+        }
+        if (geometries.isEmpty()) {
+            println("IOS_BASELINE skipped: no geometries loaded")
+            return@runBlocking
+        }
+
+        val outDir = baselineOutputDir()
+        NSFileManager.defaultManager.createDirectoryAtPath(outDir, true, null, null)
+
+        val renderer = IosSceneKitChessRenderer(geometries, textures)
+        try {
+            for (scene in VisualBaselineScenes.ALL) {
+                val png = renderer.renderSnapshotPng(
+                    fen = scene.fen,
+                    widthPx = scene.widthPx,
+                    heightPx = scene.heightPx,
+                    camera = scene.camera,
+                )
+                if (png == null) {
+                    // No Metal device — same skip condition as the single-scene test. Once it's null
+                    // for one scene it's null for all, so bail out of the loop entirely.
+                    println("IOS_BASELINE skipped: no Metal device / encode failed (at scene ${scene.id})")
+                    return@runBlocking
+                }
+                val base = VisualBaselineScenes.baseName(scene, "ios")
+                val outPath = "$outDir/$base.png"
+                png.toNSData().writeToFile(outPath, atomically = true)
+                println("IOS_BASELINE_${scene.id}=$outPath bytes=${png.size}")
+                assertTrue(png.size > 10_000, "scene ${scene.id} PNG suspiciously small (${png.size} bytes)")
+            }
+            println("IOS_BASELINE_DIR=$outDir")
+        } finally {
+            renderer.dispose()
+        }
+    }
+
     /** Reads a compose-resource path, falling back to the host source tree for local iteration. */
     @OptIn(ExperimentalForeignApi::class, ExperimentalResourceApi::class)
     private suspend fun readAsset(path: String): ByteArray {
@@ -92,6 +152,18 @@ class IosBoard3DSnapshotTest {
             return "$buildDir/ios-3d-snapshot.png"
         }
         return NSTemporaryDirectory() + "ios-3d-snapshot.png"
+    }
+
+    /**
+     * Output dir for the Phase A.2 baseline batch: `app/build/baseline/ios/` on the host source
+     * tree when it can be located (mirrors `VisualBaselineDumpTest`'s desktop dir convention), else
+     * a directory under NSTemporaryDirectory so the test still produces files in a sandbox.
+     */
+    @OptIn(ExperimentalForeignApi::class)
+    private fun baselineOutputDir(): String {
+        val root = hostProjectRoots().firstOrNull { NSFileManager.defaultManager.fileExistsAtPath("$it/app") }
+        if (root != null) return "$root/app/build/baseline/ios"
+        return NSTemporaryDirectory() + "chess-baseline/ios"
     }
 
     /** Host source-tree roots for local runs (simulator shares the host filesystem). */

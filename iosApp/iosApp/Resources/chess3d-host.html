@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<style>html,body{margin:0;padding:0;background:#000;overflow:hidden;width:100%;height:100%}
+canvas{display:block;width:100%;height:100%}</style>
+</head><body>
+<canvas id="chess-canvas"></canvas>
+<script src="./chess3d-bundle.js"></script>
+<script>
+const c = document.getElementById('chess-canvas');
+c.width = window.innerWidth; c.height = window.innerHeight;
+chess3d.init(c).then(() => {
+    if (window.webkit?.messageHandlers?.ready) window.webkit.messageHandlers.ready.postMessage('ready');
+});
+</script>
+</body></html>

@@ -11,7 +11,7 @@ The web backend is also implemented (`WebGpuChessRenderer`), reusing the same `w
 while rendering directly to the overlay canvas instead of doing desktop's CPU readback.
 
 This doc now tracks the **standing decisions** that downstream WebGPU work depends on and the historical
-shape of the F2 implementation. Apple/Android fidelity is [M7](issue-32-3d-ui-m7-apple-android-fidelity.md).
+shape of the F2 implementation. Apple/Android fidelity is [M7 (folded into graphics-quality.md)](graphics-quality.md).
 
 ## Implemented: F2 — PBR + IBL (the piece lighting)
 
@@ -42,7 +42,7 @@ cross-target WebGPU port — not vkChess's full IBL precompute (see decisions).
 - **wgpu4k is a pre-release SNAPSHOT** (`io.ygdrasil:wgpu4k-toolkit:0.2.0-SNAPSHOT`) from a **GitLab
   Maven repo** (not Maven Central). **Decision Resolved:** We accept the stability risk of the SNAPSHOT and will proceed (see [issue-32-3d-ui-unresolved-questions.md](issue-32-3d-ui-unresolved-questions.md)).
 - **Mobile stays native.** The shared WebGPU/WGSL work covers **Desktop + Web**. Native fidelity goes
-  through the existing SceneKit/Filament engines ([M7](issue-32-3d-ui-m7-apple-android-fidelity.md));
+  through the existing SceneKit/Filament engines ([M7, folded into graphics-quality.md](graphics-quality.md));
   M8 records why Android replacement would require separate JNI/NDK surface work.
 - **Desktop keeps CPU readback** (offscreen texture → `ImageBitmap`); Compose Desktop has no zero-copy
   surface interop. Negligible cost for a near-static board. (Web renders straight to the canvas — no readback.)

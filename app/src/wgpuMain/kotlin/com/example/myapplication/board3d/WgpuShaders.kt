@@ -1,6 +1,65 @@
 package com.example.myapplication.board3d
 
-internal const val WGPU_SHADER = """
+/**
+ * Builds the scene PBR fragment/vertex shader with the given tonemap exposure substituted in.
+ *
+ * The default-argument output is byte-identical to the pre-preset `WGPU_SHADER` literal, so the
+ * `DEFAULT` [DesktopRendererQualityPreset] path renders the same pixels it did before Phase D.2.
+ *
+ * `HIGH_QUALITY` (Phase D.5 shadow pass) passes `shadowsEnabled = true`, which extends the bind
+ * group with a `texture_depth_2d` + `sampler_comparison` and injects PCF shadow sampling into the
+ * fragment shader. The conditional keeps DEFAULT byte-identical to the original (no shadow bindings
+ * at all on the DEFAULT path, so the `WgpuShaderRegressionTest` stays green).
+ */
+internal fun wgpuShader(
+    tonemapExposure: Float = WgpuMaterialDefaults.DEFAULT_TONEMAP_EXPOSURE,
+    shadowsEnabled: Boolean = false,
+): String {
+    val shadowBindings = if (shadowsEnabled) {
+        """
+@group(0) @binding(6) var shadowMap: texture_depth_2d;
+@group(0) @binding(7) var shadowSamp: sampler_comparison;
+"""
+    } else {
+        ""
+    }
+    val shadowCalc = if (shadowsEnabled) {
+        """
+    // Phase D.5 -- PCF shadow. Project world pos into the light's clip space, do manual perspective
+    // divide, sample the shadow comparison sampler (hardware 2x2 PCF) at a 3x3 kernel for softer
+    // edges. Returns a [0,1] visibility factor applied to direct lighting only (ambient/IBL stay).
+    let lightClip = ubo.lightViewProj * vec4<f32>(input.vWorldPos, 1.0);
+    let lightNDC = lightClip.xyz / lightClip.w;
+    var shadow = 0.0;
+    if (lightNDC.x >= -1.0 && lightNDC.x <= 1.0 &&
+        lightNDC.y >= -1.0 && lightNDC.y <= 1.0 &&
+        lightNDC.z >= 0.0 && lightNDC.z <= 1.0) {
+        // WebGPU texture coords: (x, y) in [0, 1], origin bottom-left. depth in [0, 1].
+        let uv = vec2<f32>(lightNDC.x * 0.5 + 0.5, lightNDC.y * 0.5 + 0.5);
+        let texelSize = vec2<f32>(1.0 / 2048.0, 1.0 / 2048.0);
+        // Bias to kill self-shadow acne on the board plane under pieces.
+        let shadowRef = lightNDC.z - 0.0025;
+        // 3x3 PCF (9 hardware-comparison taps, each already 2x2 -> ~36 samples effective).
+        for (var y = -1; y <= 1; y = y + 1) {
+            for (var x = -1; x <= 1; x = x + 1) {
+                let off = vec2<f32>(f32(x), f32(y)) * texelSize;
+                shadow = shadow + textureSampleCompareLevel(shadowMap, shadowSamp, uv + off, shadowRef);
+            }
+        }
+        shadow = shadow / 9.0;
+    } else {
+        // Outside the shadow frustum -- no shadow (avoids the "edge of shadow map" cliff).
+        shadow = 1.0;
+    }
+"""
+    } else {
+        """
+    // Shadows disabled on DEFAULT preset.
+    let shadow = 1.0;
+"""
+    }
+
+    return """
 struct UBO {
     viewProj: mat4x4<f32>,
     lightViewProj: mat4x4<f32>,
@@ -18,6 +77,7 @@ struct Material {
     roughness: f32,
 };
 @group(0) @binding(5) var<uniform> material: Material;
+$shadowBindings
 
 struct VertexInput {
     @location(0) inPos: vec3<f32>,
@@ -103,7 +163,7 @@ fn fs_main(input: FragmentInput) -> @location(0) vec4<f32> {
     let albedo = pow(albedoData.rgb, vec3<f32>(2.2)) * input.vTint;
     let roughness = clamp(material.roughness, 0.04, 1.0);
     let F0 = vec3<f32>(0.04);
-
+$shadowCalc
     // Direct Cook-Torrance for one key directional light (gives the crisp specular highlight).
     let L = normalize(vec3<f32>(0.5, 0.9, 0.45));
     let H = normalize(V + L);
@@ -114,7 +174,9 @@ fn fs_main(input: FragmentInput) -> @location(0) vec4<f32> {
     let Fd = F_Schlick(max(dot(H, V), 0.0), F0);
     let specD = (D * G) * Fd / (4.0 * NoL * NoV + 1e-4);
     let kDl = vec3<f32>(1.0) - Fd;
-    let Lo = (kDl * albedo / PI + specD) * NoL * 2.5;
+    // shadow (1.0 = fully lit, 0.0 = fully shadowed) gates ONLY direct light -- ambient/IBL is
+    // unaffected so shadowed regions still read with environment bounce.
+    let Lo = (kDl * albedo / PI + specD) * NoL * 2.5 * shadow;
 
     // Image-based lighting from the env cube (simplified: sample mips directly, no precompute).
     let maxMip = 9.0;
@@ -133,7 +195,7 @@ fn fs_main(input: FragmentInput) -> @location(0) vec4<f32> {
     var color = ambient + Lo;
     color = color + max(input.vTint - vec3<f32>(1.0), vec3<f32>(0.0)) * albedoData.rgb * 1.6; // selection glow
 
-    let exposure = 4.5;
+    let exposure = $tonemapExposure;
     let gamma = 2.2;
     color = uncharted2(color * exposure);
     color = color * (1.0 / uncharted2(vec3<f32>(11.2)));
@@ -141,9 +203,45 @@ fn fs_main(input: FragmentInput) -> @location(0) vec4<f32> {
     return vec4<f32>(color, 1.0);
 }
 """
+}
 
-/** Skybox: samples the papermill HDR environment cubemap as the background (vkChess look). */
-internal const val SKY_SHADER = """
+/** Default (DEFAULT preset) scene shader -- byte-identical to the pre-preset desktop path. */
+internal val WGPU_SHADER: String = wgpuShader()
+
+/**
+ * Phase D.5 -- depth-only vertex shader used by the shadow pass. Same UBO as the main shader
+ * (so the lightViewProj is already uploaded); just projects positions into the light's clip space
+ * and writes them to `@builtin(position)`. No fragment shader needed (depth-only pipeline).
+ */
+internal const val WGPU_DEPTH_SHADER = """
+struct UBO {
+    viewProj: mat4x4<f32>,
+    lightViewProj: mat4x4<f32>,
+    camPos: vec4<f32>,
+    invViewProj: mat4x4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> ubo: UBO;
+
+struct VertexInput {
+    @location(0) inPos: vec3<f32>,
+    @location(1) inNormal: vec3<f32>,
+    @location(2) inUv: vec2<f32>,
+    @location(3) inTint: vec3<f32>,
+};
+
+@vertex
+fn vs_depth(input: VertexInput) -> @builtin(position) vec4<f32> {
+    return ubo.lightViewProj * vec4<f32>(input.inPos, 1.0);
+}
+"""
+
+/**
+ * Skybox shader -- samples the papermill HDR environment cubemap as the background (vkChess look).
+ * Parameterized by [tonemapExposure] for the same reason as [wgpuShader]; default-argument output
+ * is byte-identical to the pre-preset `SKY_SHADER` literal.
+ */
+internal fun skyShader(tonemapExposure: Float = WgpuMaterialDefaults.DEFAULT_TONEMAP_EXPOSURE): String = """
 struct UBO {
     viewProj: mat4x4<f32>,
     lightViewProj: mat4x4<f32>,
@@ -178,7 +276,7 @@ fn uncharted2(x: vec3<f32>) -> vec3<f32> {
 
 @fragment
 fn fs_sky(input: SkyOut) -> @location(0) vec4<f32> {
-    let exposure = 4.5;
+    let exposure = $tonemapExposure;
     let gamma = 2.2;
     let sampleDir = normalize(input.dir);
     // Sample a high (blurry) mip so the environment reads as a defocused bokeh backdrop behind the
@@ -190,3 +288,6 @@ fn fs_sky(input: SkyOut) -> @location(0) vec4<f32> {
     return vec4<f32>(color, 1.0);
 }
 """
+
+/** Default (DEFAULT preset) sky shader -- byte-identical to the pre-preset desktop path. */
+internal val SKY_SHADER: String = skyShader()

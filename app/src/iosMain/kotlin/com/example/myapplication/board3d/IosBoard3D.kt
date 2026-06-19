@@ -18,21 +18,10 @@ import kotlinx.cinterop.*
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import platform.Foundation.create
 
-@OptIn(ExperimentalResourceApi::class, ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class)
 fun iosBoard3DSupport(): Board3DSupport {
     return Board3DSupport(
-        rendererFactory = {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                val (geometries, textures) = try {
-                    buildIosChessAssets { Res.readBytes(it) }
-                } catch (e: Exception) {
-                    // If anything fails, drop back to primitives / solid-colour environment.
-                    mutableMapOf<String, platform.SceneKit.SCNGeometry>() to
-                        mutableMapOf<String, platform.Foundation.NSData>()
-                }
-                IosSceneKitChessRenderer(geometries, textures)
-            }
-        },
+        rendererFactory = { WKWebViewChessRenderer() },
         surfaceContent = { renderer, modifier ->
             IosBoard3DSurface(renderer, modifier)
         }
@@ -97,8 +86,10 @@ fun IosBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier = Modif
 
     UIKitView(
         factory = {
-            val view = SCNView(frame = CGRectMake(0.0, 0.0, 1.0, 1.0))
-            view.backgroundColor = platform.UIKit.UIColor.whiteColor
+            val config = platform.WebKit.WKWebViewConfiguration()
+            val view = platform.WebKit.WKWebView(frame = CGRectMake(0.0, 0.0, 1.0, 1.0), configuration = config)
+            view.backgroundColor = platform.UIKit.UIColor.blackColor
+            view.scrollView.scrollEnabled = false
             view
         },
         modifier = modifier,
@@ -107,10 +98,10 @@ fun IosBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier = Modif
             val scale = platform.UIKit.UIScreen.mainScreen.scale
             val widthPx = (view.bounds.useContents { size.width } * scale).toInt()
             val heightPx = (view.bounds.useContents { size.height } * scale).toInt()
-            
+
             if (widthPx > 0 && heightPx > 0) {
                 if (!isAttached) {
-                    val surface = IosSceneKitSurface(view as SCNView, widthPx, heightPx)
+                    val surface = WkWebViewChess3DSurface(view, widthPx, heightPx)
                     renderer.attach(surface)
                     isAttached = true
                 }

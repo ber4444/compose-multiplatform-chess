@@ -138,9 +138,10 @@ class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, Scene
     }
 }
 
-/** Shared material response for desktop and web so frame lighting cannot drift by backend. */
+/** Shared material response for desktop and web so frame lighting cannot drift by backend.
+ *  Values centralized in [WgpuMaterialDefaults] (Phase D.4). */
 internal fun wgpuMaterialRoughness(texture: ChessTexture): Float = when (texture) {
-    ChessTexture.BOARD -> 0.1f
-    ChessTexture.FRAME -> 0.68f
-    else -> 0.4f
+    ChessTexture.BOARD -> WgpuMaterialDefaults.ROUGHNESS_BOARD
+    ChessTexture.FRAME -> WgpuMaterialDefaults.ROUGHNESS_FRAME
+    else -> WgpuMaterialDefaults.ROUGHNESS_PIECE
 }

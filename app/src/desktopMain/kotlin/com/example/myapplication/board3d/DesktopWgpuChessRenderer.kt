@@ -14,7 +14,18 @@ import com.example.myapplication.board3d.math.Vector3f
 
 const val FenStart = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
+/**
+ * Desktop WebGPU renderer. The constructor's [preset] parameter (Phase D.2) selects MSAA sample
+ * count and tonemap exposure; defaulting to [DesktopRendererQualityPreset.fromEnv] makes the preset
+ * selectable via the `CHESS_DESKTOP_QUALITY` env var with no caller code changes.
+ *
+ * `DEFAULT` renders the same pixels as the pre-preset path; `HIGH_QUALITY` enables 4× MSAA (with
+ * automatic resolve into the existing single-sample readback texture) plus a small exposure bump.
+ */
+class DesktopWgpuChessRenderer(
+    glb: ByteArray,
+    private val preset: DesktopRendererQualityPreset = DesktopRendererQualityPreset.fromEnv(),
+) : Chess3DBoardRenderer {
 
     private val meshes: Map<PieceKind, MeshData>
     private val textureImages: Map<ChessTexture, TextureImage>
@@ -57,6 +68,15 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     private var sampler: GPUSampler? = null
     private var skyPipeline: GPURenderPipeline? = null
     private var renderPipeline: GPURenderPipeline? = null
+
+    // Phase D.5 — shadow mapping (HIGH_QUALITY only).
+    // depthPipeline renders all geometry into shadowTexture from the light's POV; shadowSampler is
+    // a comparison sampler (compare = Less) used by the WGSL `textureSampleCompareLevel` taps.
+    private var depthPipeline: GPURenderPipeline? = null
+    private var shadowTexture: GPUTexture? = null
+    private var shadowView: GPUTextureView? = null
+    private var shadowSampler: GPUSampler? = null
+    private var depthBindGroup: GPUBindGroup? = null
 
     // Environment cubemap (papermill HDR) for the skybox background + IBL — the vkChess look.
     private var envTexture: GPUTexture? = null
@@ -118,10 +138,20 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         device = deviceResult.getOrThrow() as Device
 
         val shaderModule = device!!.createShaderModule(
-            ShaderModuleDescriptor(code = WGPU_SHADER)
+            ShaderModuleDescriptor(code = wgpuShader(preset.tonemapExposure, preset.shadowsEnabled))
         )
-        
+
         val format = GPUTextureFormat.RGBA8Unorm
+
+        // Phase D.2: enable MSAA when the preset asks for it. count = 1 (DEFAULT) is left as the
+        // pipeline-default `null` so the DEFAULT path is byte-identical to the pre-preset pipeline.
+        // Mask is set explicitly to the WebGPU default (all bits set) so a wgpu4k default-mask
+        // difference can't silently cull samples.
+        val multisampleState = MultisampleState(
+            count = preset.msaaSampleCount.toUInt(),
+            mask = 0xFFFFFFFFu,
+            alphaToCoverageEnabled = false,
+        )
 
         renderPipeline = device!!.createRenderPipeline(
             RenderPipelineDescriptor(
@@ -157,40 +187,115 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
                     format = GPUTextureFormat.Depth24Plus,
                     depthWriteEnabled = true,
                     depthCompare = GPUCompareFunction.Less
-                )
+                ),
+                multisample = multisampleState,
             )
         )
 
         createUniformBuffer()
         uploadAllTextures()
-        
+
         sampler = device!!.createSampler(
             SamplerDescriptor(
                 magFilter = GPUFilterMode.Linear,
                 minFilter = GPUFilterMode.Linear,
             )
         )
-        
+
         uploadEnvCube()
-        
+
+        // --- Phase D.5: shadow mapping (HIGH_QUALITY only) -------------------------
+        // Depth32Float (not Depth24Plus) because Depth24Plus is non-sampleable from a shader. The
+        // shadow texture is 2048² which comfortably covers the board's ~8×8 unit extent at sub-texel
+        // precision for PCF. The depth-only pipeline reuses the scene's vertex layout + UBO; its
+        // bind group only needs the UBO at binding 0.
+        if (preset.shadowsEnabled) {
+            shadowTexture = device!!.createTexture(
+                TextureDescriptor(
+                    label = "ChessShadowMap",
+                    size = Extent3D(2048u, 2048u, 1u),
+                    format = GPUTextureFormat.Depth32Float,
+                    usage = GPUTextureUsage.RenderAttachment or GPUTextureUsage.TextureBinding,
+                )
+            )
+            shadowView = shadowTexture!!.createView()
+            shadowSampler = device!!.createSampler(
+                SamplerDescriptor(
+                    magFilter = GPUFilterMode.Linear,
+                    minFilter = GPUFilterMode.Linear,
+                    mipmapFilter = GPUMipmapFilterMode.Linear,
+                    addressModeU = GPUAddressMode.ClampToEdge,
+                    addressModeV = GPUAddressMode.ClampToEdge,
+                    addressModeW = GPUAddressMode.ClampToEdge,
+                    compare = GPUCompareFunction.Less,
+                )
+            )
+
+            val depthModule = device!!.createShaderModule(ShaderModuleDescriptor(code = WGPU_DEPTH_SHADER))
+            depthPipeline = device!!.createRenderPipeline(
+                RenderPipelineDescriptor(
+                    vertex = VertexState(
+                        entryPoint = "vs_depth",
+                        module = depthModule,
+                        buffers = listOf(
+                            VertexBufferLayout(
+                                arrayStride = 44uL,
+                                attributes = listOf(
+                                    VertexAttribute(shaderLocation = 0u, offset = 0uL, format = GPUVertexFormat.Float32x3),
+                                    VertexAttribute(shaderLocation = 1u, offset = 12uL, format = GPUVertexFormat.Float32x3),
+                                    VertexAttribute(shaderLocation = 2u, offset = 24uL, format = GPUVertexFormat.Float32x2),
+                                    VertexAttribute(shaderLocation = 3u, offset = 32uL, format = GPUVertexFormat.Float32x3),
+                                ),
+                            ),
+                        ),
+                    ),
+                    primitive = PrimitiveState(
+                        topology = GPUPrimitiveTopology.TriangleList,
+                        // Same no-cull rationale as the main pipeline: the scene's flat board quads
+                        // wind front-down (visible side = back face), and culling those would punch
+                        // holes in the shadow map. Slight overdraw is fine for a 2048² depth-only pass.
+                        cullMode = GPUCullMode.None,
+                    ),
+                    depthStencil = DepthStencilState(
+                        format = GPUTextureFormat.Depth32Float,
+                        depthWriteEnabled = true,
+                        depthCompare = GPUCompareFunction.Less,
+                    ),
+                )
+            )
+            depthBindGroup = device!!.createBindGroup(
+                BindGroupDescriptor(
+                    layout = depthPipeline!!.getBindGroupLayout(0u),
+                    entries = listOf(
+                        BindGroupEntry(binding = 0u, resource = BufferBinding(buffer = uniformBuffer!!)),
+                    ),
+                )
+            )
+        }
+
         for ((_, tg) in textures) {
+            val entries = mutableListOf(
+                BindGroupEntry(binding = 0u, resource = tg.view!!),
+                BindGroupEntry(binding = 1u, resource = BufferBinding(buffer = uniformBuffer!!)),
+                BindGroupEntry(binding = 2u, resource = sampler!!),
+                BindGroupEntry(binding = 3u, resource = envView!!),
+                BindGroupEntry(binding = 4u, resource = envSampler!!),
+                BindGroupEntry(binding = 5u, resource = BufferBinding(buffer = tg.materialBuffer!!)),
+            )
+            if (preset.shadowsEnabled) {
+                entries.add(BindGroupEntry(binding = 6u, resource = shadowView!!))
+                entries.add(BindGroupEntry(binding = 7u, resource = shadowSampler!!))
+            }
             tg.bindGroup = device!!.createBindGroup(
                 BindGroupDescriptor(
                     layout = renderPipeline!!.getBindGroupLayout(0u),
-                    entries = listOf(
-                        BindGroupEntry(binding = 0u, resource = tg.view!!),
-                        BindGroupEntry(binding = 1u, resource = BufferBinding(buffer = uniformBuffer!!)),
-                        BindGroupEntry(binding = 2u, resource = sampler!!),
-                        BindGroupEntry(binding = 3u, resource = envView!!),
-                        BindGroupEntry(binding = 4u, resource = envSampler!!),
-                        BindGroupEntry(binding = 5u, resource = BufferBinding(buffer = tg.materialBuffer!!))
-                    )
+                    entries = entries,
                 )
             )
         }
 
         // --- Environment cubemap + skybox (vkChess papermill background) ---
-        val skyModule = device!!.createShaderModule(ShaderModuleDescriptor(code = SKY_SHADER))
+        val skyModule = device!!.createShaderModule(ShaderModuleDescriptor(code = skyShader(preset.tonemapExposure)))
         skyPipeline = device!!.createRenderPipeline(
             RenderPipelineDescriptor(
                 vertex = VertexState(entryPoint = "vs_sky", module = skyModule, buffers = emptyList()),
@@ -205,7 +310,8 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
                     format = GPUTextureFormat.Depth24Plus,
                     depthWriteEnabled = false,
                     depthCompare = GPUCompareFunction.Always
-                )
+                ),
+                multisample = multisampleState,
             )
         )
         val skyBindGroup = device!!.createBindGroup(
@@ -246,6 +352,37 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             )
         )
 
+        // Phase D.2 — MSAA path. When the preset's sample count is > 1 we allocate multisampled
+        // color + depth textures the size of the surface, render into them, and let WebGPU auto-
+        // resolve into `texture` (the single-sample target the staging-buffer readback copies from).
+        // The depth attachment is also multisampled because WebGPU requires the depth sample count
+        // to match the color attachment's. We do NOT resolve depth (no depth-read path), so the
+        // MSAA depth texture is simply discarded at end-of-pass via `storeOp = StoreOp.Undefined`
+        // — but since `RenderPassDepthStencilAttachment` in wgpu4k defaults to `Store`, we just
+        // accept the tiny wasted bandwidth; correctness is unaffected.
+        val msaaColorTexture = if (preset.msaaSampleCount > 1) device!!.createTexture(
+            TextureDescriptor(
+                label = "Chess3DOffscreenMS",
+                size = Extent3D(width, height, 1u),
+                format = format,
+                usage = GPUTextureUsage.RenderAttachment,
+                sampleCount = preset.msaaSampleCount.toUInt(),
+            )
+        ) else null
+        val msaaDepthTexture = if (preset.msaaSampleCount > 1) device!!.createTexture(
+            TextureDescriptor(
+                label = "Chess3DDepthMS",
+                size = Extent3D(width, height, 1u),
+                format = GPUTextureFormat.Depth24Plus,
+                usage = GPUTextureUsage.RenderAttachment,
+                sampleCount = preset.msaaSampleCount.toUInt(),
+            )
+        ) else null
+
+        val colorAttachmentView = msaaColorTexture?.createView() ?: texture.createView()
+        val colorResolveView = if (preset.msaaSampleCount > 1) texture.createView() else null
+        val depthAttachmentView = msaaDepthTexture?.createView() ?: depthTexture.createView()
+
         val bytesPerRow = (width * 4u + 255u) and (255u).inv()
         val textureDataSize = (bytesPerRow * height).toULong()
         val outputStagingBuffer = device!!.createBuffer(
@@ -260,19 +397,48 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             updateUniforms(w, h)
 
             val encoder = device!!.createCommandEncoder()
-            
+
+            // --- Phase D.5: shadow pass (HIGH_QUALITY only) -------------------------
+            // Render all geometry into the shadow map from the light's POV BEFORE the main pass so
+            // the main pass can sample it. storeOp = Store because the main pass binds the depth
+            // texture as TextureBinding (sampleable); discard would erase it.
+            if (preset.shadowsEnabled && depthPipeline != null && shadowView != null) {
+                val shadowPass = encoder.beginRenderPass(
+                    RenderPassDescriptor(
+                        colorAttachments = emptyList(),
+                        depthStencilAttachment = RenderPassDepthStencilAttachment(
+                            view = shadowView!!,
+                            depthClearValue = 1.0f,
+                            depthLoadOp = GPULoadOp.Clear,
+                            depthStoreOp = GPUStoreOp.Store,
+                        ),
+                    ),
+                )
+                shadowPass.setPipeline(depthPipeline!!)
+                shadowPass.setBindGroup(0u, depthBindGroup!!)
+                for (tex in ChessTexture.entries) {
+                    val gb = groupBuffers[tex] ?: continue
+                    if (gb.indexCount == 0) continue
+                    shadowPass.setVertexBuffer(0u, gb.vBuf!!)
+                    shadowPass.setIndexBuffer(gb.iBuf!!, GPUIndexFormat.Uint32)
+                    shadowPass.drawIndexed(gb.indexCount.toUInt())
+                }
+                shadowPass.end()
+            }
+
             val pass = encoder.beginRenderPass(
                 RenderPassDescriptor(
                     colorAttachments = listOf(
                         RenderPassColorAttachment(
-                            view = texture.createView(),
+                            view = colorAttachmentView,
                             loadOp = GPULoadOp.Clear,
                             clearValue = Color(0.1, 0.2, 0.3, 1.0),
-                            storeOp = GPUStoreOp.Store
+                            storeOp = if (colorResolveView != null) GPUStoreOp.Discard else GPUStoreOp.Store,
+                            resolveTarget = colorResolveView,
                         )
                     ),
                     depthStencilAttachment = RenderPassDepthStencilAttachment(
-                        view = depthTexture.createView(),
+                        view = depthAttachmentView,
                         depthClearValue = 1.0f,
                         depthLoadOp = GPULoadOp.Clear,
                         depthStoreOp = GPUStoreOp.Store
@@ -348,6 +514,11 @@ class DesktopWgpuChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         sampler = null
         renderPipeline = null
         skyPipeline = null
+        depthPipeline = null
+        depthBindGroup = null
+        shadowSampler = null
+        shadowView = null
+        shadowTexture = null
         envView = null
         envSampler = null
         envTexture = null
