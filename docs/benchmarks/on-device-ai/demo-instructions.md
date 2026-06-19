@@ -7,12 +7,14 @@ first move, a "Move Coach" panel appears at the top of the screen.
 
 What you'll see on each platform:
 
-- **Android (Samsung)** — LiteRT-LM (`com.google.ai.edge.litertlm:litertlm-android:0.13.1`)
-  with a bundled Gemma `.litertlm` model. Works on any device with sufficient
-  RAM — **no AICore dependency** (the earlier ML Kit Prompt API path was
-  dropped because AICore is unavailable on most devices). Without a bundled
-  model the orchestrator falls back to deterministic text — the panel still
-  appears, labelled "Coach fell back to a rule-based explanation (...)".
+- **Android (Samsung)** — Cactus (`com.cactuscompute:cactus:1.4.1-beta`), a
+  llama.cpp CPU backend. The `gemma3-270m` model (~200 MB) is **downloaded from
+  Hugging Face on first launch** — no model is bundled in the APK and no manual
+  setup is required. Works on any device with sufficient RAM — **no AICore
+  dependency**. Requires the INTERNET permission (declared in `AndroidManifest.xml`)
+  so Cactus can fetch the model. If the download fails or the device is offline on
+  first launch, the orchestrator falls back to deterministic text — the panel
+  still appears, labelled "Coach fell back to a rule-based explanation (...)".
 - **iPhone 17 simulator** — Foundation Models (Apple Intelligence). The simulator
   needs iOS 26 + Apple Intelligence enabled in `Settings > Apple Intelligence`.
   Without Apple Intelligence enabled, falls back to rule-based text.
@@ -31,28 +33,11 @@ deterministic.
 
 ## Android — Samsung phone
 
-### (Optional) Drop a real Gemma model into the APK
+### Build + installation
 
-Without this, the coach shows deterministic fallback text on Android. With it,
-the coach shows real model output. The model file is **not committed to the
-repo** (it's 700 MB – 1.7 GB depending on quantization).
-
-```bash
-# Pick a .litertlm from https://huggingface.co/litert-community
-# Tested: Gemma3-1B-IT (CPU/GPU variants). NPU-specific artifacts also work
-# if you bundle the matching vendor dispatch library (see plan §6.1.1).
-
-# Download (Hugging Face CLI requires a free HF account + license acceptance)
-huggingface-cli download litert-community/Gemma3-1B-IT \
-    Gemma3-1B-IT_q8_ekv1280.litertlm \
-    --local-dir /tmp/gemma
-
-# Drop into app assets at this exact path
-mv /tmp/gemma/Gemma3-1B-IT_q8_ekv1280.litertlm \
-    app/src/androidMain/assets/models/gemma.litertlm
-```
-
-### Build + install
+The debug APK is ~258 MB (Stockfish `jniLibs` + Compose resources). The Gemma
+model is **not** in the APK — Cactus downloads `gemma3-270m` (~200 MB) from
+Hugging Face on first launch into the app's `filesDir`.
 
 ```bash
 cd /Users/presence/AndroidStudioProjects/compose-multiplatform-chess-coach
@@ -73,10 +58,12 @@ Then:
 2. Watch Stockfish reply (Black's move animates).
 3. The **Move Coach** panel slides in at the top with the explanation.
 
-First launch unpacks the model from assets to `filesDir` (one-time, takes a
-few seconds for 700 MB). Subsequent launches skip the unpack. If no model is
-bundled, logcat shows `No bundled Gemma model at assets/models/gemma.litertlm`
-and the panel shows deterministic fallback text.
+First launch triggers Cactus to download `gemma3-270m` (~200 MB) from Hugging
+Face into `filesDir`. Cold start of the llama.cpp runtime is ~1–2 s; the
+factory lazily initializes on first `status()` call, so the first coach request
+pays that cost. Subsequent launches reuse the cached model file. If the device
+is offline on first launch (no cached model yet), logcat shows the Cactus
+download failure and the panel shows deterministic fallback text.
 
 The coach is wired to **debug builds only** (`MainActivity.attachMoveCoach` checks
 `ApplicationInfo.FLAG_DEBUGGABLE`); `installDebug` produces a debug APK so this
@@ -129,10 +116,12 @@ end-to-end flow.
 
 ## What's wired
 
-- `MainActivity.attachMoveCoach()` (Android) — gates on debug builds; unpacks
-  the bundled `.litertlm` Gemma model via `MoveCoachModelAsset`, installs
-  `AndroidCoachWiring`, constructs `DefaultAiCoachOrchestrator` with the
-  LiteRT-LM factory; tracks foreground state via `onStart` / `onStop`.
+- `MainActivity.attachMoveCoach()` (Android) — gates on debug builds; installs
+  the Cactus-backed coach wiring, constructs `DefaultAiCoachOrchestrator` with
+  the Cactus factory; tracks foreground state via `onStart` / `onStop`. Cactus
+  owns the model download from Hugging Face (no bundled asset,
+  no `MoveCoachModelAsset`/`AndroidCoachWiring` — removed in the LiteRT-LM →
+  Cactus migration).
 - `MainViewController(engine:)` (iOS) — constructs `DefaultAiCoachOrchestrator`
   with `defaultOnDeviceTextGeneratorFactory()`; the iOS factory queries
   `FoundationModelsBridgeRegistry`, which `iOSApp.swift.init` populates by
@@ -147,8 +136,10 @@ end-to-end flow.
 - Engine evaluations are not passed to the coach request (hardcoded `null`) —
   the prompt slot exists but the data path isn't filled in. The model still
   produces an explanation from FEN + move + tags.
-- LiteRT-LM `Engine.initialize()` is heavy (seconds). The factory lazily
-  initializes on first `status()` call; `warmup()` is exposed but not called
-  opportunistically yet (first coach request pays the cold-init cost).
-- NPU backend isn't wired (GPU is). Per-SoC vendor dispatch libraries (QAIRT
-  for Snapdragon, etc.) need bundling — see plan §6.1.1.
+- Cactus/llama.cpp cold init is ~1–2 s (down from 7–9 s with LiteRT-LM). The
+  factory lazily initializes on first `status()` call; `warmup()` is exposed
+  but not called opportunistically yet (first coach request pays the cold-init
+  cost).
+- NPU backend isn't wired (CPU is). Cactus's CPU backend is sufficient for the
+  `gemma3-270m` model size; an NPU path would require a different runtime
+  (see plan §6.1.1 history — LiteRT-LM NPU was evaluated and dropped).

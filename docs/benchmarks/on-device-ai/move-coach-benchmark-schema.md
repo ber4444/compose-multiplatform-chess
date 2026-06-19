@@ -10,8 +10,8 @@ Per plan §9.1. Each row is one Platform × Runtime × Accelerator configuration
 
 | Platform | Device | SoC | RAM | OS | Runtime | Model | Accelerator | Compile mode | Cold init p50/p90 | First token p50/p90 | Complete p50/p90 | Peak memory MB | Thermal delta | Fallback rate | Notes |
 |---|---|---|---:|---|---|---|---|---|---:|---:|---:|---:|---|---:|---|
-| Android | TBD | TBD | TBD | TBD | LiteRT-LM | Gemma TBD | NPU | AOT/JIT | TBD | TBD | TBD | TBD | TBD | TBD | AI Edge Portal |
-| Android | TBD | TBD | TBD | TBD | ML Kit Prompt | Gemini Nano | AICore | system | TBD | TBD | TBD | TBD | TBD | TBD | Device-local run |
+| Android | TBD | TBD | TBD | TBD | Cactus (llama.cpp) | gemma3-270m | CPU | JIT | TBD | TBD | TBD | TBD | TBD | TBD | HF-downloaded GGUF; ~1–2 s cold init observed |
+| Android | TBD | TBD | TBD | TBD | ML Kit Prompt | Gemini Nano | AICore | system | TBD | TBD | TBD | TBD | TBD | TBD | Optional higher-tier route; narrow AICore support |
 | iOS | TBD | TBD | TBD | TBD | Foundation Models | Apple on-device | system | system | TBD | TBD | TBD | TBD | TBD | TBD | Instruments |
 
 ## Route thresholds derived from benchmarks
@@ -20,8 +20,8 @@ Per plan §9.2. Populated after the variance table is filled.
 
 | Device class | Default route | Disable reason | First-token budget | Complete budget | Notes |
 |---|---|---|---:|---:|---|
-| Android high tier NPU | LiteRT-LM Gemma | p90 > budget or thermal high | TBD | TBD | From AI Edge Portal |
-| Android supported AICore only | ML Kit Prompt | quota/busy/background | TBD | TBD | Gemini Nano path |
+| Android (any with sufficient RAM) | Cactus Gemma (llama.cpp CPU) | p90 > budget or thermal high | TBD | TBD | gemma3-270m HF-downloaded; baseline Android route |
+| Android supported AICore only | ML Kit Prompt | quota/busy/background | TBD | TBD | Optional higher-tier Gemini Nano path |
 | iOS Apple Intelligence available | Foundation Models | unavailable/region/guardrail | TBD | TBD | From Instruments |
 | Unsupported mobile | Deterministic fallback | no local model | 0 | 0 | Always works |
 
@@ -34,8 +34,8 @@ They are **design targets, not measured limits**:
 - `completeMs = 3500`
 - `costBudget = 0.0` (LOCAL_ONLY)
 
-Cold NPU/model init alone can exceed the 900 ms first-token budget on first coached move.
-The §6.3 benchmark gate (block enabling by default until p90 + thermal pass) replaces these
+Cold Cactus/llama.cpp init alone can exceed the 900 ms first-token budget on first
+coached move (observed ~1–2 s on `gemma3-270m`). The §6.3 benchmark gate (block enabling by default until p90 + thermal pass) replaces these
 before any release-ship.
 
 ## Files
