@@ -87,6 +87,15 @@ class MainActivity : ComponentActivity() {
             holder.gameViewModel.attachCoachOrchestrator(null)
             return
         }
+        // Surface a "loading model" state IMMEDIATELY so the user can distinguish
+        // "warming up" from "model genuinely missing" (the Unavailable state).
+        // Without this the panel stays Hidden during unpack and a first-move
+        // during the unpack window looks indistinguishable from no-model.
+        holder.gameViewModel.setCoachModelState(
+            com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
+                message = "Unpacking Gemma model from app assets…"
+            )
+        )
         CoroutineScope(Dispatchers.IO).launch {
             val modelPath = MoveCoachModelAsset.ensureUnpacked(this@MainActivity)
             if (modelPath != null) {
@@ -96,18 +105,27 @@ class MainActivity : ComponentActivity() {
                         cacheDir = cacheDir.absolutePath,
                     )
                 )
+                // attachCoachOrchestrator resets the state to Hidden; the next
+                // coached move will set Loading(move) → Ready/Fallback/Error.
+                val orchestrator = DefaultAiCoachOrchestrator(
+                    factory = defaultOnDeviceTextGeneratorFactory(),
+                    contextProvider = {
+                        com.example.ondeviceai.AiContextSnapshot(
+                            isDeviceModelAvailable = true,
+                            isAppForegrounded = holder.isForeground,
+                            userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
+                        )
+                    },
+                )
+                holder.gameViewModel.attachCoachOrchestrator(orchestrator)
+            } else {
+                // Genuinely missing — surface Unavailable so the user knows the
+                // coach isn't coming and the panel will show deterministic
+                // fallback text only when a coached move fires.
+                holder.gameViewModel.setCoachModelState(
+                    com.example.myapplication.movecoach.MoveCoachUiState.Unavailable
+                )
             }
-            val orchestrator = DefaultAiCoachOrchestrator(
-                factory = defaultOnDeviceTextGeneratorFactory(),
-                contextProvider = {
-                    com.example.ondeviceai.AiContextSnapshot(
-                        isDeviceModelAvailable = modelPath != null,
-                        isAppForegrounded = holder.isForeground,
-                        userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
-                    )
-                },
-            )
-            holder.gameViewModel.attachCoachOrchestrator(orchestrator)
         }
     }
 

@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import game.app.generated.resources.Res
 import game.app.generated.resources.move_coach_title
 import game.app.generated.resources.move_coach_loading
+import game.app.generated.resources.move_coach_loading_model
 import game.app.generated.resources.move_coach_unavailable
 import game.app.generated.resources.move_coach_fallback_label
 import game.app.generated.resources.move_coach_error_label
@@ -62,7 +63,9 @@ fun MoveCoachPanel(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (state is MoveCoachUiState.Loading || state is MoveCoachUiState.Streaming) {
+                if (state is MoveCoachUiState.Loading ||
+                    state is MoveCoachUiState.Streaming ||
+                    state is MoveCoachUiState.LoadingModel) {
                     Spacer(modifier = Modifier.size(8.dp))
                     CircularProgressIndicator(
                         modifier = Modifier.size(14.dp).testTag("move_coach_spinner"),
@@ -79,6 +82,22 @@ fun MoveCoachPanel(
                     text = stringResource(Res.string.move_coach_loading, state.move),
                     style = MaterialTheme.typography.bodyMedium,
                 )
+
+                is MoveCoachUiState.LoadingModel -> Column {
+                    Text(
+                        modifier = Modifier.testTag("move_coach_loading_model"),
+                        text = stringResource(Res.string.move_coach_loading_model, state.message),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    if (state.message.isNotBlank()) {
+                        Spacer(modifier = Modifier.size(2.dp))
+                        Text(
+                            text = state.message,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        )
+                    }
+                }
 
                 is MoveCoachUiState.Streaming -> Text(
                     modifier = Modifier.testTag("move_coach_streaming"),

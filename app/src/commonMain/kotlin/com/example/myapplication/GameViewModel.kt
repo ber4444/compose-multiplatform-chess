@@ -61,11 +61,29 @@ class GameViewModel(
      * on iOS, Swift registers a Foundation Models provider with
      * [com.example.ondeviceai.FoundationModelsBridgeRegistry] before this is called.
      * Desktop/wasm pass null and the coach panel stays hidden.
+     *
+     * If the caller is still preparing the local model (unpacking, initializing),
+     * it should call [setCoachModelState] with [MoveCoachUiState.LoadingModel]
+     * BEFORE calling this, so the UI can show a "warming up" message distinct
+     * from the missing-model [MoveCoachUiState.Unavailable] state.
      */
     fun attachCoachOrchestrator(orchestrator: AiCoachOrchestrator?) {
         coachJob?.cancel()
         coachOrchestrator = orchestrator
         _coachUiState.value = if (orchestrator == null) MoveCoachUiState.Hidden else MoveCoachUiState.Hidden
+    }
+
+    /**
+     * Platform glue helper: set the coach panel state directly. Used while the
+     * local model is being unpacked / initialized, BEFORE [attachCoachOrchestrator]
+     * is called (when there's no orchestrator yet to drive the state via events).
+     *
+     * Once the orchestrator is attached and the first coached move fires, its
+     * Loading/Streaming/Ready/Fallback/Error states override this.
+     */
+    fun setCoachModelState(state: MoveCoachUiState) {
+        coachJob?.cancel()
+        _coachUiState.value = state
     }
 
     fun close() {
