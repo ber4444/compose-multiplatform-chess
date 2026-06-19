@@ -129,7 +129,6 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
 
     private var surface: ImageBitmapChess3DSurface? = null
     private var pendingFen: String? = null
-    private var selectedSquare: BoardSquare? = null
     private var camera: CameraParams = OrbitCameraController.DEFAULT_WHITE_VIEW
     private var disposed = false
 
@@ -144,14 +143,26 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         }
     }
 
+    // Move arc + selection bounce, frame-paced. The driver runs on renderScope (the single render
+    // thread), so every render() call lands on the thread Vulkan must be driven from. render()
+    // blocks on the GPU fence (≈10ms), and the driver subtracts that from the 16ms frame budget so
+    // pacing targets ~60fps instead of stacking a flat delay on top of the render.
+    private val driver = Board3DAnimationDriver(renderScope, FRAME_BUDGET_MS) { scene ->
+        if (surface != null) {
+            val geo = ChessSceneGeometry.build(scene, meshes, frameMesh, includeGround = false)
+            for ((tex, group) in geo.groups) uploadGroup(tex, group)
+            renderFrame()
+        }
+    }
+
     override fun attach(surface: Chess3DSurface) {
         if (surface !is ImageBitmapChess3DSurface) return
         post {
             this.surface = surface
             ensureTargets(surface.widthPx.coerceAtLeast(1), surface.heightPx.coerceAtLeast(1))
             camera = camera.copy(aspect = width.toFloat() / height.toFloat())
-            rebuildGeometry(pendingFen ?: FenStart)
-            renderFrame()
+            // Seed the driver's resting scene and draw the initial position.
+            driver.setPosition(Board3DSceneMapper.fromFen(pendingFen ?: FenStart), null)
         }
     }
 
@@ -163,120 +174,13 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         pendingFen = fen
         post {
             if (surface != null) {
-                if (transition != null && transition !is Board3DTransition.Reset) {
-                    animateTransition(fen, transition)
-                } else {
-                    rebuildGeometry(fen)
-                    renderFrame()
-                }
-            }
-        }
-    }
-
-    private var animationJob: Job? = null
-
-    private fun animateTransition(targetFen: String, transition: Board3DTransition) {
-        animationJob?.cancel()
-        val baseScene = Board3DSceneMapper.fromFen(targetFen).copy(selectedSquare = selectedSquare)
-        
-        animationJob = renderScope.launch {
-            val startMs = System.currentTimeMillis()
-            val durationMs = 500L
-            
-            while (true) {
-                val now = System.currentTimeMillis()
-                val progress = ((now - startMs).toFloat() / durationMs).coerceIn(0f, 1f)
-                
-                // Construct the interpolated scene
-                val interpolatedPieces = baseScene.pieces.map { piece ->
-                    // Find if this piece is the target of the transition
-                    val t = transition
-                    when (t) {
-                        is Board3DTransition.Move -> {
-                            if (piece.square == t.to && piece.kind == t.kind && piece.color == t.color) {
-                                // Interpolate position
-                                val fromPos = BoardGeometry.squareCenter(t.from)
-                                val toPos = BoardGeometry.squareCenter(t.to)
-                                val currentPos = org.joml.Vector3f(fromPos.x, fromPos.y, fromPos.z).lerp(
-                                    org.joml.Vector3f(toPos.x, toPos.y, toPos.z), progress
-                                )
-                                piece.copy(position = Vec3(currentPos.x, currentPos.y, currentPos.z))
-                            } else if (t.secondary != null && piece.square == t.secondary.to && piece.kind == t.secondary.kind && piece.color == t.secondary.color) {
-                                val fromPos = BoardGeometry.squareCenter(t.secondary.from)
-                                val toPos = BoardGeometry.squareCenter(t.secondary.to)
-                                val currentPos = org.joml.Vector3f(fromPos.x, fromPos.y, fromPos.z).lerp(
-                                    org.joml.Vector3f(toPos.x, toPos.y, toPos.z), progress
-                                )
-                                piece.copy(position = Vec3(currentPos.x, currentPos.y, currentPos.z))
-                            } else {
-                                piece
-                            }
-                        }
-                        is Board3DTransition.Capture -> {
-                            if (piece.square == t.move.to && piece.kind == t.move.kind && piece.color == t.move.color) {
-                                val fromPos = BoardGeometry.squareCenter(t.move.from)
-                                val toPos = BoardGeometry.squareCenter(t.move.to)
-                                val currentPos = org.joml.Vector3f(fromPos.x, fromPos.y, fromPos.z).lerp(
-                                    org.joml.Vector3f(toPos.x, toPos.y, toPos.z), progress
-                                )
-                                piece.copy(position = Vec3(currentPos.x, currentPos.y, currentPos.z))
-                            } else {
-                                piece
-                            }
-                        }
-                        is Board3DTransition.Promotion -> {
-                            if (piece.square == t.move.to && piece.kind == t.promotedTo && piece.color == t.move.color) {
-                                val fromPos = BoardGeometry.squareCenter(t.move.from)
-                                val toPos = BoardGeometry.squareCenter(t.move.to)
-                                val currentPos = org.joml.Vector3f(fromPos.x, fromPos.y, fromPos.z).lerp(
-                                    org.joml.Vector3f(toPos.x, toPos.y, toPos.z), progress
-                                )
-                                // Show pawn until the very end, then snap to new piece
-                                if (progress < 1f) {
-                                    piece.copy(kind = PieceKind.PAWN, position = Vec3(currentPos.x, currentPos.y, currentPos.z))
-                                } else {
-                                    piece.copy(position = Vec3(currentPos.x, currentPos.y, currentPos.z))
-                                }
-                            } else {
-                                piece
-                            }
-                        }
-                        else -> piece
-                    }
-                }
-
-                // Handle fading/sinking captured piece (since it's not in baseScene, we need to inject it)
-                val injectedPieces = interpolatedPieces.toMutableList()
-                if (transition is Board3DTransition.Capture && progress < 1f) {
-                    val pos = BoardGeometry.squareCenter(transition.capturedSquare)
-                    val sinkDepth = progress * 2.0f // sink down 2 units
-                    injectedPieces.add(Piece3DInstance(
-                        kind = transition.capturedKind,
-                        color = transition.capturedColor,
-                        square = transition.capturedSquare,
-                        position = Vec3(pos.x, pos.y - sinkDepth, pos.z),
-                        rotationYDegrees = if (transition.capturedColor == PieceColor.WHITE) 0f else 180f
-                    ))
-                }
-
-                val interpolatedScene = baseScene.copy(pieces = injectedPieces)
-                val geo = ChessSceneGeometry.build(interpolatedScene, meshes, frameMesh, includeGround = false)
-                for ((tex, group) in geo.groups) uploadGroup(tex, group)
-                
-                renderFrame()
-                
-                if (progress >= 1f) break
-                kotlinx.coroutines.delay(16) // ~60fps
+                driver.setPosition(Board3DSceneMapper.fromFen(fen), transition)
             }
         }
     }
 
     override fun setSelectedSquare(square: BoardSquare?) {
-        post {
-            if (square == selectedSquare) return@post
-            selectedSquare = square
-            if (surface != null) { rebuildGeometry(pendingFen ?: FenStart); renderFrame() }
-        }
+        post { driver.setSelected(square) }
     }
 
     override fun onUserInteraction(event: Board3DInput) {
@@ -306,12 +210,6 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         renderScope.launch {
             runCatching { block() }.onFailure { co.touchlab.kermit.Logger.w(it) { "chess3d render step failed" } }
         }
-    }
-
-    private fun rebuildGeometry(fen: String) {
-        val scene = Board3DSceneMapper.fromFen(fen).copy(selectedSquare = selectedSquare)
-        val geo = ChessSceneGeometry.build(scene, meshes, frameMesh, includeGround = false)
-        for ((tex, group) in geo.groups) uploadGroup(tex, group)
     }
 
     private fun renderFrame() {
@@ -1576,6 +1474,9 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
 
     companion object {
         private const val FenStart = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+        /** Target per-frame budget for the animation driver (~60fps). */
+        private const val FRAME_BUDGET_MS = 16L
 
         // Binding layout (single descriptor set, allocated per material group):
         //   0: UBO          { viewProj, lightViewProj, camPos(vec4), invViewProj } — 208 bytes
