@@ -52,8 +52,25 @@ fun MainViewController(engine: ChessEngine?): UIViewController = ComposeUIViewCo
                 is AiAvailability.Available -> {
                     // Attach the orchestrator; resets state to Hidden. Next coached
                     // move drives Loading(move) → Ready/Fallback/Error.
+                    //
+                    // CRITICAL: pass a contextProvider that reports
+                    // isDeviceModelAvailable=true — the default context provider
+                    // returns false, which makes AiRoutePolicyDecider short-circuit
+                    // to FALLBACK_NO_LOCAL_MODEL without ever calling the generator.
+                    // We only reach this branch after the probe confirmed the
+                    // Foundation Models generator reports Available, so reporting
+                    // true here is consistent with reality.
                     viewModel.attachCoachOrchestrator(
-                        DefaultAiCoachOrchestrator(factory = defaultOnDeviceTextGeneratorFactory())
+                        DefaultAiCoachOrchestrator(
+                            factory = defaultOnDeviceTextGeneratorFactory(),
+                            contextProvider = {
+                                com.example.ondeviceai.AiContextSnapshot(
+                                    isDeviceModelAvailable = true,
+                                    isAppForegrounded = true,
+                                    userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
+                                )
+                            },
+                        )
                     )
                 }
                 else -> {
