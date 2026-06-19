@@ -9,7 +9,7 @@ Compose Multiplatform chess app with full support for all standard chess rules a
 
 ## Setup
 
-For the desktop target on Linux and macOS, **JDK 26 is recommended**. The desktop 3D WebGPU renderer uses the Panama FFM API and the project currently compiles desktop code with JVM target 24.
+For the desktop target on Linux and macOS, **JDK 26 is recommended**. The desktop 3D Vulkan renderer uses LWJGL 3.3.6 (Vulkan + shaderc bindings) and the project currently compiles desktop code with JVM target 24.
 
 For the desktop target on Linux, install stockfish first:
 
@@ -35,7 +35,7 @@ The Stockfish engine is bundled automatically, nothing to install manually.
 ## Architecture & Features
 
 - **Full Chess Rules:** The application covers all standard chess rules and includes an explicit draw-by-agreement flow where the Stockfish engine evaluates whether to accept or decline draw offers.
-- **3D Board View:** The app features a playable 3D board with shared camera, tap-to-move, ray picking, and move animation logic. Android uses Filament through SceneView (the visual reference); desktop uses WebGPU/WGSL with a `HIGH_QUALITY` preset (4× MSAA + 2048² PCF shadow mapping, env-var gated); web and iOS use **three.js** (WebGLRenderer + MeshStandardMaterial + ACESFilmicToneMapping + PCFSoftShadowMap) loading the same `chess.glb` Android uses. On iOS, three.js runs inside a WKWebView with a fully offline esbuild bundle. See `docs/plans/web-graphics-spike-result.md` and `docs/plans/ios-graphics-spike-result.md` for the spike verdicts.
+- **3D Board View:** The app features a playable 3D board with shared camera, tap-to-move, ray picking, and move animation logic. Android uses Filament through SceneView (the visual reference); desktop uses **Vulkan** (LWJGL) with the full vkChess PBR pipeline (Cook-Torrance direct lighting, precomputed irradiance/BRDF-LUT IBL, Filament's prefiltered `papermill_ibl.ktx`, per-pixel metallic/roughness from glTF, tangent-space normal mapping, SSAA supersampling via `CHESS_DESKTOP_SSAA`, 16× anisotropic, PCF shadows); web and iOS use **three.js** (WebGLRenderer + MeshStandardMaterial + ACESFilmicToneMapping + PCFSoftShadowMap) loading the same `chess.glb` Android uses. On iOS, three.js runs inside a WKWebView with a fully offline esbuild bundle. See `docs/plans/web-graphics-spike-result.md` and `docs/plans/ios-graphics-spike-result.md` for the spike verdicts.
 - **Stockfish Engine Integrations:**
   - **Android:** Pinned to Stockfish 17, as the Stockfish 18 binary exceeds GitHub's 100 MB file limit.
   - **Desktop:** Relies on system-installed binaries (e.g., via `apt` or `brew`).
