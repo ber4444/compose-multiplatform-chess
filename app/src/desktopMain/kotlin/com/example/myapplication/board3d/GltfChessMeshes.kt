@@ -18,22 +18,22 @@ import java.io.ByteArrayInputStream
  * is ~[TARGET_KING_HEIGHT] world units. UVs are the model's TEXCOORD_0, used to sample the wood atlas.
  */
 object GltfChessMeshes {
-    private const val TARGET_KING_HEIGHT = 0.95f
+    private const val TARGET_KING_HEIGHT = 1.9f
 
     fun load(glb: ByteArray): Map<PieceKind, MeshData> {
         val model: GltfModel = GltfModelReader().readWithoutReferences(ByteArrayInputStream(glb))
         val nameToKind: Map<String, PieceKind> =
             PieceKind.entries.associateBy { ChessSetMeshNames.getMeshName(it, PieceColor.WHITE) }
 
-        class Raw(val pos: FloatArray, val uv: FloatArray, val idx: IntArray)
+        class Raw(val pos: FloatArray, val uv: FloatArray, val tan: FloatArray, val idx: IntArray)
         val raw = HashMap<PieceKind, Raw>()
 
         for (node in model.nodeModels) {
             val kind = node.name?.let { nameToKind[it] } ?: continue
             if (raw.containsKey(kind)) continue
             val collected = collectNodeGeometry(node) ?: continue
-            if (collected.first.isNotEmpty() && collected.third.isNotEmpty()) {
-                raw[kind] = Raw(collected.first, collected.second, collected.third)
+            if (collected.first.isNotEmpty() && collected.fourth.isNotEmpty()) {
+                raw[kind] = Raw(collected.first, collected.second, collected.third, collected.fourth)
             }
         }
         if (raw.isEmpty()) return emptyMap()
@@ -48,7 +48,7 @@ object GltfChessMeshes {
         }
         val scale = if (maxHeight > 0f) TARGET_KING_HEIGHT / maxHeight else 1f
 
-        return raw.mapValues { (_, r) -> normalize(r.pos, r.uv, r.idx, scale) }
+        return raw.mapValues { (_, r) -> normalize(r.pos, r.uv, r.tan, r.idx, scale) }
     }
 
     /**
@@ -60,13 +60,13 @@ object GltfChessMeshes {
     fun loadFrame(glb: ByteArray): MeshData? {
         val model = GltfModelReader().readWithoutReferences(ByteArrayInputStream(glb))
         val node = model.nodeModels.firstOrNull { it.name == "frame" } ?: return null
-        val (pos, uv, idx) = collectNodeGeometry(node) ?: return null
+        val (pos, uv, tan, idx) = collectNodeGeometry(node) ?: return null
         val scaled = FloatArray(pos.size) { pos[it] * 0.5f }
         val uvs = if (uv.size == (pos.size / 3) * 2) uv else FloatArray((pos.size / 3) * 2)
-        return MeshData(scaled, computeSmoothNormals(scaled, idx), uvs, idx)
+        return MeshData(scaled, computeSmoothNormals(scaled, idx), uvs, idx, scaleTangents(tan, 0.5f))
     }
 
-    private fun normalize(pos: FloatArray, uv: FloatArray, idx: IntArray, scale: Float): MeshData {
+    private fun normalize(pos: FloatArray, uv: FloatArray, tan: FloatArray, idx: IntArray, scale: Float): MeshData {
         var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
         var minY = Float.MAX_VALUE
         var minZ = Float.MAX_VALUE; var maxZ = -Float.MAX_VALUE
@@ -91,7 +91,22 @@ object GltfChessMeshes {
             i += 3
         }
         val uvs = if (uv.size == (pos.size / 3) * 2) uv else FloatArray((pos.size / 3) * 2)
-        return MeshData(out, computeSmoothNormals(out, idx), uvs, idx)
+        return MeshData(out, computeSmoothNormals(out, idx), uvs, idx, scaleTangents(tan, scale))
+    }
+
+    /** Scale tangent XYZ by [scale]; w (handedness) is scale-invariant. Pass-through if empty. */
+    private fun scaleTangents(tan: FloatArray, scale: Float): FloatArray {
+        if (tan.isEmpty()) return tan
+        val out = FloatArray(tan.size)
+        var i = 0
+        while (i < tan.size) {
+            out[i] = tan[i] * scale
+            out[i + 1] = tan[i + 1] * scale
+            out[i + 2] = tan[i + 2] * scale
+            out[i + 3] = tan[i + 3] // handedness sign, not a position
+            i += 4
+        }
+        return out
     }
 
     private fun computeSmoothNormals(pos: FloatArray, idx: IntArray): FloatArray {
@@ -118,30 +133,35 @@ object GltfChessMeshes {
         return normals
     }
 
-    fun collectNodeGeometry(node: NodeModel): Triple<FloatArray, FloatArray, IntArray>? {
+    data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+
+    fun collectNodeGeometry(node: NodeModel): Quad<FloatArray, FloatArray, FloatArray, IntArray>? {
         val positions = ArrayList<Float>()
         val uvs = ArrayList<Float>()
+        val tangents = ArrayList<Float>()
         val indices = ArrayList<Int>()
         val transform = Matrix4f().set(node.computeLocalTransform(null))
-        appendNode(node, transform, positions, uvs, indices)
+        appendNode(node, transform, positions, uvs, tangents, indices)
         if (positions.isEmpty() || indices.isEmpty()) return null
-        return Triple(positions.toFloatArray(), uvs.toFloatArray(), indices.toIntArray())
+        return Quad(positions.toFloatArray(), uvs.toFloatArray(), tangents.toFloatArray(), indices.toIntArray())
     }
 
-    private fun appendNode(node: NodeModel, transform: Matrix4f, positions: ArrayList<Float>, uvs: ArrayList<Float>, indices: ArrayList<Int>) {
-        for (mesh in node.meshModels) for (prim in mesh.meshPrimitiveModels) appendPrimitive(prim, transform, positions, uvs, indices)
+    private fun appendNode(node: NodeModel, transform: Matrix4f, positions: ArrayList<Float>, uvs: ArrayList<Float>, tangents: ArrayList<Float>, indices: ArrayList<Int>) {
+        for (mesh in node.meshModels) for (prim in mesh.meshPrimitiveModels) appendPrimitive(prim, transform, positions, uvs, tangents, indices)
         for (child in node.children) {
             val childTransform = Matrix4f(transform).mul(Matrix4f().set(child.computeLocalTransform(null)))
-            appendNode(child, childTransform, positions, uvs, indices)
+            appendNode(child, childTransform, positions, uvs, tangents, indices)
         }
     }
 
-    private fun appendPrimitive(prim: MeshPrimitiveModel, transform: Matrix4f, positions: ArrayList<Float>, uvs: ArrayList<Float>, indices: ArrayList<Int>) {
+    private fun appendPrimitive(prim: MeshPrimitiveModel, transform: Matrix4f, positions: ArrayList<Float>, uvs: ArrayList<Float>, tangents: ArrayList<Float>, indices: ArrayList<Int>) {
         if (prim.mode != 4) return // TRIANGLES only
         val posAccessor = prim.attributes["POSITION"] ?: return
         val floats = AccessorDatas.createFloat(posAccessor)
         val uvAccessor = prim.attributes["TEXCOORD_0"]
         val uvFloats = uvAccessor?.let { AccessorDatas.createFloat(it) }
+        val tanAccessor = prim.attributes["TANGENT"]
+        val tanFloats = tanAccessor?.let { AccessorDatas.createFloat(it) }
         val baseVertex = positions.size / 3
         val v = Vector3f()
         for (e in 0 until floats.numElements) {
@@ -149,6 +169,17 @@ object GltfChessMeshes {
             transform.transformPosition(v)
             positions.add(v.x); positions.add(v.y); positions.add(v.z)
             if (uvFloats != null) { uvs.add(uvFloats.get(e, 0)); uvs.add(uvFloats.get(e, 1)) } else { uvs.add(0f); uvs.add(0f) }
+            // glTF TANGENT is vec4: xyz (direction) + w (handedness sign). Transform xyz by the
+            // upper-3x3 (rotation/scale) — tangents are directions in model space, so the normal
+            // matrix (inverse-transpose) is technically correct, but the chess set has no
+            // non-uniform scaling so the plain transform3x3 is fine.
+            if (tanFloats != null) {
+                val tx = tanFloats.get(e, 0); val ty = tanFloats.get(e, 1); val tz = tanFloats.get(e, 2); val tw = tanFloats.get(e, 3)
+                val transformed = Vector3f(tx, ty, tz).mulPosition(transform)
+                tangents.add(transformed.x); tangents.add(transformed.y); tangents.add(transformed.z); tangents.add(tw)
+            } else if (tangents.isNotEmpty()) {
+                tangents.add(1f); tangents.add(0f); tangents.add(0f); tangents.add(1f) // keep parallel arrays aligned
+            }
         }
         val idxAccessor = prim.indices
         if (idxAccessor != null) {

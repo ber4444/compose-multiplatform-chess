@@ -7,6 +7,14 @@ import org.w3c.dom.HTMLCanvasElement
 import org.w3c.dom.HTMLScriptElement
 import org.w3c.dom.Element
 
+// Console helpers — Kotlin/Wasm's `console` is internal, so go through @JsFun.
+@JsFun("(msg) => { console.log(msg); }")
+private external fun log(msg: String)
+@JsFun("(msg) => { console.warn(msg); }")
+private external fun warn(msg: String)
+@JsFun("(msg) => { console.error(msg); }")
+private external fun error(msg: String)
+
 /**
  * Production three.js chess renderer for the wasm/web target. Loads three.js from CDN via
  * dynamic script injection (import map + ES module), renders chess.glb via WebGLRenderer with
@@ -26,18 +34,36 @@ class ThreeJsChessRenderer : Chess3DBoardRenderer {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun attach(surface: Chess3DSurface) {
-        val wasmSurface = surface as? WasmChess3DSurface ?: return
+        val wasmSurface = surface as? WasmChess3DSurface ?: run {
+            warn("[chess3d] attach() rejected surface: ${surface::class.simpleName}")
+            return
+        }
         canvas = wasmSurface.canvas
+        log("[chess3d] attach() called, canvas=${wasmSurface.widthPx}x${wasmSurface.heightPx}")
 
         scope.launch {
-            injectThreeJs()
-            delay(500) // let three.js + module parse settle
-            initRenderer(wasmSurface.canvas)
-            delay(2000) // wait for chess.glb load
-            isReady = true
-            applyFen(pendingFen)
-            applyCamera(camera)
-            applySelection()
+            try {
+                log("[chess3d] step 1: injectThreeJs()")
+                injectThreeJs()
+                log("[chess3d] step 1 done: isThreeJsLoaded=${isThreeJsLoaded()}")
+                if (!isThreeJsLoaded()) {
+                    error("[chess3d] ABORT: window.chess3d not defined after injectThreeJs — " +
+                        "three.js module failed to load (check Network tab for CDN failures or console for import errors)")
+                    return@launch
+                }
+                delay(500) // let three.js + module parse settle
+                log("[chess3d] step 2: initRenderer(canvas)")
+                initRenderer(wasmSurface.canvas)
+                log("[chess3d] step 2 done")
+                delay(2000) // wait for chess.glb load
+                isReady = true
+                log("[chess3d] step 3: ready, applying FEN + camera")
+                applyFen(pendingFen)
+                applyCamera(camera)
+                applySelection()
+            } catch (t: Throwable) {
+                error("[chess3d] attach() failed: ${t.message}")
+            }
         }
     }
 
@@ -99,19 +125,10 @@ class ThreeJsChessRenderer : Chess3DBoardRenderer {
         // Check if three.js is already loaded (e.g. from a previous renderer instance).
         if (isThreeJsLoaded()) return
 
-        // Inject import map for bare module specifiers.
-        val importMap = document.createElement("script") as HTMLScriptElement
-        importMap.type = "importmap"
-        importMap.textContent = """
-            {"imports":{
-              "three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
-              "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
-            }}
-        """.trimIndent()
-        document.head!!.appendChild(importMap)
-
-        // Inject the chess3d-renderer module. This is the same code as chess3d-renderer.js but
-        // inlined so it loads without a separate file. The module creates window.chess3d.
+        // The import map for bare specifiers ('three', 'three/addons/') is now static in index.html
+        // — browsers reject import maps injected after module resolution begins, so the dynamic
+        // <script type="importmap"> injection this code used to do was silently ignored on modern
+        // browsers. Just inject the chess3d-renderer module; it resolves three.js via the static map.
         val module = document.createElement("script") as HTMLScriptElement
         module.type = "module"
         module.textContent = CHESS3D_RENDERER_JS
@@ -131,8 +148,6 @@ class ThreeJsChessRenderer : Chess3DBoardRenderer {
         chess3dInit(canvas)
     }
 }
-
-// --- JS interop functions ---
 
 private fun isThreeJsLoaded(): Boolean =
     js("(typeof window.chess3d !== 'undefined')")
@@ -250,7 +265,7 @@ window.chess3d = {
 
 async function loadGlb() {
     const loader = new GLTFLoader()
-    const paths = ['/app/src/commonMain/composeResources/files/models/chess.glb', './chess.glb']
+    const paths = ['./chess.glb', '/app/src/commonMain/composeResources/files/models/chess.glb']
     let gltf = null
     for (const p of paths) { try { gltf = await new Promise((res, rej) => loader.load(p, res, undefined, rej)); break } catch(e){} }
     if (!gltf) { console.error('[chess3d] chess.glb not found'); return }

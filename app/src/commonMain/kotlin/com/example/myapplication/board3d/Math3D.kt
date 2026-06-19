@@ -245,10 +245,12 @@ class OrbitCameraController(private var aspect: Float) {
 
     companion object {
         // The 3D board is laid out square (GameScreen: fillMaxWidth().aspectRatio(1f)), so the
-        // viewport aspect is ~1 on every platform. These defaults keep the playable 8x8 board
-        // inside the square while allowing the decorative rim to crop at the screen edge.
-        private const val DEFAULT_PITCH_DEG = 33f
-        private const val DEFAULT_DISTANCE = 12.0f
+        // viewport aspect is ~1 on every platform. These defaults frame the playable 8x8 board to
+        // fill the viewport (matching vkChess's tighter framing) — pieces are scaled 2× in
+        // GltfChessMeshes so the larger pieces + closer camera fill the frame with chess content
+        // rather than empty env.
+        private const val DEFAULT_PITCH_DEG = 40f
+        private const val DEFAULT_DISTANCE = 8.0f
         /** Vertical FOV the renderers project with (equals horizontal FOV in the square viewport). */
         const val FOV_Y_DEG = 50f
 

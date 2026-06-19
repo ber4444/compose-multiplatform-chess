@@ -11,6 +11,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -233,31 +234,39 @@ fun GameScreen(
                     .padding(16.dp)
             )
         } else {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(scrollState)
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
-            ) {
-                Board(
-                    gameState = gameState,
-                    animState = animState,
-                    windowSize = windowSize,
-                    updateSelected = viewModel::updateSelected,
-                    playerMove = viewModel::playerMove,
-                    animationEnd = viewModel::animationEnd
-                )
+            // Measure the viewport OUTSIDE the verticalScroll — the scroll gives children infinite
+            // max height, so BoxWithConstraints inside it can't cap the board. Capping the board at
+            // min(width, 0.85 × height) keeps it fully visible on wide/landscape windows (web/desktop)
+            // while still using the full width on portrait.
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val boardMaxSize = minOf(maxWidth, maxHeight * 0.85f)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(scrollState)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                ) {
+                    Board(
+                        gameState = gameState,
+                        animState = animState,
+                        windowSize = windowSize,
+                        updateSelected = viewModel::updateSelected,
+                        playerMove = viewModel::playerMove,
+                        animationEnd = viewModel::animationEnd,
+                        boardMaxSize = boardMaxSize,
+                    )
 
-                Spacer(modifier = Modifier.padding(8.dp))
+                    Spacer(modifier = Modifier.padding(8.dp))
 
-                GameControls(
-                    gameState = gameState,
-                    animState = animState,
-                    viewState = viewState,
-                    viewModel = viewModel
-                )
+                    GameControls(
+                        gameState = gameState,
+                        animState = animState,
+                        viewState = viewState,
+                        viewModel = viewModel
+                    )
+                }
             }
         }
 
@@ -438,7 +447,10 @@ fun Board(
     windowSize: WindowWidthSizeClass,
     updateSelected: (Pair<Int, Int>) -> Unit,
     playerMove: (Int, Pair<Int, Int>) -> Unit,
-    animationEnd: () -> Unit
+    animationEnd: () -> Unit,
+    /** Caps the board's size so it fits within the viewport on wide/landscape windows.
+     *  On portrait this equals the full width; on landscape it equals ~85% of the height. */
+    boardMaxSize: Dp = Dp.Unspecified,
 ) {
     val squareSizePx = remember { mutableStateOf(IntSize.Zero) }
     val squareAvgSizePx = remember { mutableStateOf(IntSize.Zero) }
@@ -460,7 +472,7 @@ fun Board(
     }
 
     val boxModifier = Modifier
-        .fillMaxWidth()
+        .then(if (boardMaxSize != Dp.Unspecified) Modifier.size(boardMaxSize) else Modifier.fillMaxWidth())
         .padding(
             when (windowSize) {
                 WindowWidthSizeClass.Expanded -> 18.dp

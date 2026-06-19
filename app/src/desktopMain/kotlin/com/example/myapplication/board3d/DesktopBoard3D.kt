@@ -10,7 +10,12 @@ fun desktopBoard3DSupport(): Board3DSupport {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                 runCatching {
                     val bytes = Res.readBytes("files/models/chess.glb")
-                    DesktopWgpuChessRenderer(bytes)
+                    // Default = Vulkan (LWJGL headless). Set CHESS_DESKTOP_RENDERER=wgpu to fall
+                    // back to the wgpu4k renderer (kept as an opt-in escape hatch / A-B comparison).
+                    when (System.getenv("CHESS_DESKTOP_RENDERER")?.trim()?.lowercase()) {
+                        "wgpu", "webgpu" -> DesktopWgpuChessRenderer(bytes)
+                        else -> VulkanChessRenderer(bytes)
+                    }
                 }.getOrNull()
             }
         },
