@@ -13,7 +13,10 @@ object KtxLoader {
         val totalSize: Int,
         val data: ByteBuffer,
         val mipOffsets: IntArray,
-        val mipSizes: IntArray
+        val mipSizes: IntArray,
+        /** GL internal format constant (e.g. 0x881A for RGBA16F, 0x8C3A for R11F_G11F_B10F).
+         *  Callers map this to the matching Vulkan [org.lwjgl.vulkan.VK10] format. */
+        val glInternalFormat: Int,
     ) {
         fun free() {
             MemoryUtil.memFree(data)
@@ -22,13 +25,13 @@ object KtxLoader {
 
     fun load(bytes: ByteArray): KtxImage? {
         val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        
+
         // Skip 12-byte identifier
         buf.position(12)
-        
+
         val endianness = buf.getInt()
         if (endianness != 0x04030201) return null // Only little endian supported for now
-        
+
         val glType = buf.getInt()
         val glTypeSize = buf.getInt()
         val glFormat = buf.getInt()
@@ -85,6 +88,6 @@ object KtxLoader {
         }
         nativeData.position(0)
         
-        return KtxImage(width, height, mips, faces, totalDataSize, nativeData, mipOffsets, mipSizes)
+        return KtxImage(width, height, mips, faces, totalDataSize, nativeData, mipOffsets, mipSizes, glInternalFormat)
     }
 }

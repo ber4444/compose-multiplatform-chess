@@ -137,13 +137,16 @@ kotlin {
             dependsOn(wgpuMain)
             dependencies {
                 implementation(compose.desktop.currentOs)
-                // lwjgl core only — KtxLoader uses org.lwjgl.system.MemoryUtil to decode the
-                // papermill environment cubemap for the wgpu4k renderer.
+                // lwjgl core: KtxLoader uses org.lwjgl.system.MemoryUtil to decode the papermill
+                // environment cubemap. lwjgl-vulkan + lwjgl-shaderc back VulkanChessRenderer
+                // (the desktop renderer).
                 implementation(libs.lwjgl)
+                implementation(libs.lwjgl.vulkan)
+                implementation(libs.lwjgl.shaderc)
                 implementation(libs.jgltf.model)
                 implementation(libs.joml)
 
-                // Add the lwjgl core native runtime for the current OS.
+                // Add native runtimes for the current OS.
                 val lwjglVersion = "3.3.6"
                 val osName = System.getProperty("os.name").lowercase()
                 val osArch = System.getProperty("os.arch").lowercase()
@@ -153,6 +156,13 @@ kotlin {
                     else -> "natives-linux"
                 }
                 runtimeOnly("org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives")
+                runtimeOnly("org.lwjgl:lwjgl-shaderc:$lwjglVersion:$lwjglNatives")
+                // lwjgl-vulkan only ships a native artifact on macOS (bundled MoltenVK);
+                // on Linux/Windows the system Vulkan loader is used, so there is no
+                // natives-linux/natives-windows artifact to resolve.
+                if (osName.contains("mac")) {
+                    runtimeOnly("org.lwjgl:lwjgl-vulkan:$lwjglVersion:$lwjglNatives")
+                }
             }
         }
 
@@ -188,7 +198,11 @@ compose.resources {
 
 
 
+// Forward the 3D smoke-test + benchmark toggles to the forked test JVM. Gradle's `-Dchess3d.smoke=true`
+// only sets the property on the build JVM; tests run in a separate JVM, so propagate explicitly.
 tasks.withType<Test>().configureEach {
+    providers.systemProperty("chess3d.smoke").orNull?.let { systemProperty("chess3d.smoke", it) }
+    providers.systemProperty("chess3d.bench").orNull?.let { systemProperty("chess3d.bench", it) }
     // wgpu4k's JVM binding is Java-22 bytecode and uses Panama FFM, so it needs a >= 22 runtime.
     // The Gradle daemon runs on JDK 21 (gradle-daemon-jvm.properties), so run the desktop tests on
     // the installed JDK 26 via a scoped toolchain launcher; Android/other tests stay on the daemon JDK.

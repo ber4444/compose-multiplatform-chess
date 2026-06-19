@@ -120,20 +120,8 @@ fun WasmBoard3DSurface(
 }
 
 fun wasmBoard3DSupport(viewModel: GameViewModel): Board3DSupport? {
-    if (!hasWebGpu()) return null
-
     return Board3DSupport(
-        rendererFactory = {
-            runCatching {
-                val gpu = getNavigatorGpu() ?: return@runCatching null
-                val adapter = kotlinx.coroutines.withTimeoutOrNull(2000) { awaitPromiseSafe(requestAdapterJs(gpu)) }
-                if (adapter == null) return@runCatching null
-
-                val glb = kotlinx.coroutines.withTimeoutOrNull(5000) { Res.readBytes("files/models/chess.glb") }
-                if (glb == null) return@runCatching null
-                WebGpuChessRenderer(glb)
-            }.getOrNull()
-        },
+        rendererFactory = { ThreeJsChessRenderer() },
         surfaceContent = { renderer, modifier ->
             WasmBoard3DSurface(renderer, modifier, viewModel)
         }

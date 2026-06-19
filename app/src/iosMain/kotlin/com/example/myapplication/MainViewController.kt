@@ -18,10 +18,8 @@ fun MainViewController(engine: ChessEngine?): UIViewController = ComposeUIViewCo
     val viewModel = remember { GameViewModel() }
     DisposableEffect(Unit) {
         viewModel.attachEngine(engine)
-        // Testability hook for the simulator screenshot harness (tools/ios_3d_screenshot.sh): start
-        // directly on the 3D board so it can be captured without a human tapping the toggle.
         if (platform.posix.getenv("CHESS_START_3D") != null) viewModel.setShow3D(true)
-        onDispose { viewModel.close() } // also closes the attached engine
+        onDispose { viewModel.close() }
     }
     MyApplicationTheme { ChessApp(viewModel = viewModel, board3D = remember { com.example.myapplication.board3d.iosBoard3DSupport() }, switchTopPadding = (-16).dp) }
 }

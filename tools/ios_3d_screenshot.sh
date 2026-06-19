@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Autonomous visual loop for the iOS SceneKit 3D board.
+# Autonomous visual loop for the iOS 3D board (three.js via WKWebView).
 #
-# SceneKit needs a Metal device, which the headless `simctl spawn` Kotlin/Native test runner does not
-# have — so we can't screenshot it from a unit test. Instead we screenshot the REAL app running in a
-# booted simulator (full GPU). The app reads CHESS_START_3D and opens straight onto the 3D board (see
-# MainViewController), so no human has to tap the "3D Board" toggle.
+# WKWebView + WebGL need a real GPU, which the headless `simctl spawn` Kotlin/Native test runner
+# does not provide — so we can't screenshot the 3D board from a unit test. Instead we screenshot the
+# REAL app running in a booted simulator (full GPU). The app reads CHESS_START_3D and opens straight
+# onto the 3D board (see MainViewController), so no human has to tap the "3D Board" toggle.
 #
 # Usage:  tools/ios_3d_screenshot.sh [device-name]
 # Output: build/ios-3d-screenshot.png   (absolute path is printed on the last line)
