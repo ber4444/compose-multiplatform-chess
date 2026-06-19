@@ -11,12 +11,6 @@ import androidx.compose.ui.interop.UIKitView
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.useContents
 import platform.CoreGraphics.CGRectMake
-import platform.SceneKit.SCNView
-
-import game.app.generated.resources.Res
-import kotlinx.cinterop.*
-import org.jetbrains.compose.resources.ExperimentalResourceApi
-import platform.Foundation.create
 
 @OptIn(ExperimentalForeignApi::class)
 fun iosBoard3DSupport(): Board3DSupport {
@@ -27,47 +21,6 @@ fun iosBoard3DSupport(): Board3DSupport {
         }
     )
 }
-
-/**
- * Loads the piece/board geometries, diffuse textures, and environment cube faces the SceneKit
- * renderer needs, keyed by the names [IosSceneKitChessRenderer] looks them up by. [readBytes] maps a
- * compose-resource path (e.g. "files/env/face_0.exr") to its bytes; the app passes `Res.readBytes`,
- * the snapshot test passes a host-filesystem reader so both render byte-identical scenes.
- */
-@OptIn(ExperimentalForeignApi::class)
-internal suspend fun buildIosChessAssets(
-    readBytes: suspend (String) -> ByteArray
-): Pair<MutableMap<String, platform.SceneKit.SCNGeometry>, MutableMap<String, platform.Foundation.NSData>> {
-    val geometries = mutableMapOf<String, platform.SceneKit.SCNGeometry>()
-    val textures = mutableMapOf<String, platform.Foundation.NSData>()
-    val models = listOf("KING", "QUEEN", "ROOK", "BISHOP", "KNIGHT", "PAWN", "BOARD")
-    val texNames = listOf(
-        "whites.png", "blacks.png", "board3.jpg",
-        "marble-speckled-albedo.png", "marble-speckled-normal.png", // engraved stone rim
-    )
-    for (name in models) {
-        loadObjGeometryFromBytes(readBytes("files/models/ios/$name.obj"), name)?.let { geometries[name] = it }
-    }
-    // The engraved stone rim around the playing surface (exported at the glb's native scale, so the
-    // renderer halves it to match BOARD.obj's logical scale). BOARD.obj is only the 8x8 tiles.
-    loadObjGeometryFromBytes(readBytes("files/models/ios/frame.obj"), "FRAME")?.let { geometries["FRAME"] = it }
-    for (tName in texNames) {
-        textures[tName] = readBytes("files/models/ios/$tName").toNSData()
-    }
-    // Six cube faces (px, nx, py, ny, pz, nz) for a proper SceneKit cube map. (The 4:3
-    // papermill_cross.exr is deliberately not loaded — SceneKit can't interpret a cross layout.)
-    for (i in 0..5) {
-        textures["face_$i.exr"] = readBytes("files/env/face_$i.exr").toNSData()
-    }
-    return geometries to textures
-}
-
-@OptIn(ExperimentalForeignApi::class)
-private fun ByteArray.toNSData(): platform.Foundation.NSData =
-    if (isEmpty()) platform.Foundation.NSData()
-    else usePinned { pinned ->
-        platform.Foundation.NSData.create(bytes = pinned.addressOf(0), length = size.toULong())
-    }
 
 @OptIn(ExperimentalForeignApi::class)
 @Composable

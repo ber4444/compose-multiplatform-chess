@@ -154,11 +154,3 @@ class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, Scene
         fun toGroup() = SceneGroup(verts.toFloatArray(), idx.toIntArray(), tans.toFloatArray())
     }
 }
-
-/** Shared material response for desktop and web so frame lighting cannot drift by backend.
- *  Values centralized in [WgpuMaterialDefaults] (Phase D.4). */
-internal fun wgpuMaterialRoughness(texture: ChessTexture): Float = when (texture) {
-    ChessTexture.BOARD -> WgpuMaterialDefaults.ROUGHNESS_BOARD
-    ChessTexture.FRAME -> WgpuMaterialDefaults.ROUGHNESS_FRAME
-    else -> WgpuMaterialDefaults.ROUGHNESS_PIECE
-}
