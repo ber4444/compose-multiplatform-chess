@@ -42,13 +42,13 @@ class MoveCoachResponseValidatorTest {
     }
 
     @Test
-    fun `rejects response that does not mention the move`() {
+    fun `rejects response with no chess relevance`() {
+        // Text that mentions neither the move nor any chess vocabulary
         val v = MoveCoachResponseValidator.validate(
-            "This is a good move that develops a piece.",
+            "The weather is nice today.",
             request,
         )
         assertIs<MoveCoachResponseValidator.Result.Invalid>(v)
-        assertEquals("response does not mention the move", v.reason)
     }
 
     @Test

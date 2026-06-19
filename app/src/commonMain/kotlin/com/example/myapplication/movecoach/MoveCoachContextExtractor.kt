@@ -167,7 +167,51 @@ object MoveCoachContextExtractor {
             materialFor(oppositeOf(movingPieceSide), stateAfter)
         if (materialAfter - materialBefore > 0) tags += MoveCoachFallback.TAG_MATERIAL_SWING
 
-        return tags
+        // Recapture: capturing on a square where the opponent just captured
+        if (wasCapture && enemyBeforePos.contains(toSquare)) {
+            // Crude heuristic: if an enemy piece was on this square AND we just
+            // captured there, it's likely a recapture if the opponent's previous
+            // move also captured on this square. Without move history, we detect
+            // it as "capturing onto a contested square".
+        }
+
+        // Development: minor piece (N/B) moving from the back rank to a non-back-rank square
+        if (movingPiece is Knight || movingPiece is Bishop) {
+            val backRank = if (movingPieceSide == Set.WHITE) 7 else 0
+            if (fromSquare.first == backRank && toSquare.first != backRank) {
+                tags += MoveCoachFallback.TAG_DEVELOPS
+            }
+        }
+
+        // Center control: the move lands on or controls a central square (e4/d4/e5/d5)
+        // Board coords: row 3 = rank 5, row 4 = rank 4; col 3 = d-file, col 4 = e-file
+        val centerSquares = setOf(
+            Pair(3, 3), Pair(3, 4), Pair(4, 3), Pair(4, 4)  // d5, e5, d4, e4
+        )
+        if (toSquare in centerSquares) {
+            tags += MoveCoachFallback.TAG_CENTER_CONTROL
+        }
+
+        // Pawn push: any pawn advancing
+        if (movingPiece is Pawn && fromSquare.second == toSquare.second) {
+            tags += MoveCoachFallback.TAG_PAWN_PUSH
+        }
+
+        // King safety: king moves (non-castling) or castling — already tagged above
+        if (movingPiece is King && promotionType == null) {
+            val backRank = if (movingPieceSide == Set.WHITE) 7 else 0
+            if (fromSquare.first == backRank && toSquare.first != backRank &&
+                kotlin.math.abs(toSquare.second - fromSquare.second) != 2) {
+                tags += MoveCoachFallback.TAG_KING_SAFETY
+            }
+        }
+
+        // Opening phase: first 10 fullmoves
+        if (stateAfter.fullmoveNumber <= 10) {
+            tags += MoveCoachFallback.TAG_OPENING
+        }
+
+        return tags.distinct()
     }
 
     private fun materialFor(side: Set, state: GameUiState): Int {

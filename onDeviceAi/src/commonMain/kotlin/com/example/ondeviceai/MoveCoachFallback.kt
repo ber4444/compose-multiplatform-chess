@@ -21,12 +21,24 @@ object MoveCoachFallback {
         val reason = when {
             tags.contains(TAG_HANGS_PIECE) -> "It does not leave anything en prise."
             tags.contains(TAG_DEFENDS) -> "It defends a piece."
-            tags.contains(TAG_MATERIAL_SWING) -> "It improves the material balance."
-            tags.contains(TAG_THREATENS) -> "It creates a threat."
+            tags.contains(TAG_MATERIAL_SWING) -> "It wins material."
+            tags.contains(TAG_RECAPTURE) -> "It recaptures, restoring material balance."
+            tags.contains(TAG_THREATENS) -> "It creates a concrete threat."
+            tags.contains(TAG_CENTER_CONTROL) -> "It fights for the center."
+            tags.contains(TAG_DEVELOPS) -> "It develops a piece to an active square."
+            tags.contains(TAG_KING_SAFETY) -> "It improves king safety."
+            tags.contains(TAG_CASTLE_KS) -> "It castles kingside, tucking the king to safety."
+            tags.contains(TAG_CASTLE_QS) -> "It castles queenside, tucking the king to safety."
+            tags.contains(TAG_PAWN_PUSH) -> "It gains space and opens lines."
             else -> {
                 val eval = request.evaluationAfterCp ?: request.evaluationBeforeCp
-                if (eval != null) "It keeps the engine evaluation at ${formatCp(eval)}."
-                else "It is the engine's strongest continuation."
+                if (eval != null) {
+                    val who = if (eval > 50) "White" else if (eval < -50) "Black" else "Neither side"
+                    if (kotlin.math.abs(eval) > 50) "$who is measurably better after this move."
+                    else "The position stays roughly balanced."
+                } else {
+                    "It is the engine's top choice for this position."
+                }
             }
         }
 
@@ -48,4 +60,10 @@ object MoveCoachFallback {
     const val TAG_HANGS_PIECE = "no-hanging-piece"
     const val TAG_DEFENDS = "defends"
     const val TAG_THREATENS = "threatens"
+    const val TAG_DEVELOPS = "develops"
+    const val TAG_CENTER_CONTROL = "center-control"
+    const val TAG_KING_SAFETY = "king-safety"
+    const val TAG_PAWN_PUSH = "pawn-push"
+    const val TAG_RECAPTURE = "recapture"
+    const val TAG_OPENING = "opening"
 }

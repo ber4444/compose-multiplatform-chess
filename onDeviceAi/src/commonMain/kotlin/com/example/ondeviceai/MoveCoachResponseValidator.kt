@@ -39,9 +39,23 @@ object MoveCoachResponseValidator {
         FORBIDDEN_PHRASES.firstOrNull { lower.contains(it) }?.let { phrase ->
             return Result.Invalid("forbidden phrase: $phrase")
         }
+        // Grounding check: accept if the response mentions the move (UCI squares,
+        // display text) OR contains chess-relevant vocabulary (piece names,
+        // tactical terms). This is permissive enough to let natural-language
+        // explanations through ("Develops the knight toward the center") while
+        // still rejecting completely irrelevant output.
         val tokens = groundingTokens(request)
-        if (tokens.isNotEmpty() && tokens.none { lower.contains(it) }) {
-            return Result.Invalid("response does not mention the move")
+        val chessVocab = listOf(
+            "knight", "bishop", "rook", "queen", "king", "pawn",
+            "develop", "center", "centre", "attack", "defend", "defends",
+            "control", "threat", "pressure", "castle", "promot",
+            "capture", "check", "space", "square", "file", "rank",
+            "pin", "fork", "skewer", "battery", "open", "block",
+        )
+        val mentionsMove = tokens.any { lower.contains(it) }
+        val mentionsChess = chessVocab.any { lower.contains(it) }
+        if (!mentionsMove && !mentionsChess) {
+            return Result.Invalid("response is not grounded in the move or chess vocabulary")
         }
         return Result.Valid(text)
     }

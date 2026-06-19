@@ -64,7 +64,7 @@ class MoveCoachFallbackTest {
     @Test
     fun `material swing tag drives reason`() {
         val text = MoveCoachFallback.build(req(listOf(MoveCoachFallback.TAG_MATERIAL_SWING)))
-        assertTrue(text.contains("material balance"), message = text)
+        assertTrue(text.contains("wins material"), message = text)
     }
 
     @Test
@@ -76,7 +76,8 @@ class MoveCoachFallbackTest {
     @Test
     fun `eval-based reason when no tactical tags`() {
         val text = MoveCoachFallback.build(req(emptyList()))
-        assertTrue(text.contains("0.3"), message = text)
+        // With eval 30 cp, should mention something about the balance
+        assertTrue(text.contains("balanced") || text.contains("better") || text.contains("top choice"), message = text)
     }
 
     @Test

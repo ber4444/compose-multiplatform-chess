@@ -3,10 +3,14 @@ package com.example.ondeviceai
 object MoveCoachPromptBuilder {
 
     private val SYSTEM_PROMPT: String = buildString {
-        appendLine("You are a chess coach for a casual player.")
-        appendLine("Explain only the provided move.")
-        appendLine("Do not name openings, engine depth, or ratings unless they are present in the input.")
-        appendLine("Use at most 2 sentences. Do not invent facts.")
+        appendLine("You are a chess coach explaining a single move to a casual player.")
+        appendLine("Say WHY the move is good in 1-2 short sentences.")
+        appendLine("Be specific: mention the piece, the square, and what it does (attacks, defends, controls, develops).")
+        appendLine("Do not mention openings by name, engine depth, or ratings.")
+        appendLine()
+        appendLine("Good: \"Nf3 develops the knight and controls the central e5/d4 squares.\"")
+        appendLine("Good: \"Bb5 pins the knight to the king and prepares to win material on the next move.\"")
+        appendLine("Bad: \"This is a good move that improves the position.\"")
     }
 
     fun build(request: MoveCoachRequest): AiGenerationRequest =
@@ -14,7 +18,7 @@ object MoveCoachPromptBuilder {
             systemPrompt = SYSTEM_PROMPT,
             userPrompt = userPrompt(request),
             maxOutputTokens = MAX_OUTPUT_TOKENS_STRICT,
-            temperature = 0.2,
+            temperature = 0.3,
         )
 
     fun buildRetry(request: MoveCoachRequest, previousOutput: String): AiGenerationRequest =
@@ -23,28 +27,90 @@ object MoveCoachPromptBuilder {
             userPrompt = buildString {
                 appendLine(userPrompt(request))
                 appendLine()
-                appendLine("A previous attempt was rejected for ungrounded or too-long output:")
-                appendLine("\"${summarize(previousOutput)}\"")
-                appendLine("Reply with at most 2 sentences and mention only the provided move. No opening names. No engine depth.")
+                appendLine("Your previous answer was rejected. Reply with exactly 1-2 sentences naming the piece and what it does.")
             },
             maxOutputTokens = MAX_OUTPUT_TOKENS_STRICT,
             temperature = 0.0,
         )
 
     internal fun userPrompt(request: MoveCoachRequest): String = buildString {
-        appendLine("Position FEN: ${request.fenBefore}")
-        appendLine("Best move: ${request.bestMoveDisplay} (${request.bestMoveUci})")
-        appendLine("Side to move: ${request.sideToMove}")
-        appendLine("Evaluation before: ${request.evaluationBeforeCp ?: "n/a"}")
-        appendLine("Evaluation after: ${request.evaluationAfterCp ?: "n/a"}")
-        appendLine("Tags: ${if (request.deterministicTags.isEmpty()) "none" else request.deterministicTags.joinToString(", ")}")
+        appendLine("Move: ${describeMove(request)}")
+        appendLine("Key points: ${describeTags(request.deterministicTags)}")
+        if (request.evaluationBeforeCp != null || request.evaluationAfterCp != null) {
+            appendLine("Evaluation: ${request.evaluationBeforeCp ?: "?"} → ${request.evaluationAfterCp ?: "?"} cp")
+        }
+        appendLine()
+        append("Explain this move in 1-2 sentences:")
     }
 
-    private fun summarize(text: String): String =
-        if (text.length <= PREVIOUS_OUTPUT_PREVIEW_CHARS) text
-        else text.take(PREVIOUS_OUTPUT_PREVIEW_CHARS) + "…"
+    /**
+     * Human-readable move description from UCI + display text.
+     * "g1f3" + "Nf3" → "Knight g1→f3"
+     * "e2e4" + "e4" → "Pawn e2→e4"
+     */
+    private fun describeMove(request: MoveCoachRequest): String {
+        val display = request.bestMoveDisplay.trim()
+        val uci = request.bestMoveUci.lowercase()
 
-    const val MAX_OUTPUT_TOKENS_STRICT = 120
-    const val MAX_OUTPUT_CHARS = 360
-    private const val PREVIOUS_OUTPUT_PREVIEW_CHARS = 80
+        // Castling
+        if (display == "O-O" || display == "0-0") return "Castles kingside"
+        if (display == "O-O-O" || display == "0-0-0") return "Castles queenside"
+
+        // Piece type from display letter
+        val pieceName = when {
+            display.isEmpty() -> "Piece"
+            display.first().isUpperCase() -> when (display.first()) {
+                'N' -> "Knight"
+                'B' -> "Bishop"
+                'R' -> "Rook"
+                'Q' -> "Queen"
+                'K' -> "King"
+                else -> "Piece"
+            }
+            else -> "Pawn"
+        }
+
+        // From/to from UCI
+        if (uci.length >= 4) {
+            val from = uci.substring(0, 2)
+            val to = uci.substring(2, 4)
+            val promo = if (display.contains("=")) {
+                " (promoting to ${display.substringAfter("=")})"
+            } else ""
+            return "$pieceName $from→$to$promo"
+        }
+        return display.ifBlank { uci }
+    }
+
+    /**
+     * Translate tag codes into natural-language hints the model can use.
+     */
+    private fun describeTags(tags: List<String>): String {
+        if (tags.isEmpty()) return "engine's top choice for this position"
+        val parts = mutableListOf<String>()
+        for (tag in tags) {
+            parts += when (tag) {
+                MoveCoachFallback.TAG_CAPTURE -> "captures an enemy piece"
+                MoveCoachFallback.TAG_CHECK -> "gives check"
+                MoveCoachFallback.TAG_CHECKMATE -> "delivers checkmate"
+                MoveCoachFallback.TAG_CASTLE_KS -> "castles kingside"
+                MoveCoachFallback.TAG_CASTLE_QS -> "castles queenside"
+                MoveCoachFallback.TAG_PROMOTION -> "promotes a pawn"
+                MoveCoachFallback.TAG_MATERIAL_SWING -> "wins material"
+                MoveCoachFallback.TAG_DEFENDS -> "defends a piece"
+                MoveCoachFallback.TAG_THREATENS -> "creates a threat"
+                MoveCoachFallback.TAG_DEVELOPS -> "develops a piece"
+                MoveCoachFallback.TAG_CENTER_CONTROL -> "controls the center"
+                MoveCoachFallback.TAG_KING_SAFETY -> "improves king safety"
+                MoveCoachFallback.TAG_PAWN_PUSH -> "gains space"
+                MoveCoachFallback.TAG_RECAPTURE -> "recaptures"
+                MoveCoachFallback.TAG_OPENING -> "opening-phase move"
+                else -> tag
+            }
+        }
+        return parts.joinToString(", ")
+    }
+
+    const val MAX_OUTPUT_TOKENS_STRICT = 100
+    const val MAX_OUTPUT_CHARS = 300
 }

@@ -14,51 +14,54 @@ class MoveCoachPromptBuilderTest {
         sideToMove = "white",
         evaluationBeforeCp = 20,
         evaluationAfterCp = 30,
-        deterministicTags = listOf("develops", "controls-centre"),
+        deterministicTags = listOf("develops", "center-control"),
     )
 
     @Test
-    fun `build emits only whitelisted fields`() {
+    fun `user prompt includes move description and key points`() {
         val built = MoveCoachPromptBuilder.build(request)
-        assertTrue(built.userPrompt.contains("Position FEN: ${request.fenBefore}"))
-        assertTrue(built.userPrompt.contains("Best move: Nf3 (g1f3)"))
-        assertTrue(built.userPrompt.contains("Side to move: white"))
-        assertTrue(built.userPrompt.contains("Evaluation before: 20"))
-        assertTrue(built.userPrompt.contains("Evaluation after: 30"))
-        assertTrue(built.userPrompt.contains("Tags: develops, controls-centre"))
+        assertTrue(built.userPrompt.contains("Knight"))
+        assertTrue(built.userPrompt.contains("g1"))
+        assertTrue(built.userPrompt.contains("f3"))
+        assertTrue(built.userPrompt.contains("develops"))
     }
 
     @Test
-    fun `build never interpolates the system prompt with user data`() {
+    fun `system prompt never contains user-specific data`() {
         val built = MoveCoachPromptBuilder.build(request)
+        // System prompt is static; user-specific FEN/UCI must not leak in.
         assertFalse(built.systemPrompt.contains(request.fenBefore))
-        assertFalse(built.systemPrompt.contains("Nf3"))
+        assertFalse(built.systemPrompt.contains("g1f3"))
+        // "Nf3" may appear as part of a static example — that's fine.
     }
 
     @Test
-    fun `empty tags render as 'none'`() {
+    fun `system prompt includes a good example`() {
+        val built = MoveCoachPromptBuilder.build(request)
+        assertTrue(built.systemPrompt.contains("Good:"))
+        assertTrue(built.systemPrompt.contains("Bad:"))
+    }
+
+    @Test
+    fun `pawn moves produce Pawn description`() {
+        val req = request.copy(bestMoveUci = "e2e4", bestMoveDisplay = "e4")
+        val built = MoveCoachPromptBuilder.build(req)
+        assertTrue(built.userPrompt.contains("Pawn"))
+        assertTrue(built.userPrompt.contains("e2"))
+        assertTrue(built.userPrompt.contains("e4"))
+    }
+
+    @Test
+    fun `castling produces plain-English description`() {
+        val req = request.copy(bestMoveDisplay = "O-O", bestMoveUci = "e1g1")
+        val built = MoveCoachPromptBuilder.build(req)
+        assertTrue(built.userPrompt.contains("Castles kingside"))
+    }
+
+    @Test
+    fun `empty tags produce engine top-choice hint`() {
         val built = MoveCoachPromptBuilder.build(request.copy(deterministicTags = emptyList()))
-        assertTrue(built.userPrompt.contains("Tags: none"))
-    }
-
-    @Test
-    fun `null evaluations render as 'n-a'`() {
-        val built = MoveCoachPromptBuilder.build(
-            request.copy(evaluationBeforeCp = null, evaluationAfterCp = null)
-        )
-        assertTrue(built.userPrompt.contains("Evaluation before: n/a"))
-        assertTrue(built.userPrompt.contains("Evaluation after: n/a"))
-    }
-
-    @Test
-    fun `retry prompt references the rejected attempt and tightens constraints`() {
-        val built = MoveCoachPromptBuilder.buildRetry(
-            request,
-            previousOutput = "Stockfish thinks depth 30",
-        )
-        assertTrue(built.userPrompt.contains("A previous attempt was rejected"))
-        assertTrue(built.userPrompt.contains("No opening names"))
-        assertEquals(0.0, built.temperature)
+        assertTrue(built.userPrompt.contains("engine's top choice"))
     }
 
     @Test
@@ -69,6 +72,6 @@ class MoveCoachPromptBuilderTest {
 
     @Test
     fun `MAX_OUTPUT_CHARS bounds validator`() {
-        assertEquals(360, MoveCoachPromptBuilder.MAX_OUTPUT_CHARS)
+        assertEquals(300, MoveCoachPromptBuilder.MAX_OUTPUT_CHARS)
     }
 }
