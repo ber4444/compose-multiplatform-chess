@@ -138,6 +138,7 @@ class LiteRtLmTextGenerator(
         // Intentionally not closing engine or conversation pool.
     }
 
+    @Synchronized
     private fun ensureEngineInitialized() {
         if (engine != null || initializationFailed != null || isClosed) return
         val config = EngineConfig(

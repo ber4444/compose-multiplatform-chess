@@ -105,19 +105,38 @@ class MainActivity : ComponentActivity() {
                         cacheDir = cacheDir.absolutePath,
                     )
                 )
+
+                // Pre-initialize the LiteRT-LM engine BEFORE attaching the
+                // orchestrator. Engine.initialize() loads the 557 MB model and
+                // takes 10-30s on a phone; if this happens lazily inside the
+                // first coached move's status() call, the UI shows "Coach is
+                // thinking…" for that entire window, and subsequent move
+                // cancellations leave the engine in a partially-initialized
+                // state. Pre-init ensures the engine is warm by the time the
+                // first coached move fires.
+                holder.gameViewModel.setCoachModelState(
+                    com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
+                        message = "Starting Gemma engine (loading 557 MB model)…"
+                    )
+                )
+                val factory = defaultOnDeviceTextGeneratorFactory()
+                val generator = factory.create()
+                runCatching { generator?.warmup() }
+
                 // attachCoachOrchestrator resets the state to Hidden; the next
                 // coached move will set Loading(move) → Ready/Fallback/Error.
-                val orchestrator = DefaultAiCoachOrchestrator(
-                    factory = defaultOnDeviceTextGeneratorFactory(),
-                    contextProvider = {
-                        com.example.ondeviceai.AiContextSnapshot(
-                            isDeviceModelAvailable = true,
-                            isAppForegrounded = holder.isForeground,
-                            userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
-                        )
-                    },
+                holder.gameViewModel.attachCoachOrchestrator(
+                    DefaultAiCoachOrchestrator(
+                        factory = factory,
+                        contextProvider = {
+                            com.example.ondeviceai.AiContextSnapshot(
+                                isDeviceModelAvailable = true,
+                                isAppForegrounded = holder.isForeground,
+                                userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
+                            )
+                        },
+                    )
                 )
-                holder.gameViewModel.attachCoachOrchestrator(orchestrator)
             } else {
                 // Genuinely missing — surface Unavailable with an actionable hint
                 // so the user knows the coach isn't coming and the panel will show
