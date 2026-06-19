@@ -56,10 +56,25 @@ kotlin {
     }
 
     iosArm64 {
-        binaries.framework { baseName = "ChessApp"; isStatic = true }
+        binaries.framework {
+            baseName = "ChessApp"
+            isStatic = true
+            // Export :onDeviceAi into the ChessApp framework rather than linking
+            // it as a separate iOS framework. Each KMP framework embeds the
+            // Kotlin/Native runtime; two frameworks in the same binary triggers
+            // "runtime injected twice" (KT-42254). Exporting bundles :onDeviceAi's
+            // classes + runtime into ChessApp so the iOS app links exactly one
+            // Kotlin framework. Swift accesses onDeviceAi symbols via
+            // `import ChessApp` — no `import OnDeviceAi` needed.
+            export(project(":onDeviceAi"))
+        }
     }
     iosSimulatorArm64 {
-        binaries.framework { baseName = "ChessApp"; isStatic = true }
+        binaries.framework {
+            baseName = "ChessApp"
+            isStatic = true
+            export(project(":onDeviceAi"))
+        }
         // KGP's default simulator device often doesn't exist on current Xcode images.
         testRuns.configureEach {
             deviceId = providers.gradleProperty("iosSimulatorDeviceId").getOrElse("iPhone 17")

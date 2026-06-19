@@ -27,8 +27,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.myapplication
-        FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME) $(SRCROOT)/../onDeviceAi/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
-        OTHER_LDFLAGS: "$(inherited) -framework ChessApp -framework OnDeviceAi"
+        # Only ChessApp is linked directly; OnDeviceAi is exported into ChessApp
+        # via `export(project(":onDeviceAi"))` in app/build.gradle.kts to avoid
+        # KT-42254 (duplicate Kotlin/Native runtime injection).
+        FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
+        OTHER_LDFLAGS: "$(inherited) -framework ChessApp"
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
     preBuildScripts:
@@ -38,7 +41,6 @@ targets:
           if [ -z "${JAVA_HOME:-}" ]; then export JAVA_HOME=$(/usr/libexec/java_home 2>/dev/null || true); fi
           cd "$SRCROOT/.."
           ./gradlew :app:embedAndSignAppleFrameworkForXcode
-          ./gradlew :onDeviceAi:embedAndSignAppleFrameworkForXcode
   iosAppTests:
     type: bundle.unit-test
     platform: iOS

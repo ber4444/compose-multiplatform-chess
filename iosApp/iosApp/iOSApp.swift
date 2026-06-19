@@ -1,6 +1,7 @@
 import SwiftUI
-import ChessApp
-import OnDeviceAi
+import ChessApp  // OnDeviceAi symbols are re-exported into ChessApp via
+                 // `export(project(":onDeviceAi"))` in app/build.gradle.kts
+                 // (KT-42254: single Kotlin/Native runtime in the binary).
 
 @main
 struct iOSApp: App {

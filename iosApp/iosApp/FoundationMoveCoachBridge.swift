@@ -1,7 +1,10 @@
 import Foundation
-import ChessApp  // Kotlin framework (FoundationModelsBridge's host module — uses GameUiState, etc.)
-import OnDeviceAi  // Kotlin framework exporting FoundationModelsBridge, AiAvailability,
-                   // createFoundationModelsTextGenerator, registerFoundationModelsProvider
+import ChessApp  // Kotlin framework — includes both :app classes and the
+                 // exported :onDeviceAi classes (FoundationModelsBridge,
+                 // AiAvailability, createFoundationModelsTextGenerator,
+                 // registerFoundationModelsProvider) folded in via
+                 // `export(project(":onDeviceAi"))` in app/build.gradle.kts.
+                 // Single framework = single Kotlin/Native runtime (KT-42254).
 
 /// Adopts the Kotlin `FoundationModelsBridge` protocol so the common Kotlin
 /// orchestrator can drive Foundation Models without ever touching Swift types.
