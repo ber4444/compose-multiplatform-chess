@@ -52,6 +52,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
@@ -88,6 +90,42 @@ import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.roundToInt
+
+internal val THREE_D_CONTROL_CONTAINER_COLOR = Color.Transparent
+internal val THREE_D_CONTROL_CONTENT_COLOR = Color.Black
+internal val THREE_D_CONTROL_ACCENT_COLOR = Color.LightGray.copy(alpha = 0.70f)
+internal val THREE_D_CONTROL_DISABLED_CONTENT_COLOR = Color.Black.copy(alpha = 0.38f)
+internal val THREE_D_CONTROL_DISABLED_ACCENT_COLOR = Color.LightGray.copy(alpha = 0.38f)
+
+@Composable
+private fun TransparentUnderlineButton(
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit,
+) {
+    val underlineColor = if (enabled) THREE_D_CONTROL_ACCENT_COLOR else THREE_D_CONTROL_DISABLED_ACCENT_COLOR
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = THREE_D_CONTROL_CONTAINER_COLOR,
+            contentColor = THREE_D_CONTROL_CONTENT_COLOR,
+            disabledContainerColor = THREE_D_CONTROL_CONTAINER_COLOR,
+            disabledContentColor = THREE_D_CONTROL_DISABLED_CONTENT_COLOR,
+        ),
+        modifier = modifier.drawBehind {
+            val strokeWidth = 1.dp.toPx()
+            drawLine(
+                color = underlineColor,
+                start = Offset(0f, size.height - strokeWidth / 2f),
+                end = Offset(size.width, size.height - strokeWidth / 2f),
+                strokeWidth = strokeWidth,
+            )
+        },
+        content = content,
+    )
+}
 
 @Composable
 fun GameScreen(
@@ -283,7 +321,7 @@ fun GameScreen(
             ) {
                 Text(
                     text = stringResource(Res.string.board_3d_toggle_label),
-                    color = Color.White,
+                    color = THREE_D_CONTROL_CONTENT_COLOR,
                     style = MaterialTheme.typography.labelLarge
                 )
                 Spacer(modifier = Modifier.width(8.dp))
@@ -314,18 +352,18 @@ fun GameScreen(
                     },
                     enabled = !viewState.buttonLock && !isEntering3D && !isTearingDown3D,
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = Color.Gray.copy(alpha = 0.48f),
-                        checkedBorderColor = Color.White.copy(alpha = 0.22f),
-                        uncheckedThumbColor = Color.White,
-                        uncheckedTrackColor = Color.Gray.copy(alpha = 0.28f),
-                        uncheckedBorderColor = Color.White.copy(alpha = 0.32f),
-                        disabledCheckedThumbColor = Color.White.copy(alpha = 0.42f),
-                        disabledCheckedTrackColor = Color.Gray.copy(alpha = 0.22f),
-                        disabledCheckedBorderColor = Color.White.copy(alpha = 0.16f),
-                        disabledUncheckedThumbColor = Color.White.copy(alpha = 0.32f),
-                        disabledUncheckedTrackColor = Color.Gray.copy(alpha = 0.14f),
-                        disabledUncheckedBorderColor = Color.White.copy(alpha = 0.16f)
+                        checkedThumbColor = THREE_D_CONTROL_CONTENT_COLOR,
+                        checkedTrackColor = THREE_D_CONTROL_CONTAINER_COLOR,
+                        checkedBorderColor = THREE_D_CONTROL_ACCENT_COLOR,
+                        uncheckedThumbColor = THREE_D_CONTROL_CONTENT_COLOR,
+                        uncheckedTrackColor = THREE_D_CONTROL_CONTAINER_COLOR,
+                        uncheckedBorderColor = THREE_D_CONTROL_ACCENT_COLOR,
+                        disabledCheckedThumbColor = THREE_D_CONTROL_DISABLED_CONTENT_COLOR,
+                        disabledCheckedTrackColor = THREE_D_CONTROL_CONTAINER_COLOR,
+                        disabledCheckedBorderColor = THREE_D_CONTROL_DISABLED_ACCENT_COLOR,
+                        disabledUncheckedThumbColor = THREE_D_CONTROL_DISABLED_CONTENT_COLOR,
+                        disabledUncheckedTrackColor = THREE_D_CONTROL_CONTAINER_COLOR,
+                        disabledUncheckedBorderColor = THREE_D_CONTROL_DISABLED_ACCENT_COLOR,
                     ),
                     modifier = Modifier.testTag("board_3d_toggle")
                 )
@@ -356,29 +394,25 @@ private fun GameControls(
         }
 
         Row {
-            val buttonColors = if (transparentButtons) {
-                ButtonDefaults.buttonColors(
-                    containerColor = Color.Transparent,
-                    contentColor = Color.White,
-                    disabledContainerColor = Color.Transparent,
-                    disabledContentColor = Color.White.copy(alpha = 0.38f)
-                )
+            if (transparentButtons) {
+                TransparentUnderlineButton(onClick = viewModel::resetGame) {
+                    Text(stringResource(Res.string.reset_button))
+                }
+                TransparentUnderlineButton(
+                    onClick = viewModel::requestDrawOffer,
+                    enabled = canOfferDraw(gameState) && animState.pieceToAnimate == null,
+                    modifier = Modifier.testTag("offer_draw_button")
+                ) { Text(stringResource(Res.string.offer_draw_button)) }
             } else {
-                ButtonDefaults.buttonColors()
+                Button(onClick = viewModel::resetGame) {
+                    Text(stringResource(Res.string.reset_button))
+                }
+                Button(
+                    onClick = viewModel::requestDrawOffer,
+                    enabled = canOfferDraw(gameState) && animState.pieceToAnimate == null,
+                    modifier = Modifier.testTag("offer_draw_button")
+                ) { Text(stringResource(Res.string.offer_draw_button)) }
             }
-
-            Button(
-                onClick = viewModel::resetGame,
-                colors = buttonColors
-            ) {
-                Text(stringResource(Res.string.reset_button))
-            }
-            Button(
-                onClick = viewModel::requestDrawOffer,
-                enabled = canOfferDraw(gameState) && animState.pieceToAnimate == null,
-                colors = buttonColors,
-                modifier = Modifier.testTag("offer_draw_button")
-            ) { Text(stringResource(Res.string.offer_draw_button)) }
         }
 
         if (gameState.drawOfferDeclinedBy == Set.BLACK) {
