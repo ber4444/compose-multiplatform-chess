@@ -323,17 +323,33 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             val ds = textures[tex]?.descriptorSet ?: continue
             // Push per-material scalar factors (baseColorFactor + metallicFactor + roughnessFactor)
             // that modulate the albedo and MR textures in the fragment shader.
-            val matPush = stack.malloc(32)
+            val isPiece = tex == ChessTexture.WHITE || tex == ChessTexture.BLACK
+            // De-band: the piece albedo + MR textures bake very high-contrast horizontal wood grain,
+            // so on the lathe-turned geometry the pieces read as harsh rings. For pieces, soften the
+            // albedo grain toward the per-material mean wood colour and flatten roughness so the
+            // surface has an even sheen instead of alternating glossy/matte stripes. Board keeps its
+            // textured albedo/roughness. Mean wood colours measured from the glb whites/blacks albedo.
+            val meanR: Float; val meanG: Float; val meanB: Float
+            when (tex) {
+                ChessTexture.WHITE -> { meanR = 0.427f; meanG = 0.361f; meanB = 0.263f }
+                ChessTexture.BLACK -> { meanR = 0.176f; meanG = 0.114f; meanB = 0.075f }
+                else -> { meanR = 1f; meanG = 1f; meanB = 1f }
+            }
+            val grainStrength = if (isPiece) 0.5f else 1f       // keep 50% of the grain on pieces
+            val roughnessOverride = if (isPiece) 0.4f else 0f   // >0 = flat roughness; 0 = use texture
+            // Part A.2: per-material roughness scale at offset 24. Pieces glossier; board stays 1.0.
+            val roughScale = if (isPiece) 0.8f else 1.0f
+            val matPush = stack.malloc(48)
             matPush.putFloat(0, matSet.baseColorFactor.getOrElse(0) { 1f })
             matPush.putFloat(4, matSet.baseColorFactor.getOrElse(1) { 1f })
             matPush.putFloat(8, matSet.baseColorFactor.getOrElse(2) { 1f })
             matPush.putFloat(12, matSet.baseColorFactor.getOrElse(3) { 1f })
             matPush.putFloat(16, matSet.metallicFactor)
             matPush.putFloat(20, matSet.roughnessFactor)
-            // Part A.2: per-material roughness scale at the free pad slot (offset 24). Pieces get a
-            // tighter roughness (glossier, polished "wet" look); the marble board/frame stay at 1.0.
-            val roughScale = if (tex == ChessTexture.WHITE || tex == ChessTexture.BLACK) 0.8f else 1.0f
-            matPush.putFloat(24, roughScale); matPush.putFloat(28, 0f)
+            matPush.putFloat(24, roughScale)
+            matPush.putFloat(28, grainStrength)
+            matPush.putFloat(32, meanR); matPush.putFloat(36, meanG); matPush.putFloat(40, meanB)
+            matPush.putFloat(44, roughnessOverride)
             vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, matPush)
             vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, stack.longs(ds), null)
             // Bind both vertex buffers (binding 0 = pos/normal/uv/tint, binding 1 = tangents).
@@ -1124,7 +1140,7 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
 
         // Push constants: vec4 baseColorFactor (16B) + float metallicFactor + float roughnessFactor
         // + vec2 pad (16B) = 32 bytes per draw. Set per-material-group in recordCommandBuffer.
-        val matPushRange = VkPushConstantRange.calloc(1, stack).stageFlags(VK_SHADER_STAGE_FRAGMENT_BIT).offset(0).size(32)
+        val matPushRange = VkPushConstantRange.calloc(1, stack).stageFlags(VK_SHADER_STAGE_FRAGMENT_BIT).offset(0).size(48)
         val layoutInfo = VkPipelineLayoutCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO).pSetLayouts(stack.longs(descriptorSetLayout)).pPushConstantRanges(matPushRange)
         val pLayout = stack.mallocLong(1)
         check(vkCreatePipelineLayout(device, layoutInfo, null, pLayout) == VK_SUCCESS); pipelineLayout = pLayout.get(0)
@@ -1819,8 +1835,12 @@ layout(push_constant) uniform MaterialParams {
     vec4 baseColorFactor;
     float metallicFactor;
     float roughnessFactor;
-    float roughnessScale;   // Part A.2: per-material roughness multiplier (offset 24, was pad.x)
-    float pad;
+    float roughnessScale;     // 24: Part A.2 per-material roughness multiplier
+    float grainStrength;      // 28: de-band — 1 keeps full albedo grain; <1 pulls toward grainMean
+    float grainMeanR;         // 32
+    float grainMeanG;         // 36
+    float grainMeanB;         // 40: per-material mean wood colour (sRGB) the grain collapses toward
+    float roughnessOverride;  // 44: de-band — >0 uses this constant roughness instead of striped mr.g
 } mat;
 layout(location = 0) out vec4 outColor;
 
@@ -1914,13 +1934,22 @@ vec3 prefilteredReflection(vec3 R, float roughness) {
 void main() {
     // glTF spec: baseColor = factor × texture; sRGB→linear conversion of the albedo sample.
     vec4 albedoTex = texture(tex, vUv);
-    vec3 albedo = pow(albedoTex.rgb, vec3(2.2)) * mat.baseColorFactor.rgb * vTint;
+    vec3 albedoLin = pow(albedoTex.rgb, vec3(2.2));
+    // De-band: pull the (heavily striped) piece albedo toward the per-material mean wood colour so
+    // the baked grain reads as subtle texture, not hard rings. grainStrength == 1 is a no-op (board).
+    vec3 grainMeanLin = pow(vec3(mat.grainMeanR, mat.grainMeanG, mat.grainMeanB), vec3(2.2));
+    albedoLin = mix(grainMeanLin, albedoLin, mat.grainStrength);
+    vec3 albedo = albedoLin * mat.baseColorFactor.rgb * vTint;
 
     // glTF spec: metallic = factor × tex.b; roughness = factor × tex.g × per-material scale (Part A.2),
     // clamped to avoid mirror-sharp. Piece MR has B pinned to 255 so metallic stays 0 for pieces.
     vec3 mr = texture(mrTex, vUv).rgb;
     float metallic = mat.metallicFactor * mr.b;
-    float roughness = clamp(mat.roughnessFactor * mr.g * mat.roughnessScale, 0.04, 1.0);
+    // De-band: mr.g (roughness) is also striped, which alternates glossy/matte rings — the gloss boost
+    // amplified them. Pieces use a flat roughnessOverride for an even sheen; board keeps its texture.
+    float roughness = mat.roughnessOverride > 0.0
+        ? mat.roughnessOverride
+        : clamp(mat.roughnessFactor * mr.g * mat.roughnessScale, 0.04, 1.0);
 
     // Apply tangent-space normal map (cracks/wear in the marble) to the geometric normal.
     vec3 N = normalize(perturbNormal(normalize(vNormal), vUv));
