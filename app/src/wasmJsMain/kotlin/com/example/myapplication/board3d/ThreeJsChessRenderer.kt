@@ -213,9 +213,12 @@ const PIECE_SCALE = 0.5
 // detail — the main web regression was MSAA-only softness); SS_CAP bounds the fill-rate cost.
 const SS = 1.5            // render-buffer supersample factor (sharpness)
 const SS_CAP = 2.5        // hard cap on the effective pixel ratio
-const BLOOM_STRENGTH = 0.25
-const BLOOM_RADIUS = 0.4
-const BLOOM_THRESHOLD = 0.85
+// Bloom tuned to match Android's punchier warm halo: lower threshold so sunlit areas + specular
+// hotspots bloom, higher strength + wider radius for the dramatic "blown-out window" feel. The
+// papermill sun is warm, so its bloom reads warm without a separate tint.
+const BLOOM_STRENGTH = 0.7
+const BLOOM_RADIUS = 0.5
+const BLOOM_THRESHOLD = 0.6
 let composer, bloomPass, smaaPass   // alongside `renderer, scene, camera`
 let usePost = false                 // set true once the composer builds; falls back to bare render
 // Glb node names that are piece templates (kept at origin as geometry sources) or stray helpers

@@ -25852,9 +25852,9 @@ void main() {
   var PIECE_SCALE = 0.5;
   var SS = 1.5;
   var SS_CAP = 2.5;
-  var BLOOM_STRENGTH = 0.25;
-  var BLOOM_RADIUS = 0.4;
-  var BLOOM_THRESHOLD = 0.85;
+  var BLOOM_STRENGTH = 0.7;
+  var BLOOM_RADIUS = 0.5;
+  var BLOOM_THRESHOLD = 0.6;
   var composer;
   var bloomPass;
   var smaaPass;
