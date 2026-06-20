@@ -72,8 +72,14 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     private var uboParamsBuffer = VK_NULL_HANDLE; private var uboParamsMem = VK_NULL_HANDLE
     private val lightDir = org.joml.Vector3f(0.35f, 1.4f, -0.3f).normalize()  // higher sun, slightly behind the board
     // Look tunables — vkChess's exposure for papermill HDR is in this range; HIGH_QUALITY_WEBGPU uses 5.0.
-    private val exposure = 4.0f
+    private val exposure = 4.3f   // Pass-2: was 4.0 — warmer, less flat (Part A.4)
     private val gamma = 2.2f
+    // Part A look tunables (Pass-2 parity). These are baked as GLSL literals in FRAG_GLSL (constants,
+    // not animated) — kept here as the documented source of the chosen numbers. Eyeball via
+    // DesktopRendererSmokeTest (app/build/chess3d-*.png).
+    private val iblSpecularScale = 0.85f   // was a hard-coded 0.5 in FRAG_GLSL; restores gloss + board reflections
+    private val aoStrength = 1.0f          // how strongly mrTex.r (glTF occlusion) darkens the IBL ambient term
+    private val contactStrength = 0.35f    // how much the shadow factor (sh) deepens ambient at piece/board contact
 
     private val colorFormat = VK_FORMAT_R8G8B8A8_UNORM
     private val depthFormat = VK_FORMAT_D32_SFLOAT
@@ -296,7 +302,10 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             matPush.putFloat(12, matSet.baseColorFactor.getOrElse(3) { 1f })
             matPush.putFloat(16, matSet.metallicFactor)
             matPush.putFloat(20, matSet.roughnessFactor)
-            matPush.putFloat(24, 0f); matPush.putFloat(28, 0f) // pad
+            // Part A.2: per-material roughness scale at the free pad slot (offset 24). Pieces get a
+            // tighter roughness (glossier, polished "wet" look); the marble board/frame stay at 1.0.
+            val roughScale = if (tex == ChessTexture.WHITE || tex == ChessTexture.BLACK) 0.8f else 1.0f
+            matPush.putFloat(24, roughScale); matPush.putFloat(28, 0f)
             vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, matPush)
             vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, stack.longs(ds), null)
             // Bind both vertex buffers (binding 0 = pos/normal/uv/tint, binding 1 = tangents).
@@ -1536,7 +1545,8 @@ layout(push_constant) uniform MaterialParams {
     vec4 baseColorFactor;
     float metallicFactor;
     float roughnessFactor;
-    vec2 pad;
+    float roughnessScale;   // Part A.2: per-material roughness multiplier (offset 24, was pad.x)
+    float pad;
 } mat;
 layout(location = 0) out vec4 outColor;
 
@@ -1632,10 +1642,11 @@ void main() {
     vec4 albedoTex = texture(tex, vUv);
     vec3 albedo = pow(albedoTex.rgb, vec3(2.2)) * mat.baseColorFactor.rgb * vTint;
 
-    // glTF spec: metallic = factor × tex.b; roughness = factor × tex.g (clamped to avoid mirror-sharp).
+    // glTF spec: metallic = factor × tex.b; roughness = factor × tex.g × per-material scale (Part A.2),
+    // clamped to avoid mirror-sharp. Piece MR has B pinned to 255 so metallic stays 0 for pieces.
     vec3 mr = texture(mrTex, vUv).rgb;
     float metallic = mat.metallicFactor * mr.b;
-    float roughness = clamp(mat.roughnessFactor * mr.g, 0.05, 1.0);
+    float roughness = clamp(mat.roughnessFactor * mr.g * mat.roughnessScale, 0.04, 1.0);
 
     // Apply tangent-space normal map (cracks/wear in the marble) to the geometric normal.
     vec3 N = normalize(perturbNormal(normalize(vNormal), vUv));
@@ -1662,13 +1673,21 @@ void main() {
     vec3 reflection = prefilteredReflection(R, roughness);
     vec2 brdf = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
     vec3 F = F_SchlickR(max(dot(N, V), 0.0), F0, roughness);
-    // Scale down the IBL specular reflection — the papermill env is very bright and the default
-    // 1.0 scale washes out the warm wood albedo with neutral-white env reflections.
-    vec3 specular = reflection * (F * brdf.x + brdf.y) * 0.5;
+    // Part A.1 / A.3: IBL specular scale 0.5 -> 0.85 (iblSpecularScale). Restores gloss on pieces and
+    // the subtle board reflection that the halved scale muted. (mr.r occlusion + contact grounding
+    // applied below stop the brighter ambient from washing pieces out.)
+    vec3 specular = reflection * (F * brdf.x + brdf.y) * 0.85;
 
     vec3 kD = 1.0 - F;
     kD *= 1.0 - metallic;
     vec3 ambient = kD * diffuse + specular;
+
+    // Part A.3: glTF occlusion (mr.r) darkens only the indirect/ambient term. Piece MR.r is ~flat so
+    // this mostly grounds the marble board/frame; it is a no-op where mr.r == 1, so it is safe globally.
+    float ao = mr.r;
+    ambient *= mix(1.0, ao, 1.0);                          // aoStrength = 1.0
+    // Part A.3: deepen contact shadow on the ambient fill so pieces sit on the board instead of floating.
+    ambient *= mix(1.0 - 0.35, 1.0, sh);                   // contactStrength = 0.35
 
     vec3 color = ambient + Lo;
 
