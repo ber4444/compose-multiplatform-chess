@@ -52,12 +52,12 @@ class WKWebViewChessRenderer : Chess3DBoardRenderer {
         val wkSurface = surface as? WkWebViewChess3DSurface ?: return
         webView = wkSurface.webView
 
-        // Load the host HTML from the app bundle via loadFileURL — the relative paths
-        // (./chess3d-bundle.js, ./chess.glb) resolve from the Resources directory.
-        val htmlPath = NSBundle.mainBundle.pathForResource("chess3d-host", "html") ?: return
-        val url = NSURL.fileURLWithPath(htmlPath)
-        val dir = url.URLByDeletingLastPathComponent!!
-        wkSurface.webView.loadFileURL(url, allowingReadAccessToURL = dir)
+        // Load the host HTML over the custom asset scheme (registered on the WKWebView config in
+        // IosBoard3D). The relative paths (./chess3d-bundle.js, ./chess.glb, ./papermill_*.hdr) then
+        // resolve to the same scheme and are served by BundleAssetSchemeHandler — three.js's
+        // loaders can XHR them, which a file:// origin blocks.
+        val url = NSURL.URLWithString(ASSET_HOST_URL) ?: return
+        wkSurface.webView.loadRequest(platform.Foundation.NSURLRequest(uRL = url))
 
         // Apply initial state after a delay (chess.glb load + three.js init takes ~2s).
         val initialFen = pendingFen
