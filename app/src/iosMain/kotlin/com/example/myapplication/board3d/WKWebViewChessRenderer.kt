@@ -7,8 +7,10 @@ import platform.WebKit.WKWebView
 import platform.WebKit.WKWebViewConfiguration
 import platform.darwin.NSObject
 import platform.CoreGraphics.CGRectMake
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -38,6 +40,13 @@ class WKWebViewChessRenderer : Chess3DBoardRenderer {
     private var camera: CameraParams = OrbitCameraController.DEFAULT_WHITE_VIEW
     private var selectedSquare: BoardSquare? = null
     private var isReady = false
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    // Move arc + selection bounce are computed in commonMain; each frame the interpolated scene is
+    // pushed to three.js as the encoded wire form (chess3d.setScene).
+    private val driver = Board3DAnimationDriver(scope) { scene ->
+        if (isReady) evalJs("chess3d.setScene('${scene.encode()}')")
+    }
 
     override fun attach(surface: Chess3DSurface) {
         val wkSurface = surface as? WkWebViewChess3DSurface ?: return
@@ -53,12 +62,12 @@ class WKWebViewChessRenderer : Chess3DBoardRenderer {
         // Apply initial state after a delay (chess.glb load + three.js init takes ~2s).
         val initialFen = pendingFen
         val initialCamera = camera
-        GlobalScope.launch(Dispatchers.Main) {
+        scope.launch {
             delay(2000)
             isReady = true
-            applyFen(initialFen)
+            driver.setPosition(runCatching { Board3DSceneMapper.fromFen(initialFen) }.getOrNull(), null)
             applyCamera(initialCamera)
-            applySelection()
+            driver.setSelected(selectedSquare)
         }
     }
 
@@ -67,14 +76,16 @@ class WKWebViewChessRenderer : Chess3DBoardRenderer {
         isReady = false
     }
 
-    override fun updatePosition(fen: String) {
+    override fun updatePosition(fen: String) = updatePosition(fen, null)
+
+    override fun updatePosition(fen: String, transition: Board3DTransition?) {
         pendingFen = fen
-        applyFen(fen)
+        driver.setPosition(runCatching { Board3DSceneMapper.fromFen(fen) }.getOrNull(), transition)
     }
 
     override fun setSelectedSquare(square: BoardSquare?) {
         selectedSquare = square
-        applySelection()
+        driver.setSelected(square)
     }
 
     override fun onUserInteraction(event: Board3DInput) {
@@ -92,16 +103,13 @@ class WKWebViewChessRenderer : Chess3DBoardRenderer {
     }
 
     override fun dispose() {
+        driver.cancel()
+        scope.cancel()
         evalJs("chess3d.dispose()")
         detach()
     }
 
     // --- JS bridge ---
-
-    private fun applyFen(fen: String) {
-        if (!isReady) return
-        evalJs("chess3d.setFEN('$fen')")
-    }
 
     private fun applyCamera(cam: CameraParams) {
         if (!isReady) return
@@ -109,16 +117,6 @@ class WKWebViewChessRenderer : Chess3DBoardRenderer {
             "${cam.target.x},${cam.target.y},${cam.target.z}," +
             "${cam.up.x},${cam.up.y},${cam.up.z}," +
             "${cam.fovYDegrees},${cam.aspect})")
-    }
-
-    private fun applySelection() {
-        if (!isReady) return
-        val sq = selectedSquare
-        if (sq != null) {
-            evalJs("chess3d.setSelectedSquare(${sq.row},${sq.col})")
-        } else {
-            evalJs("chess3d.setSelectedSquare(null)")
-        }
     }
 
     private fun applyResize(w: Int, h: Int) {

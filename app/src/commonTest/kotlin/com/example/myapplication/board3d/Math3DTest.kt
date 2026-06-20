@@ -33,6 +33,61 @@ class Math3DTest {
     }
 
     @Test
+    fun testCatmullRomArc() {
+        val start = Vec3(-3.5f, 0f, 3.5f)
+        val end = Vec3(0.5f, 0f, 0.5f)
+
+        // Endpoints are exact: t=0 -> start, t=1 -> end (piece lands on its square).
+        assertVec3Equals(start, catmullRomArc(start, end, 0f))
+        assertVec3Equals(end, catmullRomArc(start, end, 1f))
+
+        // Mid-flight the piece hops above the board: the vertical peak is liftHeight/8.
+        val mid = catmullRomArc(start, end, 0.5f)
+        assertFloatEquals(PIECE_MOVE_LIFT / 8f, mid.y)
+        if (mid.y <= 0f) throw AssertionError("expected an upward hop, got y=${mid.y}")
+
+        // Hop stays above the board for the whole flight and is symmetric about the midpoint.
+        for (i in 1..9) {
+            val t = i / 10f
+            if (catmullRomArc(start, end, t).y <= 0f) throw AssertionError("piece dipped below board at t=$t")
+        }
+        assertFloatEquals(catmullRomArc(start, end, 0.25f).y, catmullRomArc(start, end, 0.75f).y)
+    }
+
+    @Test
+    fun testSelectionBounce() {
+        // The bounce sits on the board at the start of each cycle and peaks at SELECTION_BOUNCE_HEIGHT.
+        assertFloatEquals(0f, selectionBounceOffset(0L))
+        assertFloatEquals(0f, selectionBounceOffset(SELECTION_BOUNCE_PERIOD_MS))
+        assertFloatEquals(SELECTION_BOUNCE_HEIGHT, selectionBounceOffset(SELECTION_BOUNCE_PERIOD_MS / 2))
+        // Never sinks below the board.
+        for (ms in 0L..SELECTION_BOUNCE_PERIOD_MS * 3 step 17L) {
+            if (selectionBounceOffset(ms) < 0f) throw AssertionError("bounce went below board at ${ms}ms")
+        }
+    }
+
+    @Test
+    fun testWithSelectionLift() {
+        val scene = Board3DSceneMapper.fromFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+        val e2 = BoardSquare(6, 4)
+        val baseY = scene.pieces.first { it.square == e2 }.position.y
+
+        // No square / no offset returns the same scene unchanged.
+        assertEquals(scene, scene.withSelectionLift(null, 0.2f))
+        assertEquals(scene, scene.withSelectionLift(e2, 0f))
+
+        val lifted = scene.withSelectionLift(e2, 0.3f)
+        assertFloatEquals(baseY + 0.3f, lifted.pieces.first { it.square == e2 }.position.y)
+        // Only the selected piece moves; every other piece keeps its y.
+        for (p in lifted.pieces) {
+            if (p.square != e2) {
+                val original = scene.pieces.first { it.square == p.square }
+                assertFloatEquals(original.position.y, p.position.y)
+            }
+        }
+    }
+
+    @Test
     fun testBoardGeometry() {
         val a1 = BoardSquare(7, 0)
         val a1Center = BoardGeometry.squareCenter(a1)

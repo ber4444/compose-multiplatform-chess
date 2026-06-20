@@ -17,15 +17,15 @@ class SceneGroup(val vertices: FloatArray, val indices: IntArray, val tangents: 
  * Builds world-space, textured geometry for a [Board3DScene], split into one [SceneGroup] per
  * [ChessTexture] (board marble, white wood, black wood) so each can bind its own sampler. Lighting
  * is done per-pixel in the shader; vertices carry world position + world normal + the model's UVs +
- * a tint multiplier (used to flush the selected square green). Rebuilt only when the FEN/selection
- * changes; camera moves don't touch this.
+ * a tint multiplier (frame stone-grey knock-down). Selection feedback is the piece bounce, not a
+ * coloured square, so the board tiles are never tinted. Rebuilt only when the FEN changes; camera
+ * moves don't touch this.
  */
 class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, SceneGroup>) {
     companion object {
         private const val FLOATS_PER_VERTEX = 11
         private const val BOARD_TILES = 4 // board3.jpg is a 4x4 marble-tile checkerboard
         private val NO_TINT = floatArrayOf(1f, 1f, 1f)
-        private val SELECT_TINT = floatArrayOf(0.45f, 1.7f, 0.55f)
         // The frame's light marble blows out to near-white under the bright env IBL; knock it down to
         // a mid stone grey so the rim reads as stone, not a white halo around the board.
         internal const val FRAME_TINT_VALUE = 0.27f
@@ -45,7 +45,7 @@ class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, Scene
             // The big grey floor only makes sense without an environment. With a skybox (wgpu/vkChess
             // look) it would occlude the sky, so callers can skip it and let the board sit in the env.
             if (includeGround) addGround(board)
-            addBoard(board, scene.selectedSquare)
+            addBoard(board)
 
             if (frameMesh != null) {
                 addMesh(frame, frameMesh, Matrix4f(), FRAME_TINT)
@@ -111,7 +111,7 @@ class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, Scene
             b.index(base); b.index(base + 2); b.index(base + 3)
         }
 
-        private fun addBoard(b: Builder, selected: BoardSquare?) {
+        private fun addBoard(b: Builder) {
             val h = BoardGeometry.SQUARE_SIZE / 2f
             // Procedural board squares are flat (N=+Y), so T=+X, B=+Z (handedness +1) for every vertex.
             val tan = floatArrayOf(1f, 0f, 0f, 1f)
@@ -119,7 +119,7 @@ class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, Scene
                 for (col in 0 until 8) {
                     val square = BoardSquare(row, col)
                     val c = BoardGeometry.squareCenter(square)
-                    val tint = if (selected == square) SELECT_TINT else NO_TINT
+                    val tint = NO_TINT
                     // Map the square to one marble tile whose colour matches the chess square.
                     val isDark = (row + col) % 2 == 1
                     var tr = row % BOARD_TILES
