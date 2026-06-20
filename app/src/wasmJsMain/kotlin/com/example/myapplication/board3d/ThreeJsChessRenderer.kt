@@ -196,12 +196,40 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+// Part C: EffectComposer supplies both crisper AA (HalfFloat MSAA render target + supersample +
+// SMAA) and bloom. Pinned to three@0.169.0 via the import map (web) / esbuild (iOS bundle).
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 
 // The board lives in the game's ±4 space (1-unit squares). chess.glb is authored at ±8 with
 // 2-unit squares, so every glb node is scaled by 0.5 — matching Android's scale=0.5 exactly.
 // Piece world coordinates now arrive already in this ±4 space from Kotlin (Board3DScene/BoardGeometry
 // via chess3d.setScene), including the animated y (move arc hop + selection bounce).
 const PIECE_SCALE = 0.5
+// Part C AA + bloom tunables. SS supersamples the render buffer (sharper silhouettes / sculpt
+// detail — the main web regression was MSAA-only softness); SS_CAP bounds the fill-rate cost.
+const SS = 1.5            // render-buffer supersample factor (sharpness)
+const SS_CAP = 2.5        // hard cap on the effective pixel ratio
+// Bloom tuned to a subtle Android-matching halo. The earlier punchy preset (strength 0.7 /
+// threshold 0.6) blew out the whole bright board centre; raise the threshold so only the brightest
+// specular/sun highlights bloom, and lower the strength so it reads as atmosphere, not glare.
+const BLOOM_STRENGTH = 0.35
+const BLOOM_RADIUS = 0.4
+const BLOOM_THRESHOLD = 0.85
+// De-band (mirrors the desktop Vulkan renderer): the glb whites/blacks albedo bakes high-contrast
+// horizontal wood grain and the shared metallicRoughness map's green channel is striped too, so on
+// the lathe-turned pieces both wrap into hard rings. We soften the albedo grain toward the per-
+// material mean wood colour and flatten roughness to a constant (even sheen, not glossy/matte bands).
+// Means measured from the glb albedos (sRGB).
+const WHITE_MEAN = [0.427, 0.361, 0.263]
+const BLACK_MEAN = [0.176, 0.114, 0.075]
+const GRAIN_STRENGTH = 0.5   // 1 = full grain; 0 = flat colour. 0.5 keeps subtle character.
+const PIECE_ROUGHNESS = 0.4  // constant roughness for pieces (replaces the striped roughnessMap)
+let composer, bloomPass, smaaPass   // alongside `renderer, scene, camera`
+let usePost = false                 // set true once the composer builds; falls back to bare render
 // Glb node names that are piece templates (kept at origin as geometry sources) or stray helpers
 // (the "Plane" shadow catcher Android also hides). Everything else (a1..h8 tiles + frame) is shown.
 const HIDDEN_NODES = new Set(['king', 'queen', 'rook', 'bishop', 'knight', 'pawn', 'plane'])
@@ -253,7 +281,10 @@ window.chess3d = {
       // A re-init builds a fresh scene; drop pool slots pointing at the previous scene's nodes.
       piecePool.length = 0
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false })
-      renderer.setPixelRatio(window.devicePixelRatio || 1)
+      // Part C: supersample the render buffer for crisper edges (the web regression was MSAA-only
+      // softness). The composer below renders into a HalfFloat MSAA target so AA stays sharp and
+      // bloom can work in HDR before the OutputPass tonemaps.
+      renderer.setPixelRatio(Math.min((window.devicePixelRatio || 1) * SS, SS_CAP))
       // Android (the visual reference) has NO cast shadows — it's lit purely by the papermill IBL,
       // whose radiance cube bakes in the sun's direction so the lighting already reads as sunlight
       // and stays fixed relative to the world as the camera orbits (as it would in nature). Adding
@@ -274,6 +305,26 @@ window.chess3d = {
       // Selection is shown by bouncing the picked piece (its y oscillates in setScene), not a disc.
 
       await loadGlb()
+      // Part C: build the post chain. RenderPass -> UnrealBloom (HDR) -> SMAA (edge AA) -> OutputPass
+      // (tonemap + sRGB). Wrapped so any addon/load failure falls back to the bare render loop below
+      // rather than a black canvas.
+      try {
+        const size = renderer.getDrawingBufferSize(new THREE.Vector2())
+        const rt = new THREE.WebGLRenderTarget(size.x, size.y, {
+          type: THREE.HalfFloatType, samples: 4, // MSAA-resolved HDR input = crisp silhouettes
+        })
+        composer = new EffectComposer(renderer, rt)
+        composer.addPass(new RenderPass(scene, camera))
+        bloomPass = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), BLOOM_STRENGTH, BLOOM_RADIUS, BLOOM_THRESHOLD)
+        composer.addPass(bloomPass)
+        smaaPass = new SMAAPass(size.x, size.y)
+        composer.addPass(smaaPass)
+        composer.addPass(new OutputPass())
+        usePost = true
+      } catch (e) {
+        console.warn('[chess3d] EffectComposer init failed; falling back to bare render', e)
+        composer = null; bloomPass = null; smaaPass = null; usePost = false
+      }
       animate()
       return true
     } catch (e) {
@@ -337,16 +388,57 @@ window.chess3d = {
 
   resize(w, h) {
     if (!renderer) return
+    renderer.setPixelRatio(Math.min((window.devicePixelRatio || 1) * SS, SS_CAP))
     renderer.setSize(w, h, false)
     camera.aspect = w / h
     camera.updateProjectionMatrix()
+    // Part C: keep the composer + its passes in sync with the (supersampled) drawing buffer.
+    if (composer || bloomPass || smaaPass) {
+      const s = renderer.getDrawingBufferSize(new THREE.Vector2())
+      if (composer) composer.setSize(s.x, s.y)
+      if (bloomPass) bloomPass.setSize(s.x, s.y)
+      if (smaaPass) smaaPass.setSize(s.x, s.y)
+    }
   },
 
   dispose() {
+    if (composer) { composer.dispose(); composer = null }
+    bloomPass = null; smaaPass = null; usePost = false
     if (renderer) { renderer.dispose(); renderer = null }
     scene = null
     camera = null
   },
+}
+
+// De-band a shared piece material in place (see WHITE_MEAN/BLACK_MEAN comment). Flattens the striped
+// roughness/metalness maps to constants, and injects a tiny shader patch that pulls the sampled
+// albedo toward the per-material mean wood colour so the baked grain reads as subtle texture, not
+// hard rings — the three.js analogue of the desktop renderer's grainStrength/roughnessOverride.
+function debandPieceMaterial(mat, meanSrgb) {
+  if (!mat) return
+  // Flatten roughness: the glb metallicRoughness map's green channel is striped. Drop the map and
+  // use a constant; also drop the metalness map (wood is dielectric) so it can't add banding.
+  mat.roughnessMap = null
+  mat.roughness = PIECE_ROUGHNESS
+  mat.metalnessMap = null
+  mat.metalness = 0.0
+  // Soften the striped albedo grain toward the linearised mean. The map is sampled into linear space
+  // (three colour management), so `diffuseColor.rgb` after <map_fragment> is linear — mix toward the
+  // linearised mean there. GRAIN_STRENGTH == 1 would be a no-op.
+  const meanLin = new THREE.Vector3(
+    Math.pow(meanSrgb[0], 2.2), Math.pow(meanSrgb[1], 2.2), Math.pow(meanSrgb[2], 2.2),
+  )
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uGrainMean = { value: meanLin }
+    shader.uniforms.uGrainStrength = { value: GRAIN_STRENGTH }
+    shader.fragmentShader =
+      'uniform vec3 uGrainMean;\nuniform float uGrainStrength;\n' +
+      shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        '#include <map_fragment>\n  diffuseColor.rgb = mix(uGrainMean, diffuseColor.rgb, uGrainStrength);',
+      )
+  }
+  mat.needsUpdate = true
 }
 
 async function loadGlb() {
@@ -366,6 +458,8 @@ async function loadGlb() {
   const materials = await gltf.parser.getDependencies('material')
   whiteMat = materials.find(m => m.name === 'white') || materials[0] || null
   blackMat = materials.find(m => m.name === 'black') || whiteMat
+  debandPieceMaterial(whiteMat, WHITE_MEAN)
+  debandPieceMaterial(blackMat, BLACK_MEAN)
 
   // Stash the six piece template meshes by kind (they sit at the glb origin).
   gltf.scene.traverse(o => {
@@ -408,7 +502,10 @@ async function loadGlb() {
 
 function animate() {
   requestAnimationFrame(animate)
-  if (renderer && scene && camera) renderer.render(scene, camera)
+  if (!renderer || !scene || !camera) return
+  // Part C: drive the post chain when the composer built; otherwise fall back to the bare render.
+  if (usePost && composer) composer.render()
+  else renderer.render(scene, camera)
 }
 
 """

@@ -72,13 +72,30 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     private var uboParamsBuffer = VK_NULL_HANDLE; private var uboParamsMem = VK_NULL_HANDLE
     private val lightDir = org.joml.Vector3f(0.35f, 1.4f, -0.3f).normalize()  // higher sun, slightly behind the board
     // Look tunables — vkChess's exposure for papermill HDR is in this range; HIGH_QUALITY_WEBGPU uses 5.0.
-    private val exposure = 4.0f
+    private val exposure = 4.3f   // Pass-2: was 4.0 — warmer, less flat (Part A.4)
     private val gamma = 2.2f
+    // Part A look tunables (Pass-2 parity). These are baked as GLSL literals in FRAG_GLSL (constants,
+    // not animated) — kept here as the documented source of the chosen numbers. Eyeball via
+    // DesktopRendererSmokeTest (app/build/chess3d-*.png).
+    private val iblSpecularScale = 0.85f   // was a hard-coded 0.5 in FRAG_GLSL; restores gloss + board reflections
+    private val aoStrength = 1.0f          // how strongly mrTex.r (glTF occlusion) darkens the IBL ambient term
+    private val contactStrength = 0.35f    // how much the shadow factor (sh) deepens ambient at piece/board contact
 
     private val colorFormat = VK_FORMAT_R8G8B8A8_UNORM
     private val depthFormat = VK_FORMAT_D32_SFLOAT
     private val envFormat = VK_FORMAT_R16G16B16A16_SFLOAT
     private val brdfLutFormat = VK_FORMAT_R16G16_SFLOAT
+    // Part B: HDR scene resolve + bloom format. The scene pass now resolves into an RGBA16F target
+    // (linear HDR), and a post chain (bright -> blur -> composite) tonemaps in the final pass.
+    private val hdrFormat = VK_FORMAT_R16G16B16A16_SFLOAT
+
+    // Part B bloom tunables (env-overridable). CHESS_DESKTOP_BLOOM=0 keeps the HDR composite path
+    // but skips the bright/blur passes — i.e. reproduces the Part-A look (a one-line kill switch).
+    private val bloomEnabled = System.getenv("CHESS_DESKTOP_BLOOM")?.trim() != "0"
+    private val bloomThreshold = 1.1f   // HDR luma above which pixels start to bloom
+    private val bloomKnee = 0.5f        // soft-knee width below the threshold
+    private val bloomIntensity = 0.5f   // additive bloom strength in the composite pass
+    private val bloomIterations = 2     // number of H+V separable blur passes
 
     private var width = 0
     private var height = 0
@@ -86,6 +103,23 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     private var colorImage = VK_NULL_HANDLE; private var colorMem = VK_NULL_HANDLE; private var colorView = VK_NULL_HANDLE // MSAA color
     private var depthImage = VK_NULL_HANDLE; private var depthMem = VK_NULL_HANDLE; private var depthView = VK_NULL_HANDLE // MSAA depth
     private var resolveImage = VK_NULL_HANDLE; private var resolveMem = VK_NULL_HANDLE; private var resolveView = VK_NULL_HANDLE // single-sample resolve (read back)
+    // Part B post pipeline. sceneHdr = HDR resolve of the scene pass (sampled by bloom + composite).
+    // resolveImage above is REPURPOSED as the composite (LDR) output that the readback copies — the
+    // names are kept to minimize churn, but its usage/role changed (see ensureTargets).
+    private var sceneHdrImage = VK_NULL_HANDLE; private var sceneHdrMem = VK_NULL_HANDLE; private var sceneHdrView = VK_NULL_HANDLE
+    private var bloomW = 0; private var bloomH = 0
+    private var bloomBright = VK_NULL_HANDLE; private var bloomBrightMem = VK_NULL_HANDLE; private var bloomBrightView = VK_NULL_HANDLE
+    private var bloomA = VK_NULL_HANDLE; private var bloomAMem = VK_NULL_HANDLE; private var bloomAView = VK_NULL_HANDLE
+    private var bloomB = VK_NULL_HANDLE; private var bloomBMem = VK_NULL_HANDLE; private var bloomBView = VK_NULL_HANDLE
+    private var postRenderPass = VK_NULL_HANDLE       // 1 hdr attachment, shared by bright + blur passes
+    private var compositeRenderPass = VK_NULL_HANDLE  // 1 ldr attachment (the read-back resolveImage)
+    private var postSetLayout = VK_NULL_HANDLE; private var postPool = VK_NULL_HANDLE
+    private var brightPipelineLayout = VK_NULL_HANDLE; private var brightPipeline = VK_NULL_HANDLE
+    private var blurPipelineLayout = VK_NULL_HANDLE; private var blurPipeline = VK_NULL_HANDLE
+    private var compositePipelineLayout = VK_NULL_HANDLE; private var compositePipeline = VK_NULL_HANDLE
+    private var brightFb = VK_NULL_HANDLE; private var aFb = VK_NULL_HANDLE; private var bFb = VK_NULL_HANDLE; private var compositeFb = VK_NULL_HANDLE
+    private var dsSceneHdr = VK_NULL_HANDLE; private var dsBright = VK_NULL_HANDLE
+    private var dsA = VK_NULL_HANDLE; private var dsB = VK_NULL_HANDLE; private var dsComposite = VK_NULL_HANDLE
     // Two env cubes (matching Android's Filament asset split, for natural colours + blurred bg):
     //  - skybox: papermill_skybox.ktx (R11F_G11F_B10F, 1 mip, blurred) — drawn behind everything.
     //  - ibl:    papermill_ibl.ktx    (R11F_G11F_B10F, 5 mip chain, already prefiltered by cmgen) —
@@ -289,14 +323,33 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             val ds = textures[tex]?.descriptorSet ?: continue
             // Push per-material scalar factors (baseColorFactor + metallicFactor + roughnessFactor)
             // that modulate the albedo and MR textures in the fragment shader.
-            val matPush = stack.malloc(32)
+            val isPiece = tex == ChessTexture.WHITE || tex == ChessTexture.BLACK
+            // De-band: the piece albedo + MR textures bake very high-contrast horizontal wood grain,
+            // so on the lathe-turned geometry the pieces read as harsh rings. For pieces, soften the
+            // albedo grain toward the per-material mean wood colour and flatten roughness so the
+            // surface has an even sheen instead of alternating glossy/matte stripes. Board keeps its
+            // textured albedo/roughness. Mean wood colours measured from the glb whites/blacks albedo.
+            val meanR: Float; val meanG: Float; val meanB: Float
+            when (tex) {
+                ChessTexture.WHITE -> { meanR = 0.427f; meanG = 0.361f; meanB = 0.263f }
+                ChessTexture.BLACK -> { meanR = 0.176f; meanG = 0.114f; meanB = 0.075f }
+                else -> { meanR = 1f; meanG = 1f; meanB = 1f }
+            }
+            val grainStrength = if (isPiece) 0.5f else 1f       // keep 50% of the grain on pieces
+            val roughnessOverride = if (isPiece) 0.4f else 0f   // >0 = flat roughness; 0 = use texture
+            // Part A.2: per-material roughness scale at offset 24. Pieces glossier; board stays 1.0.
+            val roughScale = if (isPiece) 0.8f else 1.0f
+            val matPush = stack.malloc(48)
             matPush.putFloat(0, matSet.baseColorFactor.getOrElse(0) { 1f })
             matPush.putFloat(4, matSet.baseColorFactor.getOrElse(1) { 1f })
             matPush.putFloat(8, matSet.baseColorFactor.getOrElse(2) { 1f })
             matPush.putFloat(12, matSet.baseColorFactor.getOrElse(3) { 1f })
             matPush.putFloat(16, matSet.metallicFactor)
             matPush.putFloat(20, matSet.roughnessFactor)
-            matPush.putFloat(24, 0f); matPush.putFloat(28, 0f) // pad
+            matPush.putFloat(24, roughScale)
+            matPush.putFloat(28, grainStrength)
+            matPush.putFloat(32, meanR); matPush.putFloat(36, meanG); matPush.putFloat(40, meanB)
+            matPush.putFloat(44, roughnessOverride)
             vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, matPush)
             vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, stack.longs(ds), null)
             // Bind both vertex buffers (binding 0 = pos/normal/uv/tint, binding 1 = tangents).
@@ -310,6 +363,27 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
 
         vkCmdEndRenderPass(commandBuffer)
 
+        // --- Part B post chain (bright -> blur×N -> composite) tonemaps + writes the LDR result into
+        // resolveImage, which the trailing copy then reads back. With CHESS_DESKTOP_BLOOM=0 it's a
+        // composite-only pass (intensity 0) that reproduces the Part-A look over the HDR pipeline. ---
+        if (bloomEnabled) {
+            recordPostPass(stack, postRenderPass, brightFb, bloomW, bloomH, brightPipeline, brightPipelineLayout, dsSceneHdr,
+                floatArrayOf(bloomThreshold, bloomKnee, 0f, 0f))
+            for (i in 0 until bloomIterations) {
+                val blurSrc = if (i == 0) dsBright else dsB
+                val texelX = 1f / bloomW; val texelY = 1f / bloomH
+                recordPostPass(stack, postRenderPass, aFb, bloomW, bloomH, blurPipeline, blurPipelineLayout, blurSrc,
+                    floatArrayOf(texelX, texelY, 1f, 0f))
+                recordPostPass(stack, postRenderPass, bFb, bloomW, bloomH, blurPipeline, blurPipelineLayout, dsA,
+                    floatArrayOf(texelX, texelY, 0f, 1f))
+            }
+            recordPostPass(stack, compositeRenderPass, compositeFb, width, height, compositePipeline, compositePipelineLayout, dsComposite,
+                floatArrayOf(bloomIntensity, exposure, gamma, 0f))
+        } else {
+            recordPostPass(stack, compositeRenderPass, compositeFb, width, height, compositePipeline, compositePipelineLayout, dsComposite,
+                floatArrayOf(0f, exposure, gamma, 0f))
+        }
+
         val region = VkBufferImageCopy.calloc(1, stack)
         region.bufferOffset(0).bufferRowLength(0).bufferImageHeight(0)
         region.imageSubresource().aspectMask(VK_IMAGE_ASPECT_COLOR_BIT).mipLevel(0).baseArrayLayer(0).layerCount(1)
@@ -317,6 +391,27 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         vkCmdCopyImageToBuffer(commandBuffer, resolveImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readbackBuffer, region)
 
         check(vkEndCommandBuffer(commandBuffer) == VK_SUCCESS)
+    }
+
+    /** Records one fullscreen-triangle post pass (begin render pass, viewport/scissor, bind pipeline +
+     *  descriptor set, push the 4-float fragment constant, draw 3 verts, end). All post attachments
+     *  use loadOp DONT_CARE so no clear values are passed. */
+    private fun recordPostPass(stack: MemoryStack, rp: Long, fb: Long, w: Int, h: Int, pipe: Long, layout: Long, ds: Long, push: FloatArray) {
+        val area = VkRect2D.calloc(stack)
+        area.offset().set(0, 0); area.extent().set(w, h)
+        val begin = VkRenderPassBeginInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO).renderPass(rp).framebuffer(fb).renderArea(area)
+        vkCmdBeginRenderPass(commandBuffer, begin, VK_SUBPASS_CONTENTS_INLINE)
+        val vp = VkViewport.calloc(1, stack).x(0f).y(0f).width(w.toFloat()).height(h.toFloat()).minDepth(0f).maxDepth(1f)
+        vkCmdSetViewport(commandBuffer, 0, vp)
+        val sc = VkRect2D.calloc(1, stack); sc.get(0).offset().set(0, 0); sc.get(0).extent().set(w, h)
+        vkCmdSetScissor(commandBuffer, 0, sc)
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe)
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, stack.longs(ds), null)
+        val pc = stack.malloc(16)
+        pc.putFloat(0, push[0]).putFloat(4, push[1]).putFloat(8, push[2]).putFloat(12, push[3])
+        vkCmdPushConstants(commandBuffer, layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pc)
+        vkCmdDraw(commandBuffer, 3, 1, 0, 0)
+        vkCmdEndRenderPass(commandBuffer)
     }
 
     private fun updateUbo(stack: MemoryStack, lightVP: Matrix4f) {
@@ -379,6 +474,10 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             vkEnumeratePhysicalDevices(instance, count, devices)
             physicalDevice = VkPhysicalDevice(devices.get(0), instance)
             samples = getMaxUsableSampleCount(stack)
+            // Part B.0: the scene color target is now HDR (RGBA16F) AND multisampled AND sampled-from
+            // (after resolve). Clamp `samples` to whatever the device allows for hdrFormat as a
+            // multisampled COLOR_ATTACHMENT — MoltenVK supports 4×/8× RGBA16F, this guards weird drivers.
+            samples = samples and hdrColorSampleCounts(stack)
             queueFamily = findGraphicsQueueFamily(stack)
 
             val devExts = mutableListOf<String>()
@@ -421,6 +520,7 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             createUboParamsBuffer(stack)
             createPipeline(stack)
             createSkyPipeline(stack)
+            createPostPipeline(stack)
         }
         // Load the papermill env cubes Android uses (skybox = blurred background, ibl = prefiltered
         // mip chain). Both fall back gracefully to "no env" if the asset is missing — the renderer
@@ -881,10 +981,21 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         return VK_SAMPLE_COUNT_1_BIT
     }
 
+    /** Part B.0: sample counts supported by `hdrFormat` as a multisampled COLOR_ATTACHMENT (used to
+     *  clamp `samples` for the HDR scene target). Falls back to 1× if the query is unavailable. */
+    private fun hdrColorSampleCounts(stack: MemoryStack): Int {
+        val props = VkImageFormatProperties.calloc(stack)
+        val usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT or VK_IMAGE_USAGE_SAMPLED_BIT
+        val r = vkGetPhysicalDeviceImageFormatProperties(physicalDevice, hdrFormat, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, usage, 0, props)
+        if (r != VK_SUCCESS) return VK_SAMPLE_COUNT_1_BIT
+        return props.sampleCounts()
+    }
+
     private fun createRenderPass(stack: MemoryStack) {
-        // 0: MSAA color (rendered into), 1: MSAA depth, 2: single-sample resolve target (read back).
+        // 0: MSAA color (rendered into, HDR linear), 1: MSAA depth, 2: single-sample HDR resolve
+        // (sceneHdr — sampled by the bloom/composite passes, so finalLayout SHADER_READ_ONLY).
         val attachments = VkAttachmentDescription.calloc(3, stack)
-        attachments[0].format(colorFormat).samples(samples)
+        attachments[0].format(hdrFormat).samples(samples)
             .loadOp(VK_ATTACHMENT_LOAD_OP_CLEAR).storeOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
             .stencilLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE).stencilStoreOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
             .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED).finalLayout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
@@ -892,16 +1003,23 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
             .loadOp(VK_ATTACHMENT_LOAD_OP_CLEAR).storeOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
             .stencilLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE).stencilStoreOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
             .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED).finalLayout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-        attachments[2].format(colorFormat).samples(VK_SAMPLE_COUNT_1_BIT)
+        attachments[2].format(hdrFormat).samples(VK_SAMPLE_COUNT_1_BIT)
             .loadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE).storeOp(VK_ATTACHMENT_STORE_OP_STORE)
             .stencilLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE).stencilStoreOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
-            .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED).finalLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+            .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED).finalLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
         val colorRef = VkAttachmentReference.calloc(1, stack).attachment(0).layout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
         val depthRef = VkAttachmentReference.calloc(stack).attachment(1).layout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
         val resolveRef = VkAttachmentReference.calloc(1, stack).attachment(2).layout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
         val subpass = VkSubpassDescription.calloc(1, stack).pipelineBindPoint(VK_PIPELINE_BIND_POINT_GRAPHICS)
             .colorAttachmentCount(1).pColorAttachments(colorRef).pResolveAttachments(resolveRef).pDepthStencilAttachment(depthRef)
-        val rpInfo = VkRenderPassCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO).pAttachments(attachments).pSubpasses(subpass)
+        // Part B: the bright/composite pass samples sceneHdr (attachment 2) right after this pass, so
+        // signal the src COLOR_ATTACHMENT_WRITE must complete before dst FRAGMENT_SHADER reads.
+        val dep = VkSubpassDependency.calloc(1, stack)
+            .srcSubpass(0).dstSubpass(VK_SUBPASS_EXTERNAL)
+            .srcStageMask(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT).dstStageMask(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
+            .srcAccessMask(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT).dstAccessMask(VK_ACCESS_SHADER_READ_BIT)
+            .dependencyFlags(VK_DEPENDENCY_BY_REGION_BIT)
+        val rpInfo = VkRenderPassCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO).pAttachments(attachments).pSubpasses(subpass).pDependencies(dep)
         val p = stack.mallocLong(1)
         check(vkCreateRenderPass(device, rpInfo, null, p) == VK_SUCCESS) { "vkCreateRenderPass failed" }
         renderPass = p.get(0)
@@ -1022,7 +1140,7 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
 
         // Push constants: vec4 baseColorFactor (16B) + float metallicFactor + float roughnessFactor
         // + vec2 pad (16B) = 32 bytes per draw. Set per-material-group in recordCommandBuffer.
-        val matPushRange = VkPushConstantRange.calloc(1, stack).stageFlags(VK_SHADER_STAGE_FRAGMENT_BIT).offset(0).size(32)
+        val matPushRange = VkPushConstantRange.calloc(1, stack).stageFlags(VK_SHADER_STAGE_FRAGMENT_BIT).offset(0).size(48)
         val layoutInfo = VkPipelineLayoutCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO).pSetLayouts(stack.longs(descriptorSetLayout)).pPushConstantRanges(matPushRange)
         val pLayout = stack.mallocLong(1)
         check(vkCreatePipelineLayout(device, layoutInfo, null, pLayout) == VK_SUCCESS); pipelineLayout = pLayout.get(0)
@@ -1035,6 +1153,113 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         check(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, pipelineInfo, null, pPipeline) == VK_SUCCESS) { "pipeline failed" }
         pipeline = pPipeline.get(0)
         vkDestroyShaderModule(device, vert, null); vkDestroyShaderModule(device, frag, null)
+    }
+
+    /**
+     * Part B post pipeline: builds the two post render passes, a shared descriptor layout/pool, and
+     * the three fullscreen (FSQ_VERT) pipelines — bright (threshold HDR), blur (separable Gaussian),
+     * composite (scene + bloom, then tonemap+gamma into the LDR read-back target). All draws are a
+     * single `vkCmdDraw(3,1,0,0)` fullscreen triangle (no vertex buffers), mirroring buildBrdfLut.
+     */
+    private fun createPostPipeline(stack: MemoryStack) {
+        // postRenderPass: 1 HDR attachment, shared by the bright + blur passes. Two external
+        // dependencies (in/out) so consecutive bright/blur passes that read each other's output
+        // serialize correctly via layout transitions rather than manual barriers.
+        run {
+            val att = VkAttachmentDescription.calloc(1, stack)
+            att[0].format(hdrFormat).samples(VK_SAMPLE_COUNT_1_BIT)
+                .loadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE).storeOp(VK_ATTACHMENT_STORE_OP_STORE)
+                .stencilLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE).stencilStoreOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
+                .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED).finalLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+            val colorRef = VkAttachmentReference.calloc(1, stack).attachment(0).layout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+            val subpass = VkSubpassDescription.calloc(1, stack).pipelineBindPoint(VK_PIPELINE_BIND_POINT_GRAPHICS).colorAttachmentCount(1).pColorAttachments(colorRef)
+            val deps = VkSubpassDependency.calloc(2, stack)
+            deps[0].srcSubpass(VK_SUBPASS_EXTERNAL).dstSubpass(0)
+                .srcStageMask(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT).dstStageMask(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
+                .srcAccessMask(VK_ACCESS_SHADER_READ_BIT).dstAccessMask(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
+                .dependencyFlags(VK_DEPENDENCY_BY_REGION_BIT)
+            deps[1].srcSubpass(0).dstSubpass(VK_SUBPASS_EXTERNAL)
+                .srcStageMask(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT).dstStageMask(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
+                .srcAccessMask(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT).dstAccessMask(VK_ACCESS_SHADER_READ_BIT)
+                .dependencyFlags(VK_DEPENDENCY_BY_REGION_BIT)
+            val rpInfo = VkRenderPassCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO).pAttachments(att).pSubpasses(subpass).pDependencies(deps)
+            val p = stack.mallocLong(1)
+            check(vkCreateRenderPass(device, rpInfo, null, p) == VK_SUCCESS) { "postRenderPass failed" }
+            postRenderPass = p.get(0)
+        }
+        // compositeRenderPass: 1 LDR attachment (the read-back resolveImage), finalLayout TRANSFER_SRC
+        // so the trailing vkCmdCopyImageToBuffer is the natural next step. Out-dependency lands on
+        // the TRANSFER stage to order that copy.
+        run {
+            val att = VkAttachmentDescription.calloc(1, stack)
+            att[0].format(colorFormat).samples(VK_SAMPLE_COUNT_1_BIT)
+                .loadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE).storeOp(VK_ATTACHMENT_STORE_OP_STORE)
+                .stencilLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE).stencilStoreOp(VK_ATTACHMENT_STORE_OP_DONT_CARE)
+                .initialLayout(VK_IMAGE_LAYOUT_UNDEFINED).finalLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
+            val colorRef = VkAttachmentReference.calloc(1, stack).attachment(0).layout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+            val subpass = VkSubpassDescription.calloc(1, stack).pipelineBindPoint(VK_PIPELINE_BIND_POINT_GRAPHICS).colorAttachmentCount(1).pColorAttachments(colorRef)
+            val deps = VkSubpassDependency.calloc(2, stack)
+            deps[0].srcSubpass(VK_SUBPASS_EXTERNAL).dstSubpass(0)
+                .srcStageMask(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT).dstStageMask(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
+                .srcAccessMask(VK_ACCESS_SHADER_READ_BIT).dstAccessMask(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
+                .dependencyFlags(VK_DEPENDENCY_BY_REGION_BIT)
+            deps[1].srcSubpass(0).dstSubpass(VK_SUBPASS_EXTERNAL)
+                .srcStageMask(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT).dstStageMask(VK_PIPELINE_STAGE_TRANSFER_BIT)
+                .srcAccessMask(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT).dstAccessMask(VK_ACCESS_TRANSFER_READ_BIT)
+                .dependencyFlags(VK_DEPENDENCY_BY_REGION_BIT)
+            val rpInfo = VkRenderPassCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO).pAttachments(att).pSubpasses(subpass).pDependencies(deps)
+            val p = stack.mallocLong(1)
+            check(vkCreateRenderPass(device, rpInfo, null, p) == VK_SUCCESS) { "compositeRenderPass failed" }
+            compositeRenderPass = p.get(0)
+        }
+        // Descriptor layout (2 combined-image samplers, fragment stage) + pool for the 5 post sets.
+        val bindings = VkDescriptorSetLayoutBinding.calloc(2, stack)
+        for (i in 0..1) bindings[i].binding(i).descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(1).stageFlags(VK_SHADER_STAGE_FRAGMENT_BIT)
+        val layoutInfo = VkDescriptorSetLayoutCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO).pBindings(bindings)
+        val pLayout = stack.mallocLong(1)
+        check(vkCreateDescriptorSetLayout(device, layoutInfo, null, pLayout) == VK_SUCCESS); postSetLayout = pLayout.get(0)
+        val poolSize = VkDescriptorPoolSize.calloc(1, stack).type(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(5 * 2)
+        val poolInfo = VkDescriptorPoolCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO).pPoolSizes(poolSize).maxSets(5)
+        val pPool = stack.mallocLong(1)
+        check(vkCreateDescriptorPool(device, poolInfo, null, pPool) == VK_SUCCESS); postPool = pPool.get(0)
+
+        val (brightLayout, brightPipe) = createFsqPipeline(stack, "brightFrag", BRIGHT_FRAG, postRenderPass)
+        brightPipelineLayout = brightLayout; brightPipeline = brightPipe
+        val (blurLayout, blurPipe) = createFsqPipeline(stack, "blurFrag", BLUR_FRAG, postRenderPass)
+        blurPipelineLayout = blurLayout; blurPipeline = blurPipe
+        val (compLayout, compPipe) = createFsqPipeline(stack, "compositeFrag", COMPOSITE_FRAG, compositeRenderPass)
+        compositePipelineLayout = compLayout; compositePipeline = compPipe
+    }
+
+    /** Builds one fullscreen-triangle pipeline (FSQ_VERT + [fragSrc]) over [renderPass] using the
+     *  shared [postSetLayout] + a 16-byte fragment push-constant range. Mirrors buildBrdfLut's setup. */
+    private fun createFsqPipeline(stack: MemoryStack, fragName: String, fragSrc: String, renderPass: Long): Pair<Long, Long> {
+        val vert = createShaderModule(stack, FSQ_VERT, Shaderc.shaderc_glsl_vertex_shader, fragName + "Vert")
+        val frag = createShaderModule(stack, fragSrc, Shaderc.shaderc_glsl_fragment_shader, fragName)
+        val stages = VkPipelineShaderStageCreateInfo.calloc(2, stack)
+        stages[0].sType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO).stage(VK_SHADER_STAGE_VERTEX_BIT).module(vert).pName(stack.UTF8("main"))
+        stages[1].sType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO).stage(VK_SHADER_STAGE_FRAGMENT_BIT).module(frag).pName(stack.UTF8("main"))
+        val vertexInput = VkPipelineVertexInputStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO)
+        val inputAssembly = VkPipelineInputAssemblyStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO).topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+        val viewportState = VkPipelineViewportStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO).viewportCount(1).scissorCount(1)
+        val raster = VkPipelineRasterizationStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO).polygonMode(VK_POLYGON_MODE_FILL).cullMode(VK_CULL_MODE_NONE).frontFace(VK_FRONT_FACE_COUNTER_CLOCKWISE).lineWidth(1f)
+        val multisample = VkPipelineMultisampleStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO).rasterizationSamples(VK_SAMPLE_COUNT_1_BIT)
+        val blendAttachment = VkPipelineColorBlendAttachmentState.calloc(1, stack).colorWriteMask(VK_COLOR_COMPONENT_R_BIT or VK_COLOR_COMPONENT_G_BIT or VK_COLOR_COMPONENT_B_BIT or VK_COLOR_COMPONENT_A_BIT).blendEnable(false)
+        val blend = VkPipelineColorBlendStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO).pAttachments(blendAttachment)
+        val dynamic = VkPipelineDynamicStateCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO).pDynamicStates(stack.ints(VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR))
+        val pushRange = VkPushConstantRange.calloc(1, stack).stageFlags(VK_SHADER_STAGE_FRAGMENT_BIT).offset(0).size(16)
+        val layoutInfo = VkPipelineLayoutCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO).pSetLayouts(stack.longs(postSetLayout)).pPushConstantRanges(pushRange)
+        val pLayout = stack.mallocLong(1)
+        check(vkCreatePipelineLayout(device, layoutInfo, null, pLayout) == VK_SUCCESS)
+        val layout = pLayout.get(0)
+        val pipelineInfo = VkGraphicsPipelineCreateInfo.calloc(1, stack).sType(VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO)
+            .pStages(stages).pVertexInputState(vertexInput).pInputAssemblyState(inputAssembly).pViewportState(viewportState)
+            .pRasterizationState(raster).pMultisampleState(multisample).pColorBlendState(blend).pDynamicState(dynamic)
+            .layout(layout).renderPass(renderPass).subpass(0)
+        val pPipe = stack.mallocLong(1)
+        check(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, pipelineInfo, null, pPipe) == VK_SUCCESS) { "$fragName pipeline failed" }
+        vkDestroyShaderModule(device, vert, null); vkDestroyShaderModule(device, frag, null)
+        return layout to pPipe.get(0)
     }
 
     private fun createShaderModule(stack: MemoryStack, source: String, kind: Int, name: String): Long {
@@ -1253,20 +1478,70 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         if (rw == width && rh == height && framebuffer != VK_NULL_HANDLE) return
         destroyTargets()
         width = rw; height = rh
-        val (ci, cm) = createImage(rw, rh, colorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT or VK_IMAGE_USAGE_TRANSFER_SRC_BIT, samples)
-        colorImage = ci; colorMem = cm; colorView = createImageView(colorImage, colorFormat, VK_IMAGE_ASPECT_COLOR_BIT)
+        // Scene MSAA color target is HDR (RGBA16F) — the scene pass writes linear HDR radiance now,
+        // resolved into sceneHdr for the post chain to sample. TRANSFER_SRC stays off (not read back).
+        val (ci, cm) = createImage(rw, rh, hdrFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, samples)
+        colorImage = ci; colorMem = cm; colorView = createImageView(colorImage, hdrFormat, VK_IMAGE_ASPECT_COLOR_BIT)
         val (di, dm) = createImage(rw, rh, depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, samples)
         depthImage = di; depthMem = dm; depthView = createImageView(depthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT)
+        // HDR resolve of the scene pass (sampled by bright + composite).
+        val (si, sm) = createImage(rw, rh, hdrFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT or VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT)
+        sceneHdrImage = si; sceneHdrMem = sm; sceneHdrView = createImageView(sceneHdrImage, hdrFormat, VK_IMAGE_ASPECT_COLOR_BIT)
+        // resolveImage is now the composite's LDR output (the read-back target), no longer an MSAA resolve.
         val (ri, rm) = createImage(rw, rh, colorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT or VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_SAMPLE_COUNT_1_BIT)
         resolveImage = ri; resolveMem = rm; resolveView = createImageView(resolveImage, colorFormat, VK_IMAGE_ASPECT_COLOR_BIT)
+        // Half-res HDR ping-pong bloom targets.
+        bloomW = (rw / 2).coerceAtLeast(1); bloomH = (rh / 2).coerceAtLeast(1)
+        val bloomUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT or VK_IMAGE_USAGE_SAMPLED_BIT
+        val (bri, brm) = createImage(bloomW, bloomH, hdrFormat, bloomUsage)
+        bloomBright = bri; bloomBrightMem = brm; bloomBrightView = createImageView(bloomBright, hdrFormat, VK_IMAGE_ASPECT_COLOR_BIT)
+        val (ai, am) = createImage(bloomW, bloomH, hdrFormat, bloomUsage)
+        bloomA = ai; bloomAMem = am; bloomAView = createImageView(bloomA, hdrFormat, VK_IMAGE_ASPECT_COLOR_BIT)
+        val (bi, bm) = createImage(bloomW, bloomH, hdrFormat, bloomUsage)
+        bloomB = bi; bloomBMem = bm; bloomBView = createImageView(bloomB, hdrFormat, VK_IMAGE_ASPECT_COLOR_BIT)
         MemoryStack.stackPush().use { stack ->
-            val fbInfo = VkFramebufferCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO).renderPass(renderPass).pAttachments(stack.longs(colorView, depthView, resolveView)).width(rw).height(rh).layers(1)
+            val sceneFbInfo = VkFramebufferCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO).renderPass(renderPass).pAttachments(stack.longs(colorView, depthView, sceneHdrView)).width(rw).height(rh).layers(1)
             val p = stack.mallocLong(1)
-            check(vkCreateFramebuffer(device, fbInfo, null, p) == VK_SUCCESS); framebuffer = p.get(0)
+            check(vkCreateFramebuffer(device, sceneFbInfo, null, p) == VK_SUCCESS); framebuffer = p.get(0)
+            val brightFbInfo = VkFramebufferCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO).renderPass(postRenderPass).pAttachments(stack.longs(bloomBrightView)).width(bloomW).height(bloomH).layers(1)
+            check(vkCreateFramebuffer(device, brightFbInfo, null, p) == VK_SUCCESS); brightFb = p.get(0)
+            val aFbInfo = VkFramebufferCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO).renderPass(postRenderPass).pAttachments(stack.longs(bloomAView)).width(bloomW).height(bloomH).layers(1)
+            check(vkCreateFramebuffer(device, aFbInfo, null, p) == VK_SUCCESS); aFb = p.get(0)
+            val bFbInfo = VkFramebufferCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO).renderPass(postRenderPass).pAttachments(stack.longs(bloomBView)).width(bloomW).height(bloomH).layers(1)
+            check(vkCreateFramebuffer(device, bFbInfo, null, p) == VK_SUCCESS); bFb = p.get(0)
+            val compFbInfo = VkFramebufferCreateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO).renderPass(compositeRenderPass).pAttachments(stack.longs(resolveView)).width(rw).height(rh).layers(1)
+            check(vkCreateFramebuffer(device, compFbInfo, null, p) == VK_SUCCESS); compositeFb = p.get(0)
+
+            // (Re)allocate the 5 post descriptor sets and wire them to the post targets via the shared
+            // linear/clamp brdfLutSampler (perfect for these single-mip targets). Resetting the pool
+            // frees the previous resize's sets in one call.
+            vkResetDescriptorPool(device, postPool, 0)
+            val counts = stack.ints(1, 1, 1, 1, 1)
+            val setLayouts = stack.longs(postSetLayout, postSetLayout, postSetLayout, postSetLayout, postSetLayout)
+            val allocInfo = VkDescriptorSetAllocateInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO).descriptorPool(postPool).pSetLayouts(setLayouts)
+            val pSets = stack.mallocLong(5)
+            check(vkAllocateDescriptorSets(device, allocInfo, pSets) == VK_SUCCESS)
+            dsSceneHdr = pSets.get(0); dsBright = pSets.get(1); dsA = pSets.get(2); dsB = pSets.get(3); dsComposite = pSets.get(4)
+            writePostDescriptor(stack, dsSceneHdr, sceneHdrView, sceneHdrView)
+            writePostDescriptor(stack, dsBright, bloomBrightView, bloomBrightView)
+            writePostDescriptor(stack, dsA, bloomAView, bloomAView)
+            writePostDescriptor(stack, dsB, bloomBView, bloomBView)
+            writePostDescriptor(stack, dsComposite, sceneHdrView, bloomBView)
         }
         readbackSize = (rw.toLong() * rh * 4)
         val (rb, rbm) = createBuffer(readbackSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT, hostVisible)
         readbackBuffer = rb; readbackMem = rbm
+    }
+
+    /** Writes the two COMBINED_IMAGE_SAMPLER bindings of a post descriptor set (binding 0 = [view0],
+     *  binding 1 = [view1]) against the shared brdfLutSampler. */
+    private fun writePostDescriptor(stack: MemoryStack, set: Long, view0: Long, view1: Long) {
+        val info0 = VkDescriptorImageInfo.calloc(1, stack).imageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL).imageView(view0).sampler(brdfLutSampler)
+        val info1 = VkDescriptorImageInfo.calloc(1, stack).imageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL).imageView(view1).sampler(brdfLutSampler)
+        val writes = VkWriteDescriptorSet.calloc(2, stack)
+        writes[0].sType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET).dstSet(set).dstBinding(0).descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(1).pImageInfo(info0)
+        writes[1].sType(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET).dstSet(set).dstBinding(1).descriptorType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER).descriptorCount(1).pImageInfo(info1)
+        vkUpdateDescriptorSets(device, writes, null)
     }
 
     private fun uploadGroup(tex: ChessTexture, group: SceneGroup) {
@@ -1394,16 +1669,28 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     }
 
     private fun destroyTargets() {
-        if (framebuffer != VK_NULL_HANDLE) vkDestroyFramebuffer(device, framebuffer, null); framebuffer = VK_NULL_HANDLE
-        if (colorView != VK_NULL_HANDLE) vkDestroyImageView(device, colorView, null); colorView = VK_NULL_HANDLE
-        if (depthView != VK_NULL_HANDLE) vkDestroyImageView(device, depthView, null); depthView = VK_NULL_HANDLE
-        if (resolveView != VK_NULL_HANDLE) vkDestroyImageView(device, resolveView, null); resolveView = VK_NULL_HANDLE
-        if (colorImage != VK_NULL_HANDLE) vkDestroyImage(device, colorImage, null); colorImage = VK_NULL_HANDLE
-        if (depthImage != VK_NULL_HANDLE) vkDestroyImage(device, depthImage, null); depthImage = VK_NULL_HANDLE
-        if (resolveImage != VK_NULL_HANDLE) vkDestroyImage(device, resolveImage, null); resolveImage = VK_NULL_HANDLE
-        if (colorMem != VK_NULL_HANDLE) vkFreeMemory(device, colorMem, null); colorMem = VK_NULL_HANDLE
-        if (depthMem != VK_NULL_HANDLE) vkFreeMemory(device, depthMem, null); depthMem = VK_NULL_HANDLE
-        if (resolveMem != VK_NULL_HANDLE) vkFreeMemory(device, resolveMem, null); resolveMem = VK_NULL_HANDLE
+        // Post framebuffers first (they reference the views freed below). Descriptor sets are freed
+        // implicitly by resetting the pool on next allocate, so just null them here.
+        for (fb in longArrayOf(framebuffer, brightFb, aFb, bFb, compositeFb)) {
+            if (fb != VK_NULL_HANDLE) vkDestroyFramebuffer(device, fb, null)
+        }
+        framebuffer = VK_NULL_HANDLE; brightFb = VK_NULL_HANDLE; aFb = VK_NULL_HANDLE; bFb = VK_NULL_HANDLE; compositeFb = VK_NULL_HANDLE
+        dsSceneHdr = VK_NULL_HANDLE; dsBright = VK_NULL_HANDLE; dsA = VK_NULL_HANDLE; dsB = VK_NULL_HANDLE; dsComposite = VK_NULL_HANDLE
+        for (v in longArrayOf(sceneHdrView, bloomBrightView, bloomAView, bloomBView, colorView, depthView, resolveView)) {
+            if (v != VK_NULL_HANDLE) vkDestroyImageView(device, v, null)
+        }
+        sceneHdrView = VK_NULL_HANDLE; bloomBrightView = VK_NULL_HANDLE; bloomAView = VK_NULL_HANDLE; bloomBView = VK_NULL_HANDLE
+        colorView = VK_NULL_HANDLE; depthView = VK_NULL_HANDLE; resolveView = VK_NULL_HANDLE
+        for (img in longArrayOf(colorImage, depthImage, sceneHdrImage, resolveImage, bloomBright, bloomA, bloomB)) {
+            if (img != VK_NULL_HANDLE) vkDestroyImage(device, img, null)
+        }
+        colorImage = VK_NULL_HANDLE; depthImage = VK_NULL_HANDLE; sceneHdrImage = VK_NULL_HANDLE
+        resolveImage = VK_NULL_HANDLE; bloomBright = VK_NULL_HANDLE; bloomA = VK_NULL_HANDLE; bloomB = VK_NULL_HANDLE
+        for (mem in longArrayOf(colorMem, depthMem, sceneHdrMem, resolveMem, bloomBrightMem, bloomAMem, bloomBMem)) {
+            if (mem != VK_NULL_HANDLE) vkFreeMemory(device, mem, null)
+        }
+        colorMem = VK_NULL_HANDLE; depthMem = VK_NULL_HANDLE; sceneHdrMem = VK_NULL_HANDLE
+        resolveMem = VK_NULL_HANDLE; bloomBrightMem = VK_NULL_HANDLE; bloomAMem = VK_NULL_HANDLE; bloomBMem = VK_NULL_HANDLE
         if (readbackBuffer != VK_NULL_HANDLE) vkDestroyBuffer(device, readbackBuffer, null); readbackBuffer = VK_NULL_HANDLE
         if (readbackMem != VK_NULL_HANDLE) vkFreeMemory(device, readbackMem, null); readbackMem = VK_NULL_HANDLE
     }
@@ -1439,6 +1726,18 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         if (brdfLutSampler != VK_NULL_HANDLE) vkDestroySampler(device, brdfLutSampler, null)
         if (descriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, descriptorPool, null)
         if (descriptorSetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, descriptorSetLayout, null)
+        // Part B post-pipeline teardown (pipelines/layouts/passes/pool; the per-frame post images +
+        // framebuffers are freed by destroyTargets above).
+        if (compositePipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, compositePipeline, null)
+        if (blurPipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, blurPipeline, null)
+        if (brightPipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, brightPipeline, null)
+        if (compositePipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, compositePipelineLayout, null)
+        if (blurPipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, blurPipelineLayout, null)
+        if (brightPipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, brightPipelineLayout, null)
+        if (postPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, postPool, null)
+        if (postSetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, postSetLayout, null)
+        if (postRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, postRenderPass, null)
+        if (compositeRenderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, compositeRenderPass, null)
         destroyBuffer(uboBuffer, uboMem)
         destroyBuffer(uboParamsBuffer, uboParamsMem)
         if (brdfLutView != VK_NULL_HANDLE) vkDestroyImageView(device, brdfLutView, null)
@@ -1536,7 +1835,12 @@ layout(push_constant) uniform MaterialParams {
     vec4 baseColorFactor;
     float metallicFactor;
     float roughnessFactor;
-    vec2 pad;
+    float roughnessScale;     // 24: Part A.2 per-material roughness multiplier
+    float grainStrength;      // 28: de-band — 1 keeps full albedo grain; <1 pulls toward grainMean
+    float grainMeanR;         // 32
+    float grainMeanG;         // 36
+    float grainMeanB;         // 40: per-material mean wood colour (sRGB) the grain collapses toward
+    float roughnessOverride;  // 44: de-band — >0 uses this constant roughness instead of striped mr.g
 } mat;
 layout(location = 0) out vec4 outColor;
 
@@ -1630,12 +1934,22 @@ vec3 prefilteredReflection(vec3 R, float roughness) {
 void main() {
     // glTF spec: baseColor = factor × texture; sRGB→linear conversion of the albedo sample.
     vec4 albedoTex = texture(tex, vUv);
-    vec3 albedo = pow(albedoTex.rgb, vec3(2.2)) * mat.baseColorFactor.rgb * vTint;
+    vec3 albedoLin = pow(albedoTex.rgb, vec3(2.2));
+    // De-band: pull the (heavily striped) piece albedo toward the per-material mean wood colour so
+    // the baked grain reads as subtle texture, not hard rings. grainStrength == 1 is a no-op (board).
+    vec3 grainMeanLin = pow(vec3(mat.grainMeanR, mat.grainMeanG, mat.grainMeanB), vec3(2.2));
+    albedoLin = mix(grainMeanLin, albedoLin, mat.grainStrength);
+    vec3 albedo = albedoLin * mat.baseColorFactor.rgb * vTint;
 
-    // glTF spec: metallic = factor × tex.b; roughness = factor × tex.g (clamped to avoid mirror-sharp).
+    // glTF spec: metallic = factor × tex.b; roughness = factor × tex.g × per-material scale (Part A.2),
+    // clamped to avoid mirror-sharp. Piece MR has B pinned to 255 so metallic stays 0 for pieces.
     vec3 mr = texture(mrTex, vUv).rgb;
     float metallic = mat.metallicFactor * mr.b;
-    float roughness = clamp(mat.roughnessFactor * mr.g, 0.05, 1.0);
+    // De-band: mr.g (roughness) is also striped, which alternates glossy/matte rings — the gloss boost
+    // amplified them. Pieces use a flat roughnessOverride for an even sheen; board keeps its texture.
+    float roughness = mat.roughnessOverride > 0.0
+        ? mat.roughnessOverride
+        : clamp(mat.roughnessFactor * mr.g * mat.roughnessScale, 0.04, 1.0);
 
     // Apply tangent-space normal map (cracks/wear in the marble) to the geometric normal.
     vec3 N = normalize(perturbNormal(normalize(vNormal), vUv));
@@ -1662,28 +1976,33 @@ void main() {
     vec3 reflection = prefilteredReflection(R, roughness);
     vec2 brdf = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
     vec3 F = F_SchlickR(max(dot(N, V), 0.0), F0, roughness);
-    // Scale down the IBL specular reflection — the papermill env is very bright and the default
-    // 1.0 scale washes out the warm wood albedo with neutral-white env reflections.
-    vec3 specular = reflection * (F * brdf.x + brdf.y) * 0.5;
+    // Part A.1 / A.3: IBL specular scale 0.5 -> 0.85 (iblSpecularScale). Restores gloss on pieces and
+    // the subtle board reflection that the halved scale muted. (mr.r occlusion + contact grounding
+    // applied below stop the brighter ambient from washing pieces out.)
+    vec3 specular = reflection * (F * brdf.x + brdf.y) * 0.85;
 
     vec3 kD = 1.0 - F;
     kD *= 1.0 - metallic;
     vec3 ambient = kD * diffuse + specular;
 
+    // Part A.3: glTF occlusion (mr.r) darkens only the indirect/ambient term. Piece MR.r is ~flat so
+    // this mostly grounds the marble board/frame; it is a no-op where mr.r == 1, so it is safe globally.
+    float ao = mr.r;
+    ambient *= mix(1.0, ao, 1.0);                          // aoStrength = 1.0
+    // Part A.3: deepen contact shadow on the ambient fill so pieces sit on the board instead of floating.
+    ambient *= mix(1.0 - 0.35, 1.0, sh);                   // contactStrength = 0.35
+
     vec3 color = ambient + Lo;
 
     // Selection-highlight glow: vTint > 1 emits extra light (used by the selection marker).
     vec3 glow = max(vTint - vec3(1.0), 0.0) * albedoTex.rgb * 1.6;
-    color += glow;
-
-    // Filmic tonemap + gamma. Clamp the tonemap input to avoid numerical explosions on hot pixels.
-    color = Uncharted2Tonemap(clamp(color * uboParams.exposure, 0.0, 256.0));
-    color = color * (1.0 / Uncharted2Tonemap(vec3(11.2)));
-    color = pow(color, vec3(1.0 / uboParams.gamma));
-
-    outColor = vec4(color, 1.0);
-}
-"""
+     color += glow;
+ 
+     // Part B.6: output raw linear HDR radiance. Tonemap + exposure + gamma moved to the composite
+     // pass so bloom can be extracted in HDR; the additive glow above will bloom (desirable).
+     outColor = vec4(color, 1.0);
+ }
+ """
 
         private const val SHADOW_VERT = """
 #version 450
@@ -1725,9 +2044,7 @@ vec3 Uncharted2Tonemap(vec3 x) {
 
 void main() {
     vec3 color = textureLod(envMap, normalize(vViewDir), 0.0).rgb;
-    color = Uncharted2Tonemap(clamp(color * uboParams.exposure, 0.0, 256.0));
-    color = color * (1.0 / Uncharted2Tonemap(vec3(11.2)));
-    color = pow(color, vec3(1.0 / uboParams.gamma));
+    // Part B.6: raw linear HDR sky radiance — tonemap happens in the composite pass.
     outColor = vec4(color, 1.0);
 }
 """
@@ -1924,6 +2241,70 @@ vec2 BRDF(float NoV, float roughness) {
 }
 void main() {
     outColor = vec4(BRDF(inUV.s, 1.0 - inUV.t), 0.0, 1.0);
+}
+"""
+
+        // Part B.7 — HDR bloom post shaders (drawn as fullscreen triangles via FSQ_VERT).
+
+        // BRIGHT_FRAG — threshold with a soft knee (Karis/UE style): below threshold+knee nothing
+        // passes; the soft quadratic knee eases in across [threshold-knee, threshold]; above the
+        // threshold everything passes at full strength.
+        private const val BRIGHT_FRAG = """
+#version 450
+layout(location = 0) in vec2 inUV;
+layout(set = 0, binding = 0) uniform sampler2D src;
+layout(push_constant) uniform PC { vec4 p; } pc; // p.x = threshold, p.y = knee
+layout(location = 0) out vec4 outColor;
+void main() {
+    vec3 c = texture(src, inUV).rgb;
+    float br = max(c.r, max(c.g, c.b));
+    float knee = max(pc.p.y, 1e-4);
+    float soft = clamp((br - pc.p.x + knee) / (2.0 * knee), 0.0, 1.0);
+    float w = max(soft * soft, step(pc.p.x, br));
+    outColor = vec4(c * w, 1.0);
+}
+"""
+
+        // BLUR_FRAG — separable 9-tap Gaussian. Push constant: xy = texel size, zw = direction
+        // (1,0)=horizontal or (0,1)=vertical. Run H then V, `bloomIterations` times.
+        private const val BLUR_FRAG = """
+#version 450
+layout(location = 0) in vec2 inUV;
+layout(set = 0, binding = 0) uniform sampler2D src;
+layout(push_constant) uniform PC { vec4 p; } pc;
+layout(location = 0) out vec4 outColor;
+const float W[5] = float[](0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
+void main() {
+    vec2 step = pc.p.xy * pc.p.zw;
+    vec3 c = texture(src, inUV).rgb * W[0];
+    for (int i = 1; i < 5; i++) {
+        c += texture(src, inUV + step * float(i)).rgb * W[i];
+        c += texture(src, inUV - step * float(i)).rgb * W[i];
+    }
+    outColor = vec4(c, 1.0);
+}
+"""
+
+        // COMPOSITE_FRAG — scene + bloom, then the single Uncharted2 tonemap + gamma (the only
+        // tonemap left now that the scene/sky shaders emit raw HDR). Push: x=intensity, y=exposure,
+        // z=gamma. With intensity 0 this is a straight tonemap of the HDR scene.
+        private const val COMPOSITE_FRAG = """
+#version 450
+layout(location = 0) in vec2 inUV;
+layout(set = 0, binding = 0) uniform sampler2D sceneHdr;
+layout(set = 0, binding = 1) uniform sampler2D bloomTex;
+layout(push_constant) uniform PC { vec4 p; } pc;
+layout(location = 0) out vec4 outColor;
+vec3 Uncharted2Tonemap(vec3 x) {
+    float A=0.15, B=0.50, C=0.10, D=0.20, E=0.02, F=0.30;
+    return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
+}
+void main() {
+    vec3 hdr = texture(sceneHdr, inUV).rgb + texture(bloomTex, inUV).rgb * pc.p.x;
+    vec3 col = Uncharted2Tonemap(clamp(hdr * pc.p.y, 0.0, 256.0));
+    col *= 1.0 / Uncharted2Tonemap(vec3(11.2));
+    col = pow(col, vec3(1.0 / pc.p.z));
+    outColor = vec4(col, 1.0);
 }
 """
     }
