@@ -7,7 +7,7 @@ private let sharedMoveTimeMs = 1_000
 // can exceed sharedEvalResponseTimeout on slow/contended machines (e.g. a debug build oversubscribed on
 // a 3-core CI runner), returning nil. A movetime bound always finishes within the response timeout.
 private let sharedEvalMoveTimeMs = 2_000
-private let sharedReadyTimeout: TimeInterval = 15
+private let sharedReadyTimeout: TimeInterval = 30
 private let sharedBestMoveResponseTimeout: TimeInterval = 20
 private let sharedEvalResponseTimeout: TimeInterval = 8
 private let sharedStopGraceTimeout: TimeInterval = 5
@@ -131,12 +131,24 @@ final class StockfishChessEngine: NSObject, ChessEngine {
     }
 
     func getBestMove(fen: String, completionHandler: @escaping (String?, Error?) -> Void) {
-        let move = SharedStockfishCore.shared.runSearch(
+        let checkClosed = { [weak self] in self?.localQueue.sync { self?.isClosed ?? true } ?? true }
+        // The first search after engine init can fail on slow/contended CI runners — the engine's
+        // async response pipeline isn't fully primed yet, so the bestmove response is missed and
+        // runSearch returns nil after the full timeout. A single retry reliably produces a move
+        // because by the second attempt the pipeline is warmed up.
+        var move = SharedStockfishCore.shared.runSearch(
             fen: fen,
             go: .go(movetime: sharedMoveTimeMs),
-            timeout: sharedBestMoveResponseTimeout
-        ) {
-            self.localQueue.sync { self.isClosed }
+            timeout: sharedBestMoveResponseTimeout,
+            checkClosed: checkClosed
+        )
+        if move == nil && !checkClosed() {
+            move = SharedStockfishCore.shared.runSearch(
+                fen: fen,
+                go: .go(movetime: sharedMoveTimeMs),
+                timeout: sharedBestMoveResponseTimeout,
+                checkClosed: checkClosed
+            )
         }
         completionHandler(move, nil)
     }

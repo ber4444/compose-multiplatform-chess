@@ -5,9 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import com.google.android.filament.Camera
-import com.google.android.filament.gltfio.FilamentInstance
 import dev.romainguy.kotlin.math.Float3
 import game.app.generated.resources.Res
 import java.nio.ByteBuffer
@@ -20,7 +18,6 @@ import io.github.sceneview.SurfaceType
 import io.github.sceneview.rememberCameraNode
 import io.github.sceneview.rememberEngine
 import io.github.sceneview.rememberEnvironmentLoader
-import io.github.sceneview.rememberMaterialLoader
 import io.github.sceneview.rememberModelLoader
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 
@@ -50,9 +47,10 @@ internal fun selectPieceMaterialName(materialNames: List<String>, color: PieceCo
  * app/build.gradle.kts) is read once into a byte buffer and instanced synchronously per node. One
  * board node shows the marble tiles + frame; a fixed pool of [MAX_PIECES] piece nodes — all created
  * in the first composition — each render boardScene.pieces[i], updated reactively (position,
- * rotation, visibility, and which mesh) without adding/removing nodes after init. A green
- * [highlightMaterial] disk marks the selected square. The shared Board3DHost camera/gestures drive
- * the camera via a transparent overlay (SceneView's SurfaceView consumes touches otherwise).
+ * rotation, visibility, and which mesh) without adding/removing nodes after init. Selection is shown
+ * by bouncing the picked piece (its scene y oscillates), not a coloured disc. The shared Board3DHost
+ * camera/gestures drive the camera via a transparent overlay (SceneView's SurfaceView consumes
+ * touches otherwise).
  */
 @Composable
 fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
@@ -60,32 +58,25 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
 
     val engine         = rememberEngine()
     val modelLoader    = rememberModelLoader(engine)
-    val materialLoader = rememberMaterialLoader(engine)
     val envLoader      = rememberEnvironmentLoader(engine)
 
-    // Read chess.glb once and create each node's FilamentInstance synchronously from the cached
-    // bytes. (SceneView's rememberModelInstance() helper loads asynchronously — fine for a single
-    // viewer model, but here we create one instance per board/piece node up front and want them all
-    // present in the first composition's node batch.)
+    // Parse chess.glb exactly once and create every board/piece instance in a single call. The
+    // earlier approach called createModelInstance() once per node, re-parsing the whole GLB for all
+    // MAX_PIECES + 1 nodes synchronously on the UI thread — that stalled composition (freezing the
+    // loading spinner) each time the 3D board opened. createInstancedModel() parses once and returns
+    // instances that share the parsed geometry while keeping independent transforms, visibility, and
+    // material instances, so the per-node selection logic below is unchanged and every instance is
+    // still present in the first composition's node batch. Index 0 is the board; 1..MAX_PIECES are
+    // the piece pool slots.
     val glbBytes = svRenderer.glbBytes
-    val newInstance: () -> FilamentInstance? = {
+    val modelInstances = remember(modelLoader, glbBytes) {
         val buffer = ByteBuffer.allocateDirect(glbBytes.size).order(ByteOrder.nativeOrder())
         buffer.put(glbBytes).rewind()
-        runCatching { modelLoader.createModelInstance(buffer) }.getOrNull()
+        runCatching { modelLoader.createInstancedModel(buffer, MAX_PIECES + 1) }.getOrNull().orEmpty()
     }
 
     val environment = remember(envLoader) {
         envLoader.createKTX1Environment(IBL_KTX, SKYBOX_KTX)
-    }
-
-    // Material for the selected-square highlight disk. Slightly glowing green so it reads under a
-    // piece without being washed out by the bright IBL. Created once and reused for every selection.
-    val highlightMaterial = remember(materialLoader) {
-        materialLoader.createColorInstance(
-            color = Color(0xFF3DDC6B),
-            metallic = 0f,
-            roughness = 0.35f,
-        )
     }
 
     val cameraNode  = rememberCameraNode(engine)
@@ -129,7 +120,6 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
     }
 
     val boardScene    = svRenderer.boardScene
-    val selectedSquare = svRenderer.selectedSquare
 
     // SceneView's SurfaceView installs an OnTouchListener that consumes every touch (returns true,
     // see SceneRenderer.attachToSurfaceView), so the shared Board3DHost pointerInput on `modifier`
@@ -158,7 +148,7 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
 
             // Board node: the GLB carries the 64 marble square tiles (nodes a1..h8) plus the engraved
             // "frame" border; show those and hide everything else.
-            val boardInstance = remember { newInstance() }
+            val boardInstance = modelInstances.getOrNull(0)
             if (boardInstance != null) {
                 ModelNode(
                     modelInstance = boardInstance,
@@ -179,7 +169,7 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
             // slot shows boardScene.pieces[i] and is updated reactively.
             repeat(MAX_PIECES) { i ->
                 val piece = boardScene?.pieces?.getOrNull(i)
-                val instance = remember(i) { newInstance() }
+                val instance = modelInstances.getOrNull(i + 1)
                 if (instance != null) {
                     val materialInstances = remember(instance) {
                         instance.materialInstances.associateBy { it.name }
@@ -189,7 +179,9 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                     }
                     ModelNode(
                         modelInstance = instance,
-                        position = Float3(piece?.position?.x ?: 0f, 0f, piece?.position?.z ?: 0f),
+                        // y comes from the scene so the move animation's arc hop (position.y > 0
+                        // mid-flight) lifts the piece off the board; resting pieces stay at y=0.
+                        position = Float3(piece?.position?.x ?: 0f, piece?.position?.y ?: 0f, piece?.position?.z ?: 0f),
                         rotation = Float3(0f, piece?.rotationYDegrees ?: 0f, 0f),
                         scale = Float3(0.5f, 0.5f, 0.5f),
                         isVisible = piece != null,
@@ -216,16 +208,6 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                 }
             }
 
-            if (selectedSquare != null) {
-                val hp = BoardGeometry.squareCenter(selectedSquare)
-                CylinderNode(
-                    radius = 0.46f,
-                    height = 0.04f,
-                    sideCount = 48,
-                    materialInstance = highlightMaterial,
-                    position = Float3(hp.x, 0.03f, hp.z),
-                )
-            }
         }
 
         // Transparent gesture overlay (see Box comment above). Sized by `modifier`

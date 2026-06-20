@@ -29,6 +29,59 @@ data class Vec3(val x: Float, val y: Float, val z: Float) {
     }
 }
 
+/**
+ * Piece-move animation tuning, carried over from vkChess (`VkChess::animatePce`). vkChess lifts the
+ * spline's outer control points by 10 units on a 2-unit-square board (peak hop ~0.6 squares) over
+ * ~0.5s; our board uses 1-unit squares, so [PIECE_MOVE_LIFT] is scaled for the same relative hop.
+ */
+const val PIECE_MOVE_LIFT: Float = 4f
+const val PIECE_MOVE_DURATION_MS: Long = 500L
+
+/**
+ * Arc/hop interpolation carried over from vkChess (`animatePce`): a Catmull-Rom spline through
+ * [start] and [end] whose two outer control points are lifted by [liftHeight]. The piece eases out
+ * of its square, arcs up off the board, and settles back down onto the target instead of sliding
+ * flat across it. [t] is normalized progress in [0,1]; it returns [start] at 0 and [end] at 1, with
+ * a parabolic vertical hop peaking at [liftHeight]/8 around the midpoint.
+ */
+fun catmullRomArc(start: Vec3, end: Vec3, t: Float, liftHeight: Float = PIECE_MOVE_LIFT): Vec3 {
+    // vUp points "down" (-y) so the lifted outer control points pull the spline's tangents upward,
+    // mirroring vkChess where the same vec3(0,-10,0) produced an upward hop in its camera convention.
+    val up = Vec3(0f, -liftHeight, 0f)
+    val p0 = start + up
+    val p3 = end + up
+    val s2 = t * t
+    val s3 = s2 * t
+    val f0 = -s3 + 2f * s2 - t
+    val f1 = 3f * s3 - 5f * s2 + 2f
+    val f2 = -3f * s3 + 4f * s2 + t
+    val f3 = s3 - s2
+    return (p0 * f0 + start * f1 + end * f2 + p3 * f3) * 0.5f
+}
+
+/**
+ * Selection feedback: instead of a coloured square/disc under the picked piece, the piece itself
+ * bounces in place. [SELECTION_BOUNCE_HEIGHT] is the peak lift (world units, ~⅙ of a square) and
+ * [SELECTION_BOUNCE_PERIOD_MS] is one full hop. [selectionBounceOffset] returns the current lift for
+ * the time elapsed since selection: a `|sin|` curve so the piece springs up off the board and lands
+ * back on it each cycle.
+ */
+const val SELECTION_BOUNCE_HEIGHT: Float = 0.16f
+const val SELECTION_BOUNCE_PERIOD_MS: Long = 520L
+
+fun selectionBounceOffset(elapsedMs: Long): Float {
+    val phase = (elapsedMs % SELECTION_BOUNCE_PERIOD_MS).toFloat() / SELECTION_BOUNCE_PERIOD_MS
+    return SELECTION_BOUNCE_HEIGHT * kotlin.math.abs(sin(phase * PI.toFloat()))
+}
+
+/** Copy of this scene with the piece on [square] raised by [dy] (drives the selection bounce). */
+fun Board3DScene.withSelectionLift(square: BoardSquare?, dy: Float): Board3DScene {
+    if (square == null || dy == 0f) return this
+    return copy(pieces = pieces.map { p ->
+        if (p.square == square) p.copy(position = p.position.copy(y = p.position.y + dy)) else p
+    })
+}
+
 data class Ray(val origin: Vec3, val direction: Vec3)
 
 data class CameraParams(

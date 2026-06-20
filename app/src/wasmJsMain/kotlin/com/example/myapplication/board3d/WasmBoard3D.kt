@@ -5,8 +5,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.foundation.background
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
@@ -113,27 +114,22 @@ fun WasmBoard3DSurface(
             }
         }
     }.let {
+        // Punch out the board area in the Compose/Skiko canvas so the WebGPU canvas behind it
+        // shows through. BlendMode.Clear sets destination pixels to (0,0,0,0) regardless of the
+        // Surface background already drawn — required because the WebGPU canvas is inserted as the
+        // first body child (behind the Compose canvas) so the board is visible without covering
+        // the controls that Compose draws on top.
         androidx.compose.foundation.layout.Box(
-            modifier = it.background(Color.Black.copy(alpha = 0.01f))
+            modifier = it.drawBehind {
+                drawRect(Color.Black, blendMode = BlendMode.Clear)
+            }
         )
     }
 }
 
 fun wasmBoard3DSupport(viewModel: GameViewModel): Board3DSupport? {
-    if (!hasWebGpu()) return null
-
     return Board3DSupport(
-        rendererFactory = {
-            runCatching {
-                val gpu = getNavigatorGpu() ?: return@runCatching null
-                val adapter = kotlinx.coroutines.withTimeoutOrNull(2000) { awaitPromiseSafe(requestAdapterJs(gpu)) }
-                if (adapter == null) return@runCatching null
-
-                val glb = kotlinx.coroutines.withTimeoutOrNull(5000) { Res.readBytes("files/models/chess.glb") }
-                if (glb == null) return@runCatching null
-                WebGpuChessRenderer(glb)
-            }.getOrNull()
-        },
+        rendererFactory = { ThreeJsChessRenderer() },
         surfaceContent = { renderer, modifier ->
             WasmBoard3DSurface(renderer, modifier, viewModel)
         }

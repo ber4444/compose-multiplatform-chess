@@ -10,7 +10,7 @@ fun desktopBoard3DSupport(): Board3DSupport {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                 runCatching {
                     val bytes = Res.readBytes("files/models/chess.glb")
-                    DesktopWgpuChessRenderer(bytes)
+                    VulkanChessRenderer(bytes)
                 }.getOrNull()
             }
         },

@@ -24,6 +24,11 @@ targets:
       - package: ChessKitEngine
     info:
       path: iosApp/Info.plist
+      properties:
+        # Allow Pro Motion (120 Hz) on iPhone — without this, UIKit caps frame rate at 60 and the
+        # 3D board's orbit feels noticeably choppier than the desktop target. xcodegen drops
+        # unknown keys from a hand-edited Info.plist on regen, so the key has to live here.
+        CADisableMinimumFrameDurationOnPhone: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.myapplication

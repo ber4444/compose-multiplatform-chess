@@ -18,7 +18,7 @@ This document holds the decisions and the shared commonMain API. Each milestone 
 | M4 | [issue-32-3d-ui-m4-wasm.md](issue-32-3d-ui-m4-wasm.md) | Wasm backend (landed through the shared wgpu4k WebGPU renderer and overlay canvas) |
 | M5 | [issue-32-3d-ui-m5-interaction-animation.md](issue-32-3d-ui-m5-interaction-animation.md) | 3D tap-to-move via ray picking, smooth piece animation, camera polish (backend-agnostic) |
 | **M6** | [issue-32-3d-ui-m6-wgpu4k.md](issue-32-3d-ui-m6-wgpu4k.md) | Desktop and web shared WebGPU/WGSL backend with papermill skybox plus PBR/IBL. |
-| **M7** | [issue-32-3d-ui-m7-apple-android-fidelity.md](issue-32-3d-ui-m7-apple-android-fidelity.md) | **vkChess-fidelity for iOS (SceneKit) + Android (Filament)** via their native IBL/skybox. |
+| **M7** | folded into [graphics-quality.md](graphics-quality.md) | **vkChess-fidelity for iOS (SceneKit) + Android (Filament)** via their native IBL/skybox. |
 | **M8** | [issue-32-3d-ui-m8-wgpu4k-mobile-spike.md](issue-32-3d-ui-m8-wgpu4k-mobile-spike.md) | Mobile WebGPU feasibility spike; completed as a no-go for Android surface ownership without new JNI/NDK glue. |
 
 > Current implementation: desktop + web use wgpu4k/WebGPU; iOS uses SceneKit; Android uses SceneView

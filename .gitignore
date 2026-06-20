@@ -7,6 +7,8 @@ onDeviceAi/build/*
 .kotlin/*
 .gradle/*
 .idea/*
+.superpowers/
+.worktrees/
 local.properties
 
 iosApp/iosApp.xcodeproj/xcuserdata
@@ -17,3 +19,4 @@ iosApp/build/*
 app/libWGPU-*.dylib
 app/hs_err_pid*.log
 hs_err_pid*.log
+app/app/
