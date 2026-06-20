@@ -25852,9 +25852,9 @@ void main() {
   var PIECE_SCALE = 0.5;
   var SS = 1.5;
   var SS_CAP = 2.5;
-  var BLOOM_STRENGTH = 0.7;
-  var BLOOM_RADIUS = 0.5;
-  var BLOOM_THRESHOLD = 0.6;
+  var BLOOM_STRENGTH = 0.35;
+  var BLOOM_RADIUS = 0.4;
+  var BLOOM_THRESHOLD = 0.85;
   var WHITE_MEAN = [0.427, 0.361, 0.263];
   var BLACK_MEAN = [0.176, 0.114, 0.075];
   var GRAIN_STRENGTH = 0.5;

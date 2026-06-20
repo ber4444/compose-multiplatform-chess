@@ -32,12 +32,12 @@ const PIECE_SCALE = 0.5
 // detail — the main web regression was MSAA-only softness); SS_CAP bounds the fill-rate cost.
 const SS = 1.5            // render-buffer supersample factor (sharpness)
 const SS_CAP = 2.5        // hard cap on the effective pixel ratio
-// Bloom tuned to match Android's punchier warm halo: lower threshold so sunlit areas + specular
-// hotspots bloom, higher strength + wider radius for the dramatic "blown-out window" feel. The
-// papermill sun is warm, so its bloom reads warm without a separate tint.
-const BLOOM_STRENGTH = 0.7
-const BLOOM_RADIUS = 0.5
-const BLOOM_THRESHOLD = 0.6
+// Bloom tuned to a subtle Android-matching halo. The earlier punchy preset (strength 0.7 /
+// threshold 0.6) blew out the whole bright board centre; raise the threshold so only the brightest
+// specular/sun highlights bloom, and lower the strength so it reads as atmosphere, not glare.
+const BLOOM_STRENGTH = 0.35
+const BLOOM_RADIUS = 0.4
+const BLOOM_THRESHOLD = 0.85
 // De-band (mirrors the desktop Vulkan renderer): the glb whites/blacks albedo bakes high-contrast
 // horizontal wood grain and the shared metallicRoughness map's green channel is striped too, so on
 // the lathe-turned pieces both wrap into hard rings. We soften the albedo grain toward the per-
