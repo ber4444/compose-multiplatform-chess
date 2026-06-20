@@ -1,5 +1,5 @@
 (() => {
-  // node_modules/three/build/three.module.js
+  // tools/chess3d-renderer/node_modules/three/build/three.module.js
   /**
    * @license
    * Copyright 2010-2024 Three.js Authors
@@ -21628,7 +21628,7 @@ void main() {
     }
   }
 
-  // node_modules/three/examples/jsm/utils/BufferGeometryUtils.js
+  // tools/chess3d-renderer/node_modules/three/examples/jsm/utils/BufferGeometryUtils.js
   function toTrianglesDrawMode(geometry, drawMode) {
     if (drawMode === TrianglesDrawMode) {
       console.warn("THREE.BufferGeometryUtils.toTrianglesDrawMode(): Geometry already defined as triangles.");
@@ -21684,7 +21684,7 @@ void main() {
     }
   }
 
-  // node_modules/three/examples/jsm/loaders/GLTFLoader.js
+  // tools/chess3d-renderer/node_modules/three/examples/jsm/loaders/GLTFLoader.js
   var GLTFLoader = class extends Loader {
     constructor(manager) {
       super(manager);
@@ -24166,7 +24166,7 @@ void main() {
     });
   }
 
-  // node_modules/three/examples/jsm/loaders/RGBELoader.js
+  // tools/chess3d-renderer/node_modules/three/examples/jsm/loaders/RGBELoader.js
   var RGBELoader = class extends DataTextureLoader {
     constructor(manager) {
       super(manager);
@@ -24407,7 +24407,7 @@ void main() {
     }
   };
 
-  // node_modules/three/examples/jsm/environments/RoomEnvironment.js
+  // tools/chess3d-renderer/node_modules/three/examples/jsm/environments/RoomEnvironment.js
   var RoomEnvironment = class extends Scene {
     constructor() {
       super();
@@ -24496,7 +24496,7 @@ void main() {
     return material;
   }
 
-  // node_modules/three/examples/jsm/shaders/CopyShader.js
+  // tools/chess3d-renderer/node_modules/three/examples/jsm/shaders/CopyShader.js
   var CopyShader = {
     name: "CopyShader",
     uniforms: {
@@ -24536,7 +24536,7 @@ void main() {
     )
   };
 
-  // node_modules/three/examples/jsm/postprocessing/Pass.js
+  // tools/chess3d-renderer/node_modules/three/examples/jsm/postprocessing/Pass.js
   var Pass = class {
     constructor() {
       this.isPass = true;
@@ -24580,7 +24580,7 @@ void main() {
     }
   };
 
-  // node_modules/three/examples/jsm/postprocessing/ShaderPass.js
+  // tools/chess3d-renderer/node_modules/three/examples/jsm/postprocessing/ShaderPass.js
   var ShaderPass = class extends Pass {
     constructor(shader, textureID) {
       super();
@@ -24620,7 +24620,7 @@ void main() {
     }
   };
 
-  // node_modules/three/examples/jsm/postprocessing/MaskPass.js
+  // tools/chess3d-renderer/node_modules/three/examples/jsm/postprocessing/MaskPass.js
   var MaskPass = class extends Pass {
     constructor(scene2, camera2) {
       super();
@@ -24677,7 +24677,7 @@ void main() {
     }
   };
 
-  // node_modules/three/examples/jsm/postprocessing/EffectComposer.js
+  // tools/chess3d-renderer/node_modules/three/examples/jsm/postprocessing/EffectComposer.js
   var EffectComposer = class {
     constructor(renderer2, renderTarget) {
       this.renderer = renderer2;
@@ -24799,7 +24799,7 @@ void main() {
     }
   };
 
-  // node_modules/three/examples/jsm/postprocessing/RenderPass.js
+  // tools/chess3d-renderer/node_modules/three/examples/jsm/postprocessing/RenderPass.js
   var RenderPass = class extends Pass {
     constructor(scene2, camera2, overrideMaterial = null, clearColor = null, clearAlpha = null) {
       super();
@@ -24850,7 +24850,7 @@ void main() {
     }
   };
 
-  // node_modules/three/examples/jsm/shaders/LuminosityHighPassShader.js
+  // tools/chess3d-renderer/node_modules/three/examples/jsm/shaders/LuminosityHighPassShader.js
   var LuminosityHighPassShader = {
     name: "LuminosityHighPassShader",
     shaderID: "luminosityHighPass",
@@ -24903,7 +24903,7 @@ void main() {
     )
   };
 
-  // node_modules/three/examples/jsm/postprocessing/UnrealBloomPass.js
+  // tools/chess3d-renderer/node_modules/three/examples/jsm/postprocessing/UnrealBloomPass.js
   var UnrealBloomPass = class _UnrealBloomPass extends Pass {
     constructor(resolution, strength, radius, threshold) {
       super();
@@ -25159,7 +25159,7 @@ void main() {
   UnrealBloomPass.BlurDirectionX = new Vector2(1, 0);
   UnrealBloomPass.BlurDirectionY = new Vector2(0, 1);
 
-  // node_modules/three/examples/jsm/shaders/SMAAShader.js
+  // tools/chess3d-renderer/node_modules/three/examples/jsm/shaders/SMAAShader.js
   var SMAAEdgesShader = {
     name: "SMAAEdgesShader",
     defines: {
@@ -25604,7 +25604,7 @@ void main() {
     )
   };
 
-  // node_modules/three/examples/jsm/postprocessing/SMAAPass.js
+  // tools/chess3d-renderer/node_modules/three/examples/jsm/postprocessing/SMAAPass.js
   var SMAAPass = class extends Pass {
     constructor(width, height) {
       super();
@@ -25717,7 +25717,7 @@ void main() {
     }
   };
 
-  // node_modules/three/examples/jsm/shaders/OutputShader.js
+  // tools/chess3d-renderer/node_modules/three/examples/jsm/shaders/OutputShader.js
   var OutputShader = {
     name: "OutputShader",
     uniforms: {
@@ -25801,7 +25801,7 @@ void main() {
     )
   };
 
-  // node_modules/three/examples/jsm/postprocessing/OutputPass.js
+  // tools/chess3d-renderer/node_modules/three/examples/jsm/postprocessing/OutputPass.js
   var OutputPass = class extends Pass {
     constructor() {
       super();
@@ -25848,13 +25848,17 @@ void main() {
     }
   };
 
-  // chess3d-renderer.js
+  // tools/chess3d-renderer/chess3d-renderer.js
   var PIECE_SCALE = 0.5;
   var SS = 1.5;
   var SS_CAP = 2.5;
   var BLOOM_STRENGTH = 0.7;
   var BLOOM_RADIUS = 0.5;
   var BLOOM_THRESHOLD = 0.6;
+  var WHITE_MEAN = [0.427, 0.361, 0.263];
+  var BLACK_MEAN = [0.176, 0.114, 0.075];
+  var GRAIN_STRENGTH = 0.5;
+  var PIECE_ROUGHNESS = 0.4;
   var composer;
   var bloomPass;
   var smaaPass;
@@ -26021,6 +26025,27 @@ void main() {
       camera = null;
     }
   };
+  function debandPieceMaterial(mat, meanSrgb) {
+    if (!mat) return;
+    mat.roughnessMap = null;
+    mat.roughness = PIECE_ROUGHNESS;
+    mat.metalnessMap = null;
+    mat.metalness = 0;
+    const meanLin = new Vector3(
+      Math.pow(meanSrgb[0], 2.2),
+      Math.pow(meanSrgb[1], 2.2),
+      Math.pow(meanSrgb[2], 2.2)
+    );
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uGrainMean = { value: meanLin };
+      shader.uniforms.uGrainStrength = { value: GRAIN_STRENGTH };
+      shader.fragmentShader = "uniform vec3 uGrainMean;\nuniform float uGrainStrength;\n" + shader.fragmentShader.replace(
+        "#include <map_fragment>",
+        "#include <map_fragment>\n  diffuseColor.rgb = mix(uGrainMean, diffuseColor.rgb, uGrainStrength);"
+      );
+    };
+    mat.needsUpdate = true;
+  }
   async function loadGlb() {
     const loader = new GLTFLoader();
     const paths = ["./chess.glb", "chess.glb", "/app/src/commonMain/composeResources/files/models/chess.glb"];
@@ -26039,6 +26064,8 @@ void main() {
     const materials = await gltf.parser.getDependencies("material");
     whiteMat = materials.find((m) => m.name === "white") || materials[0] || null;
     blackMat = materials.find((m) => m.name === "black") || whiteMat;
+    debandPieceMaterial(whiteMat, WHITE_MEAN);
+    debandPieceMaterial(blackMat, BLACK_MEAN);
     gltf.scene.traverse((o) => {
       const name = o.name ? o.name.toLowerCase() : "";
       if (name && PIECE_NAMES.has(name)) pieceTemplates[name] = o;

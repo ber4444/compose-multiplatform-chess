@@ -38,6 +38,15 @@ const SS_CAP = 2.5        // hard cap on the effective pixel ratio
 const BLOOM_STRENGTH = 0.7
 const BLOOM_RADIUS = 0.5
 const BLOOM_THRESHOLD = 0.6
+// De-band (mirrors the desktop Vulkan renderer): the glb whites/blacks albedo bakes high-contrast
+// horizontal wood grain and the shared metallicRoughness map's green channel is striped too, so on
+// the lathe-turned pieces both wrap into hard rings. We soften the albedo grain toward the per-
+// material mean wood colour and flatten roughness to a constant (even sheen, not glossy/matte bands).
+// Means measured from the glb albedos (sRGB).
+const WHITE_MEAN = [0.427, 0.361, 0.263]
+const BLACK_MEAN = [0.176, 0.114, 0.075]
+const GRAIN_STRENGTH = 0.5   // 1 = full grain; 0 = flat colour. 0.5 keeps subtle character.
+const PIECE_ROUGHNESS = 0.4  // constant roughness for pieces (replaces the striped roughnessMap)
 let composer, bloomPass, smaaPass   // alongside `renderer, scene, camera`
 let usePost = false                 // set true once the composer builds; falls back to bare render
 // Glb node names that are piece templates (kept at origin as geometry sources) or stray helpers
@@ -220,6 +229,37 @@ window.chess3d = {
   },
 }
 
+// De-band a shared piece material in place (see WHITE_MEAN/BLACK_MEAN comment). Flattens the striped
+// roughness/metalness maps to constants, and injects a tiny shader patch that pulls the sampled
+// albedo toward the per-material mean wood colour so the baked grain reads as subtle texture, not
+// hard rings — the three.js analogue of the desktop renderer's grainStrength/roughnessOverride.
+function debandPieceMaterial(mat, meanSrgb) {
+  if (!mat) return
+  // Flatten roughness: the glb metallicRoughness map's green channel is striped. Drop the map and
+  // use a constant; also drop the metalness map (wood is dielectric) so it can't add banding.
+  mat.roughnessMap = null
+  mat.roughness = PIECE_ROUGHNESS
+  mat.metalnessMap = null
+  mat.metalness = 0.0
+  // Soften the striped albedo grain toward the linearised mean. The map is sampled into linear space
+  // (three colour management), so `diffuseColor.rgb` after <map_fragment> is linear — mix toward the
+  // linearised mean there. GRAIN_STRENGTH == 1 would be a no-op.
+  const meanLin = new THREE.Vector3(
+    Math.pow(meanSrgb[0], 2.2), Math.pow(meanSrgb[1], 2.2), Math.pow(meanSrgb[2], 2.2),
+  )
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uGrainMean = { value: meanLin }
+    shader.uniforms.uGrainStrength = { value: GRAIN_STRENGTH }
+    shader.fragmentShader =
+      'uniform vec3 uGrainMean;\nuniform float uGrainStrength;\n' +
+      shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        '#include <map_fragment>\n  diffuseColor.rgb = mix(uGrainMean, diffuseColor.rgb, uGrainStrength);',
+      )
+  }
+  mat.needsUpdate = true
+}
+
 async function loadGlb() {
   const loader = new GLTFLoader()
   const paths = ['./chess.glb', 'chess.glb', '/app/src/commonMain/composeResources/files/models/chess.glb']
@@ -237,6 +277,8 @@ async function loadGlb() {
   const materials = await gltf.parser.getDependencies('material')
   whiteMat = materials.find(m => m.name === 'white') || materials[0] || null
   blackMat = materials.find(m => m.name === 'black') || whiteMat
+  debandPieceMaterial(whiteMat, WHITE_MEAN)
+  debandPieceMaterial(blackMat, BLACK_MEAN)
 
   // Stash the six piece template meshes by kind (they sit at the glb origin).
   gltf.scene.traverse(o => {
