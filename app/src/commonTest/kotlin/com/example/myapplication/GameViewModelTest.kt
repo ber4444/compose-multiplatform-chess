@@ -2,6 +2,7 @@ package com.example.myapplication
 
 import kotlin.test.assertTrue
 import kotlin.test.Test
+import kotlin.test.assertEquals
 
 class GameViewModelTest {
     private val viewModel = GameViewModel()
@@ -292,16 +293,50 @@ class GameViewModelTest {
     @Test
     fun `testStockfishMoveClearsSelectedSquare`() = kotlinx.coroutines.test.runTest {
         val viewModel = GameViewModel()
-        
+
         // Simulate White selecting a piece
         viewModel.updateSelected(Pair(6, 4))
-        
+
         // Simulate Black (Stockfish) making a move
         viewModel.moveCPU(Set.BLACK) { _, _, _, _ ->
             SelectedMove(position = Pair(4, 4), pieceIndex = 0)
         }
-        
+
         // Verify that selectedSquare was cleared
         kotlin.test.assertEquals(INVALID_POSITION, viewModel.gameState.value.selectedSquare)
+    }
+
+    @Test
+    fun `moveHistory accumulates SAN records across alternating plies`() = kotlinx.coroutines.test.runTest {
+        val viewModel = GameViewModel()
+
+        // 1.e4
+        viewModel.moveCPU(Set.WHITE) { _, _, _, _ ->
+            SelectedMove(Pair(4, 4), viewModel.gameState.value.positionsWhite.indexOf(Pair(6, 4)))
+        }
+        // 1...e5
+        viewModel.moveCPU(Set.BLACK) { _, _, _, _ ->
+            SelectedMove(Pair(3, 4), viewModel.gameState.value.positionsBlack.indexOf(Pair(1, 4)))
+        }
+        // 2.Nf3
+        viewModel.moveCPU(Set.WHITE) { _, _, _, _ ->
+            SelectedMove(Pair(5, 5), viewModel.gameState.value.positionsWhite.indexOf(Pair(7, 6)))
+        }
+
+        val history = viewModel.gameState.value.moveHistory
+        assertEquals(3, history.size)
+        assertEquals(listOf("e4", "e5", "Nf3"), history.map { it.san })
+    }
+
+    @Test
+    fun `resetGame clears the move history`() = kotlinx.coroutines.test.runTest {
+        val viewModel = GameViewModel()
+        viewModel.moveCPU(Set.WHITE) { _, _, _, _ ->
+            SelectedMove(Pair(4, 4), viewModel.gameState.value.positionsWhite.indexOf(Pair(6, 4)))
+        }
+        assertTrue(viewModel.gameState.value.moveHistory.isNotEmpty())
+
+        viewModel.resetGame()
+        assertTrue(viewModel.gameState.value.moveHistory.isEmpty())
     }
 }

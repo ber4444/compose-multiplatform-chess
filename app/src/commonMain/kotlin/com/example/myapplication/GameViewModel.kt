@@ -403,7 +403,8 @@ class GameViewModel(
 
         mutableAllyPositions[pieceIndex] = newPosition
         
-        castlingRookMove(movingPiece, fromPosition, newPosition)?.let { (rookFrom, rookTo) ->
+        val castleRook = castlingRookMove(movingPiece, fromPosition, newPosition)
+        castleRook?.let { (rookFrom, rookTo) ->
             val rookIndex = allyPositions.indexOf(rookFrom)
             if (rookIndex != -1) {
                 mutableAllyPositions[rookIndex] = rookTo
@@ -488,8 +489,35 @@ class GameViewModel(
             else _gameState.value.positionHistory.ifEmpty { listOf(FenConverter.positionKey(_gameState.value)) }
         val newState = movedState.copy(positionHistory = priorHistory + FenConverter.positionKey(movedState))
         val winStateApplied = applyWinConditions(newState)
-        if (winStateApplied.winState != WinState.NONE) return winStateApplied
-        return applyDrawConditions(winStateApplied)
+        val finalState = if (winStateApplied.winState != WinState.NONE) winStateApplied
+                         else applyDrawConditions(winStateApplied)
+
+        // Append a MoveRecord for PGN/history. Built last so SAN's `#`/`+` suffix can use the
+        // post-move win/check evaluation. preMove = _gameState.value (the caller has not yet
+        // published the new state).
+        val preMove = _gameState.value
+        val checkSuffix = when {
+            finalState.winState == WinState.WHITE || finalState.winState == WinState.BLACK -> "#"
+            enemyInCheck -> "+"
+            else -> ""
+        }
+        val record = MoveRecord(
+            uci = UciMoveConverter.appMoveToUci(fromPosition, newPosition) +
+                (promotion?.uciChar?.toString() ?: ""),
+            san = SanConverter.toSan(
+                preMove = preMove,
+                pieceIndex = pieceIndex,
+                from = fromPosition,
+                to = newPosition,
+                movingPiece = movingPiece,
+                isCapture = captureOccurred,
+                promotion = promotion,
+                castleRook = castleRook,
+                checkSuffix = checkSuffix,
+            ),
+            fenAfter = FenConverter.gameStateToFen(finalState),
+        )
+        return finalState.copy(moveHistory = preMove.moveHistory + record)
     }
 
     private fun applyWinConditions(state: GameUiState): GameUiState {

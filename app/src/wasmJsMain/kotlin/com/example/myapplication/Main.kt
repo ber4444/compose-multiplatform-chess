@@ -5,8 +5,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.window.ComposeViewport
 import kotlinx.browser.document
-import com.example.myapplication.ui.theme.MyApplicationTheme
 import androidx.compose.ui.ExperimentalComposeUiApi
+import com.example.myapplication.persistence.AppSettings
+import com.example.myapplication.persistence.createSettings
 import co.touchlab.kermit.Logger
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -14,6 +15,7 @@ fun main() {
     document.title = "Chess"
     ComposeViewport("ComposeTarget") {
         val viewModel = remember { GameViewModel() }
+        val appSettings = remember { AppSettings(createSettings("chess")) }
         LaunchedEffect(Unit) {
             val engine = WasmStockfishEngine()
             if (engine.start()) {
@@ -27,11 +29,10 @@ fun main() {
             onDispose { viewModel.close() }
         }
 
-        MyApplicationTheme(darkTheme = false) {
-            ChessApp(
-                viewModel = viewModel,
-                board3D = com.example.myapplication.board3d.wasmBoard3DSupport(viewModel)
-            )
-        }
+        AppRoot(
+            viewModel = viewModel,
+            settings = appSettings,
+            board3D = com.example.myapplication.board3d.wasmBoard3DSupport(viewModel)
+        )
     }
 }

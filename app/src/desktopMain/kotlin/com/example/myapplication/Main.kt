@@ -6,7 +6,8 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.unit.dp
-import com.example.myapplication.ui.theme.MyApplicationTheme
+import com.example.myapplication.persistence.AppSettings
+import com.example.myapplication.persistence.createSettings
 import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +17,7 @@ import com.example.myapplication.board3d.desktopBoard3DSupport
 fun main() = application {
     val viewModel = remember { GameViewModel() }
     val board3D = remember { desktopBoard3DSupport() }
+    val appSettings = remember { AppSettings(createSettings("chess")) }
 
     DisposableEffect(Unit) {
         val engine = DesktopStockfishEngine()
@@ -37,11 +39,10 @@ fun main() = application {
         title = "Chess",
         state = WindowState(width = 800.dp, height = 900.dp)
     ) {
-        MyApplicationTheme {
-            ChessApp(
-                viewModel = viewModel,
-                board3D = board3D
-            )
-        }
+        AppRoot(
+            viewModel = viewModel,
+            settings = appSettings,
+            board3D = board3D
+        )
     }
 }
