@@ -4,6 +4,8 @@ options:
   deploymentTarget:
     iOS: "16.0"          # floor set by ChessKitEngine (.iOS(.v16))
   createIntermediateGroups: true
+# iOS uses Metal-native Filament for the 3D board. Run tools/fetch_filament_ios.sh after a clean
+# checkout to install the gitignored Filament xcframeworks and staged KTX IBL resources.
 settings:
   base:
     ENABLE_USER_SCRIPT_SANDBOXING: "NO"   # required by embedAndSignAppleFrameworkForXcode
@@ -17,9 +19,12 @@ targets:
     platform: iOS
     sources:
       - path: iosApp
-        excludes: ["Resources/**"]
+        # Filament/filament/** is the fetched Filament release (headers + xcframeworks); it is linked
+        # via filament.xcconfig, not compiled as target sources, so keep xcodegen from globbing it.
+        excludes: ["Resources/**", "Filament/filament/**"]
       - path: iosApp/Resources
-        buildPhase: resources          # .nnue files must land in the app bundle
+        buildPhase: resources          # .nnue + glb + KTX assets must land in the app bundle
+        excludes: ["papermill_*.hdr"]
     dependencies:
       - package: ChessKitEngine
     info:
@@ -36,6 +41,11 @@ targets:
         OTHER_LDFLAGS: "$(inherited) -framework ChessApp"
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
+    # Filament header/library search paths, static-lib link flags, and the Swift bridging header live
+    # in this xcconfig. The libraries it points at are fetched separately and intentionally gitignored.
+    configFiles:
+      Debug: iosApp/Filament/filament.xcconfig
+      Release: iosApp/Filament/filament.xcconfig
     preBuildScripts:
       - name: Compile Kotlin Framework
         basedOnDependencyAnalysis: false

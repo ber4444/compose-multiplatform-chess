@@ -27,15 +27,17 @@ brew install stockfish
 ### iOS Setup
 
 macOS, Xcode 16+, and a working project JDK are required.
-1. `open iosApp/iosApp.xcodeproj`
-2. Run the `iosApp` scheme
+1. `tools/fetch_filament_ios.sh`
+2. `open iosApp/iosApp.xcodeproj`
+3. Run the `iosApp` scheme
 
-The Stockfish engine is bundled automatically, nothing to install manually.
+The Stockfish engine is bundled automatically. The Filament iOS xcframeworks are fetched separately
+because they are large generated dependencies and are intentionally gitignored.
 
 ## Architecture & Features
 
 - **Full Chess Rules:** The application covers all standard chess rules and includes an explicit draw-by-agreement flow where the Stockfish engine evaluates whether to accept or decline draw offers.
-- **3D Board View:** The app features a playable 3D board with shared camera, tap-to-move, ray picking, and move animation logic. Android uses Filament through SceneView (the visual reference); desktop uses **Vulkan** (LWJGL) with the full vkChess PBR pipeline (Cook-Torrance direct lighting, precomputed irradiance/BRDF-LUT IBL, Filament's prefiltered `papermill_ibl.ktx`, per-pixel metallic/roughness from glTF, tangent-space normal mapping, SSAA supersampling via `CHESS_DESKTOP_SSAA`, 16× anisotropic, PCF shadows); web and iOS use **three.js** (WebGLRenderer + MeshStandardMaterial + ACESFilmicToneMapping + PCFSoftShadowMap) loading the same `chess.glb` Android uses. On iOS, three.js runs inside a WKWebView with a fully offline esbuild bundle. See `docs/plans/web-graphics-spike-result.md` and `docs/plans/ios-graphics-spike-result.md` for the spike verdicts.
+- **3D Board View:** The app features a playable 3D board with shared camera, tap-to-move, ray picking, and move animation logic. Android uses Filament through SceneView (the visual reference); iOS uses **Metal-native Filament** through a Swift/Obj-C++ `CAMetalLayer` bridge; desktop uses **Vulkan** (LWJGL) with the full vkChess PBR pipeline (Cook-Torrance direct lighting, precomputed irradiance/BRDF-LUT IBL, Filament's prefiltered `papermill_ibl.ktx`, per-pixel metallic/roughness from glTF, tangent-space normal mapping, SSAA supersampling via `CHESS_DESKTOP_SSAA`, 16× anisotropic, PCF shadows); web uses **Filament (Wasm)** loading the same `chess.glb` Android uses. See `docs/plans/web-graphics-spike-result.md` and `docs/plans/ios-filament-spike-result.md` for the spike verdicts.
 - **Stockfish Engine Integrations:**
   - **Android:** Pinned to Stockfish 17, as the Stockfish 18 binary exceeds GitHub's 100 MB file limit.
   - **Desktop:** Relies on system-installed binaries (e.g., via `apt` or `brew`).
@@ -63,7 +65,7 @@ Third-party asset and dependency notices live in [THIRD_PARTY_NOTICES.md](THIRD_
 - `./gradlew :app:wasmJsBrowserDevelopmentWebpack` builds the web development bundle without starting the dev server
 - `./gradlew :app:connectedAndroidDeviceTest` runs Android UI tests
 - `./gradlew :app:iosSimulatorArm64Test` runs iOS Compose UI tests
-- `./gradlew :app:desktopTest --tests "*board3d*"` runs the 3D desktop tests (Wgpu4kFrameDumpTest writes `build/wgpu-frame.png` to eyeball the render)
+- `./gradlew :app:desktopTest --tests "*board3d*"` runs the 3D desktop tests (DesktopRendererSmokeTest writes `build/chess3d-*.png` to eyeball the render)
 - `tools/ios_3d_screenshot.sh` captures the real iOS 3D board from a booted simulator
 
 Articles with screenshots: WIP

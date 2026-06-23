@@ -78,8 +78,10 @@ Filament host.
 
 - https://github.com/SceneView/sceneview-android
 
-## wgpu4k
+## Filament
 
-Desktop and Web 3D rendering use `io.ygdrasil:wgpu4k-toolkit`.
+Web (Wasm) and iOS 3D rendering use Google's Filament renderer — `filament.js` (loaded at runtime on
+web) and the Filament iOS xcframeworks (fetched by `tools/fetch_filament_ios.sh`). Android uses
+Filament via SceneView (above). Filament is licensed under Apache-2.0.
 
-- https://github.com/wgpu4k/wgpu4k
+- https://github.com/google/filament

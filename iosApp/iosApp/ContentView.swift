@@ -4,7 +4,10 @@ import ChessApp
 
 struct ComposeView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController {
-        MainViewControllerKt.MainViewController(engine: StockfishChessEngine())
+        return MainViewControllerKt.MainViewController(
+            engine: StockfishChessEngine(),
+            filamentFactory: FilamentChessFactory()
+        )
     }
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
 }

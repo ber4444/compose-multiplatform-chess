@@ -82,9 +82,9 @@ jobs:
           echo "Running on device: ${{ matrix.profile }}"
           echo "Building Android, Linux desktop, and Wasm targets"
 
-      # The desktop wgpu4k renderer (exercised headlessly by Wgpu4kFrameDumpTest inside :app:check)
-      # uses the Vulkan backend on Linux; lavapipe (mesa-vulkan-drivers) provides a CPU Vulkan device.
-      - name: Install Vulkan drivers (lavapipe) for wgpu4k headless render tests
+      # The desktop Vulkan renderer (exercised headlessly by DesktopRendererSmokeTest inside :app:check)
+      # uses Vulkan on Linux; lavapipe (mesa-vulkan-drivers) provides a CPU Vulkan device.
+      - name: Install Vulkan drivers (lavapipe) for desktop headless render tests
         run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
 
       - name: Build Android, Linux desktop, and Wasm targets
@@ -143,11 +143,19 @@ jobs:
 
       - name: Ensure test simulator exists
         run: |
-          xcrun simctl list devices available | grep -q "iPhone 16" || \
+          # Match the EXACT device name ("iPhone 16 (" in the simctl listing) so a pre-installed
+          # "iPhone 16 Pro"/"Plus" doesn't satisfy the check and leave the Kotlin/Native test runner
+          # failing with "Invalid device: iPhone 16" (runner images vary in which sims ship).
+          if ! xcrun simctl list devices available | grep -qE "iPhone 16 \("; then
             xcrun simctl create "iPhone 16" "com.apple.CoreSimulator.SimDeviceType.iPhone-16"
+          fi
+          xcrun simctl list devices available | grep -E "iPhone 16 \(" || true
 
       - name: Kotlin checks (simulator unit+UI tests, desktop tests, device link, DMG)
         run: ./gradlew :app:iosSimulatorArm64Test :app:desktopTest :app:linkReleaseFrameworkIosArm64 :app:packageDistributionForCurrentOS "-PiosSimulatorDeviceId=iPhone 16"
+
+      - name: Fetch iOS Filament dependencies
+        run: tools/fetch_filament_ios.sh
 
       - name: Build and test iosApp
         run: |

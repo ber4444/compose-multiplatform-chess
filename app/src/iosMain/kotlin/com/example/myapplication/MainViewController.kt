@@ -13,9 +13,16 @@ import com.example.myapplication.persistence.createSettings
  * iOS entry point. The engine is created and started on the Swift side
  * (StockfishChessEngine) and injected here, mirroring desktop Main.kt.
  * Pass null to play against the built-in CPU.
+ *
+ * [filamentFactory] is implemented by the Swift app target and hosts the Metal-native Filament
+ * renderer. Keeping it injected mirrors the Stockfish engine bridge while leaving the Kotlin
+ * framework independent from Filament's C++ xcframeworks.
  */
 @OptIn(ExperimentalForeignApi::class)
-fun MainViewController(engine: ChessEngine?): UIViewController = ComposeUIViewController {
+fun MainViewController(
+    engine: ChessEngine?,
+    filamentFactory: com.example.myapplication.board3d.FilamentChessViewFactory,
+): UIViewController = ComposeUIViewController {
     val viewModel = remember { GameViewModel() }
     val appSettings = remember { AppSettings(createSettings("chess")) }
     DisposableEffect(Unit) {
@@ -26,7 +33,7 @@ fun MainViewController(engine: ChessEngine?): UIViewController = ComposeUIViewCo
     AppRoot(
         viewModel = viewModel,
         settings = appSettings,
-        board3D = remember { com.example.myapplication.board3d.iosBoard3DSupport() },
+        board3D = remember { com.example.myapplication.board3d.iosBoard3DSupport(filamentFactory) },
         switchTopPadding = (-16).dp
     )
 }
