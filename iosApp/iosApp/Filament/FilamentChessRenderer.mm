@@ -51,13 +51,16 @@ using utils::Entity;
 // chess.glb uses 2-unit squares (board spans +/-8); the game uses 1-unit squares (+/-4), so every
 // node is scaled 0.5 — identical to AndroidBoard3D.kt. Templates sit at the GLB origin, so a piece's
 // world transform is just translate(squareCenter) * rotateY * scale(0.5).
+// Keep in sync with ChessSetConventions in commonMain (single source of truth).
 static constexpr float kModelScale = 0.5f;
 // A board holds at most 32 pieces (promotion replaces a pawn, never adds). Instance 0 is the board;
 // 1..32 are the piece-pool slots — mirrors AndroidBoard3D's createInstancedModel(MAX_PIECES + 1).
+// Keep in sync with ChessSetConventions in commonMain (single source of truth).
 static constexpr int kMaxPieces = 32;
 static constexpr int kInstanceCount = kMaxPieces + 1;
 
 // PieceKind ordinals (Board3DScene.kt): KING, QUEEN, ROOK, BISHOP, KNIGHT, PAWN.
+// Keep in sync with ChessSetConventions in commonMain (single source of truth).
 static const char* kMeshForKind[6] = { "king", "queen", "rook", "bishop", "knight", "pawn" };
 
 namespace {

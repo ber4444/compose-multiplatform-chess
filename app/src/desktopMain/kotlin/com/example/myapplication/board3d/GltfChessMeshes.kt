@@ -61,9 +61,9 @@ object GltfChessMeshes {
         val model = GltfModelReader().readWithoutReferences(ByteArrayInputStream(glb))
         val node = model.nodeModels.firstOrNull { it.name == "frame" } ?: return null
         val (pos, uv, tan, idx) = collectNodeGeometry(node) ?: return null
-        val scaled = FloatArray(pos.size) { pos[it] * 0.5f }
+        val scaled = FloatArray(pos.size) { pos[it] * ChessSetConventions.PIECE_SCALE }
         val uvs = if (uv.size == (pos.size / 3) * 2) uv else FloatArray((pos.size / 3) * 2)
-        return MeshData(scaled, computeSmoothNormals(scaled, idx), uvs, idx, scaleTangents(tan, 0.5f))
+        return MeshData(scaled, computeSmoothNormals(scaled, idx), uvs, idx, scaleTangents(tan, ChessSetConventions.PIECE_SCALE))
     }
 
     private fun normalize(pos: FloatArray, uv: FloatArray, tan: FloatArray, idx: IntArray, scale: Float): MeshData {

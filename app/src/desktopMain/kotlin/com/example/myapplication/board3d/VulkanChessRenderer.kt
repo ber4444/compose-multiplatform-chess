@@ -525,8 +525,8 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         // Load the papermill env cubes Android uses (skybox = blurred background, ibl = prefiltered
         // mip chain). Both fall back gracefully to "no env" if the asset is missing — the renderer
         // will still draw pieces, just without IBL.
-        loadEnvCube("/papermill_skybox.ktx") { cube -> skybox = cube }
-        loadEnvCube("/papermill_ibl.ktx") { cube ->
+        loadEnvCube("/${ChessSetConventions.SKYBOX_ASSET}") { cube -> skybox = cube }
+        loadEnvCube("/${ChessSetConventions.IBL_ASSET}") { cube ->
             ibl = cube
             iblMipLevels = cube.mipLevels
         }
