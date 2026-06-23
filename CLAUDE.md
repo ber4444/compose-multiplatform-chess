@@ -18,7 +18,7 @@ Compose Multiplatform chess app (Kotlin 2.3.x, Compose Multiplatform 1.10.x) tar
 ./gradlew :app:connectedAndroidDeviceTest       # Android UI tests (needs device/emulator)
 ./gradlew :app:iosSimulatorArm64Test            # iOS Compose UI tests
 xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug -destination "platform=iOS Simulator,name=iPhone 17" CODE_SIGNING_ALLOWED=NO test # iOS Swift tests
-./gradlew :app:desktopTest --tests "*board3d*"  # run 3D desktop tests (Wgpu4kFrameDumpTest writes build/wgpu-frame.png to eyeball)
+./gradlew :app:desktopTest --tests "*board3d*"  # run 3D desktop tests (DesktopRendererSmokeTest writes build/chess3d-*.png to eyeball)
 tools/ios_3d_screenshot.sh                      # screenshot the real iOS 3D board in a booted sim -> build/ios-3d-screenshot.png
 ```
 

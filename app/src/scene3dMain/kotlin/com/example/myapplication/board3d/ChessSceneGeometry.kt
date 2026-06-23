@@ -42,7 +42,7 @@ class ChessSceneGeometry private constructor(val groups: Map<ChessTexture, Scene
             val black = Builder()
             val frame = Builder()
 
-            // The big grey floor only makes sense without an environment. With a skybox (wgpu/vkChess
+            // The big grey floor only makes sense without an environment. With a skybox (vkChess
             // look) it would occlude the sky, so callers can skip it and let the board sit in the env.
             if (includeGround) addGround(board)
             addBoard(board)

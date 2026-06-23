@@ -5,7 +5,7 @@ package com.example.myapplication.board3d
  *
  * Each scene is expressed purely in terms of the existing [Board3DScene] / [CameraParams]
  * abstractions (FEN + camera + size), so the *same* definition can be rendered by every backend
- * (Android Filament, iOS SceneKit, desktop WebGPU, wasm WebGPU) without any platform-specific
+ * (Android, iOS, and web Filament; desktop Vulkan) without any platform-specific
  * scene logic leaking into shared code.
  *
  * Consumed by:

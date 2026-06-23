@@ -49,8 +49,8 @@ kotlin {
 
     jvm("desktop") {
         compilerOptions {
-            // wgpu4k's JVM artifact uses Panama FFM (java.lang.foreign), available since JDK 22,
-            // so the desktop target must compile at >= 22 (M6 3D spike). Android stays on JVM_11.
+            // Desktop compiles at JVM 24 to match its scoped JDK toolchain launcher (see the
+            // desktopTest / run tasks below). Android stays on JVM_11.
             jvmTarget.set(JvmTarget.JVM_24)
         }
     }
@@ -77,11 +77,10 @@ kotlin {
         }
         androidMain { dependsOn(jvmCommonMain) }
 
-        val wgpuMain by creating {
+        // Shared 3D scene geometry + math (ChessSceneGeometry / MeshData / TextureImage / Math) used
+        // by the desktop (Vulkan) and web (Filament) renderers.
+        val scene3dMain by creating {
             dependsOn(commonMain.get())
-            dependencies {
-                implementation(libs.wgpu4k.toolkit)
-            }
         }
 
         commonMain.dependencies {
@@ -107,7 +106,7 @@ kotlin {
         }
 
         val wasmJsMain by getting {
-            dependsOn(wgpuMain)
+            dependsOn(scene3dMain)
         }
 
         androidMain.dependencies {
@@ -134,7 +133,7 @@ kotlin {
 
         val desktopMain by getting {
             dependsOn(jvmCommonMain)
-            dependsOn(wgpuMain)
+            dependsOn(scene3dMain)
             dependencies {
                 implementation(compose.desktop.currentOs)
                 // lwjgl core: KtxLoader uses org.lwjgl.system.MemoryUtil to decode the papermill
@@ -203,9 +202,9 @@ compose.resources {
 tasks.withType<Test>().configureEach {
     providers.systemProperty("chess3d.smoke").orNull?.let { systemProperty("chess3d.smoke", it) }
     providers.systemProperty("chess3d.bench").orNull?.let { systemProperty("chess3d.bench", it) }
-    // wgpu4k's JVM binding is Java-22 bytecode and uses Panama FFM, so it needs a >= 22 runtime.
-    // The Gradle daemon runs on JDK 21 (gradle-daemon-jvm.properties), so run the desktop tests on
-    // the installed JDK 26 via a scoped toolchain launcher; Android/other tests stay on the daemon JDK.
+    // The Gradle daemon runs on JDK 21 (gradle-daemon-jvm.properties); run the desktop tests on the
+    // installed JDK 26 via a scoped toolchain launcher to match the desktop target's JVM 24 bytecode.
+    // Android/other tests stay on the daemon JDK.
     if (name == "desktopTest") {
         javaLauncher.set(
             javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(26)) }
@@ -215,8 +214,8 @@ tasks.withType<Test>().configureEach {
     }
 }
 
-// The Compose Desktop run tasks (JavaExec) must also use the >= 22 JDK for wgpu4k's FFM path and the
-// same Rococoa --add-opens. The Gradle daemon is on JDK 21. (M6 3D spike.)
+// The Compose Desktop run tasks (JavaExec) use the same scoped JDK 26 launcher and the Rococoa
+// --add-opens. The Gradle daemon is on JDK 21.
 tasks.withType<JavaExec>().configureEach {
     if (name == "run" || name == "runDistributable" || name == "runRelease") {
         javaLauncher.set(
