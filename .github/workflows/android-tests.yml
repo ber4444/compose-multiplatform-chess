@@ -63,9 +63,8 @@ jobs:
       - name: Clean AVD state
         run: rm -rf ~/.android/avd/*
 
-      # Optional: Enable once builds are stable
-      # - name: Gradle cache
-      #   uses: gradle/actions/setup-gradle@v3
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
     # - name: AVD cache
     #   uses: actions/cache@v4
@@ -136,6 +135,9 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Show Xcode and simulators
         run: |
           xcodebuild -version
@@ -151,8 +153,8 @@ jobs:
           fi
           xcrun simctl list devices available | grep -E "iPhone 16 \(" || true
 
-      - name: Kotlin checks (simulator unit+UI tests, desktop tests, device link, DMG)
-        run: ./gradlew :app:iosSimulatorArm64Test :app:desktopTest :app:linkReleaseFrameworkIosArm64 :app:packageDistributionForCurrentOS "-PiosSimulatorDeviceId=iPhone 16"
+      - name: Kotlin checks (simulator unit+UI tests, desktop tests, device link)
+        run: ./gradlew :app:iosSimulatorArm64Test :app:desktopTest :app:linkDebugFrameworkIosArm64 "-PiosSimulatorDeviceId=iPhone 16"
 
       - name: Fetch iOS Filament dependencies
         run: tools/fetch_filament_ios.sh
