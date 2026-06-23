@@ -46,7 +46,12 @@ LIBRARY_SEARCH_PATHS = $(inherited) \
   $(FILAMENT_DIR)/lib/libabseil.xcframework/$(FILAMENT_SLICE)
 
 // Static link set for the Metal backend + gltfio + KTX IBL. ld64 resolves archives order-independently.
-OTHER_LDFLAGS = $(inherited) -lc++ -ObjC \
+// NOTE: no -ObjC. Filament's C++ symbols are referenced directly (resolved without force-loading), and
+// -ObjC would eagerly load every Obj-C class/category from the static libs at app launch — which
+// initialized Filament's Metal path during plain app startup and crashed the GPU-less CI simulator's
+// Metal host (SimMetalHost) before tests could run. Without it, Filament only touches Metal when the
+// 3D board calls Engine::create.
+OTHER_LDFLAGS = $(inherited) -lc++ \
   -framework Metal -framework MetalKit -framework CoreVideo -framework QuartzCore \
   -framework Foundation -framework CoreGraphics -framework UIKit \
   -lfilament -lbackend -lfilabridge -lfilaflat -lgeometry -lutils -lsmol-v \
