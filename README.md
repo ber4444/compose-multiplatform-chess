@@ -36,6 +36,47 @@ because they are large generated dependencies and are intentionally gitignored.
 
 ## Architecture & Features
 
+### 3D Rendering Pipeline
+
+```mermaid
+graph TD
+    subgraph commonMain ["commonMain (Shared)"]
+        direction TB
+        GS["Game State (GameUiState)"] --> GameScreen["GameScreen (UI)"]
+        GS --> FC["FenConverter"]
+        
+        FC --> FEN["FEN String"]
+        FEN --> BM["Board3DSceneMapper"]
+        BM --> B3S["Board3DScene (Renderer-Agnostic)"]
+        
+        GameScreen -. "Toggles 3D view" .-> Renderer
+        
+        Assets["Assets (chess.glb, IBL .ktx)"] --> Renderer
+        B3S --> Renderer
+        
+        Renderer[["Chess3DBoardRenderer Contract"]]
+    end
+    
+    subgraph Platforms ["Platform-Specific Renderers"]
+        direction R
+        Renderer --> Android["Android<br>AndroidSceneViewChessRenderer<br>(Filament / SceneView)"]
+        Renderer --> iOS["iOS<br>FilamentIosChessRenderer<br>(Filament / Metal)"]
+        Renderer --> Desktop["Desktop<br>VulkanChessRenderer<br>(Vulkan / LWJGL)"]
+        Renderer --> Web["Web (Wasm)<br>FilamentWasmChessRenderer<br>(Filament / WebGL)"]
+    end
+
+    %% Styling
+    classDef common fill:#e3f2fd,stroke:#1e88e5,stroke-width:2px,color:#000;
+    classDef state fill:#ffffff,stroke:#1e88e5,stroke-width:1px,color:#000;
+    classDef contract fill:#fff8e1,stroke:#ffb300,stroke-width:2px,color:#000;
+    classDef platform fill:#fafafa,stroke:#9e9e9e,stroke-width:2px,color:#000;
+    
+    class commonMain common;
+    class GS,GameScreen,FC,FEN,BM,B3S,Assets state;
+    class Renderer contract;
+    class Android,iOS,Desktop,Web platform;
+```
+
 - **Full Chess Rules:** The application covers all standard chess rules and includes an explicit draw-by-agreement flow where the Stockfish engine evaluates whether to accept or decline draw offers.
 - **3D Board View:** The app features a playable 3D board with shared camera, tap-to-move, ray picking, and move animation logic. Android uses Filament through SceneView (the visual reference); iOS uses **Metal-native Filament** through a Swift/Obj-C++ `CAMetalLayer` bridge; desktop uses **Vulkan** (LWJGL) with the full vkChess PBR pipeline (Cook-Torrance direct lighting, precomputed irradiance/BRDF-LUT IBL, Filament's prefiltered `papermill_ibl.ktx`, per-pixel metallic/roughness from glTF, tangent-space normal mapping, SSAA supersampling via `CHESS_DESKTOP_SSAA`, 16× anisotropic, PCF shadows); web uses **Filament (Wasm)** loading the same `chess.glb` Android uses. See `docs/plans/web-graphics-spike-result.md` and `docs/plans/ios-filament-spike-result.md` for the spike verdicts.
 - **Stockfish Engine Integrations:**
