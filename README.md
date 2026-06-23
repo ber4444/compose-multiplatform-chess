@@ -41,7 +41,6 @@ because they are large generated dependencies and are intentionally gitignored.
 ```mermaid
 graph TD
     subgraph commonMain ["commonMain (Shared)"]
-        direction TB
         GS["Game State (GameUiState)"] --> GameScreen["GameScreen (UI)"]
         GS --> FC["FenConverter"]
         
@@ -58,7 +57,6 @@ graph TD
     end
     
     subgraph Platforms ["Platform-Specific Renderers"]
-        direction R
         Renderer --> Android["Android<br>AndroidSceneViewChessRenderer<br>(Filament / SceneView)"]
         Renderer --> iOS["iOS<br>FilamentIosChessRenderer<br>(Filament / Metal)"]
         Renderer --> Desktop["Desktop<br>VulkanChessRenderer<br>(Vulkan / LWJGL)"]
