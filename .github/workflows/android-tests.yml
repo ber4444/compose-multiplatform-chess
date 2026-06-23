@@ -149,6 +149,9 @@ jobs:
       - name: Kotlin checks (simulator unit+UI tests, desktop tests, device link, DMG)
         run: ./gradlew :app:iosSimulatorArm64Test :app:desktopTest :app:linkReleaseFrameworkIosArm64 :app:packageDistributionForCurrentOS "-PiosSimulatorDeviceId=iPhone 16"
 
+      - name: Fetch iOS Filament dependencies
+        run: tools/fetch_filament_ios.sh
+
       - name: Build and test iosApp
         run: |
           set -o pipefail

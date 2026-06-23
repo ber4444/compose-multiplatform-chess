@@ -1,0 +1,55 @@
+// filament.xcconfig — settings for the iOS app's Metal-native Filament 3D renderer (issue #54).
+//
+// Prerequisite: run `tools/fetch_filament_ios.sh` first. It downloads the Filament iOS release into
+// FILAMENT_DIR (gitignored) and copies the papermill KTX IBL assets into iosApp/iosApp/Resources.
+//
+// Filament's iOS release ships one .xcframework per library, each containing an `ios-arm64` (device)
+// and `ios-arm64_x86_64-simulator` slice. FILAMENT_SLICE picks the right one per SDK, so the same
+// config builds for both the simulator (Apple Silicon) and a real device.
+
+// $(SRCROOT) is the directory containing iosApp.xcodeproj (i.e. <repo>/iosApp).
+FILAMENT_DIR = $(SRCROOT)/iosApp/Filament/filament
+
+FILAMENT_SLICE[sdk=iphoneos*] = ios-arm64
+FILAMENT_SLICE[sdk=iphonesimulator*] = ios-arm64_x86_64-simulator
+
+// Expose the Obj-C++ FilamentChessRenderer facade to Swift.
+SWIFT_OBJC_BRIDGING_HEADER = $(SRCROOT)/iosApp/Filament/iosApp-Bridging-Header.h
+
+// Filament is C++17 / libc++.
+CLANG_CXX_LANGUAGE_STANDARD = c++17
+CLANG_CXX_LIBRARY = libc++
+
+HEADER_SEARCH_PATHS = $(inherited) $(FILAMENT_DIR)/include
+
+// One search path per xcframework's per-SDK slice; -l<name> below resolves lib<name>.a inside.
+LIBRARY_SEARCH_PATHS = $(inherited) \
+  $(FILAMENT_DIR)/lib/libfilament.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libbackend.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libfilabridge.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libfilaflat.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libgeometry.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libutils.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libsmol-v.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libibl.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libimage.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libktxreader.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libgltfio_core.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libuberarchive.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libuberzlib.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libdracodec.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libbasis_transcoder.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libmeshoptimizer.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libmikktspace.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libstb.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libzstd.xcframework/$(FILAMENT_SLICE) \
+  $(FILAMENT_DIR)/lib/libabseil.xcframework/$(FILAMENT_SLICE)
+
+// Static link set for the Metal backend + gltfio + KTX IBL. ld64 resolves archives order-independently.
+OTHER_LDFLAGS = $(inherited) -lc++ -ObjC \
+  -framework Metal -framework MetalKit -framework CoreVideo -framework QuartzCore \
+  -framework Foundation -framework CoreGraphics -framework UIKit \
+  -lfilament -lbackend -lfilabridge -lfilaflat -lgeometry -lutils -lsmol-v \
+  -libl -limage -lktxreader \
+  -lgltfio_core -luberarchive -luberzlib -ldracodec -lbasis_transcoder -lmeshoptimizer -lmikktspace -lstb \
+  -lzstd -labseil

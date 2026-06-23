@@ -19,3 +19,8 @@ app/libWGPU-*.dylib
 app/hs_err_pid*.log
 hs_err_pid*.log
 app/app/
+
+# Issue #54 — Filament iOS: fetched static libs/headers + staged IBL (tools/fetch_filament_ios.sh)
+iosApp/iosApp/Filament/filament/
+iosApp/iosApp/Resources/papermill_ibl.ktx
+iosApp/iosApp/Resources/papermill_skybox.ktx
