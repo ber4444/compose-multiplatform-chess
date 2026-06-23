@@ -129,7 +129,7 @@ fun WasmBoard3DSurface(
 
 fun wasmBoard3DSupport(viewModel: GameViewModel): Board3DSupport? {
     return Board3DSupport(
-        rendererFactory = { ThreeJsChessRenderer() },
+        rendererFactory = { FilamentWasmChessRenderer() },
         surfaceContent = { renderer, modifier ->
             WasmBoard3DSurface(renderer, modifier, viewModel)
         }
