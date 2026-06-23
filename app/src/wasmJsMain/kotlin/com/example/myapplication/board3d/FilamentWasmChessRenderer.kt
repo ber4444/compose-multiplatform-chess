@@ -111,7 +111,7 @@ class FilamentWasmChessRenderer : Chess3DBoardRenderer {
         if (isFilamentJsLoaded()) return
 
         val script = document.createElement("script") as HTMLScriptElement
-        script.src = "https://unpkg.com/filament@1.45.0/filament.js"
+        script.src = "https://unpkg.com/filament@1.53.4/filament.js"
         document.head!!.appendChild(script)
 
         var attempts = 0
@@ -206,10 +206,13 @@ window.chess3dFilament = {
                 // visibility and material instances — mirrors iOS createInstancedAsset / Android
                 // createInstancedModel. createInstancedAsset fills the passed array in place.
                 this.assetLoader = this.engine.createAssetLoader();
+                this.asset = this.assetLoader.createAsset(Filament.assets['${ChessSetConventions.GLB_ASSET}']);
                 const instances = new Array(INSTANCE_COUNT).fill(null);
-                this.asset = this.assetLoader.createInstancedAsset(Filament.assets['${ChessSetConventions.GLB_ASSET}'], instances);
-                this.instances = instances[0] ? instances
-                    : (this.asset.getAssetInstances ? this.asset.getAssetInstances() : this.asset.geAssetInstances());
+                instances[0] = this.asset.getInstance();
+                for (let i = 1; i < INSTANCE_COUNT; i++) {
+                    instances[i] = this.assetLoader.createInstance(this.asset);
+                }
+                this.instances = instances;
 
                 this.asset.loadResources(() => {
                     this.configureInstanceVisibility();
@@ -218,7 +221,7 @@ window.chess3dFilament = {
                 });
                 requestAnimationFrame(this.render.bind(this));
             } catch (e) {
-                console.error('[filament] init failed', e);
+                console.error('[filament] init failed', e.stack || e);
             }
         });
     },
@@ -303,7 +306,7 @@ window.chess3dFilament = {
     // recreate: tear the Engine down here and let the next init() start from a clean slate (it
     // reassigns every field below). Destroying the Engine releases all the GPU resources it owns
     // (scene/view/camera/renderer/swapChain/IBL/skybox/asset/instances/material instances), so the
-    // single Engine-level teardown is the primary cleanup. Verified static API in filament@1.45.0:
+    // single Engine-level teardown is the primary cleanup. Verified static API in filament@1.72.0:
     // Filament.Engine.destroy(engine) (jsbindings.cpp: class_function("destroy", ...) -> Engine::destroy).
     // Wrapped in try/catch so a wrong call can't wedge re-init; state is always reset at the end.
     dispose() {
@@ -350,13 +353,20 @@ window.chess3dFilament = {
     },
 
     materialNamed(wanted, inst) {
-        const mis = inst.getMaterialInstances();
-        const n = (typeof mis.size === 'function') ? mis.size() : mis.length;
-        for (let i = 0; i < n; i++) {
-            const mi = (typeof mis.get === 'function') ? mis.get(i) : mis[i];
-            if (mi && mi.getName && mi.getName() === wanted) return mi;
-        }
-        return null;
+        let found = null;
+        this.forEachRenderable(inst, (e) => {
+            if (found) return;
+            const ri = this.renderableManager.getInstance(e);
+            const prims = this.renderableManager.getPrimitiveCount(ri);
+            for (let pr = 0; pr < prims; pr++) {
+                const mi = this.renderableManager.getMaterialInstanceAt(ri, pr);
+                if (mi && mi.getName && mi.getName() === wanted) {
+                    found = mi;
+                    break;
+                }
+            }
+        });
+        return found;
     },
 
     // Column-major translate * rotateY * uniformScale, matching iOS setInstanceTransform. Built by
