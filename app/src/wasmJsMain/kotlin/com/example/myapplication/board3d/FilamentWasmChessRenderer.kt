@@ -158,8 +158,16 @@ private external fun filamentDispose()
 
 private val CHESS3D_FILAMENT_JS = """
 
-const PIECE_SCALE = 0.5;
-const KIND_NAMES = ['king', 'queen', 'rook', 'bishop', 'knight', 'pawn'];
+// chess.glb uses 2-unit squares (board spans +/-8); the game uses 1-unit squares, so every node is
+// scaled 0.5 — identical to iOS kModelScale (FilamentChessRenderer.mm) and AndroidBoard3D.
+// All conventions below come from ChessSetConventions in commonMain (single source of truth).
+const PIECE_SCALE = ${ChessSetConventions.PIECE_SCALE};
+// A board holds at most 32 pieces (promotion replaces a pawn, never adds). Instance 0 is the board;
+// 1..32 are the piece-pool slots — mirrors iOS createInstancedAsset(kMaxPieces + 1).
+const MAX_PIECES = ${ChessSetConventions.MAX_PIECES};
+const INSTANCE_COUNT = MAX_PIECES + 1;
+// PieceKind ordinals (Board3DScene.kt): KING, QUEEN, ROOK, BISHOP, KNIGHT, PAWN -> glTF node names.
+const KIND_NAMES = [${ChessSetConventions.KIND_NAMES.joinToString(", ") { "'$it'" }}];
 
 window.chess3dFilament = {
     isReady: false,
@@ -169,109 +177,200 @@ window.chess3dFilament = {
     view: null,
     renderer: null,
     swapChain: null,
-    assetLoader: null,
-    boardAsset: null,
-    piecesPool: [],
-    pieceTemplates: {},
     transformManager: null,
-    
+    renderableManager: null,
+    assetLoader: null,
+    asset: null,
+    instances: null,
+
     init(canvas) {
-        Filament.init(['chess.glb', 'papermill_ibl.ktx', 'papermill_skybox.ktx'], () => {
+        Filament.init(['${ChessSetConventions.GLB_ASSET}', '${ChessSetConventions.IBL_ASSET}', '${ChessSetConventions.SKYBOX_ASSET}'], () => {
             try {
-                console.log('Creating Engine');
                 this.engine = Filament.Engine.create(canvas);
-                console.log('Creating Scene');
                 this.scene = this.engine.createScene();
-                console.log('Creating Camera');
                 this.camera = this.engine.createCamera(Filament.EntityManager.get().create());
-                console.log('Creating View');
                 this.view = this.engine.createView();
                 this.view.setCamera(this.camera);
                 this.view.setScene(this.scene);
-                
-                console.log('Creating Renderer');
                 this.renderer = this.engine.createRenderer();
-                console.log('Creating SwapChain');
                 this.swapChain = this.engine.createSwapChain();
-                
-                console.log('Getting TransformManager');
                 this.transformManager = this.engine.getTransformManager();
-                
-                const iblUrl = 'papermill_ibl.ktx';
-                const skyUrl = 'papermill_skybox.ktx';
-                
-                const iblData = Filament.assets[iblUrl];
-                const skyData = Filament.assets[skyUrl];
-                const glbData = Filament.assets['chess.glb'];
-                
-                console.log('Creating IBL', !!iblData);
-                const ibl = this.engine.createIblFromKtx1(iblData);
+                this.renderableManager = this.engine.getRenderableManager();
+
+                const ibl = this.engine.createIblFromKtx1(Filament.assets['${ChessSetConventions.IBL_ASSET}']);
                 this.scene.setIndirectLight(ibl);
-                ibl.setIntensity(30000);
-                
-                console.log('Creating Skybox', !!skyData);
-                const skybox = this.engine.createSkyFromKtx1(skyData);
-                this.scene.setSkybox(skybox);
-                
-                // Asset Loader
-                console.log('Creating AssetLoader');
+                ibl.setIntensity(${ChessSetConventions.IBL_INTENSITY});
+                this.scene.setSkybox(this.engine.createSkyFromKtx1(Filament.assets['${ChessSetConventions.SKYBOX_ASSET}']));
+
+                // One asset, INSTANCE_COUNT instances sharing geometry but with independent transforms,
+                // visibility and material instances — mirrors iOS createInstancedAsset / Android
+                // createInstancedModel. createInstancedAsset fills the passed array in place.
                 this.assetLoader = this.engine.createAssetLoader();
-                console.log('Creating Asset from GLB');
-                this.boardAsset = this.assetLoader.createAsset(glbData);
-                
-                console.log('Loading Resources');
-                this.boardAsset.loadResources(() => {
-                    console.log('loadResources onDone callback');
-                    const entities = this.boardAsset.getEntities();
-                    console.log('Entities count:', entities.size ? entities.size() : entities.length);
-                    this.scene.addEntities(entities);
-                    
-                    const rootEntity = this.boardAsset.getRoot();
-                    const tm = this.transformManager;
-                    const rootInstance = tm.getInstance(rootEntity);
-                    tm.setTransform(rootInstance, Filament.math.mat4.scale(Filament.math.mat4.create(), [PIECE_SCALE, PIECE_SCALE, PIECE_SCALE]));
-                    
+                const instances = new Array(INSTANCE_COUNT).fill(null);
+                this.asset = this.assetLoader.createInstancedAsset(Filament.assets['${ChessSetConventions.GLB_ASSET}'], instances);
+                this.instances = instances[0] ? instances
+                    : (this.asset.getAssetInstances ? this.asset.getAssetInstances() : this.asset.geAssetInstances());
+
+                this.asset.loadResources(() => {
+                    this.configureInstanceVisibility();
                     this.isReady = true;
-                    console.log('Filament initialization complete!');
+                    console.log('[filament] ready: ' + this.instances.length + ' instances');
                 });
-                console.log('Requesting Animation Frame');
                 requestAnimationFrame(this.render.bind(this));
-            } catch(e) {
-                console.error(e);
+            } catch (e) {
+                console.error('[filament] init failed', e);
             }
         });
     },
-    
-    setScene(s) {
-        if (!this.isReady || !this.boardAsset) return;
-        // The prototype currently just shows the static scene
+
+    // Instance 0 shows board tiles + frame and hides the 6 piece templates + the "Plane" ground;
+    // instances 1..32 start hidden until setScene reveals one template each. Hidden = removed from the
+    // scene; shown = present. Mirrors iOS configureInstanceVisibility.
+    configureInstanceVisibility() {
+        const board = this.instances[0];
+        this.forEachRenderable(board, (e, name) => {
+            const hide = KIND_NAMES.indexOf(name) !== -1 || name === 'Plane';
+            if (hide) this.scene.remove(e); else this.scene.addEntity(e);
+        });
+        this.setInstanceTransform(board, 0, 0, 0, 0);
+        for (let i = 1; i < INSTANCE_COUNT; i++) {
+            this.forEachRenderable(this.instances[i], (e) => this.scene.remove(e));
+        }
     },
-    
+
+    // Reconcile the fixed instance pool against an encoded Board3DScene ("kind,color,x,y,z,rot;...").
+    // Called every animation frame by the shared Board3DAnimationDriver. Mirrors iOS setSceneEncoded.
+    setScene(s) {
+        if (!this.isReady) return;
+        const pieces = this.parseScene(s);
+        for (let slot = 0; slot < MAX_PIECES; slot++) {
+            const inst = this.instances[slot + 1];
+            if (!inst) continue;
+            if (slot >= pieces.length) {
+                this.forEachRenderable(inst, (e) => this.scene.remove(e));
+                continue;
+            }
+            const p = pieces[slot];
+            const meshName = KIND_NAMES[p.kind] || '';
+            const mat = this.materialNamed(p.color === 0 ? 'white' : 'black', inst);
+            this.forEachRenderable(inst, (e, name) => {
+                if (name === meshName) {
+                    this.scene.addEntity(e);
+                    if (mat) {
+                        const ri = this.renderableManager.getInstance(e);
+                        const prims = this.renderableManager.getPrimitiveCount(ri);
+                        for (let pr = 0; pr < prims; pr++) this.renderableManager.setMaterialInstanceAt(ri, pr, mat);
+                    }
+                } else {
+                    this.scene.remove(e);
+                }
+            });
+            // y comes from the scene so the move-arc hop lifts the piece; resting pieces stay at y=0.
+            this.setInstanceTransform(inst, p.x, p.y, p.z, p.rot);
+        }
+    },
+
     setCamera(px, py, pz, tx, ty, tz, ux, uy, uz, fov, aspect) {
         if (!this.camera) return;
-        const eye = [px, py, pz];
-        const center = [tx, ty, tz];
-        const up = [ux, uy, uz];
-        this.camera.lookAt(eye, center, up);
-        this.camera.setProjectionFov(fov, aspect, 0.05, 200.0, Filament.Camera${'$'}Fov.VERTICAL);
+        this.camera.lookAt([px, py, pz], [tx, ty, tz], [ux, uy, uz]);
+        // Portrait FOV boost: with aspect < 1 the horizontal FOV shrinks too far for the board, so widen
+        // the vertical FOV to hold a fixed ~60deg horizontal FOV. Identical formula to
+        // CameraMath.effectiveFovYRad (commonMain Math3D.kt) and the iOS setCameraEncoded branch
+        // (FilamentChessRenderer.mm), so all backends project the same FOV and tap-picking stays in
+        // sync (memory: board3d-portrait-fov-picking).
+        let effFov = fov;
+        if (aspect < 1.0) {
+            const tanHalfFovX = Math.tan((60.0 * Math.PI / 180.0) / 2.0);
+            effFov = 2.0 * Math.atan(tanHalfFovX / aspect) * 180.0 / Math.PI;
+        }
+        this.camera.setProjectionFov(effFov, aspect, 0.05, 200.0, Filament.Camera${'$'}Fov.VERTICAL);
     },
-    
+
     resize(w, h) {
-        if (!this.engine) return;
+        if (!this.view) return;
         this.view.setViewport([0, 0, w, h]);
     },
-    
+
     render() {
         requestAnimationFrame(this.render.bind(this));
         if (this.isReady && this.renderer && this.view && this.swapChain) {
             this.renderer.render(this.swapChain, this.view);
         }
     },
-    
+
+    // Called on every 2D<->3D toggle (Kotlin detach()/dispose()). init() builds a brand-new Engine
+    // each attach and the canvas can differ between attaches, so the correct model is destroy-and-
+    // recreate: tear the Engine down here and let the next init() start from a clean slate (it
+    // reassigns every field below). Destroying the Engine releases all the GPU resources it owns
+    // (scene/view/camera/renderer/swapChain/IBL/skybox/asset/instances/material instances), so the
+    // single Engine-level teardown is the primary cleanup. Verified static API in filament@1.45.0:
+    // Filament.Engine.destroy(engine) (jsbindings.cpp: class_function("destroy", ...) -> Engine::destroy).
+    // Wrapped in try/catch so a wrong call can't wedge re-init; state is always reset at the end.
     dispose() {
-        if (this.engine) {
-            // cleanup
+        try {
+            if (this.assetLoader && this.asset) this.assetLoader.destroyAsset(this.asset);
+        } catch (e) { console.warn('[filament] dispose: destroyAsset failed', e); }
+        try {
+            if (this.engine) Filament.Engine.destroy(this.engine);
+        } catch (e) { console.warn('[filament] dispose: Engine.destroy failed', e); }
+        this.isReady = false;
+        this.engine = null;
+        this.scene = null;
+        this.view = null;
+        this.camera = null;
+        this.renderer = null;
+        this.swapChain = null;
+        this.assetLoader = null;
+        this.asset = null;
+        this.instances = null;
+        this.transformManager = null;
+        this.renderableManager = null;
+    },
+
+    // --- helpers (mirror the iOS Obj-C++ helpers in FilamentChessRenderer.mm) ---
+
+    parseScene(s) {
+        if (!s) return [];
+        return s.split(';').map((rec) => {
+            const f = rec.split(',');
+            return { kind: +f[0], color: +f[1], x: +f[2], y: +f[3], z: +f[4], rot: +f[5] };
+        });
+    },
+
+    // Iterate the renderable entities of an instance, resolving each glTF node name via the asset.
+    forEachRenderable(inst, fn) {
+        if (!inst) return;
+        const es = inst.getEntities();
+        const n = (typeof es.size === 'function') ? es.size() : es.length;
+        for (let i = 0; i < n; i++) {
+            const e = (typeof es.get === 'function') ? es.get(i) : es[i];
+            if (!this.renderableManager.hasComponent(e)) continue;
+            fn(e, this.asset.getName(e) || '');
         }
+    },
+
+    materialNamed(wanted, inst) {
+        const mis = inst.getMaterialInstances();
+        const n = (typeof mis.size === 'function') ? mis.size() : mis.length;
+        for (let i = 0; i < n; i++) {
+            const mi = (typeof mis.get === 'function') ? mis.get(i) : mis[i];
+            if (mi && mi.getName && mi.getName() === wanted) return mi;
+        }
+        return null;
+    },
+
+    // Column-major translate * rotateY * uniformScale, matching iOS setInstanceTransform. Built by
+    // hand (a plain number[16] is a valid Filament 'mat4') to avoid depending on Filament.math's shape.
+    setInstanceTransform(inst, x, y, z, rotYDeg) {
+        const r = rotYDeg * Math.PI / 180, c = Math.cos(r), s = Math.sin(r), k = PIECE_SCALE;
+        const m = [
+            k * c, 0, -k * s, 0,
+            0,     k, 0,      0,
+            k * s, 0, k * c,  0,
+            x,     y, z,      1,
+        ];
+        const tm = this.transformManager;
+        tm.setTransform(tm.getInstance(inst.getRoot()), m);
     }
 };
 """
