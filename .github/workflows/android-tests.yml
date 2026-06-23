@@ -143,8 +143,13 @@ jobs:
 
       - name: Ensure test simulator exists
         run: |
-          xcrun simctl list devices available | grep -q "iPhone 16" || \
+          # Match the EXACT device name ("iPhone 16 (" in the simctl listing) so a pre-installed
+          # "iPhone 16 Pro"/"Plus" doesn't satisfy the check and leave the Kotlin/Native test runner
+          # failing with "Invalid device: iPhone 16" (runner images vary in which sims ship).
+          if ! xcrun simctl list devices available | grep -qE "iPhone 16 \("; then
             xcrun simctl create "iPhone 16" "com.apple.CoreSimulator.SimDeviceType.iPhone-16"
+          fi
+          xcrun simctl list devices available | grep -E "iPhone 16 \(" || true
 
       - name: Kotlin checks (simulator unit+UI tests, desktop tests, device link, DMG)
         run: ./gradlew :app:iosSimulatorArm64Test :app:desktopTest :app:linkReleaseFrameworkIosArm64 :app:packageDistributionForCurrentOS "-PiosSimulatorDeviceId=iPhone 16"
