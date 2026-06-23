@@ -14,7 +14,7 @@ class ImageBitmapChess3DSurface(
 ) : Chess3DSurface
 
 /**
- * Wraps raw `width*height*4` RGBA8888 bytes (the layout the wgpu4k renderer reads back from its
+ * Wraps raw `width*height*4` RGBA8888 bytes (the layout the Vulkan renderer reads back from its
  * `RGBA8Unorm` color target) into a Compose [ImageBitmap] via Skia, with no channel swizzling.
  */
 internal fun rgbaBytesToImageBitmap(rgba: ByteArray, w: Int, h: Int, bytesPerRow: Int = w * 4): ImageBitmap {

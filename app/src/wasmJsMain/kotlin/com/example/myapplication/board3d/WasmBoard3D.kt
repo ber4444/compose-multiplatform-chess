@@ -72,9 +72,9 @@ fun WasmBoard3DSurface(
         canvas.id = "board3d-overlay"
         canvas.style.setProperty("position", "absolute")
         canvas.style.setProperty("pointer-events", stacking.pointerEvents)
-        // Compose renders into its own DOM canvas. Appending WebGPU after it made the board canvas
-        // paint over Reset / Offer Draw / the 3D switch. Put the non-interactive WebGPU canvas at
-        // the start of body so Compose remains the top visual and input layer.
+        // Compose renders into its own DOM canvas. Appending the Filament canvas after it made the
+        // board canvas paint over Reset / Offer Draw / the 3D switch. Put the non-interactive Filament
+        // canvas at the start of body so Compose remains the top visual and input layer.
         document.body?.let { body ->
             if (stacking.insertAsFirstBodyChild) body.insertBefore(canvas, body.firstChild)
             else body.appendChild(canvas)
@@ -114,9 +114,9 @@ fun WasmBoard3DSurface(
             }
         }
     }.let {
-        // Punch out the board area in the Compose/Skiko canvas so the WebGPU canvas behind it
+        // Punch out the board area in the Compose/Skiko canvas so the Filament canvas behind it
         // shows through. BlendMode.Clear sets destination pixels to (0,0,0,0) regardless of the
-        // Surface background already drawn — required because the WebGPU canvas is inserted as the
+        // Surface background already drawn — required because the Filament canvas is inserted as the
         // first body child (behind the Compose canvas) so the board is visible without covering
         // the controls that Compose draws on top.
         androidx.compose.foundation.layout.Box(

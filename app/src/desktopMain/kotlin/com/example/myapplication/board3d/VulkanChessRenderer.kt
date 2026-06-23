@@ -71,7 +71,7 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     // UBOParams: light direction + tonemap exposure/gamma + prefiltered-cube mip count (32 bytes).
     private var uboParamsBuffer = VK_NULL_HANDLE; private var uboParamsMem = VK_NULL_HANDLE
     private val lightDir = org.joml.Vector3f(0.35f, 1.4f, -0.3f).normalize()  // higher sun, slightly behind the board
-    // Look tunables — vkChess's exposure for papermill HDR is in this range; HIGH_QUALITY_WEBGPU uses 5.0.
+    // Look tunables — vkChess's exposure for papermill HDR is in this range.
     private val exposure = 4.3f   // Pass-2: was 4.0 — warmer, less flat (Part A.4)
     private val gamma = 2.2f
     // Part A look tunables (Pass-2 parity). These are baked as GLSL literals in FRAG_GLSL (constants,
@@ -1118,7 +1118,7 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
 
         // Two vertex bindings: binding 0 = interleaved pos/normal/uv/tint (11 floats), binding 1 =
         // parallel tangent stream (vec4, optional). Keeping tangents on a separate binding leaves the
-        // wgpu path's 11-float format untouched and lets this pipeline read them at location 4.
+        // base 11-float vertex format untouched and lets this pipeline read them at location 4.
         val bindings = VkVertexInputBindingDescription.calloc(2, stack)
         bindings[0].binding(0).stride(11 * 4).inputRate(VK_VERTEX_INPUT_RATE_VERTEX)
         bindings[1].binding(1).stride(4 * 4).inputRate(VK_VERTEX_INPUT_RATE_VERTEX)

@@ -1,5 +1,9 @@
 # Phase C — iOS graphics spike result (three.js via WKWebView adopted)
 
+> **Superseded by issue #54:** iOS now uses Metal-native Filament as the default 3D backend. This
+> document remains as historical context for why RealityKit/SceneKit were rejected and why the
+> intermediate WKWebView path existed.
+
 > Verdict: **SWITCH TO three.js via WKWebView**. RealityKit was evaluated and rejected after
 > multiple attempts — it cannot load `.glb` natively, USDZ conversion loses materials, and even
 > a native Sketchfab `.usdz` with embedded PBR materials rendered as a flat gray rectangle due to
@@ -77,3 +81,6 @@ would:
   ready-to-use Swift Package Manager integration. The integration cost is real but bounded;
   recorded as a fallback option if three.js via WKWebView hits a blocking limitation in
   production (e.g., touch latency, WebGL2 feature gaps).
+  **Update (issue #54):** that bounded cost was paid — a Metal-native Filament backend is now the
+  default iOS 3D path, and the WKWebView/three.js implementation has been removed. See
+  `docs/plans/ios-filament-spike-result.md`.
