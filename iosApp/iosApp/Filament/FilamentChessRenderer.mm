@@ -352,9 +352,11 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
 
     // Enable Depth of Field to blur the background (the skybox) while keeping the pieces (at the target) sharp.
     // The focus distance is exactly the distance from the camera eye to the look-at target.
+    float focusDist = std::sqrt((px - tx)*(px - tx) + (py - ty)*(py - ty) + (pz - tz)*(pz - tz));
+    _camera->setFocusDistance(focusDist);
+    
     View::DepthOfFieldOptions dof;
     dof.enabled = true;
-    dof.focusDistance = std::sqrt((px - tx)*(px - tx) + (py - ty)*(py - ty) + (pz - tz)*(pz - tz));
     dof.cocScale = 3.0f; // TUNE: higher means more background blur, 3.0 is a nice strong blur
     dof.maxApertureDiameter = 0.05f;
     _view->setDepthOfFieldOptions(dof);
