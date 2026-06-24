@@ -215,7 +215,9 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
         _skyboxTexture = ktxreader::Ktx1Reader::createTexture(
             _engine, *bundle, /*srgb=*/false,
             [](void* userdata) { delete (image::Ktx1Bundle*)userdata; }, bundle);
-        _skybox = Skybox::Builder().environment(_skyboxTexture).showSun(false).build(*_engine);
+        // Use _iblTexture (which is a filterable format like RGBA16F) instead of _skyboxTexture 
+        // to avoid pixelated NEAREST filtering fallback on Metal, resulting in a nice blurred background.
+        _skybox = Skybox::Builder().environment(_iblTexture ? _iblTexture : _skyboxTexture).showSun(false).build(*_engine);
         _scene->setSkybox(_skybox);
     }
 
