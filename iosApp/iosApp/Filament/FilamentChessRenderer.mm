@@ -349,6 +349,15 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
         fov = 2.0 * std::atan(tanHalfFovX / (double)_aspect) * 180.0 / M_PI;
     }
     _camera->setProjection(fov, _aspect, 0.1, 100.0, Camera::Fov::VERTICAL);
+
+    // Enable Depth of Field to blur the background (the skybox) while keeping the pieces (at the target) sharp.
+    // The focus distance is exactly the distance from the camera eye to the look-at target.
+    View::DepthOfFieldOptions dof;
+    dof.enabled = true;
+    dof.focusDistance = std::sqrt((px - tx)*(px - tx) + (py - ty)*(py - ty) + (pz - tz)*(pz - tz));
+    dof.cocScale = 3.0f; // TUNE: higher means more background blur, 3.0 is a nice strong blur
+    dof.maxApertureDiameter = 0.05f;
+    _view->setDepthOfFieldOptions(dof);
 }
 
 - (void)resizeWidth:(int)width height:(int)height {
