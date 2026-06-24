@@ -167,21 +167,16 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
 
     _cameraEntity = utils::EntityManager::get().create();
     _camera = _engine->createCamera(_cameraEntity);
-    // Filament's default camera exposure is photographic (sunny-16, f/16 1/125 ISO100) — deliberately
-    // dark for a ~30000-lux IBL, which crushed the board/pieces. Use a brighter, neutral exposure so the
-    // ACES tonemapper (Filament's default, == three.js ACESFilmic) lands at the Android/web brightness.
-    _camera->setExposure(16.0f, 1.0f / 125.0f, 160.0f); // TUNE: ~+0.7 stop vs default (Android-matched)
+    // Use Filament's default camera exposure (matches Android SceneView defaults)
 
     _view->setScene(_scene);
     _view->setCamera(_camera);
     _view->setViewport({ 0, 0, (uint32_t)_width, (uint32_t)_height });
     _view->setBlendMode(View::BlendMode::OPAQUE);
 
-    // Color grading: keep Filament's default ACES_LEGACY tonemapper (so the look doesn't shift) but warm
-    // the white balance slightly to match the Android reference's warmer cast. temperature>0 = warmer.
+    // Color grading: use Filament's default ACES_LEGACY tonemapper without custom white balance (matches Android SceneView defaults).
     _colorGrading = ColorGrading::Builder()
         .toneMapping(ColorGrading::ToneMapping::ACES_LEGACY)
-        .whiteBalance(/*temperature=*/0.10f, /*tint=*/0.0f)
         .build(*_engine);
     _view->setColorGrading(_colorGrading);
 
