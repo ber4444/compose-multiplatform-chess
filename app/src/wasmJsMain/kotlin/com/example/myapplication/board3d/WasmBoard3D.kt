@@ -34,7 +34,7 @@ internal data class OverlayCanvasStacking(
 )
 
 internal fun overlayCanvasStacking() = OverlayCanvasStacking(
-    insertAsFirstBodyChild = true,
+    insertAsFirstBodyChild = false,
     pointerEvents = "none",
 )
 
@@ -114,16 +114,9 @@ fun WasmBoard3DSurface(
             }
         }
     }.let {
-        // Punch out the board area in the Compose/Skiko canvas so the Filament canvas behind it
-        // shows through. BlendMode.Clear sets destination pixels to (0,0,0,0) regardless of the
-        // Surface background already drawn — required because the Filament canvas is inserted as the
-        // first body child (behind the Compose canvas) so the board is visible without covering
-        // the controls that Compose draws on top.
-        androidx.compose.foundation.layout.Box(
-            modifier = it.drawBehind {
-                drawRect(Color.Black, blendMode = BlendMode.Clear)
-            }
-        )
+        // We no longer punch a hole. The Filament canvas is appended on top of Compose (last child)
+        // with pointer-events: none, so it correctly blends its transparent background over the Compose UI.
+        androidx.compose.foundation.layout.Box(modifier = it)
     }
 }
 

@@ -25,10 +25,10 @@ final class FilamentChessView: UIView, FilamentChessNativeView {
 
     init() {
         super.init(frame: .zero)
-        backgroundColor = .black
+        backgroundColor = .clear
         metalLayer.device = MTLCreateSystemDefaultDevice()
         metalLayer.pixelFormat = .bgra8Unorm
-        metalLayer.isOpaque = true
+        metalLayer.isOpaque = false
         metalLayer.contentsScale = UIScreen.main.scale
     }
 

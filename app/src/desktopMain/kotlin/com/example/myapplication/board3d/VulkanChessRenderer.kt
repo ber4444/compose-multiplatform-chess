@@ -72,7 +72,7 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
     private var uboParamsBuffer = VK_NULL_HANDLE; private var uboParamsMem = VK_NULL_HANDLE
     private val lightDir = org.joml.Vector3f(0.35f, 1.4f, -0.3f).normalize()  // higher sun, slightly behind the board
     // Look tunables — vkChess's exposure for papermill HDR is in this range.
-    private val exposure = 4.3f   // Pass-2: was 4.0 — warmer, less flat (Part A.4)
+    private val exposure = 7.5f   // Bumped exposure to match Android/iOS brightness
     private val gamma = 2.2f
     // Part A look tunables (Pass-2 parity). These are baked as GLSL literals in FRAG_GLSL (constants,
     // not animated) — kept here as the documented source of the chosen numbers. Eyeball via
@@ -308,12 +308,6 @@ class VulkanChessRenderer(glb: ByteArray) : Chess3DBoardRenderer {
         val scissor = VkRect2D.calloc(1, stack)
         scissor.get(0).offset().set(0, 0); scissor.get(0).extent().set(width, height)
         vkCmdSetScissor(commandBuffer, 0, scissor)
-
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline)
-        textures.values.firstOrNull()?.descriptorSet?.let { ds ->
-            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipelineLayout, 0, stack.longs(ds), null)
-        }
-        vkCmdDraw(commandBuffer, 3, 1, 0, 0)
 
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline)
         for (tex in ChessTexture.entries) {
@@ -2301,10 +2295,12 @@ vec3 Uncharted2Tonemap(vec3 x) {
 }
 void main() {
     vec3 hdr = texture(sceneHdr, inUV).rgb + texture(bloomTex, inUV).rgb * pc.p.x;
+    // Warm tint to match Android/iOS ACES white balance
+    hdr *= vec3(1.05, 1.0, 0.95);
     vec3 col = Uncharted2Tonemap(clamp(hdr * pc.p.y, 0.0, 256.0));
     col *= 1.0 / Uncharted2Tonemap(vec3(11.2));
     col = pow(col, vec3(1.0 / pc.p.z));
-    outColor = vec4(col, 1.0);
+    outColor = vec4(col, texture(sceneHdr, inUV).a);
 }
 """
     }

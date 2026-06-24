@@ -175,7 +175,8 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
     _view->setScene(_scene);
     _view->setCamera(_camera);
     _view->setViewport({ 0, 0, (uint32_t)_width, (uint32_t)_height });
-    _view->setBlendMode(View::BlendMode::OPAQUE);
+    _view->setBlendMode(View::BlendMode::TRANSLUCENT);
+    _renderer->setClearOptions({.clearColor = {0.0f, 0.0f, 0.0f, 0.0f}, .clear = true});
 
     // Color grading: keep Filament's default ACES_LEGACY tonemapper (so the look doesn't shift) but warm
     // the white balance slightly to match the Android reference's warmer cast. temperature>0 = warmer.
@@ -221,7 +222,7 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
             _engine, *bundle, /*srgb=*/false,
             [](void* userdata) { delete (image::Ktx1Bundle*)userdata; }, bundle);
         _skybox = Skybox::Builder().environment(_skyboxTexture).showSun(false).build(*_engine);
-        _scene->setSkybox(_skybox);
+        // Skybox is loaded but NOT set on the scene so the background remains transparent (matching Android SceneView)
     }
 
     // Warm key light, roughly matching the desktop/Android sun direction.

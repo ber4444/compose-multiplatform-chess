@@ -186,12 +186,13 @@ window.chess3dFilament = {
     init(canvas) {
         Filament.init(['${ChessSetConventions.GLB_ASSET}', '${ChessSetConventions.IBL_ASSET}', '${ChessSetConventions.SKYBOX_ASSET}'], () => {
             try {
-                this.engine = Filament.Engine.create(canvas);
+                this.engine = Filament.Engine.create(canvas, {alpha: true});
                 this.scene = this.engine.createScene();
                 this.camera = this.engine.createCamera(Filament.EntityManager.get().create());
                 this.view = this.engine.createView();
                 this.view.setCamera(this.camera);
                 this.view.setScene(this.scene);
+                this.view.setBlendMode(Filament.View$BlendMode.TRANSLUCENT);
                 this.renderer = this.engine.createRenderer();
                 this.swapChain = this.engine.createSwapChain();
                 this.transformManager = this.engine.getTransformManager();
@@ -200,7 +201,15 @@ window.chess3dFilament = {
                 const ibl = this.engine.createIblFromKtx1(Filament.assets['${ChessSetConventions.IBL_ASSET}']);
                 this.scene.setIndirectLight(ibl);
                 ibl.setIntensity(${ChessSetConventions.IBL_INTENSITY});
-                this.scene.setSkybox(this.engine.createSkyFromKtx1(Filament.assets['${ChessSetConventions.SKYBOX_ASSET}']));
+                
+                // Set clear options for transparent background
+                this.renderer.setClearOptions({clearColor: [0, 0, 0, 0], clear: true});
+
+                const colorGrading = Filament.ColorGrading.Builder()
+                    .whiteBalance(0.015, 0.0)
+                    .exposure(0.8)
+                    .build(this.engine);
+                this.view.setColorGrading(colorGrading);
 
                 // One asset, INSTANCE_COUNT instances sharing geometry but with independent transforms,
                 // visibility and material instances — mirrors iOS createInstancedAsset / Android
