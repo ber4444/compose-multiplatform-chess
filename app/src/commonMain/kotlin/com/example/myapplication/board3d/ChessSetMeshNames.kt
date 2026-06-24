@@ -52,7 +52,7 @@ object ChessSetConventions {
     const val SKYBOX_ASSET: String = "papermill_skybox.ktx"
 
     /** IBL intensity used by the wasm/web Filament backend. */
-    const val IBL_INTENSITY: Float = 35000f
+    const val IBL_INTENSITY: Float = 30000f
 
     /**
      * Ordered glTF piece node names in [PieceKind] ordinal order. DERIVED from [PieceKind.entries] via
