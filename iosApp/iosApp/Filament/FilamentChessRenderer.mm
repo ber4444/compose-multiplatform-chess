@@ -215,9 +215,7 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
         _skyboxTexture = ktxreader::Ktx1Reader::createTexture(
             _engine, *bundle, /*srgb=*/false,
             [](void* userdata) { delete (image::Ktx1Bundle*)userdata; }, bundle);
-        // Use _iblTexture (which is a filterable format like RGBA16F) instead of _skyboxTexture 
-        // to avoid pixelated NEAREST filtering fallback on Metal, resulting in a nice blurred background.
-        _skybox = Skybox::Builder().environment(_iblTexture ? _iblTexture : _skyboxTexture).showSun(false).build(*_engine);
+        _skybox = Skybox::Builder().environment(_skyboxTexture).showSun(false).build(*_engine);
         _scene->setSkybox(_skybox);
     }
 
@@ -349,17 +347,6 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
         fov = 2.0 * std::atan(tanHalfFovX / (double)_aspect) * 180.0 / M_PI;
     }
     _camera->setProjection(fov, _aspect, 0.1, 100.0, Camera::Fov::VERTICAL);
-
-    // Enable Depth of Field to blur the background (the skybox) while keeping the pieces (at the target) sharp.
-    // The focus distance is exactly the distance from the camera eye to the look-at target.
-    float focusDist = std::sqrt((px - tx)*(px - tx) + (py - ty)*(py - ty) + (pz - tz)*(pz - tz));
-    _camera->setFocusDistance(focusDist);
-    
-    View::DepthOfFieldOptions dof;
-    dof.enabled = true;
-    dof.cocScale = 3.0f; // TUNE: higher means more background blur, 3.0 is a nice strong blur
-    dof.maxApertureDiameter = 0.05f;
-    _view->setDepthOfFieldOptions(dof);
 }
 
 - (void)resizeWidth:(int)width height:(int)height {
