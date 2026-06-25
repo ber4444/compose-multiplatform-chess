@@ -6,40 +6,85 @@ import kotlinx.coroutines.*
 import org.w3c.dom.HTMLCanvasElement
 import org.w3c.dom.HTMLScriptElement
 
-@JsFun("(msg) => { console.log(msg); }")
-private external fun log(msg: String)
-@JsFun("(msg) => { console.warn(msg); }")
-private external fun warn(msg: String)
 @JsFun("(msg) => { console.error(msg); }")
 private external fun error(msg: String)
 
 class FilamentWasmChessRenderer : Chess3DBoardRenderer {
 
-    private var canvas: HTMLCanvasElement? = null
-    private var pendingFen: String = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-    private var camera: CameraParams = OrbitCameraController.DEFAULT_WHITE_VIEW
-    private var selectedSquare: BoardSquare? = null
-    private var isReady = false
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val peer = WasmFilamentPeer(scope, ::injectFilamentJs)
+    private val delegate = FilamentEncodedChessRenderer(peer, scope)
 
-    private val driver = Board3DAnimationDriver(scope) { scene ->
-        if (isReady) filamentSetScene(scene.encode())
+    override fun attach(surface: Chess3DSurface) = delegate.attach(surface)
+    override fun detach() = delegate.detach()
+    override fun updatePosition(fen: String) = delegate.updatePosition(fen)
+    override fun updatePosition(fen: String, transition: Board3DTransition?) = delegate.updatePosition(fen, transition)
+    override fun setSelectedSquare(square: BoardSquare?) = delegate.setSelectedSquare(square)
+    override fun onUserInteraction(event: Board3DInput) = delegate.onUserInteraction(event)
+    override fun dispose() = delegate.dispose()
+
+    private suspend fun injectFilamentJs() {
+        if (isFilamentJsLoaded()) return
+
+        val script = document.createElement("script") as HTMLScriptElement
+        script.src = "https://unpkg.com/filament@1.72.0/filament.js"
+        document.head!!.appendChild(script)
+
+        var attempts = 0
+        while (!isFilamentJsLoadedCore() && attempts < 100) {
+            delay(100)
+            attempts++
+        }
+
+        delay(100)
+
+        val glue = document.createElement("script") as HTMLScriptElement
+        glue.type = "application/javascript"
+        glue.textContent = CHESS3D_FILAMENT_JS
+        document.head!!.appendChild(glue)
     }
+}
 
-    override fun attach(surface: Chess3DSurface) {
+private class WasmFilamentPeer(
+    private val scope: CoroutineScope,
+    private val injectFilamentJs: suspend () -> Unit,
+) : FilamentChessPeer {
+    private var canvas: HTMLCanvasElement? = null
+    private var initJob: Job? = null
+    private var isReady = false
+    private var pendingScene: String? = null
+    private var pendingCamera: String? = null
+    private var pendingSize: Pair<Int, Int>? = null
+
+    override fun attach(surface: Chess3DSurface?) {
         val wasmSurface = surface as? WasmChess3DSurface ?: return
+        val isNewCanvas = canvas != wasmSurface.canvas
         canvas = wasmSurface.canvas
+        pendingSize = wasmSurface.widthPx to wasmSurface.heightPx
 
-        scope.launch {
+        if (isReady && !isNewCanvas) {
+            flushPending()
+            return
+        }
+
+        if (isNewCanvas) {
+            initJob?.cancel()
+            filamentDispose()
+            isReady = false
+        }
+
+        if (initJob?.isActive == true) return
+        initJob = scope.launch {
             try {
                 injectFilamentJs()
                 if (!isFilamentJsLoaded()) {
                     error("[filament] ABORT: Filament not defined")
                     return@launch
                 }
-                
-                filamentInitRenderer(wasmSurface.canvas)
-                
+
+                val targetCanvas = canvas ?: return@launch
+                filamentInitRenderer(targetCanvas)
+
                 var attempts = 0
                 while (!isFilamentReady() && attempts < 100) {
                     delay(100)
@@ -49,12 +94,9 @@ class FilamentWasmChessRenderer : Chess3DBoardRenderer {
                     error("[filament] ABORT: Filament async init timed out")
                     return@launch
                 }
-                
+
                 isReady = true
-                driver.setPosition(runCatching { Board3DSceneMapper.fromFen(pendingFen) }.getOrNull(), null)
-                applyCamera(camera)
-                filamentResize(wasmSurface.canvas.width, wasmSurface.canvas.height)
-                driver.setSelected(selectedSquare)
+                flushPending()
             } catch (t: Throwable) {
                 error("[filament] attach() failed: ${t.message}")
             }
@@ -62,70 +104,40 @@ class FilamentWasmChessRenderer : Chess3DBoardRenderer {
     }
 
     override fun detach() {
-        filamentDispose()
+        initJob?.cancel()
+        initJob = null
         isReady = false
-    }
-
-    override fun updatePosition(fen: String) = updatePosition(fen, null)
-
-    override fun updatePosition(fen: String, transition: Board3DTransition?) {
-        pendingFen = fen
-        driver.setPosition(runCatching { Board3DSceneMapper.fromFen(fen) }.getOrNull(), transition)
-    }
-
-    override fun setSelectedSquare(square: BoardSquare?) {
-        selectedSquare = square
-        driver.setSelected(square)
-    }
-
-    override fun onUserInteraction(event: Board3DInput) {
-        when (event) {
-            is Board3DInput.SetCamera -> {
-                camera = event.camera
-                applyCamera(event.camera)
-            }
-            is Board3DInput.Resize -> {
-                camera = camera.copy(aspect = event.widthPx.toFloat() / event.heightPx.coerceAtLeast(1).toFloat())
-                filamentResize(event.widthPx, event.heightPx)
-            }
-            else -> {}
-        }
-    }
-
-    override fun dispose() {
-        driver.cancel()
-        scope.cancel()
+        canvas = null
         filamentDispose()
     }
 
-    private fun applyCamera(cam: CameraParams) {
-        if (isReady) filamentSetCamera(
-            cam.position.x, cam.position.y, cam.position.z,
-            cam.target.x, cam.target.y, cam.target.z,
-            cam.up.x, cam.up.y, cam.up.z,
-            cam.fovYDegrees, cam.aspect
-        )
+    override fun resize(widthPx: Int, heightPx: Int) {
+        pendingSize = widthPx to heightPx
+        if (isReady) filamentResize(widthPx, heightPx)
     }
 
-    private suspend fun injectFilamentJs() {
-        if (isFilamentJsLoaded()) return
+    override fun setScene(encoded: String) {
+        pendingScene = encoded
+        if (isReady) filamentSetScene(encoded)
+    }
 
-        val script = document.createElement("script") as HTMLScriptElement
-        script.src = "https://unpkg.com/filament@1.53.4/filament.js"
-        document.head!!.appendChild(script)
+    override fun setCamera(encoded: String) {
+        pendingCamera = encoded
+        if (isReady) filamentSetCameraEncoded(encoded)
+    }
 
-        var attempts = 0
-        while (!isFilamentJsLoadedCore() && attempts < 100) {
-            delay(100)
-            attempts++
-        }
-        
-        delay(100)
-        
-        val glue = document.createElement("script") as HTMLScriptElement
-        glue.type = "application/javascript"
-        glue.textContent = CHESS3D_FILAMENT_JS
-        document.head!!.appendChild(glue)
+    override fun shutdown() {
+        detach()
+        pendingScene = null
+        pendingCamera = null
+        pendingSize = null
+    }
+
+    private fun flushPending() {
+        val (width, height) = pendingSize ?: (canvas?.width to canvas?.height)
+        if (width != null && height != null) filamentResize(width, height)
+        pendingCamera?.let { filamentSetCameraEncoded(it) }
+        pendingScene?.let { filamentSetScene(it) }
     }
 }
 
@@ -144,11 +156,8 @@ private external fun filamentInitRenderer(canvas: HTMLCanvasElement)
 @JsFun("(s) => { window.chess3dFilament.setScene(s); }")
 private external fun filamentSetScene(s: String)
 
-@JsFun("(px,py,pz,tx,ty,tz,ux,uy,uz,fov,aspect) => { window.chess3dFilament.setCamera(px,py,pz,tx,ty,tz,ux,uy,uz,fov,aspect); }")
-private external fun filamentSetCamera(
-    px: Float, py: Float, pz: Float, tx: Float, ty: Float, tz: Float,
-    ux: Float, uy: Float, uz: Float, fov: Float, aspect: Float,
-)
+@JsFun("(s) => { const f = s.split(',').map(Number); if (f.length >= 11) window.chess3dFilament.setCamera(f[0],f[1],f[2],f[3],f[4],f[5],f[6],f[7],f[8],f[9],f[10]); }")
+private external fun filamentSetCameraEncoded(s: String)
 
 @JsFun("(w, h) => { window.chess3dFilament.resize(w, h); }")
 private external fun filamentResize(w: Int, h: Int)

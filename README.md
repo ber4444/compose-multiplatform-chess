@@ -9,7 +9,7 @@ Compose Multiplatform chess app with full support for all standard chess rules a
 
 ## Setup
 
-For the desktop target on Linux and macOS, **JDK 26 is recommended**. The desktop 3D Vulkan renderer uses LWJGL 3.3.6 (Vulkan + shaderc bindings) and the project currently compiles desktop code with JVM target 24.
+For the desktop target on Linux and macOS, **JDK 26 is recommended**. The desktop 3D renderer uses a native C++ Filament bridge; after a clean checkout run `tools/fetch_filament_desktop.sh` to fetch the gitignored Filament desktop payload before desktop builds.
 
 For the desktop target on Linux, install stockfish first:
 
@@ -59,7 +59,7 @@ graph TD
     subgraph Platforms ["Platform-Specific Renderers"]
         Renderer --> Android["Android<br>AndroidSceneViewChessRenderer<br>(Filament / SceneView)"]
         Renderer --> iOS["iOS<br>FilamentIosChessRenderer<br>(Filament / Metal)"]
-        Renderer --> Desktop["Desktop<br>VulkanChessRenderer<br>(Vulkan / LWJGL)"]
+        Renderer --> Desktop["Desktop<br>DesktopFilamentChessRenderer<br>(Filament / native C++)"]
         Renderer --> Web["Web (Wasm)<br>FilamentWasmChessRenderer<br>(Filament / WebGL)"]
     end
 
@@ -76,7 +76,7 @@ graph TD
 ```
 
 - **Full Chess Rules:** The application covers all standard chess rules and includes an explicit draw-by-agreement flow where the Stockfish engine evaluates whether to accept or decline draw offers.
-- **3D Board View:** The app features a playable 3D board with shared camera, tap-to-move, ray picking, and move animation logic. Android uses Filament through SceneView (the visual reference); iOS uses **Metal-native Filament** through a Swift/Obj-C++ `CAMetalLayer` bridge; desktop uses **Vulkan** (LWJGL) with the full vkChess PBR pipeline (Cook-Torrance direct lighting, precomputed irradiance/BRDF-LUT IBL, Filament's prefiltered `papermill_ibl.ktx`, per-pixel metallic/roughness from glTF, tangent-space normal mapping, SSAA supersampling via `CHESS_DESKTOP_SSAA`, 16× anisotropic, PCF shadows); web uses **Filament (Wasm)** loading the same `chess.glb` Android uses. See `docs/plans/web-graphics-spike-result.md` and `docs/plans/ios-filament-spike-result.md` for the spike verdicts.
+- **3D Board View:** The app features a playable 3D board with shared camera, tap-to-move, ray picking, and move animation logic. Desktop, iOS, and web share `FilamentEncodedChessRenderer` for FEN-to-scene, camera, selection, and transition state; their platform peers only own the Filament surface. Android uses Filament through SceneView (the visual reference); iOS uses **Metal-native Filament** through a Swift/Obj-C++ `CAMetalLayer` bridge; desktop uses **native C++ Filament** with a headless swap chain and RGBA readback into Compose; web uses **Filament (Wasm)** loading the same `chess.glb` Android uses. See `docs/plans/web-graphics-spike-result.md` and `docs/plans/ios-filament-spike-result.md` for the spike verdicts.
 - **Stockfish Engine Integrations:**
   - **Android:** Pinned to Stockfish 17, as the Stockfish 18 binary exceeds GitHub's 100 MB file limit.
   - **Desktop:** Relies on system-installed binaries (e.g., via `apt` or `brew`).

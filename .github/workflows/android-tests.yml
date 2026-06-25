@@ -81,10 +81,11 @@ jobs:
           echo "Running on device: ${{ matrix.profile }}"
           echo "Building Android, Linux desktop, and Wasm targets"
 
-      # The desktop Vulkan renderer (exercised headlessly by DesktopRendererSmokeTest inside :app:check)
-      # uses Vulkan on Linux; lavapipe (mesa-vulkan-drivers) provides a CPU Vulkan device.
-      - name: Install Vulkan drivers (lavapipe) for desktop headless render tests
-        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
+      - name: Install desktop Filament native build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libgl1-mesa-dev libegl1-mesa-dev libx11-dev
+
+      - name: Fetch desktop Filament dependencies
+        run: tools/fetch_filament_desktop.sh
 
       - name: Build Android, Linux desktop, and Wasm targets
         run: ./gradlew :androidApp:assembleDebug :app:assembleAndroidDeviceTest :app:check :app:desktopJar :app:packageDistributionForCurrentOS :app:wasmJsBrowserDistribution
@@ -142,6 +143,9 @@ jobs:
         run: |
           xcodebuild -version
           xcrun simctl list devices available | head -30
+
+      - name: Fetch desktop Filament dependencies
+        run: tools/fetch_filament_desktop.sh
 
       - name: Ensure test simulator exists
         run: |
