@@ -40,7 +40,7 @@ echo "==> Staging IBL assets into the app bundle (papermill KTX, matching the An
 ENV_SRC="$REPO_ROOT/app/src/commonMain/composeResources/files/env"
 RES_DST="$REPO_ROOT/iosApp/iosApp/Resources"
 cp "$ENV_SRC/papermill_ibl.ktx" "$RES_DST/papermill_ibl.ktx"
-cp "$ENV_SRC/papermill_skybox.ktx" "$RES_DST/papermill_skybox.ktx"
+cp "$ENV_SRC/papermill_skybox_blurred.ktx" "$RES_DST/papermill_skybox_blurred.ktx"
 
 echo "==> Available xcframeworks (reconcile with LIBRARY_SEARCH_PATHS/OTHER_LDFLAGS in filament.xcconfig):"
 ls -1 "$DEST/lib" 2>/dev/null || echo "    (lib/ not found — check the release layout)"
