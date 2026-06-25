@@ -209,7 +209,7 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
         _scene->setIndirectLight(_ibl);
     }
 
-    NSData* skyData = loadBundleResource(@"papermill_skybox_blurred", @"ktx");
+    NSData* skyData = loadBundleResource(@"papermill_skybox_blurred", @"ktx"); // trigger rebuild for new blur level
     if (skyData) {
         auto* bundle = new image::Ktx1Bundle((const uint8_t*)skyData.bytes, (uint32_t)skyData.length);
         _skyboxTexture = ktxreader::Ktx1Reader::createTexture(
