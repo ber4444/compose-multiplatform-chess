@@ -51,6 +51,9 @@ object ChessSetConventions {
     /** Skybox environment KTX filename. */
     const val SKYBOX_ASSET: String = "papermill_skybox.ktx"
 
+    /** Heavily blurred skybox environment KTX filename for Web and iOS. */
+    const val SKYBOX_ASSET_BLURRED: String = "papermill_skybox_blurred.ktx"
+
     /** IBL intensity used by the wasm/web Filament backend. */
     const val IBL_INTENSITY: Float = 30000f
 

@@ -15,11 +15,11 @@
 		344EA7D190B1CBFC69C6995F /* FilamentChessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F000A1A124DCED79B34ED01 /* FilamentChessView.swift */; };
 		3F4B6FE98FC3A112054A4766 /* StockfishChessEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28C7F05371BE73DC00FFB6B0 /* StockfishChessEngine.swift */; };
 		56B0305B5D3847FC6B326502 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE8509E5A49E4A5CAAEB3ADB /* ContentView.swift */; };
-		5BC97BEC82119B2D5D6E3FBB /* papermill_skybox.ktx in Resources */ = {isa = PBXBuildFile; fileRef = D46ADB0ABA8495D784A2F41C /* papermill_skybox.ktx */; };
 		7DAA6B2A3EBDDF2583C94275 /* nn-1111cefa1111.nnue in Resources */ = {isa = PBXBuildFile; fileRef = 0083126833BD37C48CC51E07 /* nn-1111cefa1111.nnue */; };
 		83C131FF4DF845EB044A1205 /* chess.glb in Resources */ = {isa = PBXBuildFile; fileRef = 39DD6E47D4950503102B28AE /* chess.glb */; };
 		AE3AA8C5D37E58F01986EEFC /* FilamentChessFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C96BB04BA068592D857136E /* FilamentChessFactory.swift */; };
 		B5CA9B9E6C1205698D8723A5 /* nn-37f18f62d772.nnue in Resources */ = {isa = PBXBuildFile; fileRef = DBCCFF2A8437C866DD0AAE79 /* nn-37f18f62d772.nnue */; };
+		F577C5F971B5C95756DCBF18 /* papermill_skybox_blurred.ktx in Resources */ = {isa = PBXBuildFile; fileRef = A8D80A775026907225F5D485 /* papermill_skybox_blurred.ktx */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -46,10 +46,10 @@
 		7B6D077BCA1220721132D517 /* filament.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = filament.xcconfig; sourceTree = "<group>"; };
 		84E513D241B7AC10D88E4034 /* FilamentChessRenderer.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = FilamentChessRenderer.mm; sourceTree = "<group>"; };
 		86038AE1032E284E79B32AD6 /* iosApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = iosApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A8D80A775026907225F5D485 /* papermill_skybox_blurred.ktx */ = {isa = PBXFileReference; path = papermill_skybox_blurred.ktx; sourceTree = "<group>"; };
 		BAEBFE68677C845B5A891EB9 /* StockfishChessEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockfishChessEngineTests.swift; sourceTree = "<group>"; };
 		C117AD187833E2513BD2F553 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		CE8509E5A49E4A5CAAEB3ADB /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		D46ADB0ABA8495D784A2F41C /* papermill_skybox.ktx */ = {isa = PBXFileReference; path = papermill_skybox.ktx; sourceTree = "<group>"; };
 		DBCCFF2A8437C866DD0AAE79 /* nn-37f18f62d772.nnue */ = {isa = PBXFileReference; path = "nn-37f18f62d772.nnue"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -85,7 +85,7 @@
 				DBCCFF2A8437C866DD0AAE79 /* nn-37f18f62d772.nnue */,
 				0083126833BD37C48CC51E07 /* nn-1111cefa1111.nnue */,
 				5D4BD5AEEE11801330FECC96 /* papermill_ibl.ktx */,
-				D46ADB0ABA8495D784A2F41C /* papermill_skybox.ktx */,
+				A8D80A775026907225F5D485 /* papermill_skybox_blurred.ktx */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -217,7 +217,7 @@
 				7DAA6B2A3EBDDF2583C94275 /* nn-1111cefa1111.nnue in Resources */,
 				B5CA9B9E6C1205698D8723A5 /* nn-37f18f62d772.nnue in Resources */,
 				23AB3EF7F8DD090388584DEB /* papermill_ibl.ktx in Resources */,
-				5BC97BEC82119B2D5D6E3FBB /* papermill_skybox.ktx in Resources */,
+				F577C5F971B5C95756DCBF18 /* papermill_skybox_blurred.ktx in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

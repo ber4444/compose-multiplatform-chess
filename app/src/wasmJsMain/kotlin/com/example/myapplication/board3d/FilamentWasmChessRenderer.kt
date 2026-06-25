@@ -184,7 +184,7 @@ window.chess3dFilament = {
     instances: null,
 
     init(canvas) {
-        Filament.init(['${ChessSetConventions.GLB_ASSET}', '${ChessSetConventions.IBL_ASSET}', '${ChessSetConventions.SKYBOX_ASSET}'], () => {
+        Filament.init(['${ChessSetConventions.GLB_ASSET}', '${ChessSetConventions.IBL_ASSET}', '${ChessSetConventions.SKYBOX_ASSET_BLURRED}'], () => {
             try {
                 this.engine = Filament.Engine.create(canvas);
                 this.scene = this.engine.createScene();
@@ -200,7 +200,7 @@ window.chess3dFilament = {
                 const ibl = this.engine.createIblFromKtx1(Filament.assets['${ChessSetConventions.IBL_ASSET}']);
                 this.scene.setIndirectLight(ibl);
                 ibl.setIntensity(${ChessSetConventions.IBL_INTENSITY});
-                this.scene.setSkybox(this.engine.createSkyFromKtx1(Filament.assets['${ChessSetConventions.SKYBOX_ASSET}']));
+                this.scene.setSkybox(this.engine.createSkyFromKtx1(Filament.assets['${ChessSetConventions.SKYBOX_ASSET_BLURRED}']));
 
                 // One asset, INSTANCE_COUNT instances sharing geometry but with independent transforms,
                 // visibility and material instances — mirrors iOS createInstancedAsset / Android
