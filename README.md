@@ -107,4 +107,4 @@ Third-party asset and dependency notices live in [THIRD_PARTY_NOTICES.md](THIRD_
 - `./gradlew :app:desktopTest --tests "*board3d*"` runs the 3D desktop tests (DesktopRendererSmokeTest writes `build/chess3d-*.png` to eyeball the render)
 - `tools/ios_3d_screenshot.sh` captures the real iOS 3D board from a booted simulator
 
-Articles with screenshots: WIP
+[Article with screenshots](https://medium.com/p/f6a983db0e45)
