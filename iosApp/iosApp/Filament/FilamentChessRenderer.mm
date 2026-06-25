@@ -22,6 +22,7 @@
 #import <filament/Material.h>
 #import <filament/MaterialInstance.h>
 #import <filament/ColorGrading.h>
+#import <filament/Color.h>
 
 #import <gltfio/AssetLoader.h>
 #import <gltfio/FilamentAsset.h>
@@ -120,7 +121,8 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
     Scene* _scene;
     Camera* _camera;
     Entity _cameraEntity;
-    Entity _sunlight;
+    Entity _sunlight;   // neutral key (main) light — mirrors Android SceneView's main light
+    Entity _filllight;  // soft fill from the opposite side — mirrors Android SceneView's fill light
     ColorGrading* _colorGrading;
 
     IndirectLight* _ibl;
@@ -167,7 +169,10 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
 
     _cameraEntity = utils::EntityManager::get().create();
     _camera = _engine->createCamera(_cameraEntity);
-    // Use Filament's default camera exposure (matches Android SceneView defaults)
+    // Keep Filament's default camera exposure (f/16, 1/125s, ISO 100). Android's SceneView uses a
+    // brighter f/12, 1/200s, ISO 200 exposure instead, so [setupLighting] scales the light
+    // intensities up to compensate rather than re-exposing here (which would also brighten the
+    // separately-tuned skybox background). The board/pieces still land at Android's brightness.
 
     _view->setScene(_scene);
     _view->setCamera(_camera);
@@ -190,9 +195,19 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
 }
 
 - (void)setupLighting {
-    // Image-based lighting from papermill_ibl.ktx (KTX1 with embedded spherical harmonics), plus a
-    // warm directional "sun" — the same environment the Android backend bundles. Follows Filament's
-    // image_based_lighting sample.
+    // Match Android SceneView's default neutral 3-point lighting (AndroidBoard3D.kt): a 6500 K key
+    // (main) light straight down + a soft 6500 K fill from the opposite side at ~30% intensity +
+    // IBL ambient. Android views these through an f/12,1/200s,ISO200 camera; iOS keeps Filament's
+    // default f/16,1/125s,ISO100 (~2.22x darker), so the lux values below are Android's
+    // (main/fill/IBL 11500/3450/11500) scaled by that 2.22x exposure factor to land at the same
+    // on-screen brightness. Keep the Android base values in sync.
+    static constexpr float kExposureComp = 2.2222f;          // (16^2*125) / (12^2*200*0.5)
+    static constexpr float kMainLux = 11500.0f * kExposureComp; // ~25556
+    static constexpr float kFillLux = 3450.0f  * kExposureComp; // ~7667
+    static constexpr float kIblLux  = 11500.0f * kExposureComp; // ~25556
+
+    // Image-based lighting from papermill_ibl.ktx (KTX1 with embedded spherical harmonics). Follows
+    // Filament's image_based_lighting sample.
     NSData* iblData = loadBundleResource(@"papermill_ibl", @"ktx");
     if (iblData) {
         auto* bundle = new image::Ktx1Bundle((const uint8_t*)iblData.bytes, (uint32_t)iblData.length);
@@ -204,7 +219,7 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
         IndirectLight::Builder iblBuilder;
         iblBuilder.reflections(_iblTexture);
         if (hasSh) iblBuilder.irradiance(3, harmonics);
-        iblBuilder.intensity(35000.0f); // TUNE: ambient fill — lifts the dark (black) pieces
+        iblBuilder.intensity(kIblLux); // ambient fill — matches Android IBL_INTENSITY
         _ibl = iblBuilder.build(*_engine);
         _scene->setIndirectLight(_ibl);
     }
@@ -219,15 +234,29 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
         _scene->setSkybox(_skybox);
     }
 
-    // Warm key light, roughly matching the desktop/Android sun direction.
+    // Neutral 6500 K key + fill, mirroring Android SceneView's DefaultLightNode / DefaultFillLightNode:
+    // the key points straight down and casts shadows; the fill comes from the opposite upper side at
+    // 30% intensity and casts no shadows. Replaces the earlier single warm sun so iOS reads the same
+    // neutral, natural tone as Android instead of the warmer/brighter look.
+    const LinearColor neutral = Color::cct(6500.0f);
+
     _sunlight = utils::EntityManager::get().create();
-    LightManager::Builder(LightManager::Type::SUN)
-        .color({ 1.0f, 0.95f, 0.85f })
-        .intensity(80000.0f) // TUNE
-        .direction({ 0.4f, -1.0f, -0.4f })
+    LightManager::Builder(LightManager::Type::DIRECTIONAL)
+        .color(neutral)
+        .intensity(kMainLux)
+        .direction({ 0.0f, -1.0f, 0.0f })
         .castShadows(true)
         .build(*_engine, _sunlight);
     _scene->addEntity(_sunlight);
+
+    _filllight = utils::EntityManager::get().create();
+    LightManager::Builder(LightManager::Type::DIRECTIONAL)
+        .color(neutral)
+        .intensity(kFillLux)
+        .direction({ 0.5f, -0.5f, 0.5f })
+        .castShadows(false)
+        .build(*_engine, _filllight);
+    _scene->addEntity(_filllight);
 }
 
 - (BOOL)loadGlb {
@@ -379,6 +408,7 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
     if (_iblTexture) { _engine->destroy(_iblTexture); _iblTexture = nullptr; }
     if (_skyboxTexture) { _engine->destroy(_skyboxTexture); _skyboxTexture = nullptr; }
     if (_sunlight) { _engine->destroy(_sunlight); utils::EntityManager::get().destroy(_sunlight); }
+    if (_filllight) { _engine->destroy(_filllight); utils::EntityManager::get().destroy(_filllight); }
 
     if (_camera) { _engine->destroyCameraComponent(_cameraEntity); _camera = nullptr; }
     if (_cameraEntity) utils::EntityManager::get().destroy(_cameraEntity);
