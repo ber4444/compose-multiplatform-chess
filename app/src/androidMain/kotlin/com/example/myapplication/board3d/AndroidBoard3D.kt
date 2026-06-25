@@ -27,7 +27,7 @@ import org.jetbrains.compose.resources.ExperimentalResourceApi
 // in app/build.gradle.kts: packageOfResClass = "game.app.generated.resources").
 private const val RES_PREFIX = "composeResources/game.app.generated.resources"
 private val IBL_KTX    = "$RES_PREFIX/files/env/${ChessSetConventions.IBL_ASSET}"
-private val SKYBOX_KTX = "$RES_PREFIX/files/env/${ChessSetConventions.SKYBOX_ASSET}"
+private val SKYBOX_KTX = "$RES_PREFIX/files/env/${ChessSetConventions.SKYBOX_ASSET_BLURRED}"
 
 // 3D board lighting. SceneView's defaults are a neutral 6500 K 3-point setup — main 10000 lux +
 // fill 3000 lux + IBL 10000 lux (io.github.sceneview.SceneFactories). These nudge each ~15% brighter
@@ -248,7 +248,7 @@ fun androidBoard3DSupport(): Board3DSupport = Board3DSupport(
                 // available, so a missing asset becomes the existing nullable fallback path.
                 val glb = Res.readBytes("files/models/${ChessSetConventions.GLB_ASSET}")
                 Res.readBytes("files/env/${ChessSetConventions.IBL_ASSET}")
-                Res.readBytes("files/env/${ChessSetConventions.SKYBOX_ASSET}")
+                Res.readBytes("files/env/${ChessSetConventions.SKYBOX_ASSET_BLURRED}")
                 AndroidSceneViewChessRenderer(glb)
             }.getOrNull()
         }
