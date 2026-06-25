@@ -78,6 +78,20 @@ class FilamentEncodedChessRendererTest {
     }
 
     @Test
+    fun `zero size attach does not resize peer`() = runTest {
+        val peer = FakeFilamentPeer()
+        val renderer = FilamentEncodedChessRenderer(peer, TestScope(StandardTestDispatcher(testScheduler)))
+
+        renderer.attach(object : Chess3DSurface {
+            override val widthPx = 0
+            override val heightPx = 0
+        })
+
+        assertTrue(peer.events.contains("attach:0x0"))
+        assertTrue(peer.events.none { it.startsWith("resize:") })
+    }
+
+    @Test
     fun `dispose shuts down peer once`() {
         val peer = FakeFilamentPeer()
         val renderer = FilamentEncodedChessRenderer(peer)

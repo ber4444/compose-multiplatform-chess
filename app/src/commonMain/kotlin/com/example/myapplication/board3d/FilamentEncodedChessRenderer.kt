@@ -32,8 +32,10 @@ class FilamentEncodedChessRenderer(
         if (isDisposed) return
         isReady = true
         peer.attach(surface)
-        peer.resize(surface.widthPx, surface.heightPx)
-        camera = camera.copy(aspect = surface.widthPx.toFloat() / surface.heightPx.coerceAtLeast(1).toFloat())
+        if (surface.widthPx > 0 && surface.heightPx > 0) {
+            peer.resize(surface.widthPx, surface.heightPx)
+            camera = camera.copy(aspect = surface.widthPx.toFloat() / surface.heightPx.toFloat())
+        }
         applyCamera()
         driver.setPosition(runCatching { Board3DSceneMapper.fromFen(pendingFen) }.getOrNull(), null)
         driver.setSelected(selectedSquare)

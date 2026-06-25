@@ -1,29 +1,28 @@
 # Issue #32 — 3D UI: Overview and Architecture
 
-Implementation plan for [issue #32](https://github.com/ber4444/compose-multiplatform-chess/issues/32): adopt the 3D look of [vkChess](https://github.com/jpbruyere/vkChess) (C++/Vulkan PBR chess) behind a `Chess3DBoardRenderer` abstraction. Initially target Vulkan + MoltenVK; WebGPU later. The 2D board stays the canonical interaction model; 3D is a view layer mirroring the same FEN/game state.
+Implementation plan for [issue #32](https://github.com/ber4444/compose-multiplatform-chess/issues/32): adopt the 3D look of [vkChess](https://github.com/jpbruyere/vkChess) behind a `Chess3DBoardRenderer` abstraction. The current product path is Filament-backed on every 3D platform, with platform-specific surfaces and shared commonMain scene/camera/interaction logic.
 
-> **Current direction (2026-06-16): shared renderer contract, platform-fit backends.** Desktop and web now
-> ship through the shared `wgpuMain` WebGPU/WGSL path. Mobile stays on native renderers: iOS uses SceneKit
-> and Android uses SceneView/Filament. The M8 mobile surface spike showed that Android replacement would
-> require explicit JNI/NDK `Surface`/`ANativeWindow` ownership work, so the plan treats mobile
-> native renderers as the maintained product backends.
+> **Current direction (2026-06-25): shared Filament conventions, platform-fit surfaces.** Android uses
+> SceneView/Filament, iOS uses Metal-native Filament through Swift/Obj-C++, web uses Filament JS/WebGL,
+> and desktop uses a native C++ Filament bridge with a headless swap chain and RGBA readback into Compose.
+> Common Kotlin owns FEN-to-scene mapping, camera/picking math, selection state, and transitions. Desktop,
+> iOS, and web share `FilamentEncodedChessRenderer`; their platform peers only own Filament surface/init calls.
 
 This document holds the decisions and the shared commonMain API. Each milestone has its own execution-ready plan doc:
 
 | Milestone | Doc | Scope |
 |---|---|---|
-| M1 | [issue-32-3d-ui-m1-foundation.md](issue-32-3d-ui-m1-foundation.md) | Materia spike (**done → original desktop backend used LWJGL headless Vulkan**), commonMain abstraction + scene mapping, 2D/3D toggle with graceful fallback on all platforms, desktop JVM backend, assets, CI |
+| M1 | [issue-32-3d-ui-m1-foundation.md](issue-32-3d-ui-m1-foundation.md) | Materia spike (**historical: original desktop backend used LWJGL headless Vulkan**), commonMain abstraction + scene mapping, 2D/3D toggle with graceful fallback on all platforms, desktop JVM backend, assets, CI |
 | M2 | [issue-32-3d-ui-m2-apple.md](issue-32-3d-ui-m2-apple.md) | iOS backend (MoltenVK via Materia, or Metal-direct — mini-spike decides) |
 | M3 | [issue-32-3d-ui-m3-android.md](issue-32-3d-ui-m3-android.md) | Android backend (landed through SceneView/Filament after Materia/raw Vulkan were rejected) |
-| M4 | [issue-32-3d-ui-m4-wasm.md](issue-32-3d-ui-m4-wasm.md) | Wasm backend (landed through the shared wgpu4k WebGPU renderer and overlay canvas) |
+| M4 | [issue-32-3d-ui-m4-wasm.md](issue-32-3d-ui-m4-wasm.md) | Wasm backend (currently Filament JS/WebGL with an overlay canvas) |
 | M5 | [issue-32-3d-ui-m5-interaction-animation.md](issue-32-3d-ui-m5-interaction-animation.md) | 3D tap-to-move via ray picking, smooth piece animation, camera polish (backend-agnostic) |
-| **M6** | [issue-32-3d-ui-m6-wgpu4k.md](issue-32-3d-ui-m6-wgpu4k.md) | Desktop and web shared WebGPU/WGSL backend with papermill skybox plus PBR/IBL. |
-| **M7** | folded into [graphics-quality.md](graphics-quality.md) | **vkChess-fidelity for iOS (SceneKit) + Android (Filament)** via their native IBL/skybox. |
+| **M6** | [issue-32-3d-ui-m6-wgpu4k.md](issue-32-3d-ui-m6-wgpu4k.md) | Historical WebGPU/WGSL spike path, superseded by Filament-backed desktop/web. |
+| **M7** | folded into [graphics-quality.md](graphics-quality.md) | **vkChess-fidelity for iOS and Android Filament** via their native IBL/skybox. |
 | **M8** | [issue-32-3d-ui-m8-wgpu4k-mobile-spike.md](issue-32-3d-ui-m8-wgpu4k-mobile-spike.md) | Mobile WebGPU feasibility spike; completed as a no-go for Android surface ownership without new JNI/NDK glue. |
 
-> Current implementation: desktop + web use wgpu4k/WebGPU; iOS uses SceneKit; Android uses SceneView
-> over Filament. M5's interaction layer is above the renderer interface and is shared across all four
-> active backends.
+> Current implementation: desktop, web, iOS, and Android all render through Filament-backed paths, with
+> platform-specific surfaces/bridges and shared commonMain interaction/animation logic.
 
 ## Scrutiny of the issue's hints
 
@@ -39,9 +38,8 @@ The issue offers hints, not requirements. Each was evaluated against the codebas
   - `onUserInteraction(event)` — kept, **but deliberately narrowed to visual/camera state only.** The sketch implies *all* input flows through the renderer; that would be wrong here, because game-affecting taps (selection/move) must stay in Compose (hint 3). So in our design `onUserInteraction` carries only camera events (`SetCamera`, computed by the host's `OrbitCameraController`); a 3D tap that should move a piece is ray-picked in **common** code and routed to the *same* `updateSelected`/`playerMove` lambdas the 2D board uses (M5) — it never enters the renderer. The renderer thus only ever receives *visual* state, exactly as hint 3 asks.
 
 **Hint 2 — "Prefer one engine where feasible (Materia for Vulkan + WebGPU + Metal); if not, Vulkan-native / MoltenVK / WebGPU per platform."**
-- ❌ **The "one engine" ideal is not feasible** — spike-confirmed. We land on the issue's *own* fallback: hand-written LWJGL Vulkan on desktop, and Materia-or-native per platform elsewhere (each milestone re-validates). So we explicitly do **not** prefer one engine; we prefer the abstraction that lets each platform choose. See "Engine choice" and "Open decision for M2–M4."
-- 💡 **Elevate the "Three.js/BabylonJS bridge for wasm" sub-hint.** A JS-interop bridge sidesteps the Kotlin-klib-version risk entirely (M4's biggest risk) and is a serious M4 alternative to a Materia/WebGPU klib — recorded in the M4 doc.
-- 🔬 **The hint's platform groupings don't map to our source sets.** It groups "Vulkan-native for Linux/Windows/Android" and "MoltenVK for macOS/iOS." In KMP terms our split is different: desktop (Linux/Windows/**macOS**) is one JVM target where LWJGL's `lwjgl-vulkan` covers all three — macOS via the bundled MoltenVK — so macOS desktop is grouped with Linux/Windows, **not** with iOS; Android and iOS are each their own native target. Treat the hint's grouping as "which API per OS," not "which code module."
+- ✅ **Prefer one renderer family where feasible.** The current product path uses Filament everywhere 3D is supported: SceneView on Android, Metal-native Filament on iOS, Filament JS/WebGL on web, and a desktop C++ Filament bridge.
+- 🔬 **Still not one codebase.** Filament's surface/init APIs differ sharply by platform, so commonMain owns scene/camera/interaction state while each platform keeps a thin peer around its Filament surface.
 
 **Hint 3 — "Host the 3D surface in a Composable; keep FEN/selection in Compose; render visual state in the engine. Keep the 2D board as the canonical interaction model initially; 3D as a view layer."**
 - ✅ **Adopt the Compose-integration pattern** (Decision B + the `Board3D` host): game state stays in Compose, the renderer receives only FEN.
@@ -53,19 +51,19 @@ Meta-point: the issue names vkChess for the look and Materia for the engine, but
 
 The original candidate was **[Materia](https://github.com/codeyousef/Materia)** — a KMP 3D library (Three.js-style scene graph, glTF 2.0 loader; backends: WebGPU on JS/wasm, Vulkan via LWJGL 3.3.6 on JVM, Vulkan on Android API 24+, MoltenVK on Apple; Apache-2.0). The M1 Phase A spike has now **run** (2026-06-12; full per-criterion verdict in the [M1 doc's "Spike result"](issue-32-3d-ui-m1-foundation.md#spike-result)).
 
-### Post-spike status (M1–M3 backend rationale; updated by the WebGPU desktop/web work)
+### Post-spike status (M1–M3 backend rationale; updated by the desktop Filament replacement)
 
-- **Desktop (M1): LWJGL headless Vulkan — Materia rejected.** Materia's JVM backend is structurally a *windowed-swapchain* renderer with **no offscreen render-to-texture path**, which is exactly what the desktop interop needs (Decision C: render offscreen → CPU readback → Compose `ImageBitmap`, off the UI thread). The spike confirmed `RendererFactory` rejects a windowless surface, and GLFW demands the macOS main thread. So desktop uses the hand-written **LWJGL headless Vulkan** pipeline (Decision D), glTF via `de.javagl:jgltf-model`. Positive signal: LWJGL 3.3.6 + MoltenVK detected the GPU on the spike machine, so this pipeline is viable on the same hardware.
+- **Desktop (current): native C++ Filament bridge.** The historical M1 LWJGL Vulkan path has been replaced. Desktop now reuses `FilamentEncodedChessRenderer` plus the same encoded `Board3DScene` and camera wire format used by iOS/web, renders `chess.glb` through Filament with a headless swap chain, and reads RGBA frames back to Compose through `ImageBitmapChess3DSurface`.
 - **What the spike *did* validate about Materia (still useful if it's used elsewhere):** Kotlin 2.3.20 reads Materia's 2.2.20-built **JVM** artifacts with zero metadata errors; its glTF loader parses `chess.glb` in ~86 ms with all six piece nodes as PBR `MeshStandardMaterial`.
 - **Materia is NOT vendored via composite build.** The plan originally assumed `includeBuild("third_party/materia")`. **That does not work**: Materia's `build.gradle.kts` uses Gradle's removed `javaexec{}` script API, but this repo runs Gradle 9.3.1 (AGP 9.1.1 requires it), so the included build won't even configure. If Materia is ever used, it must be **built with its own Gradle 8.13 and published to a Maven repo** (mavenLocal for spikes; a checked-in flat Maven dir or an internal repo for real use). Building it also needs a WGSL compiler (Tint/naga) unless the `compileShaders` task is disabled (SPIR-V is pre-committed), and consumers must add **LWJGL + per-OS native classifiers explicitly** (Materia exposes them runtime-only). See the M1 Spike result for the exact recipe.
 - **Materia (v0.4.1.0) is alpha and not on Maven Central.** Built with **Kotlin 2.2.20** vs this repo's 2.3.20 — JVM klib consumption is proven, but **wasm klibs are far less forward-compatible**, so M4 must re-validate consumption for the `wasmJs` target specifically before relying on it.
 
-### Open decision for M2–M4 — RESOLVED (platform-fit backends, 2026-06-16)
+### Open decision for M2–M4 — RESOLVED (Filament-backed platform peers, 2026-06-25)
 
-**Resolved:** desktop and web share the WebGPU/WGSL backend from [M6](issue-32-3d-ui-m6-wgpu4k.md);
-iOS and Android use native mobile engines (SceneKit and SceneView/Filament). The "two renderer codebases"
-worry is accepted as the maintainable product shape, with common scene, camera, picking, transition, and
-lifecycle contracts keeping behavior shared. The original analysis is kept for context:
+**Resolved:** all supported 3D platforms use Filament-backed renderers. Desktop, web, and iOS share
+`FilamentEncodedChessRenderer` for lifecycle/camera/scene/selection/transition state; Android keeps
+SceneView's Compose state-holder model but consumes the same common scene, picking, and transition data.
+The original analysis is kept for context:
 
 The spike killer (no offscreen path) is **desktop-specific**: M2 (iOS), M3 (Android), and M4 (wasm) render to a *real* surface (`UIKitView`/`SurfaceView`/`<canvas>`), which is what Materia's swapchain renderer wants — so Materia is *not* ruled out there on the same grounds. But choosing it now means **two renderer codebases** (hand-written LWJGL on desktop + Materia on mobile/wasm) plus the publish-to-Maven plumbing and per-target Kotlin-version re-validation. Each of those milestones therefore keeps its own go/no-go mini-spike, and may instead extend a platform-native renderer behind the same `Chess3DBoardRenderer` interface. The `Chess3DBoardRenderer` abstraction isolates the rest of the app from whichever way each milestone lands.
 
@@ -76,7 +74,7 @@ The spike killer (no offscreen path) is **desktop-specific**: M2 (iOS), M3 (Andr
 The issue sketch mentions expect/actual, but this repo has zero expect/actual declarations today. The established pattern is `ChessEngine`: a plain commonMain interface with platform implementations injected at entry points (`MainActivity`, desktop `Main.kt`, wasm `Main.kt`, `MainViewController(engine:)`). The renderer follows the same pattern, because:
 
 1. **Graceful fallback is a hard requirement.** A platform with no backend injects `null` (exactly like a missing Stockfish binary) and the UI hides the 3D toggle. With expect/actual, M1 would force stub actuals in every platform source set immediately, and "unavailable" becomes a runtime sentinel anyway.
-2. **Runtime selection.** Desktop chooses Materia vs the LWJGL fallback at runtime; tests choose `FakeChess3DRenderer`. expect/actual is compile-time only.
+2. **Runtime selection.** Platform factories can return `null` on init failure, and tests choose `FakeChess3DRenderer`. expect/actual is compile-time only.
 3. **Testability.** The attach/detach/updatePosition lifecycle contract is tested once in commonTest against a fake, with no platform machinery.
 4. The repo's **manual source-set hierarchy** (`kotlin.mpp.applyDefaultHierarchyTemplate=false`) makes expect/actual wiring the most error-prone part of the build; interfaces avoid it.
 
@@ -91,13 +89,13 @@ The only genuinely platform-specific Compose piece — the composable that creat
 The desktop renderer draws into an offscreen GPU image; frames are read back and drawn with a plain Compose `Image`. Not SwingPanel/AWT-Vulkan, because:
 
 - **Dialog correctness.** `GameScreen` shows Compose `Dialog`s (promotion, game over, draw offer) above the board. A bitmap is plain Compose content, so z-order, the `verticalScroll` column, and `testTag` semantics all work normally.
-- **macOS threading.** GLFW windows must be created on the process's first thread, which AWT/Compose owns (spike-confirmed: GLFW off the main thread throws, and that is also why a windowed engine like Materia can't drive this). Headless Vulkan (no swapchain) renders offscreen from any thread.
-- **CI.** GitHub's ubuntu runners have no GPU; offscreen Vulkan runs on lavapipe (`mesa-vulkan-drivers`). LWJGL's `lwjgl-vulkan` macOS natives bundle MoltenVK, so macos runners work too.
+- **macOS threading.** GLFW windows must be created on the process's first thread, which AWT/Compose owns (spike-confirmed: GLFW off the main thread throws, and that is also why a windowed engine like Materia can't drive this). The native Filament bridge uses a headless swap chain and renders offscreen from its own thread.
+- **CI.** Desktop builds fetch the gitignored Filament desktop payload with `tools/fetch_filament_desktop.sh`, then Gradle builds the CMake/JNI bridge before desktop tests, desktop jars, and native packaging.
 - **Cost is fine.** The board renders on demand (scene or camera change), not in a hot loop; a 700×700 RGBA readback is ~2 MB.
 
-### D. Desktop engine = LWJGL headless Vulkan minimal pipeline (spike-confirmed choice)
+### D. Desktop engine = native C++ Filament headless bridge
 
-This was the documented fallback; the M1 spike's rejection of Materia for desktop makes it **the** desktop backend. Pipeline: instance → device → one render pass → one graphics pipeline → vertex/index/uniform buffers → render to image → `vkCmdCopyImageToBuffer` → map. Offscreen rendering removes swapchain/WSI/resize complexity; roughly 1.5–2.5k lines, mechanical from the LWJGL Vulkan samples. glTF parsing via `de.javagl:jgltf-model` (MIT, Maven Central). Plain OpenGL would be less code but is deprecated on macOS and contradicts the issue's explicit Vulkan-first direction. vkChess's C++ code is **not** vendored — only its asset (`data/chess.gltf`); a JNI + CMake bridge to its `vke`/`vkvg` stack is rejected.
+Desktop uses `DesktopFilamentChessRenderer` on the Kotlin side and `desktop_filament_bridge` on the C++ side. The Kotlin renderer shares `FilamentEncodedChessRenderer` with iOS and web peers, so FEN mapping, transition frames, selection bounce, and camera encoding stay in commonMain. The native bridge loads `chess.glb`, papermill IBL, and the blurred skybox KTX assets, reconciles a fixed `MAX_PIECES + 1` Filament instance pool, renders into a headless swap chain, and returns RGBA bytes via `Renderer::readPixels`.
 
 ## commonMain API
 
@@ -286,14 +284,14 @@ Behavior: `LaunchedEffect(Unit)` calls `support.rendererFactory.create()`; null 
 
 | Risk | Status / Mitigation |
 |---|---|
-| Materia offscreen render/readback unsupported on JVM | **Resolved (spike): confirmed unsupported.** M1 used LWJGL headless Vulkan; the current desktop factory has since moved to wgpu4k offscreen WebGPU. |
+| Materia offscreen render/readback unsupported on JVM | **Resolved (spike): confirmed unsupported.** M1 used LWJGL headless Vulkan historically; the current desktop factory uses native C++ Filament headless readback. |
 | Materia consumed via Gradle composite build (`includeBuild`) | **Resolved (spike): composite build fails under Gradle 9.x.** If Materia is used at all, build it with its own Gradle 8.13 and publish to a Maven repo. |
-| Kotlin 2.2.20-built klibs unreadable from 2.3.20 | **Resolved by not using Materia.** wgpu4k resolves for desktop and wasm in this branch; wasm builds and tests compile. |
-| Materia Apple backend is beta | M2 go/no-go mini-spike; rescope path = Metal-direct renderer behind the same interface |
-| Two renderer codebases if M2–M4 adopt Materia (desktop is LWJGL) | **Resolved by direction change.** Desktop/web use the shared WebGPU path; iOS/Android use native mobile renderers behind the same contract. |
+| Kotlin 2.2.20-built klibs unreadable from 2.3.20 | **Resolved by not using Materia/wgpu4k for product rendering.** Web uses Filament JS through JS interop; desktop uses native C++ Filament. |
+| Materia Apple backend is beta | **Resolved by not using Materia.** iOS uses Metal-native Filament through the Swift/Obj-C++ bridge. |
+| Two renderer codebases if M2–M4 adopt Materia (desktop is LWJGL) | **Resolved by direction change.** Desktop, web, and iOS use the shared encoded Filament lifecycle with platform-specific peers; Android uses SceneView/Filament behind the same contract. |
 | chess.gltf piece-model license unverified (Matt Joos via Sketchfab) | **Resolved:** Replacing with CC-licensed model (see [issue-32-3d-ui-unresolved-questions.md](issue-32-3d-ui-unresolved-questions.md)). |
 | FEN reflects the post-move state while the 2D animation is still playing | **Resolved by M5 transitions.** `Board3DSceneDiffer` supplies backend-agnostic movement transitions. |
-| **(wgpu4k) Dependency is a pre-release SNAPSHOT** | `io.ygdrasil:wgpu4k-toolkit` has no stable release (latest `0.2.0-SNAPSHOT`, only milestone `0.1.0.M2`); from a GitLab Maven repo, not Central. Mitigation: pin the timestamped snapshot for desktop/web and treat upgrades as maintenance. This does not make it the planned mobile backend. |
-| **Mobile WebGPU surface ownership** | M8 confirmed dependency compatibility but stopped at Android surface ownership: the binding wants `ANativeWindow*` and the Android JVM artifact provides no caller-owned `Surface`/`SurfaceHolder` bridge. Mitigation: keep SceneView/Filament and SceneKit as mobile product backends; only revisit with an explicit JNI/NDK surface-ownership spike. |
-| **(wgpu4k) Desktop needs modern JDK / Panama FFM** | Desktop code currently targets JVM 24; `:app:run` and desktop tests use a scoped JDK 26 launcher. Mitigation: dev/CI on JDK 26 (✓); packaged desktop distribution must bundle/require a compatible modern JRE. |
+| **(superseded wgpu4k) Dependency is a pre-release SNAPSHOT** | No longer a product risk for this renderer path; desktop/web now use Filament. |
+| **Mobile WebGPU surface ownership** | M8 confirmed dependency compatibility but stopped at Android surface ownership: the binding wants `ANativeWindow*` and the Android JVM artifact provides no caller-owned `Surface`/`SurfaceHolder` bridge. Mitigation: keep SceneView/Filament and Metal-native Filament as mobile product backends; only revisit with an explicit JNI/NDK surface-ownership spike. |
+| Desktop native bridge needs fetched Filament payload | CI and local setup run `tools/fetch_filament_desktop.sh`; the payload stays gitignored and CMake fails early with that instruction if missing. |
 | **(superseded) Materia rows above** | The Materia-specific risks are historical; the current direction is shared contracts with platform-fit renderers. |

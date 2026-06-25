@@ -12,7 +12,6 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import platform.UIKit.UIView
 
 /**
@@ -79,75 +78,25 @@ class FilamentIosChessRenderer(factory: FilamentChessViewFactory) : Chess3DBoard
     // factory below can hand its UIView straight to Compose.
     val nativeView: FilamentChessNativeView = factory.create()
 
-    private var pendingFen: String = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-    private var camera: CameraParams = OrbitCameraController.DEFAULT_WHITE_VIEW
-    private var selectedSquare: BoardSquare? = null
-    private var isReady = false
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val delegate = FilamentEncodedChessRenderer(
+        peer = object : FilamentChessPeer {
+            override fun setScene(encoded: String) = nativeView.setScene(encoded)
+            override fun setCamera(encoded: String) = nativeView.setCamera(encoded)
+            override fun resize(widthPx: Int, heightPx: Int) = nativeView.resize(widthPx, heightPx)
+            override fun attach(surface: Chess3DSurface?) {}
+            override fun detach() {}
+            override fun shutdown() = nativeView.shutdown()
+        },
+        scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    )
 
-    // Move arc + selection bounce computed in commonMain; each frame the interpolated scene is pushed
-    // to Filament as the encoded wire form.
-    private val driver = Board3DAnimationDriver(scope) { scene ->
-        if (isReady) nativeView.setScene(scene.encode())
-    }
-
-    override fun attach(surface: Chess3DSurface) {
-        isReady = true
-        applyCamera(camera)
-        driver.setPosition(runCatching { Board3DSceneMapper.fromFen(pendingFen) }.getOrNull(), null)
-        driver.setSelected(selectedSquare)
-    }
-
-    override fun detach() {
-        isReady = false
-    }
-
-    override fun updatePosition(fen: String) = updatePosition(fen, null)
-
-    override fun updatePosition(fen: String, transition: Board3DTransition?) {
-        pendingFen = fen
-        driver.setPosition(runCatching { Board3DSceneMapper.fromFen(fen) }.getOrNull(), transition)
-    }
-
-    override fun setSelectedSquare(square: BoardSquare?) {
-        selectedSquare = square
-        driver.setSelected(square)
-    }
-
-    override fun onUserInteraction(event: Board3DInput) {
-        when (event) {
-            is Board3DInput.SetCamera -> {
-                camera = event.camera
-                applyCamera(event.camera)
-            }
-            is Board3DInput.Resize -> {
-                camera = camera.copy(
-                    aspect = event.widthPx.toFloat() / event.heightPx.coerceAtLeast(1).toFloat()
-                )
-                if (isReady) nativeView.resize(event.widthPx, event.heightPx)
-            }
-            else -> {}
-        }
-    }
-
-    override fun dispose() {
-        driver.cancel()
-        scope.cancel()
-        nativeView.shutdown()
-    }
-
-    private fun applyCamera(cam: CameraParams) {
-        if (!isReady) return
-        // Raw fovYDegrees + aspect are sent; the Swift side applies the identical portrait FOV boost
-        // the Android Filament backend does, keeping the rendered projection in sync with the shared
-        // ray picker (CameraMath.effectiveFovYRad). See board3d-portrait-fov-picking.
-        nativeView.setCamera(
-            "${cam.position.x},${cam.position.y},${cam.position.z}," +
-                "${cam.target.x},${cam.target.y},${cam.target.z}," +
-                "${cam.up.x},${cam.up.y},${cam.up.z}," +
-                "${cam.fovYDegrees},${cam.aspect}"
-        )
-    }
+    override fun attach(surface: Chess3DSurface) = delegate.attach(surface)
+    override fun detach() = delegate.detach()
+    override fun updatePosition(fen: String) = delegate.updatePosition(fen)
+    override fun updatePosition(fen: String, transition: Board3DTransition?) = delegate.updatePosition(fen, transition)
+    override fun setSelectedSquare(square: BoardSquare?) = delegate.setSelectedSquare(square)
+    override fun onUserInteraction(event: Board3DInput) = delegate.onUserInteraction(event)
+    override fun dispose() = delegate.dispose()
 }
 
 /**

@@ -6,6 +6,7 @@ import org.gradle.api.file.DirectoryProperty
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.compose.ExperimentalComposeLibrary
 import org.jetbrains.kotlin.gradle.tasks.Kotlin2JsCompile
+import java.io.File
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -77,12 +78,6 @@ kotlin {
         }
         androidMain { dependsOn(jvmCommonMain) }
 
-        // Shared 3D scene geometry + math (ChessSceneGeometry / MeshData / TextureImage / Math) used
-        // by the desktop (Vulkan) and web (Filament) renderers.
-        val scene3dMain by creating {
-            dependsOn(commonMain.get())
-        }
-
         commonMain.dependencies {
             implementation(compose.runtime)
             implementation(compose.foundation)
@@ -103,10 +98,6 @@ kotlin {
                 @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
                 implementation(compose.uiTest)
             }
-        }
-
-        val wasmJsMain by getting {
-            dependsOn(scene3dMain)
         }
 
         androidMain.dependencies {
@@ -133,35 +124,8 @@ kotlin {
 
         val desktopMain by getting {
             dependsOn(jvmCommonMain)
-            dependsOn(scene3dMain)
             dependencies {
                 implementation(compose.desktop.currentOs)
-                // lwjgl core: KtxLoader uses org.lwjgl.system.MemoryUtil to decode the papermill
-                // environment cubemap. lwjgl-vulkan + lwjgl-shaderc back VulkanChessRenderer
-                // (the desktop renderer).
-                implementation(libs.lwjgl)
-                implementation(libs.lwjgl.vulkan)
-                implementation(libs.lwjgl.shaderc)
-                implementation(libs.jgltf.model)
-                implementation(libs.joml)
-
-                // Add native runtimes for the current OS.
-                val lwjglVersion = "3.3.6"
-                val osName = System.getProperty("os.name").lowercase()
-                val osArch = System.getProperty("os.arch").lowercase()
-                val lwjglNatives = when {
-                    osName.contains("win") -> "natives-windows"
-                    osName.contains("mac") -> if (osArch.contains("aarch64") || osArch.contains("arm")) "natives-macos-arm64" else "natives-macos"
-                    else -> "natives-linux"
-                }
-                runtimeOnly("org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives")
-                runtimeOnly("org.lwjgl:lwjgl-shaderc:$lwjglVersion:$lwjglNatives")
-                // lwjgl-vulkan only ships a native artifact on macOS (bundled MoltenVK);
-                // on Linux/Windows the system Vulkan loader is used, so there is no
-                // natives-linux/natives-windows artifact to resolve.
-                if (osName.contains("mac")) {
-                    runtimeOnly("org.lwjgl:lwjgl-vulkan:$lwjglVersion:$lwjglNatives")
-                }
             }
         }
 
@@ -195,6 +159,54 @@ compose.resources {
     publicResClass = true
 }
 
+val desktopFilamentNativeDir = layout.buildDirectory.dir("desktop-filament-native")
+val desktopFilamentCmakeDir = desktopFilamentNativeDir.map { it.dir("cmake") }
+val desktopFilamentBridgeLibName = System.mapLibraryName("desktop_filament_bridge")
+val desktopFilamentPackageResources = desktopFilamentNativeDir.map { it.dir("packageResources") }
+val desktopFilamentNativeLibraryPath = desktopFilamentCmakeDir.map { cmakeDir ->
+    listOf(cmakeDir.asFile, cmakeDir.dir("Release").asFile)
+        .joinToString(File.pathSeparator) { it.absolutePath }
+}
+
+val configureDesktopFilamentBridge by tasks.registering(Exec::class) {
+    val sourceDir = layout.projectDirectory.dir("src/desktopMain/native/filament_bridge")
+    inputs.dir(sourceDir)
+    inputs.dir(layout.projectDirectory.dir("src/desktopMain/filament/filament"))
+    outputs.dir(desktopFilamentCmakeDir)
+    commandLine(
+        "cmake",
+        "-S", sourceDir.asFile.absolutePath,
+        "-B", desktopFilamentCmakeDir.get().asFile.absolutePath,
+        "-DCMAKE_BUILD_TYPE=Release",
+    )
+}
+
+val buildDesktopFilamentBridge by tasks.registering(Exec::class) {
+    dependsOn(configureDesktopFilamentBridge)
+    outputs.files(
+        desktopFilamentCmakeDir.map { it.file(desktopFilamentBridgeLibName) },
+        desktopFilamentCmakeDir.map { it.file("Release/$desktopFilamentBridgeLibName") },
+    )
+    commandLine("cmake", "--build", desktopFilamentCmakeDir.get().asFile.absolutePath, "--config", "Release")
+}
+
+val syncDesktopFilamentBridgeResources by tasks.registering(Sync::class) {
+    dependsOn(buildDesktopFilamentBridge)
+    from(desktopFilamentCmakeDir) {
+        include(desktopFilamentBridgeLibName)
+        include("Release/$desktopFilamentBridgeLibName")
+        eachFile {
+            path = name
+        }
+        includeEmptyDirs = false
+    }
+    // Compose's appResourcesRootDir only packages files that live under a platform subdir
+    // (common/<os>/<os-arch>); a file at the root is silently skipped. The bridge is built for the
+    // current OS/arch (the only target packageDistributionForCurrentOS produces), so `common` lands
+    // it in the runtime compose.application.resources.dir that DesktopFilamentNative searches.
+    into(desktopFilamentPackageResources.map { it.dir("common") })
+}
+
 
 
 // Forward the 3D smoke-test + benchmark toggles to the forked test JVM. Gradle's `-Dchess3d.smoke=true`
@@ -206,11 +218,18 @@ tasks.withType<Test>().configureEach {
     // installed JDK 26 via a scoped toolchain launcher to match the desktop target's JVM 24 bytecode.
     // Android/other tests stay on the daemon JDK.
     if (name == "desktopTest") {
+        dependsOn(buildDesktopFilamentBridge)
+        // Treat the native bridge library as a test input so editing the C++ re-runs desktopTest
+        // instead of leaving it UP-TO-DATE against a stale .dylib/.so.
+        inputs.files(buildDesktopFilamentBridge).withPropertyName("desktopFilamentBridge")
         javaLauncher.set(
             javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(26)) }
         )
         // Rococoa uses CGLIB which requires reflection access to java.lang.ClassLoader on newer JDKs
         jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
+        doFirst {
+            jvmArgs("-Djava.library.path=${desktopFilamentNativeLibraryPath.get()}")
+        }
     }
 }
 
@@ -218,10 +237,14 @@ tasks.withType<Test>().configureEach {
 // --add-opens. The Gradle daemon is on JDK 21.
 tasks.withType<JavaExec>().configureEach {
     if (name == "run" || name == "runDistributable" || name == "runRelease") {
+        dependsOn(buildDesktopFilamentBridge)
         javaLauncher.set(
             javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(26)) }
         )
         jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
+        doFirst {
+            jvmArgs("-Djava.library.path=${desktopFilamentNativeLibraryPath.get()}")
+        }
     }
 }
 
@@ -262,12 +285,21 @@ compose.desktop {
         nativeDistributions {
             packageName = "game"
             packageVersion = "1.0.0"
+            appResourcesRootDir.set(desktopFilamentPackageResources)
             targetFormats(TargetFormat.Deb, TargetFormat.Dmg)
         }
     }
 }
 
 tasks.configureEach {
+    // prepareAppResources stages appResourcesRootDir (= the synced native bridge library) into the
+    // packaged desktop app, so it must run after the bridge is synced; desktopJar/package depend on
+    // the same output. Without the prepareAppResources wiring Gradle fails strict input/output
+    // validation with an "implicit dependency" error.
+    if (name == "desktopJar" || name == "packageDistributionForCurrentOS" || name == "prepareAppResources") {
+        dependsOn(syncDesktopFilamentBridgeResources)
+    }
+
     if (name == "mergeAndroidDeviceTestAssets") {
         dependsOn("copyAndroidMainComposeResourcesToAndroidAssets")
         val srcDir = project.layout.buildDirectory.dir("generated/compose/resourceGenerator/androidAssets/copyAndroidMainComposeResourcesToAndroidAssets")

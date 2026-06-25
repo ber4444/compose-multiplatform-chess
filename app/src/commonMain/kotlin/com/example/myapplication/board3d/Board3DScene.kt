@@ -21,11 +21,11 @@ data class Board3DScene(
 )
 
 /**
- * Compact wire form for the three.js backend (web/iOS): each piece as
- * `kindOrdinal,colorOrdinal,x,y,z,rotationYDegrees`, pieces joined by `;`. The JS `chess3d.setScene`
- * reconciles a fixed node pool against this list every frame. Contains only digits, `.`, `-`, `,`
- * and `;`, so it's safe to drop straight into a single-quoted `evaluateJavaScript` string (iOS) or a
- * `@JsFun` string arg (wasm). Built with one StringBuilder since it's serialised per animation frame.
+ * Compact wire form for Filament-backed renderers: each piece as
+ * `kindOrdinal,colorOrdinal,x,y,z,rotationYDegrees`, pieces joined by `;`. Native and JS peers
+ * reconcile a fixed instance pool against this list every frame. Contains only digits, `.`, `-`,
+ * `,`, and `;`, so it's safe for JS interop and native bridge string calls. Built with one
+ * StringBuilder since it's serialised per animation frame.
  */
 fun Board3DScene.encode(): String {
     val sb = StringBuilder()
