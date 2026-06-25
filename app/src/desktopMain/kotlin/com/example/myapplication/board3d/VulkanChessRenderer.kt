@@ -2295,14 +2295,17 @@ layout(set = 0, binding = 0) uniform sampler2D sceneHdr;
 layout(set = 0, binding = 1) uniform sampler2D bloomTex;
 layout(push_constant) uniform PC { vec4 p; } pc;
 layout(location = 0) out vec4 outColor;
-vec3 Uncharted2Tonemap(vec3 x) {
-    float A=0.15, B=0.50, C=0.10, D=0.20, E=0.02, F=0.30;
-    return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
+vec3 ACESFilm(vec3 x) {
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
 }
 void main() {
     vec3 hdr = texture(sceneHdr, inUV).rgb + texture(bloomTex, inUV).rgb * pc.p.x;
-    vec3 col = Uncharted2Tonemap(clamp(hdr * pc.p.y, 0.0, 256.0));
-    col *= 1.0 / Uncharted2Tonemap(vec3(11.2));
+    vec3 col = ACESFilm(hdr * pc.p.y);
     col = pow(col, vec3(1.0 / pc.p.z));
     outColor = vec4(col, 1.0);
 }

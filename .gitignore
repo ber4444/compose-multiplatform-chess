@@ -23,3 +23,7 @@ app/app/
 iosApp/iosApp/Filament/filament/
 iosApp/iosApp/Resources/papermill_ibl.ktx
 iosApp/iosApp/Resources/papermill_skybox.ktx
+
+# Filament cmgen/CLI tools downloaded to bake/blur the KTX environment maps (binaries, not source)
+/filament/
+iosApp/iosApp/Resources/papermill_skybox_blurred.ktx
