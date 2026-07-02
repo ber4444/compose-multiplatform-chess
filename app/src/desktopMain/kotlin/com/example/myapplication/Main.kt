@@ -7,6 +7,8 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.persistence.AppSettings
+import com.example.myapplication.persistence.CurrentGameStore
+import com.example.myapplication.persistence.CurrentGameStoreSupport
 import com.example.myapplication.persistence.createSettings
 import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CoroutineScope
@@ -15,9 +17,19 @@ import kotlinx.coroutines.launch
 import com.example.myapplication.board3d.desktopBoard3DSupport
 
 fun main() = application {
-    val viewModel = remember { GameViewModel() }
+    // One Settings backing store shared by AppSettings and the autosave store (Phase 2). `remember`
+    // so a recomposition doesn't re-read disk mid-session.
+    val settings = remember { createSettings("chess") }
+    // Autosave + resume-later: load any saved game before constructing the VM so it seeds from it.
+    val currentGameStore = remember { CurrentGameStore(settings) }
+    val restoredState = remember { CurrentGameStoreSupport.loadInitialState(currentGameStore) }
+    DisposableEffect(Unit) {
+        if (restoredState.shouldClear) currentGameStore.clear()
+        onDispose { }
+    }
+    val viewModel = remember { GameViewModel(restoredState.state, currentGameStore) }
     val board3D = remember { desktopBoard3DSupport() }
-    val appSettings = remember { AppSettings(createSettings("chess")) }
+    val appSettings = remember { AppSettings(settings) }
 
     DisposableEffect(Unit) {
         val engine = DesktopStockfishEngine()
