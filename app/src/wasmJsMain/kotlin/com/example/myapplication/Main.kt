@@ -7,6 +7,8 @@ import androidx.compose.ui.window.ComposeViewport
 import kotlinx.browser.document
 import androidx.compose.ui.ExperimentalComposeUiApi
 import com.example.myapplication.persistence.AppSettings
+import com.example.myapplication.persistence.CurrentGameStore
+import com.example.myapplication.persistence.CurrentGameStoreSupport
 import com.example.myapplication.persistence.createSettings
 import co.touchlab.kermit.Logger
 
@@ -14,8 +16,16 @@ import co.touchlab.kermit.Logger
 fun main() {
     document.title = "Chess"
     ComposeViewport("ComposeTarget") {
-        val viewModel = remember { GameViewModel() }
-        val appSettings = remember { AppSettings(createSettings("chess")) }
+        // One Settings backing store shared by AppSettings and the autosave store (Phase 2).
+        val settings = remember { createSettings("chess") }
+        val currentGameStore = remember { CurrentGameStore(settings) }
+        val restoredState = remember { CurrentGameStoreSupport.loadInitialState(currentGameStore) }
+        DisposableEffect(Unit) {
+            if (restoredState.shouldClear) currentGameStore.clear()
+            onDispose { }
+        }
+        val viewModel = remember { GameViewModel(restoredState.state, currentGameStore) }
+        val appSettings = remember { AppSettings(settings) }
         LaunchedEffect(Unit) {
             val engine = WasmStockfishEngine()
             if (engine.start()) {

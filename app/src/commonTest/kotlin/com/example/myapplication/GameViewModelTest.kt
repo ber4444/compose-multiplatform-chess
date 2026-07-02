@@ -3,6 +3,7 @@ package com.example.myapplication
 import kotlin.test.assertTrue
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 class GameViewModelTest {
     private val viewModel = GameViewModel()
@@ -338,5 +339,73 @@ class GameViewModelTest {
 
         viewModel.resetGame()
         assertTrue(viewModel.gameState.value.moveHistory.isEmpty())
+    }
+
+    // --- Phase 2: autosave + resume-later ---
+
+    @Test
+    fun `playing a move triggers an autosave`() = kotlinx.coroutines.test.runTest {
+        val backing = com.example.myapplication.persistence.MapSettings()
+        val store = com.example.myapplication.persistence.CurrentGameStore(backing)
+        val viewModel = GameViewModel(currentGameStore = store)
+
+        viewModel.moveCPU(Set.WHITE) { _, _, _, _ ->
+            SelectedMove(Pair(4, 4), viewModel.gameState.value.positionsWhite.indexOf(Pair(6, 4)))
+        }
+
+        // The autosave key is populated and decodes to a snapshot with the expected move count.
+        assertTrue(backing.hasKey(com.example.myapplication.persistence.CurrentGameStore.KEY))
+        val snapshot = store.load()
+        assertEquals(1, snapshot?.moveHistory?.size)
+        assertEquals(viewModel.gameState.value.turn, snapshot!!.fen.split(" ").elementAt(1).let {
+            if (it == "w") Set.WHITE else Set.BLACK
+        })
+    }
+
+    @Test
+    fun `resetGame clears the autosave`() = kotlinx.coroutines.test.runTest {
+        val backing = com.example.myapplication.persistence.MapSettings()
+        val store = com.example.myapplication.persistence.CurrentGameStore(backing)
+        val viewModel = GameViewModel(currentGameStore = store)
+
+        viewModel.moveCPU(Set.WHITE) { _, _, _, _ ->
+            SelectedMove(Pair(4, 4), viewModel.gameState.value.positionsWhite.indexOf(Pair(6, 4)))
+        }
+        assertTrue(backing.hasKey(com.example.myapplication.persistence.CurrentGameStore.KEY))
+
+        viewModel.resetGame()
+        assertFalse(backing.hasKey(com.example.myapplication.persistence.CurrentGameStore.KEY))
+    }
+
+    @Test
+    fun `a VM constructed from a restored snapshot reproduces the same gameState`() = kotlinx.coroutines.test.runTest {
+        // Play two moves on VM A, autosave fires after each.
+        val backing = com.example.myapplication.persistence.MapSettings()
+        val storeA = com.example.myapplication.persistence.CurrentGameStore(backing)
+        val vmA = GameViewModel(currentGameStore = storeA)
+        vmA.moveCPU(Set.WHITE) { _, _, _, _ ->
+            SelectedMove(Pair(4, 4), vmA.gameState.value.positionsWhite.indexOf(Pair(6, 4)))
+        }
+        vmA.moveCPU(Set.BLACK) { _, _, _, _ ->
+            SelectedMove(Pair(3, 4), vmA.gameState.value.positionsBlack.indexOf(Pair(1, 4)))
+        }
+
+        // Simulate process death: load the snapshot, build a fresh VM from it.
+        val snapshot = storeA.load()!!
+        val restored = com.example.myapplication.persistence.GameSnapshotMapper.toState(snapshot)
+        val vmB = GameViewModel(restored)
+
+        // Board + move list reproduce. Compare via FEN (lossless board) + SAN list — GameUiState's
+        // auto-generated equals is identity-based on Piece instances, so it can't see that two
+        // independently-built Rook(WHITE) instances are "the same".
+        assertEquals(
+            FenConverter.gameStateToFen(vmA.gameState.value),
+            FenConverter.gameStateToFen(vmB.gameState.value),
+        )
+        assertEquals(
+            vmA.gameState.value.moveHistory.map { it.san },
+            vmB.gameState.value.moveHistory.map { it.san },
+        )
+        assertEquals(vmA.gameState.value.turn, vmB.gameState.value.turn)
     }
 }

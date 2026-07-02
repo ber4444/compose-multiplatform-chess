@@ -1,6 +1,8 @@
 package com.example.myapplication
 
 import co.touchlab.kermit.Logger
+import com.example.myapplication.persistence.CurrentGameStore
+import com.example.myapplication.persistence.GameSnapshotMapper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -11,7 +13,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 class GameViewModel(
-    gameState: GameUiState = GameUiState()
+    gameState: GameUiState = GameUiState(),
+    private val currentGameStore: CurrentGameStore? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -40,6 +43,21 @@ class GameViewModel(
     fun attachEngine(engine: ChessEngine?) {
         chessEngine?.close()
         chessEngine = engine
+        // Resume-later: if the game was restored from autosave and it's Black's move, nudge the
+        // turn-driven engine flow (mirrors `animationEnd()`'s Black branch). Skipped when there's
+        // no engine (CPU fallback resumes lazily via `moveCPU`) or the game is already over.
+        maybeResumeBlack()
+    }
+
+    private fun maybeResumeBlack() {
+        if (chessEngine == null) return
+        if (_gameState.value.turn != Set.BLACK) return
+        if (_gameState.value.winState != WinState.NONE) return
+        if (_animState.value.pieceToAnimate != null) return  // don't race an in-flight animation
+        gameMoves?.cancel()
+        gameMoves = scope.launch {
+            if (!tryBlackDrawOffer()) moveBlackWithEngine()
+        }
     }
 
     fun close() {
@@ -124,6 +142,7 @@ class GameViewModel(
                 allyPositions = gameState.value.positionsWhite,
                 allyPieces = _gameState.value.piecesWhite
             )
+            autosave()
 
             val rookMove = castlingRookMove(movingPiece, preMovePosition, newPosition)
 
@@ -148,6 +167,7 @@ class GameViewModel(
             allyPositions = _gameState.value.positionsWhite, allyPieces = _gameState.value.piecesWhite,
             promotion = promotion
         )
+        autosave()
         _animState.value = PieceAnimationState(
             pieceToAnimate = pawn, animatePositionStart = pending.from, animatePositionEnd = pending.to
         )
@@ -201,6 +221,7 @@ class GameViewModel(
                 winState = WinState.DRAW,
                 drawOffer = null
             )
+            autosave()  // terminal: persist the agreed draw so resume shows it (or clears on reload)
         } else {
             _gameState.value = _gameState.value.copy(
                 drawOffer = null,
@@ -228,6 +249,7 @@ class GameViewModel(
         val state = _gameState.value
         if (state.drawOffer == Set.BLACK && state.winState == WinState.NONE) {
             _gameState.value = state.copy(drawOffer = null, winState = WinState.DRAW)
+            autosave()  // terminal draw: persist so resume reflects it
         }
     }
 
@@ -253,6 +275,24 @@ class GameViewModel(
         _gameState.value = GameUiState()
         _viewState.value = ViewState()
         _animState.value = PieceAnimationState()
+        // The fresh empty game replaces the autosaved one; drop the stale snapshot so a relaunch
+        // doesn't restore into a board the user already abandoned.
+        currentGameStore?.clear()
+    }
+
+    /**
+     * Writes the current game to [currentGameStore] (if configured). Called explicitly at move /
+     * draw-resolution boundaries — **not** on transient `selectedSquare` updates — so the autosave
+     * reflects positions a user would actually want to resume from. Gated on a non-empty board so
+     * the very first save of a brand-new game (before any move) is skipped.
+     */
+    private fun autosave() {
+        val store = currentGameStore ?: return
+        val state = _gameState.value
+        if (state.positionsWhite.isEmpty() && state.positionsBlack.isEmpty()) return
+        runCatching {
+            store.save(GameSnapshotMapper.fromState(state))
+        }.onFailure { logger.w(it) { "Autosave failed" } }
     }
 
     suspend fun moveCPU(
@@ -310,6 +350,7 @@ class GameViewModel(
             allyPieces = allyPieces,
             promotion = selectedMove.promotion
         )
+        autosave()
 
         val rookMove = castlingRookMove(movingPiece, preMovePosition, newPosition)
 

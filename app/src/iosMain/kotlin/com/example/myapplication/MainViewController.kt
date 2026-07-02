@@ -7,6 +7,8 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import platform.UIKit.UIViewController
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.persistence.AppSettings
+import com.example.myapplication.persistence.CurrentGameStore
+import com.example.myapplication.persistence.CurrentGameStoreSupport
 import com.example.myapplication.persistence.createSettings
 
 /**
@@ -23,8 +25,16 @@ fun MainViewController(
     engine: ChessEngine?,
     filamentFactory: com.example.myapplication.board3d.FilamentChessViewFactory,
 ): UIViewController = ComposeUIViewController {
-    val viewModel = remember { GameViewModel() }
-    val appSettings = remember { AppSettings(createSettings("chess")) }
+    // One Settings backing store shared by AppSettings and the autosave store (Phase 2).
+    val settings = remember { createSettings("chess") }
+    val currentGameStore = remember { CurrentGameStore(settings) }
+    val restoredState = remember { CurrentGameStoreSupport.loadInitialState(currentGameStore) }
+    DisposableEffect(Unit) {
+        if (restoredState.shouldClear) currentGameStore.clear()
+        onDispose { }
+    }
+    val viewModel = remember { GameViewModel(restoredState.state, currentGameStore) }
+    val appSettings = remember { AppSettings(settings) }
     DisposableEffect(Unit) {
         viewModel.attachEngine(engine)
         if (platform.posix.getenv("CHESS_START_3D") != null) viewModel.setShow3D(true)

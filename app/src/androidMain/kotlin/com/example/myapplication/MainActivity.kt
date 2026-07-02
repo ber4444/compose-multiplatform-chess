@@ -9,6 +9,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
 import com.example.myapplication.persistence.AppSettings
+import com.example.myapplication.persistence.CurrentGameStore
+import com.example.myapplication.persistence.CurrentGameStoreSupport
 import com.example.myapplication.persistence.createSettings
 import android.content.pm.ApplicationInfo
 import co.touchlab.kermit.Logger
@@ -30,7 +32,7 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(SYSTEM_BAR_SCRIM)
         )
 
-        holder.gameViewModel.attachEngine(createStockfishEngine())
+        holder.attachEngine(createStockfishEngine())
 
         val appSettings = AppSettings(createSettings("chess"))
 
@@ -65,7 +67,21 @@ class MainActivity : ComponentActivity() {
 }
 
 class AndroidGameViewModel : ViewModel() {
-    val gameViewModel = GameViewModel()
+    // Autosave + resume-later (Phase 2): the store is created once for the holder's lifetime
+    // (survives config changes) and seeded into the VM. A saved game is loaded here so the VM
+    // starts from the restored state; if the saved game was already over it's cleared and a fresh
+    // game starts instead (CurrentGameStoreSupport.loadInitialState).
+    private val currentGameStore = CurrentGameStore(createSettings("chess"))
+    private val restoredState = CurrentGameStoreSupport.loadInitialState(currentGameStore)
+    val gameViewModel = GameViewModel(restoredState.state, currentGameStore)
+
+    init {
+        if (restoredState.shouldClear) currentGameStore.clear()
+    }
+
+    fun attachEngine(engine: ChessEngine?) {
+        gameViewModel.attachEngine(engine)
+    }
 
     override fun onCleared() {
         super.onCleared()
