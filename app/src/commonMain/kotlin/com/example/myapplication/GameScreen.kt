@@ -42,6 +42,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -132,7 +133,9 @@ fun GameScreen(
     windowSize: WindowWidthSizeClass,
     viewModel: GameViewModel,
     board3D: Board3DSupport? = null,
-    switchTopPadding: Dp = 8.dp
+    switchTopPadding: Dp = 8.dp,
+    onOpenHistory: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
 ) {
     val gameState by viewModel.gameState.collectAsState()
     val animState by viewModel.animState.collectAsState()
@@ -333,17 +336,40 @@ fun GameScreen(
             }
         }
 
-        if (board3D != null) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .zIndex(1f)
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
-                    .offset(y = switchTopPadding)
-                    .padding(end = 12.dp)
-                    .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .zIndex(1f)
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                .offset(y = switchTopPadding)
+                .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
+        ) {
+            // Settings + History entry points (issue #39). Always visible; the rest of this row
+            // (the 3D toggle) only shows when a 3D backend is injected.
+            TextButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.testTag("open_settings_button")
             ) {
+                Text(
+                    text = "Settings",
+                    color = THREE_D_CONTROL_ACCENT_COLOR,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+            TextButton(
+                onClick = onOpenHistory,
+                modifier = Modifier.testTag("open_history_button")
+            ) {
+                Text(
+                    text = "History",
+                    color = THREE_D_CONTROL_ACCENT_COLOR,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+            if (board3D != null) {
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = stringResource(Res.string.board_3d_toggle_label),
                     color = THREE_D_CONTROL_ACCENT_COLOR,

@@ -55,7 +55,11 @@ data class GameUiState(
     val positionHistory: List<String> = emptyList(),
     val drawOffer: Set? = null,            // side with an unresolved offer pending (Set is the WHITE/BLACK enum)
     val drawOfferDeclinedBy: Set? = null,  // drives "declined" feedback text; cleared on next move
-    val lastDrawOfferFullmove: Int = 0     // fullmoveNumber of most recent offer (0 = never); cooldown anchor
+    val lastDrawOfferFullmove: Int = 0,    // fullmoveNumber of most recent offer (0 = never); cooldown anchor
+
+    // PGN-style move log. Built ply-by-ply in [GameViewModel.deriveNewGameState]. Not reset on
+    // irreversible moves (unlike positionHistory); cleared only by `resetGame()` / `fenToGameState`.
+    val moveHistory: List<MoveRecord> = emptyList(),
 )
 
 // Current win state of the game

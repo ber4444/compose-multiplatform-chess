@@ -8,7 +8,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
-import com.example.myapplication.ui.theme.MyApplicationTheme
+import com.example.myapplication.persistence.AppSettings
+import com.example.myapplication.persistence.createSettings
 import android.content.pm.ApplicationInfo
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
@@ -31,13 +32,14 @@ class MainActivity : ComponentActivity() {
 
         holder.gameViewModel.attachEngine(createStockfishEngine())
 
+        val appSettings = AppSettings(createSettings("chess"))
+
         setContent {
-            MyApplicationTheme {
-                ChessApp(
-                    viewModel = holder.gameViewModel,
-                    board3D = androidx.compose.runtime.remember { com.example.myapplication.board3d.androidBoard3DSupport() }
-                )
-            }
+            AppRoot(
+                viewModel = holder.gameViewModel,
+                settings = appSettings,
+                board3D = androidx.compose.runtime.remember { com.example.myapplication.board3d.androidBoard3DSupport() }
+            )
         }
     }
 

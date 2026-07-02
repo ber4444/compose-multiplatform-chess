@@ -17,7 +17,9 @@ fun ChessApp(
     viewModel: GameViewModel,
     modifier: Modifier = Modifier,
     board3D: Board3DSupport? = null,
-    switchTopPadding: Dp = 8.dp
+    switchTopPadding: Dp = 8.dp,
+    onOpenHistory: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
 ) {
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -33,7 +35,9 @@ fun ChessApp(
                 windowSize = windowSize,
                 viewModel = viewModel,
                 board3D = board3D,
-                switchTopPadding = switchTopPadding
+                switchTopPadding = switchTopPadding,
+                onOpenHistory = onOpenHistory,
+                onOpenSettings = onOpenSettings,
             )
         }
     }

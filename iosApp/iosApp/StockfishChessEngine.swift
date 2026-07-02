@@ -154,24 +154,31 @@ final class StockfishChessEngine: NSObject, ChessEngine {
     }
 
     func evaluate(fen: String, completionHandler: @escaping (KotlinInt?, Error?) -> Void) {
-        guard SharedStockfishCore.shared.runSearch(
-            fen: fen,
-            go: .go(movetime: sharedEvalMoveTimeMs),
-            timeout: sharedEvalResponseTimeout,
-            checkClosed: {
-                self.localQueue.sync { self.isClosed }
-            }
-        ) != nil else {
-            completionHandler(nil, nil)
-            return
+        let checkClosed = { [weak self] in self?.localQueue.sync { self?.isClosed ?? true } ?? true }
+
+        // Like getBestMove, a search on a cold/contended CI pipeline can have its bestmove
+        // response missed, so runSearch times out and returns nil (leaving lastRawScoreCp nil).
+        // Retry once: the second attempt runs against a warmed-up pipeline and reliably scores.
+        func attempt() -> KotlinInt? {
+            guard SharedStockfishCore.shared.runSearch(
+                fen: fen,
+                go: .go(movetime: sharedEvalMoveTimeMs),
+                timeout: sharedEvalResponseTimeout,
+                checkClosed: checkClosed
+            ) != nil else { return nil }
+            guard let raw = SharedStockfishCore.shared.stateQueue.sync(execute: {
+                SharedStockfishCore.shared.lastRawScoreCp
+            }) else { return nil }
+            let whiteToMove = UciEvaluation.shared.isWhiteToMove(fen: fen)
+            let cp = UciEvaluation.shared.toWhitePerspective(scoreCp: raw, whiteToMove: whiteToMove)
+            return KotlinInt(int: cp)
         }
-        guard let raw = SharedStockfishCore.shared.stateQueue.sync(execute: { SharedStockfishCore.shared.lastRawScoreCp }) else {
-            completionHandler(nil, nil)
-            return
+
+        var result = attempt()
+        if result == nil && !checkClosed() {
+            result = attempt()
         }
-        let whiteToMove = UciEvaluation.shared.isWhiteToMove(fen: fen)
-        let cp = UciEvaluation.shared.toWhitePerspective(scoreCp: raw, whiteToMove: whiteToMove)
-        completionHandler(KotlinInt(int: cp), nil)
+        completionHandler(result, nil)
     }
 
     func close() {
