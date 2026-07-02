@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.example.myapplication.persistence.GameActions
 import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.share.PgnSharer
 import com.russhwolf.settings.SharedPreferencesSettings
@@ -16,11 +17,13 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Phase 3 instrumented test: the end-to-end Save-game → History flow on the real Android
- * `SharedPreferences` backend. Forces a finished game (WinState.WHITE, no engine — deterministic),
- * taps "Save game", navigates to History, asserts one row with the right result, then Delete and
- * asserts empty. `PgnSharer` is a no-op fake so the Share button is present/clickable without
- * launching a real chooser.
+ * Phase 3 instrumented tests for the Save-game → History flow on the real Android
+ * `SharedPreferences` backend. `PgnSharer` is a no-op fake so the Share button is present/clickable
+ * without launching a real chooser.
+ *
+ * Split into two tests because a Compose `createComposeRule` binds one `setContent` to its host
+ * Activity for the test's lifetime — calling `setContent` twice ("Activity has already set content")
+ * is illegal. Each test renders exactly one screen.
  */
 @RunWith(AndroidJUnit4::class)
 class SaveGameHistoryTest {
@@ -37,11 +40,10 @@ class SaveGameHistoryTest {
     }
 
     @Test
-    fun saveGameAppearsInHistoryAndCanBeDeleted() {
+    fun tappingSaveGameButtonAddsTheFinishedGameToTheRepository() {
         val repo = newRepo()
         val viewModel = GameViewModel(GameUiState(winState = WinState.WHITE))
 
-        // Render the game screen with the game-over popup, the history repo, and the fake sharer.
         composeTestRule.setContent {
             GameScreen(
                 windowSize = WindowWidthSizeClass.Medium,
@@ -54,11 +56,20 @@ class SaveGameHistoryTest {
         // The game-over popup is showing. Tap "Save game".
         composeTestRule.onNodeWithTag("save_game_button").performClick()
         composeTestRule.waitForIdle()
+
         // One saved game with the right result.
         assertEquals(1, repo.games.value.size)
         assertEquals("1-0", repo.games.value.first().result)
+    }
 
-        // Open the History screen directly (bypassing AppRoot nav for test isolation).
+    @Test
+    fun savedGameAppearsInHistoryAndCanBeDeleted() {
+        val repo = newRepo()
+        // Seed the repo directly (no GameScreen) so this test has its own single setContent.
+        val finished = GameUiState(winState = WinState.WHITE)
+        val saved = GameActions.toSavedGame(finished, engineAttached = true, savedAtEpochMillis = 1_700_000_000_000L)
+        repo.add(saved)
+
         composeTestRule.setContent {
             GameHistoryScreen(gameHistory = repo, pgnSharer = fakeSharer, onBack = {})
         }
@@ -68,7 +79,7 @@ class SaveGameHistoryTest {
         composeTestRule.onNodeWithText("Result: 1-0", substring = true).assertIsDisplayed()
 
         // Delete it.
-        composeTestRule.onNodeWithTag("history_delete_${repo.games.value.first().id}").performClick()
+        composeTestRule.onNodeWithTag("history_delete_${saved.id}").performClick()
         composeTestRule.waitForIdle()
         assertEquals(0, repo.games.value.size)
 
