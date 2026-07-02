@@ -9,7 +9,9 @@ import androidx.compose.ui.unit.dp
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.CurrentGameStore
 import com.example.myapplication.persistence.CurrentGameStoreSupport
+import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.persistence.createSettings
+import com.example.myapplication.share.iosPgnSharer
 
 /**
  * iOS entry point. The engine is created and started on the Swift side
@@ -35,6 +37,8 @@ fun MainViewController(
     }
     val viewModel = remember { GameViewModel(restoredState.state, currentGameStore) }
     val appSettings = remember { AppSettings(settings) }
+    val gameHistory = remember { GameHistoryRepository(settings) }
+    val pgnSharer = remember { iosPgnSharer() }
     DisposableEffect(Unit) {
         viewModel.attachEngine(engine)
         if (platform.posix.getenv("CHESS_START_3D") != null) viewModel.setShow3D(true)
@@ -44,6 +48,8 @@ fun MainViewController(
         viewModel = viewModel,
         settings = appSettings,
         board3D = remember { com.example.myapplication.board3d.iosBoard3DSupport(filamentFactory) },
+        gameHistory = gameHistory,
+        pgnSharer = pgnSharer,
         switchTopPadding = (-16).dp
     )
 }

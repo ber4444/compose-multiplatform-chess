@@ -11,12 +11,16 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 import com.example.myapplication.board3d.Board3DSupport
+import com.example.myapplication.persistence.GameHistoryRepository
+import com.example.myapplication.share.PgnSharer
 
 @Composable
 fun ChessApp(
     viewModel: GameViewModel,
     modifier: Modifier = Modifier,
     board3D: Board3DSupport? = null,
+    gameHistory: GameHistoryRepository? = null,
+    pgnSharer: PgnSharer? = null,
     switchTopPadding: Dp = 8.dp,
     onOpenHistory: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
@@ -35,6 +39,8 @@ fun ChessApp(
                 windowSize = windowSize,
                 viewModel = viewModel,
                 board3D = board3D,
+                gameHistory = gameHistory,
+                pgnSharer = pgnSharer,
                 switchTopPadding = switchTopPadding,
                 onOpenHistory = onOpenHistory,
                 onOpenSettings = onOpenSettings,

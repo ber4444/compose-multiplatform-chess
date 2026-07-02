@@ -36,6 +36,10 @@ class GameViewModel(
     private var gameMoves: Job? = null
     private var chessEngine: ChessEngine? = null
 
+    /** `true` when a real engine (Stockfish) drives Black; `false` = built-in CPU fallback.
+     *  Used for PGN player naming (issue #39 Phase 3: Black = "Stockfish" vs "CPU"). */
+    val engineAttached: Boolean get() = chessEngine != null
+
     companion object {
         private val logger = Logger.withTag("GameViewModel")
     }

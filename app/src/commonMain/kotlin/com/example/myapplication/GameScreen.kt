@@ -4,6 +4,9 @@ import com.example.myapplication.board3d.Board3D
 import com.example.myapplication.board3d.Board3DSupport
 import com.example.myapplication.board3d.BoardSquare
 import com.example.myapplication.board3d.Board3DSessionState
+import com.example.myapplication.persistence.GameActions
+import com.example.myapplication.persistence.GameHistoryRepository
+import com.example.myapplication.share.PgnSharer
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -133,6 +136,8 @@ fun GameScreen(
     windowSize: WindowWidthSizeClass,
     viewModel: GameViewModel,
     board3D: Board3DSupport? = null,
+    gameHistory: GameHistoryRepository? = null,
+    pgnSharer: PgnSharer? = null,
     switchTopPadding: Dp = 8.dp,
     onOpenHistory: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
@@ -149,6 +154,11 @@ fun GameScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (gameState.winState != WinState.NONE && !viewState.hideWindow) {
+            // `gameSaved` guards against double-saves of the same finished game (tapping "Save game"
+            // twice). Reset whenever a new game-over is shown (winState transitions back to NONE
+            // between games, or hideWindow flips). Keyed on the result token so a genuinely new
+            // finished game can be saved even if the previous popup wasn't dismissed.
+            var gameSaved by remember(gameState.winState, gameState.fullmoveNumber) { mutableStateOf(false) }
             val resetGame = { reset: Boolean ->
                 if (reset) {
                     viewModel.resetGame()
@@ -188,6 +198,43 @@ fun GameScreen(
                         onClick = { resetGame(false) }
                     ) {
                         Text(stringResource(Res.string.cancel_button))
+                    }
+                }
+
+                // Save / Share PGN (issue #39 Phase 3). Save writes to GameHistory; Share routes
+                // through the platform PgnSharer. Both hidden when there's no gameHistory (Save) /
+                // no pgnSharer (Share) — mirroring the board3D-null gating.
+                if (gameHistory != null || pgnSharer != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (gameHistory != null) {
+                            Button(
+                                modifier = Modifier
+                                    .padding(5.dp)
+                                    .testTag("save_game_button"),
+                                enabled = !gameSaved,
+                                onClick = {
+                                    val saved = GameActions.toSavedGame(gameState, viewModel.engineAttached)
+                                    gameHistory.add(saved)
+                                    gameSaved = true
+                                }
+                            ) {
+                                Text(if (gameSaved) "Saved" else "Save game")
+                            }
+                        }
+                        if (pgnSharer != null) {
+                            Button(
+                                modifier = Modifier
+                                    .padding(5.dp)
+                                    .testTag("share_pgn_button"),
+                                onClick = {
+                                    val pgn = GameActions.toPgn(gameState, viewModel.engineAttached)
+                                    pgnSharer.share(pgn, "game-${PgnSerializer.resultToken(gameState.winState)}.pgn")
+                                }
+                            ) {
+                                Text("Share PGN")
+                            }
+                        }
                     }
                 }
             }
@@ -739,20 +786,18 @@ fun AnimatedChessPiece(
 
 @Composable
 fun PopupWindow(onDismiss: (Boolean) -> Unit, content: @Composable () -> Unit) {
-    val height = 200.dp
     val cornerRoundness = 25.dp
     val contentPadding = 15.dp
 
     Dialog(onDismissRequest = { onDismiss(false) }) {
         Card(
-            modifier = Modifier.fillMaxWidth().height(height),
+            modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(cornerRoundness),
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
                     .padding(contentPadding)
-                    .wrapContentHeight(),
+                    .wrapContentHeight(Alignment.CenterVertically),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 content()
