@@ -13,16 +13,17 @@ for the full "game lifecycle" story, in three parts:
    PGN, "Save game" / "Share PGN" actions on game end, and a Game History screen backed by local
    storage.
 2. **Resume-later + autosave** — persist the current game on every move; reload on app startup.
-3. **Persist settings** — time control, theme, engine difficulty, in a shared settings abstraction
-   in `commonMain` with platform behaviour shared across Android, desktop, web, iOS, macOS.
+3. **Persist engine-difficulty setting** — in a shared settings abstraction in `commonMain` with
+   platform behaviour shared across Android, desktop, web, iOS, macOS.
 
-### Two decisions already made by the maintainer (do not re-litigate)
+### Decisions made by the maintainer (do not re-litigate)
 
 - **Storage backend:** use the **`multiplatform-settings` (russhwolf)** library plus
   **`kotlinx-serialization`**, not a hand-rolled key-value store.
-- **Settings scope:** implement **all three features for real** — a persisted theme override, a real
-  engine-difficulty control, **and a full time-control / chess-clock subsystem** (the app currently
-  has no clock at all). Time control is therefore a net-new feature, not just a persisted field.
+- **Settings scope (revised):** implement **only the engine-difficulty setting**. A persisted theme
+  override and the full time-control / chess-clock subsystem were **removed from scope** — the theme
+  now always follows the system dark-mode setting, and there is no clock. `AppSettings` /
+  `SettingsScreen` are kept as the seam for the difficulty control (Phase 4).
 
 ### What does NOT exist yet (verified — do not assume otherwise)
 
@@ -32,12 +33,12 @@ for the full "game lifecycle" story, in three parts:
   (`FenConverter`). PGN movetext is SAN, so SAN generation must be built.
 - **No persistence / settings layer** — no `multiplatform-settings`, DataStore, okio, or
   `kotlinx-serialization` in `gradle/libs.versions.toml`.
-- **No theme toggle** — `MyApplicationTheme(darkTheme = isSystemInDarkTheme())`; wasm forces
-  `darkTheme = false`. No user override.
 - **No engine difficulty** — `ChessEngine` has no difficulty knob; all engines play full strength.
-- **No clock / time control** — no clock state, UI, or flag-fall logic.
 - **No navigation** — `ChessApp` renders exactly one screen (`GameScreen`). History/Settings screens
   need a minimal navigation host.
+
+> Theme and time-control were originally in scope; both have been **removed** (see the revised
+> "Settings scope" decision above). The historic bullets for them are omitted.
 
 ## ⚠️ The platform-glue fence (read `CLAUDE.md` first)
 
@@ -114,12 +115,17 @@ in `commonMain` state/UI code and stays well clear of the fence.
   (`androidx.compose.ui.backhandler.BackHandler`, available in CMP 1.10) inside a new shared
   `AppRoot` composable. `AppRoot` also becomes the single home for theme application, removing the
   per-entry-point `MyApplicationTheme` duplication.
+  > *(Revised: theme application in `AppRoot` now always follows the system dark-mode setting — the
+  > persisted theme override was removed. `AppRoot` still hosts `MyApplicationTheme` to avoid the
+  > per-entry-point duplication.)*
 
 ---
 
 ## Status
 
-- **Phase 0** (deps, settings infra, `AppRoot`/nav, persisted theme) — ✅ implemented in #56.
+- **Phase 0** (deps, settings infra, `AppRoot`/nav) — ✅ implemented in #56. The persisted theme
+  override that was part of Phase 0 has since been **removed** (theme follows system dark mode);
+  `AppSettings`/`SettingsScreen`/`AppRoot` are retained as the seam for engine difficulty (Phase 4).
 - **Phase 1** (move history + SAN + PGN model) — ✅ implemented in #56.
 
 The phases below are the open work as of #56. The "What does NOT exist yet" list above is
@@ -317,7 +323,8 @@ to the engine code; no rewrites or merges of the platform bridges (see the fence
 `EngineDifficulty` enum in `commonMain` (e.g. `EASY, MEDIUM, HARD, MAX`) mapping to:
 - Stockfish `setoption name Skill Level value N` (0–20; e.g. EASY=2, MEDIUM=8, HARD=15, MAX=20), and
 - a per-move think budget (`movetime` ms) used by the "go" command (EASY shorter, MAX longer).
-Persist via `AppSettings` (`KEY_DIFFICULTY`), same pattern as theme. Add a control to `SettingsScreen`.
+Persist via `AppSettings` (`KEY_DIFFICULTY`), same pattern the (now-removed) theme setting used:
+a `MutableStateFlow` seeded from `Settings` + a write-through setter. Add a control to `SettingsScreen`.
 
 ### 4.2 Additive `ChessEngine` API
 
@@ -358,93 +365,13 @@ Apply once on attach and on each change.
 
 ---
 
-## Phase 5 — Time control / chess-clock subsystem
+## Phase 5 — Time control / chess-clock subsystem  ~~(REMOVED FROM SCOPE)~~
 
-Goal: a real clock. Presets + unlimited; per-side countdown that runs on the side to move; flag-fall
-ends the game; the choice is persisted and in-progress times survive resume. Depends on Phase 0
-(settings) and Phase 2 (snapshot for resume). Largest phase — build it last.
-
-### 5.1 Model + setting
-
-`commonMain/.../TimeControl.kt`:
-```kotlin
-@kotlinx.serialization.Serializable
-data class TimeControl(val baseMillis: Long, val incrementMillis: Long) {
-    val isUnlimited get() = baseMillis <= 0
-    companion object {
-        val UNLIMITED = TimeControl(0, 0)
-        val BLITZ_5_0 = TimeControl(5*60_000, 0)
-        val BLITZ_3_2 = TimeControl(3*60_000, 2_000)
-        val RAPID_10_0 = TimeControl(10*60_000, 0)
-        val presets = listOf(UNLIMITED, BLITZ_5_0, BLITZ_3_2, RAPID_10_0)
-    }
-    fun toPgnTag(): String? = if (isUnlimited) null else "${baseMillis/1000}+${incrementMillis/1000}"
-}
-```
-Persist the selected `TimeControl` in `AppSettings` (serialize via `Json`, `KEY_TIME_CONTROL`). Add a
-control to `SettingsScreen`. Changing time control takes effect on the next new game (don't mutate a
-game in progress).
-
-### 5.2 Clock state + driver (separate StateFlow)
-
-`commonMain/.../ClockState.kt`:
-```kotlin
-@kotlinx.serialization.Serializable
-data class ClockState(
-    val whiteMillis: Long,
-    val blackMillis: Long,
-    val running: Set? = null,   // which side's clock is ticking; null = paused
-    val unlimited: Boolean = false,
-)
-```
-In `GameViewModel`:
-- `private val _clockState = MutableStateFlow(...)`; `val clockState: StateFlow<ClockState>`.
-- Initialize from the selected `TimeControl` on new game / restore from snapshot on resume.
-- A ticking coroutine in VM scope (e.g. 100 ms cadence using `kotlinx.coroutines.delay` +
-  monotonic time deltas — not naïve `-=100`) that decrements the running side. **Pause** while:
-  promotion dialog open, draw-offer dialog open, game over, animation in flight (your choice — at
-  minimum pause when `winState != NONE`). Switch the running side when `turn` flips (drive off the
-  same turn transitions that already gate Black's engine move in `animationEnd`/`moveCPU`).
-- Apply increment to the side that just moved (Fischer increment) on move completion.
-- **Flag-fall:** when a running clock hits 0 → set `winState` to the *opponent* (White flags →
-  `WinState.BLACK`, and vice-versa) and stop the clock. Add an optional `winReason` (see 5.4). Insufficient-
-  material-on-flag → draw is a nicety; keep `timeout = loss` for v1 and note it.
-- Do **not** put `ClockState` in `GameUiState` (per the architecture note). The autosave snapshot
-  reads `_clockState.value` at move boundaries only.
-
-### 5.3 Clock UI
-
-Two clock readouts (mm:ss, switch to mm:ss.t under ~10s) for White (bottom) and Black (top), rendered
-in both the 2D layout (in/near `GameControls`) and the 3D overlay. Highlight the running side. Hidden
-when `unlimited`. `testTag("clock_white")`, `testTag("clock_black")`. Add a `formatClock(millis)`
-pure helper in commonMain (unit-tested).
-
-### 5.4 Win integration + PGN
-
-- Add `val winReason: WinReason? = null` to `GameUiState` (`enum WinReason { CHECKMATE, STALEMATE,
-  TIMEOUT, DRAW_AGREEMENT, DRAW_RULE, RESIGN }`), default null so nothing breaks. Set it where each
-  terminal state is produced (checkmate/stalemate in `applyWinConditions`, timeout in the clock
-  driver, draws in `applyDrawConditions`/draw-offer handlers). Use it for the game-over message ("White
-  wins on time").
-- PGN: set `PgnTags.timeControl = selectedTimeControl.toPgnTag()`; on timeout you may also emit a
-  `[Termination "Time forfeit"]` tag (optional).
-
-### 5.5 Persistence
-
-- Selected `TimeControl` persists in `AppSettings`.
-- In-progress `whiteMillis`/`blackMillis` go into `GameSnapshot` (fields already reserved in 2.1);
-  `GameSnapshotMapper` reads/writes them; restore seeds `_clockState`.
-
-### Phase 5 tests
-- `commonTest` `ClockTest` — increment applied to the mover; running side switches on turn flip; flag-
-  fall produces the correct `winState`/`winReason`; `formatClock` formatting (`5:00`, `0:09.8`, `0:00`).
-  Drive the driver with a virtual clock / `runTest` + `TestDispatcher` so it's deterministic (don't
-  sleep real time).
-- `GameSnapshotMapperTest` — clock times round-trip.
-- `AppSettingsTest` — `TimeControl` persists.
-- `androidDeviceTest` — start a short (e.g. UNLIMITED vs a tiny base) game; assert clocks render and
-  the running side highlights; optionally assert a forced timeout ends the game (may be flaky — gate
-  behind a deterministic virtual clock hook if possible, else keep manual).
+> **Removed by maintainer decision.** The full time-control / chess-clock subsystem (presets,
+> per-side countdown, flag-fall, `ClockState`, `winReason`, clock UI, persisted `TimeControl`) is no
+> longer in scope for this issue. The `clockWhiteMillis`/`clockBlackMillis` fields remain reserved on
+> `GameSnapshot` for a possible future reintroduction, and the PGN `[TimeControl]` tag in `PgnTags`
+> stays as an optional field, but no setting, state, or UI is built for it.
 
 ---
 
@@ -456,8 +383,9 @@ pure helper in commonMain (unit-tested).
     factory; the `PgnSharer` injection mirroring `Board3DSupport`).
   - Note the new `expect/actual` boundaries (`createSettings`, `PgnSharer`, `nowEpochMillis`/
     `todayPgnDate`) so future agents know they exist.
-  - Document the navigation model (`AppRoot` screen enum + multiplatform `BackHandler`) and that theme
-    is now applied in `AppRoot`, not per entry point.
+  - Document the navigation model (`AppRoot` screen enum + multiplatform `BackHandler`) and that
+    `MyApplicationTheme` is now applied in `AppRoot` (always following system dark mode), not per
+    entry point.
 - Add this plan's outcome notes if anything was rejected/changed (follow the repo's
   `docs/plans/*-result.md` convention if you want a results doc).
 - Update README/feature list if one enumerates features.
@@ -468,7 +396,7 @@ Per-iteration (fast):
 ```bash
 ./gradlew :app:desktopTest --tests "com.example.myapplication.SanConverterTest"
 ./gradlew :app:desktopTest --tests "com.example.myapplication.PgnSerializerTest"
-./gradlew :app:desktopTest --tests "*Snapshot*" --tests "*Settings*" --tests "*History*" --tests "*Clock*"
+./gradlew :app:desktopTest --tests "*Snapshot*" --tests "*Settings*" --tests "*History*"
 ./gradlew test            # all shared unit tests across targets
 ```
 Full gate (mirror CI `.github/workflows/android-tests.yml`):
@@ -484,11 +412,10 @@ xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug 
   -destination "platform=iOS Simulator,name=iPhone 17" CODE_SIGNING_ALLOWED=NO test
 ```
 Manual smoke (per platform, at least desktop + web + Android):
-- Toggle theme → persists across restart.
-- Play moves → kill & relaunch → game resumes (board, turn, move list, clocks).
+- Play moves → kill & relaunch → game resumes (board, turn, move list).
 - Finish a game → Save → History shows it → Share produces a valid PGN (paste into lichess.org
   "Import game" to validate SAN/PGN correctness).
-- Change difficulty / time control → persists; clock counts down and flags.
+- Change difficulty → persists; engine plays weaker/stronger.
 
 > **A change isn't done until every target above builds and the Android device tests + apple tests
 > pass.** Wasm is the most fragile: confirm `:app:wasmJsBrowserDistribution` builds with the new deps;
@@ -518,12 +445,12 @@ Manual smoke (per platform, at least desktop + web + Android):
 
 ## Suggested PR sequence
 
-1. ~~Phase 0 — deps + settings infra + `AppRoot`/nav + persisted theme.~~ ✅ #56
+1. ~~Phase 0 — deps + settings infra + `AppRoot`/nav.~~ ✅ #56 (persisted theme later removed)
 2. ~~Phase 1 — move history + SAN + PGN (pure logic + tests).~~ ✅ #56
 3. Phase 2 — autosave + resume.
 4. Phase 3 — history screen + save/share.
 5. Phase 4 — engine difficulty (additive engine edits).
-6. Phase 5 — time control / clocks.
+6. ~~Phase 5 — time control / clocks.~~ **Removed from scope.**
 7. Phase 6 — docs + final verification.
 
 Each PR title: `feat(lifecycle): <phase summary> (#39)`. Keep each PR independently green against the
