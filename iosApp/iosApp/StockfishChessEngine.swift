@@ -201,11 +201,11 @@ final class StockfishChessEngine: NSObject, ChessEngine {
     /// before the next `go`, and getBestMove/evaluate use the configured movetime. Additive only.
     func configure(difficulty: EngineDifficulty, completionHandler: @escaping (Error?) -> Void) {
         SharedStockfishCore.shared.stateQueue.sync {
-            SharedStockfishCore.shared.skillLevel = difficulty.skillLevel.intValue
-            SharedStockfishCore.shared.moveTimeMs = difficulty.thinkTimeMs.intValue
+            SharedStockfishCore.shared.skillLevel = Int(difficulty.skillLevel)
+            SharedStockfishCore.shared.moveTimeMs = Int(difficulty.thinkTimeMs)
             // Keep the eval movetime proportional to the play movetime (eval uses 2x the play budget
             // in the defaults), so weaker difficulty also evaluates faster.
-            SharedStockfishCore.shared.evalMoveTimeMs = max(difficulty.thinkTimeMs.intValue * 2, 200)
+            SharedStockfishCore.shared.evalMoveTimeMs = max(Int(difficulty.thinkTimeMs) * 2, 200)
         }
         completionHandler(nil)
     }
