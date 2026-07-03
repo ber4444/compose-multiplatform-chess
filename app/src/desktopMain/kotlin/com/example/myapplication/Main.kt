@@ -33,8 +33,12 @@ fun main() = application {
     val gameHistory = remember { GameHistoryRepository(settings) }
     val pgnSharer = remember { desktopPgnSharer() }
     val viewModel = remember {
-        // Seed the VM's runtime show3D from the persisted setting (3D on by default).
-        GameViewModel(restoredState.state, currentGameStore, initialShow3D = appSettings.board3DEnabled.value)
+        // Seed the VM's runtime show3D + engine difficulty from the persisted settings.
+        GameViewModel(
+            restoredState.state, currentGameStore,
+            initialShow3D = appSettings.board3DEnabled.value,
+            initialEngineDifficulty = appSettings.engineDifficulty.value,
+        )
     }
     val board3D = remember { desktopBoard3DSupport() }
 

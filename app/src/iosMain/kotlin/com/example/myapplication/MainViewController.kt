@@ -39,7 +39,11 @@ fun MainViewController(
     val gameHistory = remember { GameHistoryRepository(settings) }
     val pgnSharer = remember { iosPgnSharer() }
     val viewModel = remember {
-        GameViewModel(restoredState.state, currentGameStore, initialShow3D = appSettings.board3DEnabled.value)
+        GameViewModel(
+            restoredState.state, currentGameStore,
+            initialShow3D = appSettings.board3DEnabled.value,
+            initialEngineDifficulty = appSettings.engineDifficulty.value,
+        )
     }
     DisposableEffect(Unit) {
         viewModel.attachEngine(engine)

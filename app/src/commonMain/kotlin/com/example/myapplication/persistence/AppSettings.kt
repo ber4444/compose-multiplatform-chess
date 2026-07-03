@@ -1,5 +1,6 @@
 package com.example.myapplication.persistence
 
+import com.example.myapplication.EngineDifficulty
 import com.russhwolf.settings.Settings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -10,8 +11,8 @@ import kotlinx.coroutines.flow.StateFlow
  * platform entry point and threaded into `AppRoot`. Holds [MutableStateFlow]s seeded from settings
  * and writes through on every setter.
  *
- * Surface: 3D-board-enabled toggle. The persisted theme override was removed (theme now always
- * follows the system dark-mode setting). Engine difficulty (Phase 4) will reuse the same pattern.
+ * Surface: 3D-board-enabled toggle + engine difficulty. The persisted theme override was removed
+ * (theme now always follows the system dark-mode setting).
  */
 class AppSettings(private val settings: Settings) {
 
@@ -32,7 +33,28 @@ class AppSettings(private val settings: Settings) {
 
     private fun readBoard3DEnabled(): Boolean = settings.getBoolean(KEY_BOARD_3D, true)
 
+    /**
+     * Engine play-strength (issue #39 Phase 4). Defaults to [EngineDifficulty.MEDIUM]. Read by
+     * `SettingsScreen`'s radio group; applied to the attached engine via
+     * [com.example.myapplication.GameViewModel.attachEngine]/`setEngineDifficulty`.
+     */
+    private val _engineDifficulty: MutableStateFlow<EngineDifficulty> =
+        MutableStateFlow(readEngineDifficulty())
+    val engineDifficulty: StateFlow<EngineDifficulty> get() = _engineDifficulty
+
+    fun setEngineDifficulty(difficulty: EngineDifficulty) {
+        settings.putString(KEY_ENGINE_DIFFICULTY, difficulty.name)
+        _engineDifficulty.value = difficulty
+    }
+
+    private fun readEngineDifficulty(): EngineDifficulty =
+        settings.getStringOrNull(KEY_ENGINE_DIFFICULTY)
+            ?.let { runCatching { EngineDifficulty.valueOf(it) }.getOrNull() }
+            ?: EngineDifficulty.MEDIUM
+
     companion object {
         const val KEY_BOARD_3D = "settings.board_3d_enabled"
+        const val KEY_ENGINE_DIFFICULTY = "settings.engine_difficulty"
     }
 }
+
