@@ -90,6 +90,7 @@ fun AppRoot(
 internal fun SubScreenScaffold(
     title: String,
     onBack: () -> Unit,
+    scrollable: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     Scaffold(
@@ -104,11 +105,12 @@ internal fun SubScreenScaffold(
             )
         }
     ) { padding ->
+        val scrollState = rememberScrollState()
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState()),
+                .then(if (scrollable) Modifier.verticalScroll(scrollState) else Modifier),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.Start,
         ) { content() }

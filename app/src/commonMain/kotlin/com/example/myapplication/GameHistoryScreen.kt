@@ -51,8 +51,8 @@ fun GameHistoryScreen(
     val games by gameHistory.games.collectAsState()
     var selectedGame by remember { mutableStateOf<SavedGame?>(null) }
 
-    SubScreenScaffold(title = "Game History", onBack = onBack) {
-        val current = selectedGame
+    val current = selectedGame
+    SubScreenScaffold(title = "Game History", onBack = onBack, scrollable = current != null) {
         if (current == null) {
             GameHistoryList(
                 games = games,
