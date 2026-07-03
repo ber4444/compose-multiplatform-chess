@@ -686,16 +686,7 @@ fun applyMove(
         )
     }
 
-    // Captures/pawn moves are irreversible: earlier positions can never recur, so reset history.
-    // Otherwise lazily seed the pre-move position (covers fresh games, resetGame, and FEN-loaded
-    // states without touching the constructor — some tests build GameUiState with mismatched
-    // piece/position lists that must never reach positionKey).
-    val priorHistory = if (newHalfmoveClock == 0) emptyList()
-        else state.positionHistory.ifEmpty { listOf(FenConverter.positionKey(state)) }
-    val newState = movedState.copy(positionHistory = priorHistory + FenConverter.positionKey(movedState))
-    val winStateApplied = applyWinConditions(newState)
-    if (winStateApplied.winState != WinState.NONE) return winStateApplied
-    return applyDrawConditions(winStateApplied)
+    return movedState
 }
 
 /**

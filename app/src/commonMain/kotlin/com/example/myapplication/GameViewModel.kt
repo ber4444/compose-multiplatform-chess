@@ -337,5 +337,15 @@ class GameViewModel(
         allyPositions: List<Pair<Int, Int>>,
         allyPieces: List<Piece>,
         promotion: PromotionType? = null
-    ): GameUiState = applyMove(_gameState.value, pieceIndex, newPosition, promotion)
+    ): GameUiState {
+        val state = _gameState.value
+        val movedState = applyMove(state, pieceIndex, newPosition, promotion)
+        
+        val priorHistory = if (movedState.halfmoveClock == 0) emptyList()
+            else state.positionHistory.ifEmpty { listOf(FenConverter.positionKey(state)) }
+        val newState = movedState.copy(positionHistory = priorHistory + FenConverter.positionKey(movedState))
+        val winStateApplied = applyWinConditions(newState)
+        if (winStateApplied.winState != WinState.NONE) return winStateApplied
+        return applyDrawConditions(winStateApplied)
+    }
 }
