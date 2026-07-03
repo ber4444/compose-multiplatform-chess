@@ -15,6 +15,7 @@ data class MoveCoachRequest(
     val evaluationBeforeCp: Int?,
     val evaluationAfterCp: Int?,
     val deterministicTags: List<String>,
+    val engineDifficultyName: String,
     val policy: AiRoutePolicy = AiRoutePolicies.moveCoachOffline,
 )
 

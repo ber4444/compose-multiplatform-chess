@@ -35,6 +35,7 @@ object MoveCoachPromptBuilder {
 
     internal fun userPrompt(request: MoveCoachRequest): String = buildString {
         appendLine("Move: ${describeMove(request)}")
+        appendLine("Engine Difficulty: ${request.engineDifficultyName}")
         appendLine("Key points: ${describeTags(request.deterministicTags)}")
         if (request.evaluationBeforeCp != null || request.evaluationAfterCp != null) {
             appendLine("Evaluation: ${request.evaluationBeforeCp ?: "?"} → ${request.evaluationAfterCp ?: "?"} cp")

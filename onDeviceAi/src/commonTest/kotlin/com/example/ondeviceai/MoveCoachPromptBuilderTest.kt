@@ -15,6 +15,7 @@ class MoveCoachPromptBuilderTest {
         evaluationBeforeCp = 20,
         evaluationAfterCp = 30,
         deterministicTags = listOf("develops", "center-control"),
+        engineDifficultyName = "Medium",
     )
 
     @Test

@@ -47,6 +47,7 @@ fun SettingsScreen(
         ?: error("SettingsScreen requires AppSettings. Render it under AppRoot.")
     val board3DEnabled by settings.board3DEnabled.collectAsState()
     val engineDifficulty by settings.engineDifficulty.collectAsState()
+    val aiCoachEnabled by settings.aiCoachEnabled.collectAsState()
 
     SubScreenScaffold(title = "Settings", onBack = onBack, showBackButton = false) {
         Text(
@@ -64,6 +65,21 @@ fun SettingsScreen(
                     testTag = "settings_difficulty_${level.name}",
                 )
             }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 16.dp, bottom = 4.dp)
+                .testTag("settings_ai_coach"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Switch(
+                checked = aiCoachEnabled,
+                onCheckedChange = settings::setAiCoachEnabled,
+            )
+            Text("Enable AI Move Coach")
         }
 
         if (board3D != null) {

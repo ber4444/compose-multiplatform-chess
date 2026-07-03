@@ -154,7 +154,9 @@ class AndroidGameViewModel : ViewModel() {
         restoredState.state, currentGameStore,
         initialShow3D = appSettings.board3DEnabled.value,
         initialEngineDifficulty = appSettings.engineDifficulty.value,
-    )
+    ).apply {
+        aiCoachEnabled = appSettings.aiCoachEnabled.value
+    }
 
     // Phase 3: saved-games history lives on the same Settings backing store, owned by the holder so
     // it survives config changes (and is observed by the History screen across recompositions).

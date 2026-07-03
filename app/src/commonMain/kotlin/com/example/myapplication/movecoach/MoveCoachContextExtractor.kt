@@ -54,12 +54,13 @@ object MoveCoachContextExtractor {
         promotionType: PromotionType? = null,
         evaluationBeforeCp: Int? = null,
         evaluationAfterCp: Int? = null,
+        engineDifficultyName: String = "Medium",
     ): MoveCoachRequest {
         val movingPiece = findPieceAt(stateBefore, movingPieceSide, fromSquare)
         val bestMoveUci = UciMoveConverter.positionToUciSquare(fromSquare) +
             UciMoveConverter.positionToUciSquare(toSquare) +
             (promotionType?.uciChar?.toString() ?: "")
-        val bestMoveDisplay = displayMove(movingPiece, fromSquare, toSquare, promotionType)
+        val bestMoveDisplay = stateAfter.moveHistory.lastOrNull()?.san ?: bestMoveUci
         val fenBefore = FenConverter.gameStateToFen(stateBefore)
         val sideToMove = movingPieceSide.name.lowercase()
         val tags = deterministicTags(
@@ -80,6 +81,7 @@ object MoveCoachContextExtractor {
             evaluationBeforeCp = evaluationBeforeCp,
             evaluationAfterCp = evaluationAfterCp,
             deterministicTags = tags,
+            engineDifficultyName = engineDifficultyName,
         )
     }
 
@@ -88,35 +90,6 @@ object MoveCoachContextExtractor {
         val positions = if (side == Set.WHITE) state.positionsWhite else state.positionsBlack
         val idx = positions.indexOf(square)
         return if (idx == -1) null else pieces[idx]
-    }
-
-    private fun displayMove(
-        piece: Piece?,
-        from: Pair<Int, Int>,
-        to: Pair<Int, Int>,
-        promotion: PromotionType?,
-    ): String {
-        if (piece == null) {
-            return UciMoveConverter.positionToUciSquare(from) +
-                UciMoveConverter.positionToUciSquare(to)
-        }
-        val pieceLetter = when (piece) {
-            is King -> "K"
-            is Queen -> "Q"
-            is Rook -> "R"
-            is Pawn -> ""
-            else -> piece.name.first().uppercaseChar().toString()
-        }
-        val promo = promotion?.let {
-            "=" + when (it) {
-                PromotionType.QUEEN -> "Q"
-                PromotionType.ROOK -> "R"
-                PromotionType.BISHOP -> "B"
-                PromotionType.KNIGHT -> "N"
-            }
-        } ?: ""
-        val target = UciMoveConverter.positionToUciSquare(to)
-        return "$pieceLetter$target$promo"
     }
 
     /**

@@ -64,6 +64,9 @@ fun AppRoot(
             LaunchedEffect(Unit) {
                 settings.engineDifficulty.collect { viewModel.setEngineDifficulty(it) }
             }
+            LaunchedEffect(Unit) {
+                settings.aiCoachEnabled.collect { viewModel.aiCoachEnabled = it }
+            }
 
             when (screen) {
                 Screen.GAME -> ChessApp(

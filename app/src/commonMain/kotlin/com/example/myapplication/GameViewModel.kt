@@ -55,6 +55,7 @@ class GameViewModel(
 
     /** Current engine difficulty (issue #39 Phase 4). Applied to the engine on attach + on change. */
     private var engineDifficulty: EngineDifficulty = initialEngineDifficulty
+    var aiCoachEnabled: Boolean = true
 
     /** `true` when a real engine (Stockfish) drives Black; `false` = built-in CPU fallback.
      *  Used for PGN player naming (issue #39 Phase 3: Black = "Stockfish" vs "CPU"). */
@@ -431,6 +432,7 @@ class GameViewModel(
         // Skip if the move ended the game (checkmate/stalemate/draw).
         if (turn == Set.BLACK &&
             coachOrchestrator != null &&
+            aiCoachEnabled &&
             _gameState.value.winState == WinState.NONE
         ) {
             triggerCoach(
@@ -715,6 +717,7 @@ class GameViewModel(
             promotionType = promotionType,
             evaluationBeforeCp = null, // Wired when engine eval caching lands; coach tolerates null.
             evaluationAfterCp = null,
+            engineDifficultyName = engineDifficulty.name,
         )
 
         _coachUiState.value = MoveCoachUiState.Loading(request.bestMoveDisplay)
