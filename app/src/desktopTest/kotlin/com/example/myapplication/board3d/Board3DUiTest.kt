@@ -2,15 +2,20 @@ package com.example.myapplication.board3d
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.runComposeUiTest
 import com.example.myapplication.GameScreen
 import com.example.myapplication.GameViewModel
+import com.example.myapplication.SettingsScreen
 import com.example.myapplication.WindowWidthSizeClass
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.LocalAppSettings
 import com.example.myapplication.persistence.MapSettings
+import kotlinx.coroutines.CompletableDeferred
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -116,6 +121,62 @@ class Board3DUiTest {
     }
 
     @Test
+    fun remounting3DFromSettingsKeepsEnteringOverlayUntilRendererReady() = runComposeUiTest {
+        val firstRenderer = FakeChess3DRenderer()
+        val secondRenderer = FakeChess3DRenderer()
+        val secondRendererReady = CompletableDeferred<Chess3DBoardRenderer?>()
+        var createCount = 0
+        val support = Board3DSupport(
+            rendererFactory = {
+                createCount += 1
+                if (createCount == 1) firstRenderer else secondRendererReady.await()
+            },
+            surfaceContent = { r, modifier ->
+                androidx.compose.runtime.DisposableEffect(r) {
+                    r.attach(FakeChess3DSurface())
+                    onDispose { r.detach() }
+                }
+                Box(modifier)
+            },
+        )
+        val viewModel = GameViewModel()
+        val appSettings = AppSettings(MapSettings())
+        var showingSettings by mutableStateOf(false)
+
+        setContent {
+            CompositionLocalProvider(LocalAppSettings provides appSettings) {
+                if (showingSettings) {
+                    SettingsScreen(onBack = {}, board3D = support)
+                } else {
+                    GameScreen(WindowWidthSizeClass.Medium, viewModel, support)
+                }
+            }
+        }
+        waitForIdle()
+        assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isNotEmpty())
+
+        runOnIdle { showingSettings = true }
+        waitForIdle()
+        assertEquals(1, firstRenderer.events.count { it == "dispose" })
+
+        mainClock.autoAdvance = false
+        runOnIdle { showingSettings = false }
+        mainClock.advanceTimeByFrame()
+        mainClock.advanceTimeByFrame()
+        mainClock.advanceTimeByFrame()
+
+        assertTrue(
+            onAllNodesWithTag("board_3d_entering").fetchSemanticsNodes().isNotEmpty(),
+            "Expected the opaque 3D entering overlay to remain visible while the remounted renderer is still pending"
+        )
+
+        secondRendererReady.complete(secondRenderer)
+        mainClock.autoAdvance = true
+        waitForIdle()
+        assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isNotEmpty())
+    }
+
+    @Test
     fun test3DFallbackWhenFactoryReturnsNull() = runComposeUiTest {
         val board3DSupport = Board3DSupport(
             rendererFactory = { null }, // init fails
@@ -168,4 +229,3 @@ class Board3DUiTest {
         assertTrue(animationEvents.isNotEmpty(), "Expected at least one animated updatePosition event")
     }
 }
-
