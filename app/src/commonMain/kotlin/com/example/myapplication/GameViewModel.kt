@@ -288,10 +288,10 @@ class GameViewModel(
         }
     }
 
-    fun resetGame() {
+    fun resetGame(show3D: Boolean = viewState.value.show3D) {
         logger.i { "Game reset" }
         _gameState.value = GameUiState()
-        _viewState.value = ViewState()
+        _viewState.value = ViewState(show3D = show3D)
         _animState.value = PieceAnimationState()
         // The fresh empty game replaces the autosaved one; drop the stale snapshot so a relaunch
         // doesn't restore into a board the user already abandoned.

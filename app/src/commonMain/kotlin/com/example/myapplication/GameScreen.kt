@@ -192,7 +192,7 @@ fun GameScreen(
             var gameSaved by remember(gameState.winState, gameState.fullmoveNumber) { mutableStateOf(false) }
             val resetGame = { reset: Boolean ->
                 if (reset) {
-                    viewModel.resetGame()
+                    viewModel.resetGame(show3D = board3DEnabled)
                 } else {
                     viewModel.hideWindow()
                 }
@@ -376,6 +376,7 @@ fun GameScreen(
                 animState = animState,
                 viewState = viewState,
                 viewModel = viewModel,
+                onResetGame = { viewModel.resetGame(show3D = board3DEnabled) },
                 transparentButtons = true,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -413,7 +414,8 @@ fun GameScreen(
                         gameState = gameState,
                         animState = animState,
                         viewState = viewState,
-                        viewModel = viewModel
+                        viewModel = viewModel,
+                        onResetGame = { viewModel.resetGame(show3D = board3DEnabled) }
                     )
                 }
             }
@@ -460,6 +462,7 @@ private fun GameControls(
     animState: PieceAnimationState,
     viewState: ViewState,
     viewModel: GameViewModel,
+    onResetGame: () -> Unit,
     transparentButtons: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -477,7 +480,7 @@ private fun GameControls(
 
         Row {
             if (transparentButtons) {
-                TransparentUnderlineButton(onClick = viewModel::resetGame) {
+                TransparentUnderlineButton(onClick = onResetGame) {
                     Text(stringResource(Res.string.reset_button))
                 }
                 TransparentUnderlineButton(
@@ -486,7 +489,7 @@ private fun GameControls(
                     modifier = Modifier.testTag("offer_draw_button")
                 ) { Text(stringResource(Res.string.offer_draw_button)) }
             } else {
-                Button(onClick = viewModel::resetGame) {
+                Button(onClick = onResetGame) {
                     Text(stringResource(Res.string.reset_button))
                 }
                 Button(
