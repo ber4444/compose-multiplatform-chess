@@ -15,7 +15,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -29,12 +28,12 @@ import androidx.compose.ui.unit.dp
 import com.example.myapplication.board3d.Board3DSupport
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.LocalAppSettings
-import com.example.myapplication.persistence.ThemeMode
 import com.example.myapplication.ui.theme.MyApplicationTheme
 
 /**
  * Top-level navigation host. Owns the single source of truth for the current screen, applies the
- * theme based on [AppSettings.themeMode], and exposes [AppSettings] via [LocalAppSettings].
+ * app theme (always follows the system dark-mode setting — the persisted theme override was
+ * removed), and exposes [AppSettings] via [LocalAppSettings].
  *
  * Replaces the per-platform `MyApplicationTheme { ChessApp(...) }` duplication. New screens
  * (History, Settings) are added here as the lifecycle/persistence work lands.
@@ -49,15 +48,8 @@ fun AppRoot(
     board3D: Board3DSupport? = null,
     switchTopPadding: Dp = 8.dp,
 ) {
-    val themeMode by settings.themeMode.collectAsState()
-    val dark = when (themeMode) {
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
-    }
-
     CompositionLocalProvider(LocalAppSettings provides settings) {
-        MyApplicationTheme(darkTheme = dark) {
+        MyApplicationTheme(darkTheme = isSystemInDarkTheme()) {
             var screen by rememberSaveable { mutableStateOf(Screen.GAME) }
             BackHandler(enabled = screen != Screen.GAME) { screen = Screen.GAME }
 
