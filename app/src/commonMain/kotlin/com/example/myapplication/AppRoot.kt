@@ -15,6 +15,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -56,6 +57,13 @@ fun AppRoot(
         MyApplicationTheme(darkTheme = isSystemInDarkTheme()) {
             var screen by rememberSaveable { mutableStateOf(Screen.GAME) }
             BackHandler(enabled = screen != Screen.GAME) { screen = Screen.GAME }
+
+            // Bridge the persisted engine-difficulty setting → the VM (issue #39 Phase 4). The VM
+            // seeds its initial value at construction; this forwards subsequent changes from
+            // SettingsScreen, applying them to the attached engine via setEngineDifficulty.
+            LaunchedEffect(Unit) {
+                settings.engineDifficulty.collect { viewModel.setEngineDifficulty(it) }
+            }
 
             when (screen) {
                 Screen.GAME -> ChessApp(

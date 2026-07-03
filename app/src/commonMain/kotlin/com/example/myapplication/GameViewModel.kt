@@ -16,6 +16,7 @@ class GameViewModel(
     gameState: GameUiState = GameUiState(),
     private val currentGameStore: CurrentGameStore? = null,
     initialShow3D: Boolean = true,
+    initialEngineDifficulty: EngineDifficulty = EngineDifficulty.MEDIUM,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -39,6 +40,9 @@ class GameViewModel(
     private var gameMoves: Job? = null
     private var chessEngine: ChessEngine? = null
 
+    /** Current engine difficulty (issue #39 Phase 4). Applied to the engine on attach + on change. */
+    private var engineDifficulty: EngineDifficulty = initialEngineDifficulty
+
     /** `true` when a real engine (Stockfish) drives Black; `false` = built-in CPU fallback.
      *  Used for PGN player naming (issue #39 Phase 3: Black = "Stockfish" vs "CPU"). */
     val engineAttached: Boolean get() = chessEngine != null
@@ -50,10 +54,24 @@ class GameViewModel(
     fun attachEngine(engine: ChessEngine?) {
         chessEngine?.close()
         chessEngine = engine
+        // Apply the current difficulty to the new engine (issue #39 Phase 4). The default no-op
+        // configure() leaves the CPU fallback unaffected; real engines send the setoption.
+        applyDifficulty()
         // Resume-later: if the game was restored from autosave and it's Black's move, nudge the
         // turn-driven engine flow (mirrors `animationEnd()`'s Black branch). Skipped when there's
         // no engine (CPU fallback resumes lazily via `moveCPU`) or the game is already over.
         maybeResumeBlack()
+    }
+
+    /** Updates the engine difficulty and applies it to the attached engine (issue #39 Phase 4). */
+    fun setEngineDifficulty(difficulty: EngineDifficulty) {
+        engineDifficulty = difficulty
+        applyDifficulty()
+    }
+
+    private fun applyDifficulty() {
+        val engine = chessEngine ?: return
+        scope.launch { engine.configure(engineDifficulty) }
     }
 
     private fun maybeResumeBlack() {

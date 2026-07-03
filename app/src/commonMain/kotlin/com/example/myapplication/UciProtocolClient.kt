@@ -19,6 +19,11 @@ class UciProtocolClient(private val transport: UciTransport) {
     private val mutex = Mutex()
     private var isReady = false
 
+    // Engine difficulty (issue #39 Phase 4). `null` skillLevel = unset; movetime defaults to the
+    // classic think budget. configure() sends `setoption name Skill Level value N` + an isready sync.
+    private var skillLevel: Int? = null
+    private var thinkTimeMs: Long = DEFAULT_THINK_TIME_MS
+
     suspend fun start(timeoutMs: Long = HANDSHAKE_TIMEOUT_MS): Boolean = mutex.withLock {
         if (isReady) return true
         transport.start { line -> incoming.trySend(line) }
@@ -27,10 +32,30 @@ class UciProtocolClient(private val transport: UciTransport) {
         transport.send("isready")
         if (!awaitLinePrefix("readyok", timeoutMs)) return false
         isReady = true
+        // Apply any difficulty configured before start (so it takes effect on the first move).
+        skillLevel?.let { applySkillLevel(it) }
         true
     }
 
-    suspend fun bestMove(fen: String, thinkTimeMs: Long = DEFAULT_THINK_TIME_MS): String? = mutex.withLock {
+    /**
+     * Applies [difficulty]'s Stockfish `Skill Level` (sent as `setoption`) and stores its movetime
+     * budget for subsequent `go movetime` calls. No-op-friendly: safe to call before [start] (the
+     * option is applied once the engine is ready) or after (sent immediately). Mirrors the handshake's
+     * isready-sync so the option is committed before the next `go`.
+     */
+    suspend fun configure(difficulty: EngineDifficulty) = mutex.withLock {
+        skillLevel = difficulty.skillLevel
+        thinkTimeMs = difficulty.thinkTimeMs
+        if (isReady) applySkillLevel(difficulty.skillLevel)
+    }
+
+    private suspend fun applySkillLevel(level: Int) {
+        transport.send("setoption name Skill Level value $level")
+        transport.send("isready")
+        awaitLinePrefix("readyok", REPLY_GRACE_MS)
+    }
+
+    suspend fun bestMove(fen: String, thinkTimeMs: Long = this.thinkTimeMs): String? = mutex.withLock {
         if (!isReady) return null
         drainPending()
         transport.send("position fen $fen")

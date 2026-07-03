@@ -32,6 +32,12 @@ abstract class BaseStockfishEngine : ChessEngine {
     private var readerThread: Thread? = null
     private val lineQueue = LinkedBlockingQueue<String>()
 
+    // Engine difficulty (issue #39 Phase 4). `null` skillLevel = unset; movetime defaults to the
+    // classic think budget. configure() sends `setoption name Skill Level value N` once the engine
+    // process is up; the embedded fallback (no process) ignores skill but still honors movetime.
+    private var skillLevel: Int? = null
+    private var thinkTimeMs: Long = DEFAULT_THINK_TIME_MS
+
     @Volatile
     protected var isReady = false
 
@@ -81,6 +87,10 @@ abstract class BaseStockfishEngine : ChessEngine {
                 return false
             }
 
+            // Apply any difficulty configured before start once the engine is up but before isReady
+            // flips, so the first move uses the configured skill + movetime.
+            skillLevel?.let { sendSkillLevel(it) }
+
             sendCommand("isready")
             if (!waitForLine("readyok", timeoutMs = 5000)) {
                 logger.e { "Engine did not respond with 'readyok'" }
@@ -98,7 +108,23 @@ abstract class BaseStockfishEngine : ChessEngine {
         }
     }
 
-    override suspend fun getBestMove(fen: String): String? = withContext(Dispatchers.IO) { getBestMove(fen, DEFAULT_THINK_TIME_MS) }
+    /**
+     * Applies [difficulty]'s Stockfish `Skill Level` (sent as `setoption`) and stores its movetime
+     * budget for subsequent `go movetime` calls. Safe to call before [start] (the option is applied
+     * once the engine process is up) or after (sent immediately). The embedded fallback (no process)
+     * ignores the skill level but still honors the movetime.
+     */
+    override suspend fun configure(difficulty: EngineDifficulty) = withContext(Dispatchers.IO) {
+        skillLevel = difficulty.skillLevel
+        thinkTimeMs = difficulty.thinkTimeMs
+        if (process != null && isReady) sendSkillLevel(difficulty.skillLevel)
+    }
+
+    private fun sendSkillLevel(level: Int) {
+        sendCommand("setoption name Skill Level value $level")
+    }
+
+    override suspend fun getBestMove(fen: String): String? = withContext(Dispatchers.IO) { getBestMove(fen, thinkTimeMs) }
 
     fun getBestMove(fen: String, thinkTimeMs: Long): String? {
         if (!isReady || process == null) return getEmbeddedBestMove(fen)
