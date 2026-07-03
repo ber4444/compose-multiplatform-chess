@@ -7,6 +7,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
 import com.example.myapplication.GameScreen
 import com.example.myapplication.GameViewModel
@@ -118,6 +120,26 @@ class Board3DUiTest {
 
         // Verify renderer was attached again
         assertEquals(2, fakeRenderer.events.count { it == "attach" })
+    }
+
+    @Test
+    fun resetKeepsBoardModeFromSettingsWhen3DIsDisabled() = runComposeUiTest {
+        val fakeRenderer = FakeChess3DRenderer()
+        val viewModel = GameViewModel()
+
+        val appSettings = wrapGame(viewModel, fakeSupport(fakeRenderer))
+        waitForIdle()
+
+        appSettings.setBoard3DEnabled(false)
+        waitForIdle()
+        assertTrue(onAllNodesWithTag("chess_board").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isEmpty())
+
+        onNodeWithText("Reset").performClick()
+        waitForIdle()
+
+        assertTrue(onAllNodesWithTag("chess_board").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isEmpty())
     }
 
     @Test
