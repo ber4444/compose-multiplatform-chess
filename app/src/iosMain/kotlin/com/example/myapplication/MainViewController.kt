@@ -120,10 +120,13 @@ fun MainViewController(
         }
     }
     MyApplicationTheme {
-        ChessApp(
+        AppRoot(
             viewModel = viewModel,
-            board3D = remember { com.example.myapplication.board3d.iosBoard3DSupport() },
-            switchTopPadding = (-16).dp,
+            settings = appSettings,
+            board3D = remember { com.example.myapplication.board3d.iosBoard3DSupport(filamentFactory) },
+            gameHistory = gameHistory,
+            pgnSharer = pgnSharer,
+            switchTopPadding = (-16).dp
         )
     }
 }
@@ -146,10 +149,6 @@ private suspend fun probeFoundationModelsAvailability(): AiAvailability {
 /**
  * Map the Foundation Models availability to a user-actionable hint. The goal is
  * to tell the user the next step, not just report a generic "unavailable".
- */
-/**
- * Map the Foundation Models availability to a user-actionable hint. The goal is
- * to tell the user the next step, not just report a generic "unavailable".
  * The Foundation Models API itself returns the specific reason (e.g. iOS too old,
  * region not supported, Apple Intelligence not enabled) — we just translate it
  * into a concrete next step.
@@ -166,14 +165,4 @@ private fun availabilityToHint(availability: AiAvailability): String {
     return "Apple Intelligence isn't available ($detail). " +
         "Open Settings → Apple Intelligence & Siri to enable it on supported " +
         "iOS 26+ devices, then relaunch the app."
-=======
-    AppRoot(
-        viewModel = viewModel,
-        settings = appSettings,
-        board3D = remember { com.example.myapplication.board3d.iosBoard3DSupport(filamentFactory) },
-        gameHistory = gameHistory,
-        pgnSharer = pgnSharer,
-        switchTopPadding = (-16).dp
-    )
->>>>>>> origin/main
 }
