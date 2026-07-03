@@ -67,9 +67,8 @@ jobs:
       - name: Clean AVD state
         run: rm -rf ~/.android/avd/*
 
-      # Optional: Enable once builds are stable
-      # - name: Gradle cache
-      #   uses: gradle/actions/setup-gradle@v3
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
     # - name: AVD cache
     #   uses: actions/cache@v4
@@ -86,10 +85,11 @@ jobs:
           echo "Running on device: ${{ matrix.profile }}"
           echo "Building Android, Linux desktop, and Wasm targets"
 
-      # The desktop wgpu4k renderer (exercised headlessly by Wgpu4kFrameDumpTest inside :app:check)
-      # uses the Vulkan backend on Linux; lavapipe (mesa-vulkan-drivers) provides a CPU Vulkan device.
-      - name: Install Vulkan drivers (lavapipe) for wgpu4k headless render tests
-        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
+      - name: Install desktop Filament native build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libgl1-mesa-dev libegl1-mesa-dev libx11-dev
+
+      - name: Fetch desktop Filament dependencies
+        run: tools/fetch_filament_desktop.sh
 
       - name: Build Android, Linux desktop, and Wasm targets
         run: ./gradlew :androidApp:assembleDebug :app:assembleAndroidDeviceTest :app:check :app:desktopJar :app:packageDistributionForCurrentOS :app:wasmJsBrowserDistribution
@@ -125,10 +125,13 @@ jobs:
           name: test-results-api-${{ matrix.api-level }}-device-${{ matrix.profile }}
           path: app/build/reports/androidTests/connected/debug/index.html
 
-  apple:
-    name: Build + iOS/macOS checks
+  # The Apple checks are split into two jobs that run concurrently (Kotlin + Xcode). The previous
+  # single job ran them sequentially (~9 min of heavy work); splitting caps wall-clock at the
+  # slower of the two instead of their sum, bringing the Apple pipeline in line with the Android one.
+  apple-kotlin:
+    name: Build + Kotlin checks (iOS sim/desktop tests)
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 40
 
     steps:
       - name: Checkout code
@@ -139,6 +142,108 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Cache desktop Filament payload + built bridge
+        id: filament-desktop
+        uses: actions/cache@v4
+        with:
+          # The fetched Filament headers/libs (fetch_filament_desktop.sh) AND the CMake-built JNI
+          # bridge (.dylib). Both are reproducible from the bridge C++ + the pinned Filament version,
+          # so caching skips the ~hundreds-of-MB download AND the cmake configure+compile every run.
+          path: |
+            app/src/desktopMain/filament/filament
+            app/build/desktop-filament-native
+          key: filament-desktop-${{ runner.os }}-${{ hashFiles('app/src/desktopMain/native/filament_bridge/**') }}
+          restore-keys: |
+            filament-desktop-${{ runner.os }}-
+
+      - name: Fetch desktop Filament dependencies
+        if: steps.filament-desktop.outputs.cache-hit != 'true'
+        run: tools/fetch_filament_desktop.sh
+
+      - name: Ensure test simulator exists
+        run: |
+          # Match the EXACT device name ("iPhone 16 (" in the simctl listing) so a pre-installed
+          # "iPhone 16 Pro"/"Plus" doesn't satisfy the check and leave the Kotlin/Native test runner
+          # failing with "Invalid device: iPhone 16" (runner images vary in which sims ship).
+          if ! xcrun simctl list devices available | grep -qE "iPhone 16 \("; then
+            xcrun simctl create "iPhone 16" "com.apple.CoreSimulator.SimDeviceType.iPhone-16"
+          fi
+          xcrun simctl list devices available | grep -E "iPhone 16 \(" || true
+
+      - name: Kotlin checks (simulator unit+UI tests, desktop tests)
+        # --parallel runs the independent iosSimulatorArm64Test / desktopTest targets concurrently.
+        # desktopTest is kept here (not redundant): it uniquely compiles+tests the C++ Filament bridge
+        # .dylib + macOS desktop renderer tests the Linux runner cannot run.
+        # NOTE: linkDebugFrameworkIosArm64 (the iOS *device* framework) was removed — CI tests on the
+        # simulator, and the xcode job builds its own framework via embedAndSignAppleFrameworkForXcode,
+        # so the device link was ~2.5min of dead weight. (configuration-cache is intentionally NOT
+        # enabled — the build's reflection-based task config is incompatible with it; see build.gradle.kts.)
+        run: ./gradlew --parallel :app:iosSimulatorArm64Test :app:desktopTest "-PiosSimulatorDeviceId=iPhone 16"
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: apple-kotlin-test-reports
+          path: app/build/reports/tests/
+
+  apple-xcode:
+    name: Build + Xcode checks (iOS app Swift tests)
+    runs-on: macos-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5.0.0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5.0.0
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Cache iOS Filament payload + KTX resources
+        id: filament-ios
+        uses: actions/cache@v4
+        with:
+          # fetch_filament_ios.sh stages TWO things: the Filament xcframeworks (Filament/filament)
+          # AND the papermill KTX IBL/skybox assets (Resources/*.ktx) that xcodebuild's CpResource
+          # step copies into the app bundle. Both must be cached together, or a cache hit leaves the
+          # .ktx files missing and xcodebuild fails with "No such file or directory".
+          path: |
+            iosApp/iosApp/Filament/filament
+            iosApp/iosApp/Resources
+          # `-v2` busts an earlier cache that stored only Filament/filament (missing the Resources/
+          # KTX assets), which left xcodebuild's CpResource step failing on cache hit.
+          key: filament-ios-v2-${{ hashFiles('tools/fetch_filament_ios.sh') }}
+          restore-keys: |
+            filament-ios-v2-
+
+      - name: Fetch iOS Filament dependencies
+        if: steps.filament-ios.outputs.cache-hit != 'true'
+        run: tools/fetch_filament_ios.sh
+
+      - name: Cache Xcode DerivedData + Swift Package Manager
+        id: xcode-build
+        uses: actions/cache@v4
+        with:
+          # DerivedData holds the built app + ChessKitEngine framework; the SPM cache holds the
+          # resolved package artifacts. Both are keyed on the iOS app sources + the pinned SPM version
+          # so xcodebuild's incremental build skips recompiling ChessKitEngine from scratch each run.
+          path: |
+            iosApp/build/DerivedData
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/org.swift.swiftpm
+          key: xcode-derived-${{ hashFiles('iosApp/iosApp/**/*.swift', 'iosApp/iosApp/**/*.mm', 'iosApp/project.yml', 'app/src/iosMain/**') }}
+          restore-keys: |
+            xcode-derived-
 
       - name: Show Xcode and simulators
         run: |
@@ -152,13 +257,14 @@ jobs:
 
       - name: Ensure test simulator exists
         run: |
-          xcrun simctl list devices available | grep -q "iPhone 16" || \
+          if ! xcrun simctl list devices available | grep -qE "iPhone 16 \("; then
             xcrun simctl create "iPhone 16" "com.apple.CoreSimulator.SimDeviceType.iPhone-16"
-
-      - name: Kotlin checks (simulator unit+UI tests, desktop tests, device link, DMG)
-        run: ./gradlew :app:iosSimulatorArm64Test :app:desktopTest :app:linkReleaseFrameworkIosArm64 :app:packageDistributionForCurrentOS "-PiosSimulatorDeviceId=iPhone 16"
+          fi
 
       - name: Build and test iosApp
+        # xcodebuild's own Run-Script build phase calls `./gradlew :app:embedAndSignAppleFrameworkForXcode`,
+        # so the Kotlin ChessApp framework is built as part of this step — no separate Gradle link needed.
+        # -derivedDataPath pins the build output so the cache above can reuse it across runs.
         run: |
           set -o pipefail
           xcodebuild \
@@ -166,6 +272,7 @@ jobs:
             -scheme iosApp \
             -configuration Debug \
             -destination "platform=iOS Simulator,name=iPhone 16" \
+            -derivedDataPath iosApp/build/DerivedData \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             test
 
@@ -173,8 +280,10 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4.6.2
         with:
-          name: apple-test-reports
-          path: app/build/reports/tests/
+          name: apple-xcode-test-reports
+          path: |
+            iosApp/build/DerivedData/Logs/Test
+            app/build/reports/tests/
 
   perft-nightly:
     name: Perft deep + Stockfish oracle (nightly)

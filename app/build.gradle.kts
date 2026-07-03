@@ -6,12 +6,14 @@ import org.gradle.api.file.DirectoryProperty
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.compose.ExperimentalComposeLibrary
 import org.jetbrains.kotlin.gradle.tasks.Kotlin2JsCompile
+import java.io.File
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.kotlinSerialization)
 }
 
 kotlin {
@@ -49,8 +51,8 @@ kotlin {
 
     jvm("desktop") {
         compilerOptions {
-            // wgpu4k's JVM artifact uses Panama FFM (java.lang.foreign), available since JDK 22,
-            // so the desktop target must compile at >= 22 (M6 3D spike). Android stays on JVM_11.
+            // Desktop compiles at JVM 24 to match its scoped JDK toolchain launcher (see the
+            // desktopTest / run tasks below). Android stays on JVM_11.
             jvmTarget.set(JvmTarget.JVM_24)
         }
     }
@@ -77,13 +79,6 @@ kotlin {
         }
         androidMain { dependsOn(jvmCommonMain) }
 
-        val wgpuMain by creating {
-            dependsOn(commonMain.get())
-            dependencies {
-                implementation(libs.wgpu4k.toolkit)
-            }
-        }
-
         commonMain.dependencies {
             implementation(compose.runtime)
             implementation(compose.foundation)
@@ -91,7 +86,11 @@ kotlin {
             implementation(compose.ui)
             implementation(compose.components.resources)
             implementation(compose.components.uiToolingPreview)
+            implementation(libs.compose.ui.backhandler)
             implementation(libs.kermit)
+            implementation(libs.multiplatform.settings)
+            implementation(libs.multiplatform.settings.coroutines)
+            implementation(libs.kotlinx.serialization.json)
         }
 
         commonTest.dependencies {
@@ -104,10 +103,6 @@ kotlin {
                 @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
                 implementation(compose.uiTest)
             }
-        }
-
-        val wasmJsMain by getting {
-            dependsOn(wgpuMain)
         }
 
         androidMain.dependencies {
@@ -134,25 +129,8 @@ kotlin {
 
         val desktopMain by getting {
             dependsOn(jvmCommonMain)
-            dependsOn(wgpuMain)
             dependencies {
                 implementation(compose.desktop.currentOs)
-                // lwjgl core only — KtxLoader uses org.lwjgl.system.MemoryUtil to decode the
-                // papermill environment cubemap for the wgpu4k renderer.
-                implementation(libs.lwjgl)
-                implementation(libs.jgltf.model)
-                implementation(libs.joml)
-
-                // Add the lwjgl core native runtime for the current OS.
-                val lwjglVersion = "3.3.6"
-                val osName = System.getProperty("os.name").lowercase()
-                val osArch = System.getProperty("os.arch").lowercase()
-                val lwjglNatives = when {
-                    osName.contains("win") -> "natives-windows"
-                    osName.contains("mac") -> if (osArch.contains("aarch64") || osArch.contains("arm")) "natives-macos-arm64" else "natives-macos"
-                    else -> "natives-linux"
-                }
-                runtimeOnly("org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives")
             }
         }
 
@@ -186,18 +164,77 @@ compose.resources {
     publicResClass = true
 }
 
+val desktopFilamentNativeDir = layout.buildDirectory.dir("desktop-filament-native")
+val desktopFilamentCmakeDir = desktopFilamentNativeDir.map { it.dir("cmake") }
+val desktopFilamentBridgeLibName = System.mapLibraryName("desktop_filament_bridge")
+val desktopFilamentPackageResources = desktopFilamentNativeDir.map { it.dir("packageResources") }
+val desktopFilamentNativeLibraryPath = desktopFilamentCmakeDir.map { cmakeDir ->
+    listOf(cmakeDir.asFile, cmakeDir.dir("Release").asFile)
+        .joinToString(File.pathSeparator) { it.absolutePath }
+}
+
+val configureDesktopFilamentBridge by tasks.registering(Exec::class) {
+    val sourceDir = layout.projectDirectory.dir("src/desktopMain/native/filament_bridge")
+    inputs.dir(sourceDir)
+    inputs.dir(layout.projectDirectory.dir("src/desktopMain/filament/filament"))
+    outputs.dir(desktopFilamentCmakeDir)
+    commandLine(
+        "cmake",
+        "-S", sourceDir.asFile.absolutePath,
+        "-B", desktopFilamentCmakeDir.get().asFile.absolutePath,
+        "-DCMAKE_BUILD_TYPE=Release",
+    )
+}
+
+val buildDesktopFilamentBridge by tasks.registering(Exec::class) {
+    dependsOn(configureDesktopFilamentBridge)
+    outputs.files(
+        desktopFilamentCmakeDir.map { it.file(desktopFilamentBridgeLibName) },
+        desktopFilamentCmakeDir.map { it.file("Release/$desktopFilamentBridgeLibName") },
+    )
+    commandLine("cmake", "--build", desktopFilamentCmakeDir.get().asFile.absolutePath, "--config", "Release")
+}
+
+val syncDesktopFilamentBridgeResources by tasks.registering(Sync::class) {
+    dependsOn(buildDesktopFilamentBridge)
+    from(desktopFilamentCmakeDir) {
+        include(desktopFilamentBridgeLibName)
+        include("Release/$desktopFilamentBridgeLibName")
+        eachFile {
+            path = name
+        }
+        includeEmptyDirs = false
+    }
+    // Compose's appResourcesRootDir only packages files that live under a platform subdir
+    // (common/<os>/<os-arch>); a file at the root is silently skipped. The bridge is built for the
+    // current OS/arch (the only target packageDistributionForCurrentOS produces), so `common` lands
+    // it in the runtime compose.application.resources.dir that DesktopFilamentNative searches.
+    into(desktopFilamentPackageResources.map { it.dir("common") })
+}
 
 
+
+// Forward the 3D smoke-test + benchmark toggles to the forked test JVM. Gradle's `-Dchess3d.smoke=true`
+// only sets the property on the build JVM; tests run in a separate JVM, so propagate explicitly.
 tasks.withType<Test>().configureEach {
-    // wgpu4k's JVM binding is Java-22 bytecode and uses Panama FFM, so it needs a >= 22 runtime.
-    // The Gradle daemon runs on JDK 21 (gradle-daemon-jvm.properties), so run the desktop tests on
-    // the installed JDK 26 via a scoped toolchain launcher; Android/other tests stay on the daemon JDK.
+    providers.systemProperty("chess3d.smoke").orNull?.let { systemProperty("chess3d.smoke", it) }
+    providers.systemProperty("chess3d.bench").orNull?.let { systemProperty("chess3d.bench", it) }
+    // The Gradle daemon runs on JDK 21 (gradle-daemon-jvm.properties); run the desktop tests on the
+    // installed JDK 26 via a scoped toolchain launcher to match the desktop target's JVM 24 bytecode.
+    // Android/other tests stay on the daemon JDK.
     if (name == "desktopTest") {
+        dependsOn(buildDesktopFilamentBridge)
+        // Treat the native bridge library as a test input so editing the C++ re-runs desktopTest
+        // instead of leaving it UP-TO-DATE against a stale .dylib/.so.
+        inputs.files(buildDesktopFilamentBridge).withPropertyName("desktopFilamentBridge")
         javaLauncher.set(
             javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(26)) }
         )
         // Rococoa uses CGLIB which requires reflection access to java.lang.ClassLoader on newer JDKs
         jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
+        doFirst {
+            jvmArgs("-Djava.library.path=${desktopFilamentNativeLibraryPath.get()}")
+        }
     }
 
     // Forward `perft.*` gradle/system properties (e.g. `-Dperft.deep=true`) into the test JVM so
@@ -208,14 +245,18 @@ tasks.withType<Test>().configureEach {
         .forEach { (k, v) -> systemProperty(k.toString(), v.toString()) }
 }
 
-// The Compose Desktop run tasks (JavaExec) must also use the >= 22 JDK for wgpu4k's FFM path and the
-// same Rococoa --add-opens. The Gradle daemon is on JDK 21. (M6 3D spike.)
+// The Compose Desktop run tasks (JavaExec) use the same scoped JDK 26 launcher and the Rococoa
+// --add-opens. The Gradle daemon is on JDK 21.
 tasks.withType<JavaExec>().configureEach {
     if (name == "run" || name == "runDistributable" || name == "runRelease") {
+        dependsOn(buildDesktopFilamentBridge)
         javaLauncher.set(
             javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(26)) }
         )
         jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
+        doFirst {
+            jvmArgs("-Djava.library.path=${desktopFilamentNativeLibraryPath.get()}")
+        }
     }
 }
 
@@ -256,12 +297,21 @@ compose.desktop {
         nativeDistributions {
             packageName = "game"
             packageVersion = "1.0.0"
+            appResourcesRootDir.set(desktopFilamentPackageResources)
             targetFormats(TargetFormat.Deb, TargetFormat.Dmg)
         }
     }
 }
 
 tasks.configureEach {
+    // prepareAppResources stages appResourcesRootDir (= the synced native bridge library) into the
+    // packaged desktop app, so it must run after the bridge is synced; desktopJar/package depend on
+    // the same output. Without the prepareAppResources wiring Gradle fails strict input/output
+    // validation with an "implicit dependency" error.
+    if (name == "desktopJar" || name == "packageDistributionForCurrentOS" || name == "prepareAppResources") {
+        dependsOn(syncDesktopFilamentBridgeResources)
+    }
+
     if (name == "mergeAndroidDeviceTestAssets") {
         dependsOn("copyAndroidMainComposeResourcesToAndroidAssets")
         val srcDir = project.layout.buildDirectory.dir("generated/compose/resourceGenerator/androidAssets/copyAndroidMainComposeResourcesToAndroidAssets")

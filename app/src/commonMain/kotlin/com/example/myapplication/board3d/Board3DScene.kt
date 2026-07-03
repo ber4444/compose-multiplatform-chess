@@ -19,3 +19,24 @@ data class Board3DScene(
     val sideToMove: PieceColor,
     val selectedSquare: BoardSquare? = null,  // unused until M5 highlight
 )
+
+/**
+ * Compact wire form for Filament-backed renderers: each piece as
+ * `kindOrdinal,colorOrdinal,x,y,z,rotationYDegrees`, pieces joined by `;`. Native and JS peers
+ * reconcile a fixed instance pool against this list every frame. Contains only digits, `.`, `-`,
+ * `,`, and `;`, so it's safe for JS interop and native bridge string calls. Built with one
+ * StringBuilder since it's serialised per animation frame.
+ */
+fun Board3DScene.encode(): String {
+    val sb = StringBuilder()
+    for ((i, p) in pieces.withIndex()) {
+        if (i > 0) sb.append(';')
+        sb.append(p.kind.ordinal).append(',')
+            .append(if (p.color == PieceColor.WHITE) 0 else 1).append(',')
+            .append(p.position.x).append(',')
+            .append(p.position.y).append(',')
+            .append(p.position.z).append(',')
+            .append(p.rotationYDegrees)
+    }
+    return sb.toString()
+}
