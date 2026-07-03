@@ -23,6 +23,9 @@ tools/fetch_filament_desktop.sh                 # fetch gitignored desktop Filam
 tools/ios_3d_screenshot.sh                      # screenshot the real iOS 3D board in a booted sim -> build/ios-3d-screenshot.png
 ```
 
+When an Android SDK path is needed, use the Android CLI first: `android info sdk`.
+On this machine it currently reports `/Users/presence/Library/Android/sdk`; prefer the CLI result over guessing or hard-coding `ANDROID_HOME`.
+
 Verifying the iOS Filament/Metal 3D *look* can't be done from a unit test — the Metal-backed `UIKitView` needs the real app/simulator rendering stack, which the headless `simctl spawn` Kotlin/Native test runner cannot provide. Use `tools/ios_3d_screenshot.sh` instead: it launches the real app with `CHESS_START_3D=1` (read in `MainViewController`) so it opens directly on the 3D board, then captures via `simctl io screenshot`.
 
 CI (`.github/workflows/android-tests.yml`) builds every target with:

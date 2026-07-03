@@ -102,6 +102,7 @@ internal fun SubScreenScaffold(
     title: String,
     onBack: () -> Unit,
     scrollable: Boolean = true,
+    showBackButton: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     Scaffold(
@@ -109,8 +110,10 @@ internal fun SubScreenScaffold(
             TopAppBar(
                 title = { Text(title) },
                 navigationIcon = {
-                    Button(onClick = onBack, modifier = Modifier.padding(start = 8.dp)) {
-                        Text("Back")
+                    if (showBackButton) {
+                        Button(onClick = onBack, modifier = Modifier.padding(start = 8.dp)) {
+                            Text("Back")
+                        }
                     }
                 }
             )

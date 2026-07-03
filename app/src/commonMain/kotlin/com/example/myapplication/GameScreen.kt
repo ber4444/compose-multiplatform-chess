@@ -296,6 +296,7 @@ fun GameScreen(
             // synchronously on the UI thread during composition; composing it in the same frame as
             // the loader leaves the spinner no frame to draw. Hold it back two frames.
             var surfaceComposeReady by remember { mutableStateOf(false) }
+            var rendererReady by remember { mutableStateOf(false) }
             LaunchedEffect(Unit) {
                 withFrameNanos { }
                 withFrameNanos { }
@@ -309,10 +310,14 @@ fun GameScreen(
                     modifier = Modifier.fillMaxSize(),
                     onUnavailable = {
                         isEntering3D = false
+                        rendererReady = true
                         viewModel.markBoard3DUnavailable()
                     },
                     cameraSession = board3DCameraSession,
-                    onRendererReady = { isEntering3D = false },
+                    onRendererReady = {
+                        isEntering3D = false
+                        rendererReady = true
+                    },
                     selectedSquare = gameState.selectedSquare
                         .takeIf { it != INVALID_POSITION }
                         ?.let { BoardSquare(it.first, it.second) },
@@ -340,7 +345,7 @@ fun GameScreen(
                 )
                 }
 
-                if (isEntering3D || !surfaceComposeReady) {
+                if (isEntering3D || !surfaceComposeReady || !rendererReady) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()

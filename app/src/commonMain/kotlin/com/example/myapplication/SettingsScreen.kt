@@ -48,7 +48,7 @@ fun SettingsScreen(
     val board3DEnabled by settings.board3DEnabled.collectAsState()
     val engineDifficulty by settings.engineDifficulty.collectAsState()
 
-    SubScreenScaffold(title = "Settings", onBack = onBack) {
+    SubScreenScaffold(title = "Settings", onBack = onBack, showBackButton = false) {
         Text(
             text = "Engine difficulty",
             style = MaterialTheme.typography.titleMedium,
