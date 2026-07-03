@@ -205,16 +205,22 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Cache iOS Filament payload
+      - name: Cache iOS Filament payload + KTX resources
         id: filament-ios
         uses: actions/cache@v4
         with:
-          # The fetched Filament xcframeworks + staged KTX IBL assets (fetch_filament_ios.sh).
-          # Reproducible from the pinned iOS Filament version, so the download is skipped on cache hit.
-          path: iosApp/iosApp/Filament/filament
-          key: filament-ios-${{ hashFiles('tools/fetch_filament_ios.sh') }}
+          # fetch_filament_ios.sh stages TWO things: the Filament xcframeworks (Filament/filament)
+          # AND the papermill KTX IBL/skybox assets (Resources/*.ktx) that xcodebuild's CpResource
+          # step copies into the app bundle. Both must be cached together, or a cache hit leaves the
+          # .ktx files missing and xcodebuild fails with "No such file or directory".
+          path: |
+            iosApp/iosApp/Filament/filament
+            iosApp/iosApp/Resources
+          # `-v2` busts an earlier cache that stored only Filament/filament (missing the Resources/
+          # KTX assets), which left xcodebuild's CpResource step failing on cache hit.
+          key: filament-ios-v2-${{ hashFiles('tools/fetch_filament_ios.sh') }}
           restore-keys: |
-            filament-ios-
+            filament-ios-v2-
 
       - name: Fetch iOS Filament dependencies
         if: steps.filament-ios.outputs.cache-hit != 'true'
