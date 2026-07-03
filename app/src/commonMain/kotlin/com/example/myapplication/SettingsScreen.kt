@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -16,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.board3d.Board3DSupport
 import com.example.myapplication.persistence.LocalAppSettings
@@ -94,6 +96,11 @@ private fun DifficultyOption(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .selectable(
+                selected = current == level,
+                role = Role.RadioButton,
+                onClick = { onSelect(level) },
+            )
             .padding(vertical = 4.dp)
             .testTag(testTag),
         verticalAlignment = Alignment.CenterVertically,
@@ -101,7 +108,7 @@ private fun DifficultyOption(
     ) {
         RadioButton(
             selected = current == level,
-            onClick = { onSelect(level) },
+            onClick = null,
         )
         Text(label)
     }
