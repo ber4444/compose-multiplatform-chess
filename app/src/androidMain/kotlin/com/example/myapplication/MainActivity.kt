@@ -80,7 +80,9 @@ class AndroidGameViewModel : ViewModel() {
     private val settings = createSettings("chess")
     private val currentGameStore = CurrentGameStore(settings)
     private val restoredState = CurrentGameStoreSupport.loadInitialState(currentGameStore)
-    val gameViewModel = GameViewModel(restoredState.state, currentGameStore)
+    // Seed the VM's runtime show3D from the persisted setting (3D on by default on first install).
+    private val initialShow3D = AppSettings(settings).board3DEnabled.value
+    val gameViewModel = GameViewModel(restoredState.state, currentGameStore, initialShow3D = initialShow3D)
 
     // Phase 3: saved-games history lives on the same Settings backing store, owned by the holder so
     // it survives config changes (and is observed by the History screen across recompositions).

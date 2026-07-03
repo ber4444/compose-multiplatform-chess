@@ -35,10 +35,12 @@ fun MainViewController(
         if (restoredState.shouldClear) currentGameStore.clear()
         onDispose { }
     }
-    val viewModel = remember { GameViewModel(restoredState.state, currentGameStore) }
     val appSettings = remember { AppSettings(settings) }
     val gameHistory = remember { GameHistoryRepository(settings) }
     val pgnSharer = remember { iosPgnSharer() }
+    val viewModel = remember {
+        GameViewModel(restoredState.state, currentGameStore, initialShow3D = appSettings.board3DEnabled.value)
+    }
     DisposableEffect(Unit) {
         viewModel.attachEngine(engine)
         if (platform.posix.getenv("CHESS_START_3D") != null) viewModel.setShow3D(true)
