@@ -170,13 +170,15 @@ jobs:
           fi
           xcrun simctl list devices available | grep -E "iPhone 16 \(" || true
 
-      - name: Kotlin checks (simulator unit+UI tests, desktop tests, device link)
-        # --parallel runs the independent iosSimulatorArm64Test / desktopTest / linkDebugFrameworkIosArm64
-        # targets concurrently. desktopTest is kept here (not redundant): it uniquely compiles+tests
-        # the C++ Filament bridge .dylib + macOS desktop renderer tests the Linux runner cannot run.
-        # (configuration-cache is intentionally NOT enabled — the build has reflection-based task
-        # config for compose-resources/wasm-klib that's incompatible with it; see app/build.gradle.kts.)
-        run: ./gradlew --parallel :app:iosSimulatorArm64Test :app:desktopTest :app:linkDebugFrameworkIosArm64 "-PiosSimulatorDeviceId=iPhone 16"
+      - name: Kotlin checks (simulator unit+UI tests, desktop tests)
+        # --parallel runs the independent iosSimulatorArm64Test / desktopTest targets concurrently.
+        # desktopTest is kept here (not redundant): it uniquely compiles+tests the C++ Filament bridge
+        # .dylib + macOS desktop renderer tests the Linux runner cannot run.
+        # NOTE: linkDebugFrameworkIosArm64 (the iOS *device* framework) was removed — CI tests on the
+        # simulator, and the xcode job builds its own framework via embedAndSignAppleFrameworkForXcode,
+        # so the device link was ~2.5min of dead weight. (configuration-cache is intentionally NOT
+        # enabled — the build's reflection-based task config is incompatible with it; see build.gradle.kts.)
+        run: ./gradlew --parallel :app:iosSimulatorArm64Test :app:desktopTest "-PiosSimulatorDeviceId=iPhone 16"
 
       - name: Upload test reports
         if: failure()
