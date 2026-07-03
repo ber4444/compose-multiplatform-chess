@@ -12,8 +12,8 @@ import kotlin.time.TimeSource
  *
  * Holds the resting position plus any in-flight move/selection state and, on a frame-paced coroutine
  * loop, emits the interpolated [Board3DScene] for the current instant through [render]. Each renderer
- * supplies a [render] callback that draws a scene the way its backend wants (desktop: build + upload
- * Vulkan geometry; Android: publish Compose snapshot state; three.js: push the encoded scene to JS)
+ * supplies a [render] callback that draws a scene the way its backend wants (desktop/iOS/web:
+ * push an encoded Filament scene; Android: publish Compose snapshot state for SceneView)
  * and a [scope] running on the thread its renderer expects to be driven from.
  *
  * This centralises what every backend would otherwise reimplement: the vkChess move arc hop

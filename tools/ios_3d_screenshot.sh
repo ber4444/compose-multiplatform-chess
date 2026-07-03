@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Autonomous visual loop for the iOS 3D board (three.js via WKWebView).
+# Autonomous visual loop for the iOS 3D board (Metal-native Filament).
 #
-# WKWebView + WebGL need a real GPU, which the headless `simctl spawn` Kotlin/Native test runner
-# does not provide — so we can't screenshot the 3D board from a unit test. Instead we screenshot the
-# REAL app running in a booted simulator (full GPU). The app reads CHESS_START_3D and opens straight
-# onto the 3D board (see MainViewController), so no human has to tap the "3D Board" toggle.
+# Filament + Metal need the real app/simulator rendering stack, which the headless `simctl spawn`
+# Kotlin/Native test runner does not provide. Instead we screenshot the REAL app running in a booted
+# simulator. The app reads CHESS_START_3D and opens straight onto the 3D board (see
+# MainViewController), so no human has to tap the "3D Board" toggle.
 #
 # Usage:  tools/ios_3d_screenshot.sh [device-name]
 # Output: build/ios-3d-screenshot.png   (absolute path is printed on the last line)

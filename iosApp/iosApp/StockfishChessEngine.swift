@@ -25,7 +25,7 @@ func waitForSearchCompletion(
 
 private final class SharedStockfishCore {
     static let shared = SharedStockfishCore()
-    
+
     let engine = Engine(type: .stockfish)
     let requestLock = NSLock()
     let stateQueue = DispatchQueue(label: "stockfish.adapter.state")
@@ -33,7 +33,12 @@ private final class SharedStockfishCore {
     var isReady = false
     var pendingCompletion: ((String?) -> Void)?
     var lastRawScoreCp: Int32?
-    
+    // Engine difficulty (issue #39 Phase 4). Defaults to full-strength Stockfish; configure() lowers
+    // the Skill Level + the per-move movetime. Accessed under requestLock (runSearch) so plain vars.
+    var skillLevel: Int? = nil
+    var moveTimeMs: Int = sharedMoveTimeMs
+    var evalMoveTimeMs: Int = sharedEvalMoveTimeMs
+
     private init() {
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self, let stream = await self.engine.responseStream else { return }
@@ -44,6 +49,10 @@ private final class SharedStockfishCore {
                 }
                 if let small = Bundle.main.url(forResource: "nn-37f18f62d772", withExtension: "nnue") {
                     await self.engine.send(command: .setoption(id: "EvalFileSmall", value: small.path))
+                }
+                // Apply any difficulty configured before the engine came up.
+                if let level = self.stateQueue.sync(execute: { self.skillLevel }) {
+                    await self.engine.send(command: .setoption(id: "Skill Level", value: String(level)))
                 }
                 await self.engine.send(command: .isready)
             }
@@ -97,7 +106,11 @@ private final class SharedStockfishCore {
             lastRawScoreCp = nil
             pendingCompletion = { move in bestMove = move; done.signal() }
         }
+        // Engine difficulty (issue #39 Phase 4): re-assert the Skill Level before each search so a
+        // configure() mid-session takes effect on the next move. Mirrors the EvalFile setoption sends.
+        let level = stateQueue.sync { skillLevel }
         Task { [engine] in
+            if let level { await engine.send(command: .setoption(id: "Skill Level", value: String(level))) }
             await engine.send(command: .position(.fen(fen)))
             await engine.send(command: go)
         }
@@ -136,16 +149,17 @@ final class StockfishChessEngine: NSObject, ChessEngine {
         // async response pipeline isn't fully primed yet, so the bestmove response is missed and
         // runSearch returns nil after the full timeout. A single retry reliably produces a move
         // because by the second attempt the pipeline is warmed up.
+        let moveTimeMs = SharedStockfishCore.shared.stateQueue.sync { SharedStockfishCore.shared.moveTimeMs }
         var move = SharedStockfishCore.shared.runSearch(
             fen: fen,
-            go: .go(movetime: sharedMoveTimeMs),
+            go: .go(movetime: moveTimeMs),
             timeout: sharedBestMoveResponseTimeout,
             checkClosed: checkClosed
         )
         if move == nil && !checkClosed() {
             move = SharedStockfishCore.shared.runSearch(
                 fen: fen,
-                go: .go(movetime: sharedMoveTimeMs),
+                go: .go(movetime: moveTimeMs),
                 timeout: sharedBestMoveResponseTimeout,
                 checkClosed: checkClosed
             )
@@ -154,24 +168,46 @@ final class StockfishChessEngine: NSObject, ChessEngine {
     }
 
     func evaluate(fen: String, completionHandler: @escaping (KotlinInt?, Error?) -> Void) {
-        guard SharedStockfishCore.shared.runSearch(
-            fen: fen,
-            go: .go(movetime: sharedEvalMoveTimeMs),
-            timeout: sharedEvalResponseTimeout,
-            checkClosed: {
-                self.localQueue.sync { self.isClosed }
-            }
-        ) != nil else {
-            completionHandler(nil, nil)
-            return
+        let checkClosed = { [weak self] in self?.localQueue.sync { self?.isClosed ?? true } ?? true }
+
+        // Like getBestMove, a search on a cold/contended CI pipeline can have its bestmove
+        // response missed, so runSearch times out and returns nil (leaving lastRawScoreCp nil).
+        // Retry once: the second attempt runs against a warmed-up pipeline and reliably scores.
+        let evalMoveTimeMs = SharedStockfishCore.shared.stateQueue.sync { SharedStockfishCore.shared.evalMoveTimeMs }
+        func attempt() -> KotlinInt? {
+            guard SharedStockfishCore.shared.runSearch(
+                fen: fen,
+                go: .go(movetime: evalMoveTimeMs),
+                timeout: sharedEvalResponseTimeout,
+                checkClosed: checkClosed
+            ) != nil else { return nil }
+            guard let raw = SharedStockfishCore.shared.stateQueue.sync(execute: {
+                SharedStockfishCore.shared.lastRawScoreCp
+            }) else { return nil }
+            let whiteToMove = UciEvaluation.shared.isWhiteToMove(fen: fen)
+            let cp = UciEvaluation.shared.toWhitePerspective(scoreCp: raw, whiteToMove: whiteToMove)
+            return KotlinInt(int: cp)
         }
-        guard let raw = SharedStockfishCore.shared.stateQueue.sync(execute: { SharedStockfishCore.shared.lastRawScoreCp }) else {
-            completionHandler(nil, nil)
-            return
+
+        var result = attempt()
+        if result == nil && !checkClosed() {
+            result = attempt()
         }
-        let whiteToMove = UciEvaluation.shared.isWhiteToMove(fen: fen)
-        let cp = UciEvaluation.shared.toWhitePerspective(scoreCp: raw, whiteToMove: whiteToMove)
-        completionHandler(KotlinInt(int: cp), nil)
+        completionHandler(result, nil)
+    }
+
+    /// Engine difficulty (issue #39 Phase 4). Conformance to the Kotlin `ChessEngine.configure`.
+    /// Stores the skill level + movetime on the shared core; runSearch re-asserts the Skill Level
+    /// before the next `go`, and getBestMove/evaluate use the configured movetime. Additive only.
+    func configure(difficulty: EngineDifficulty, completionHandler: @escaping (Error?) -> Void) {
+        SharedStockfishCore.shared.stateQueue.sync {
+            SharedStockfishCore.shared.skillLevel = Int(difficulty.skillLevel)
+            SharedStockfishCore.shared.moveTimeMs = Int(difficulty.thinkTimeMs)
+            // Keep the eval movetime proportional to the play movetime (eval uses 2x the play budget
+            // in the defaults), so weaker difficulty also evaluates faster.
+            SharedStockfishCore.shared.evalMoveTimeMs = max(Int(difficulty.thinkTimeMs) * 2, 200)
+        }
+        completionHandler(nil)
     }
 
     func close() {

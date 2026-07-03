@@ -13,10 +13,11 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Exercises the headless Vulkan renderer end-to-end (needs a Vulkan/MoltenVK device): renders the
+ * Exercises the headless desktop Filament renderer end-to-end: renders the
  * start position, a selection highlight, and a position after 1.e4, asserting each read-back frame
  * is a real render (many distinct colours, board fills the view) and saving PNGs to `build/` for
- * eyeballing. Gated by `-Dchess3d.smoke=true`; skips when no GLB or no Vulkan device is available.
+ * eyeballing. Gated by `-Dchess3d.smoke=true`; skips when shared assets or a compatible GPU backend
+ * are unavailable.
  */
 class DesktopRendererSmokeTest {
 
@@ -27,12 +28,20 @@ class DesktopRendererSmokeTest {
     fun rendersStartSelectionAndMove() {
         Assume.assumeTrue(System.getProperty("chess3d.smoke") == "true")
         val glb = File("src/commonMain/composeResources/files/models/chess.glb")
+        val ibl = File("src/commonMain/composeResources/files/env/papermill_ibl.ktx")
+        val skybox = File("src/commonMain/composeResources/files/env/papermill_skybox_blurred.ktx")
         Assume.assumeTrue("chess.glb present", glb.exists())
+        Assume.assumeTrue("papermill_ibl.ktx present", ibl.exists())
+        Assume.assumeTrue("papermill_skybox_blurred.ktx present", skybox.exists())
 
         val renderer = try {
-            VulkanChessRenderer(glb.readBytes())
+            DesktopFilamentChessRenderer(
+                glb = glb.readBytes(),
+                ibl = ibl.readBytes(),
+                skybox = skybox.readBytes(),
+            )
         } catch (t: Throwable) {
-            Assume.assumeNoException("No Vulkan device available", t); return
+            Assume.assumeNoException("Desktop Filament backend unavailable", t); return
         }
 
         val size = 1024
@@ -62,8 +71,7 @@ class DesktopRendererSmokeTest {
     }
 
     private fun assertRealRender(image: ImageBitmap, size: Int) {
-        // Frame dimensions match the surface's aspect (1:1 here); with SSAA the renderer produces a
-        // larger bitmap that gets downscaled at display time, so just check the aspect + 1:1 square.
+        // Frame dimensions match the surface's aspect (1:1 here).
         assertTrue(image.width == image.height, "frame should be square, got ${image.width}x${image.height}")
         assertTrue(image.width >= size, "frame should be at least surface size, got ${image.width}")
         val sampleSize = minOf(image.width, 1024)
@@ -83,9 +91,7 @@ class DesktopRendererSmokeTest {
 
     private fun save(image: ImageBitmap, name: String) {
         runCatching {
-            // Save two PNGs: the raw supersampled frame (so you can zoom in) AND a version downscaled
-            // to the surface size — the downscaled one is what the user actually sees in the running
-            // app (Compose scales the larger bitmap to fit the surface via Skia's bilinear filter).
+            // Save the raw frame and a 1024px view for quick eyeballing.
             val raw = image.toAwtImage()
             val rawOut = File("build/raw-$name").also { it.parentFile?.mkdirs() }
             ImageIO.write(raw, "PNG", rawOut)
@@ -97,7 +103,7 @@ class DesktopRendererSmokeTest {
             g.drawImage(raw, 0, 0, dsW, dsH, null); g.dispose()
             val out = File("build/$name").also { it.parentFile?.mkdirs() }
             ImageIO.write(downscaled, "PNG", out)
-            println("[chess3d] wrote ${out.absolutePath} (${dsW}x${dsH}, supersampled) + ${rawOut.absolutePath} (${raw.width}x${raw.height}, raw)")
+            println("[chess3d] wrote ${out.absolutePath} (${dsW}x${dsH}) + ${rawOut.absolutePath} (${raw.width}x${raw.height}, raw)")
         }
     }
 }

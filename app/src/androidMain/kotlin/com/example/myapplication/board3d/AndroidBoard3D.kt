@@ -18,17 +18,31 @@ import io.github.sceneview.SurfaceType
 import io.github.sceneview.rememberCameraNode
 import io.github.sceneview.rememberEngine
 import io.github.sceneview.rememberEnvironmentLoader
+import io.github.sceneview.rememberFillLightNode
+import io.github.sceneview.rememberMainLightNode
 import io.github.sceneview.rememberModelLoader
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 
 // Compose resources land at this prefix inside Android assets (set by compose.resources config
 // in app/build.gradle.kts: packageOfResClass = "game.app.generated.resources").
 private const val RES_PREFIX = "composeResources/game.app.generated.resources"
-private const val IBL_KTX    = "$RES_PREFIX/files/env/papermill_ibl.ktx"
-private const val SKYBOX_KTX = "$RES_PREFIX/files/env/papermill_skybox.ktx"
+private val IBL_KTX    = "$RES_PREFIX/files/env/${ChessSetConventions.IBL_ASSET}"
+private val SKYBOX_KTX = "$RES_PREFIX/files/env/${ChessSetConventions.SKYBOX_ASSET_BLURRED}"
+
+// 3D board lighting. SceneView's defaults are a neutral 6500 K 3-point setup — main 10000 lux +
+// fill 3000 lux + IBL 10000 lux (io.github.sceneview.SceneFactories). These nudge each ~15% brighter
+// so the dark pieces read a touch lighter while keeping the natural neutral tone. The iOS Filament
+// backend (FilamentChessRenderer.mm) mirrors these exact lux values (scaled for its darker default
+// camera exposure) so both platforms match — keep them in sync.
+private const val MAIN_LIGHT_INTENSITY = 11_500f
+private const val FILL_LIGHT_INTENSITY = 3_450f
+private const val IBL_INTENSITY = 11_500f
 
 /** A chess board holds at most 32 pieces (promotion replaces a pawn, never adds). */
-private const val MAX_PIECES = 32
+private val MAX_PIECES = ChessSetConventions.MAX_PIECES
+
+/** chess.glb square-size conversion (2-unit glb squares -> 1-unit game squares). */
+private val PIECE_SCALE = ChessSetConventions.PIECE_SCALE
 
 internal fun selectPieceMaterialName(materialNames: List<String>, color: PieceColor): String? {
     val expected = ChessSetMeshNames.getMaterialName(color)
@@ -76,7 +90,11 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
     }
 
     val environment = remember(envLoader) {
-        envLoader.createKTX1Environment(IBL_KTX, SKYBOX_KTX)
+        // createKTX1Environment forces the SceneView default IBL intensity (10000 lux); override it
+        // to our slightly brighter value so the ambient fill matches the bumped main/fill lights.
+        envLoader.createKTX1Environment(IBL_KTX, SKYBOX_KTX).also { env ->
+            env.indirectLight?.intensity = IBL_INTENSITY
+        }
     }
 
     val cameraNode  = rememberCameraNode(engine)
@@ -134,6 +152,10 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
             engine = engine,
             modelLoader = modelLoader,
             environment = environment,
+            // Bump SceneView's default main (10000) + fill (3000) lights a touch brighter; the iOS
+            // Filament backend mirrors these same intensities.
+            mainLightNode = rememberMainLightNode(engine) { intensity = MAIN_LIGHT_INTENSITY },
+            fillLightNode = rememberFillLightNode(engine) { intensity = FILL_LIGHT_INTENSITY },
             cameraNode = cameraNode,
             // We own the camera (shared OrbitCameraController + Compose gestures in Board3DHost) and
             // the node layout (explicit world positions), so disable SceneView's built-in camera
@@ -152,7 +174,7 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
             if (boardInstance != null) {
                 ModelNode(
                     modelInstance = boardInstance,
-                    scale = Float3(0.5f, 0.5f, 0.5f),
+                    scale = Float3(PIECE_SCALE, PIECE_SCALE, PIECE_SCALE),
                     apply = {
                         val hiddenNames = PieceKind.entries
                             .map { kind -> ChessSetMeshNames.getMeshName(kind, PieceColor.WHITE) }
@@ -183,7 +205,7 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                         // mid-flight) lifts the piece off the board; resting pieces stay at y=0.
                         position = Float3(piece?.position?.x ?: 0f, piece?.position?.y ?: 0f, piece?.position?.z ?: 0f),
                         rotation = Float3(0f, piece?.rotationYDegrees ?: 0f, 0f),
-                        scale = Float3(0.5f, 0.5f, 0.5f),
+                        scale = Float3(PIECE_SCALE, PIECE_SCALE, PIECE_SCALE),
                         isVisible = piece != null,
                         apply = { nodeState.value = this }
                     ) {}
@@ -224,9 +246,9 @@ fun androidBoard3DSupport(): Board3DSupport = Board3DSupport(
                 // Validate resources before reporting 3D support. SceneView consumes the KTX files by
                 // Android asset path, but the same compose-resource copy task makes these bytes
                 // available, so a missing asset becomes the existing nullable fallback path.
-                val glb = Res.readBytes("files/models/chess.glb")
-                Res.readBytes("files/env/papermill_ibl.ktx")
-                Res.readBytes("files/env/papermill_skybox.ktx")
+                val glb = Res.readBytes("files/models/${ChessSetConventions.GLB_ASSET}")
+                Res.readBytes("files/env/${ChessSetConventions.IBL_ASSET}")
+                Res.readBytes("files/env/${ChessSetConventions.SKYBOX_ASSET_BLURRED}")
                 AndroidSceneViewChessRenderer(glb)
             }.getOrNull()
         }

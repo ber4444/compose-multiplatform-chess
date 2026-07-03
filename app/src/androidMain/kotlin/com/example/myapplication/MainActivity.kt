@@ -8,10 +8,15 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
-import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
 import com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory
 import com.example.ondeviceai.initializeCactus
+import com.example.myapplication.persistence.AppSettings
+import com.example.myapplication.persistence.CurrentGameStore
+import com.example.myapplication.persistence.CurrentGameStoreSupport
+import com.example.myapplication.persistence.GameHistoryRepository
+import com.example.myapplication.persistence.createSettings
+import com.example.myapplication.share.androidPgnSharer
 import android.content.pm.ApplicationInfo
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
@@ -35,16 +40,21 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(SYSTEM_BAR_SCRIM)
         )
 
-        holder.gameViewModel.attachEngine(createStockfishEngine())
+        holder.attachEngine(createStockfishEngine())
         attachMoveCoach(isDebug)
 
+        val appSettings = AppSettings(createSettings("chess"))
+        // PgnSharer needs the host Activity (for ACTION_SEND), so it's built here, not in the holder.
+        val pgnSharer = androidPgnSharer(this)
+
         setContent {
-            MyApplicationTheme {
-                ChessApp(
-                    viewModel = holder.gameViewModel,
-                    board3D = androidx.compose.runtime.remember { com.example.myapplication.board3d.androidBoard3DSupport() }
-                )
-            }
+            AppRoot(
+                viewModel = holder.gameViewModel,
+                settings = appSettings,
+                board3D = androidx.compose.runtime.remember { com.example.myapplication.board3d.androidBoard3DSupport() },
+                gameHistory = holder.gameHistory,
+                pgnSharer = pgnSharer,
+            )
         }
     }
 
@@ -129,8 +139,34 @@ class MainActivity : ComponentActivity() {
 }
 
 class AndroidGameViewModel : ViewModel() {
-    val gameViewModel = GameViewModel()
     @Volatile var isForeground: Boolean = true
+    // Autosave + resume-later (Phase 2): the store is created once for the holder's lifetime
+    // (survives config changes) and seeded into the VM. A saved game is loaded here so the VM
+    // starts from the restored state; if the saved game was already over it's cleared and a fresh
+    // game starts instead (CurrentGameStoreSupport.loadInitialState).
+    private val settings = createSettings("chess")
+    private val currentGameStore = CurrentGameStore(settings)
+    private val restoredState = CurrentGameStoreSupport.loadInitialState(currentGameStore)
+    // Seed the VM's runtime show3D + engine difficulty from the persisted settings (first install:
+    // 3D on, MEDIUM difficulty).
+    private val appSettings = AppSettings(settings)
+    val gameViewModel = GameViewModel(
+        restoredState.state, currentGameStore,
+        initialShow3D = appSettings.board3DEnabled.value,
+        initialEngineDifficulty = appSettings.engineDifficulty.value,
+    )
+
+    // Phase 3: saved-games history lives on the same Settings backing store, owned by the holder so
+    // it survives config changes (and is observed by the History screen across recompositions).
+    val gameHistory = GameHistoryRepository(settings)
+
+    init {
+        if (restoredState.shouldClear) currentGameStore.clear()
+    }
+
+    fun attachEngine(engine: ChessEngine?) {
+        gameViewModel.attachEngine(engine)
+    }
 
     override fun onCleared() {
         super.onCleared()

@@ -2,7 +2,7 @@ package com.example.myapplication.board3d
 
 /**
  * Shared per-frame interpolation for piece-move transitions, so every backend that drives its own
- * frame loop (desktop Vulkan, Android SceneView) produces the identical vkChess-style arc hop.
+ * frame loop (Filament desktop, Android SceneView) produces the identical vkChess-style arc hop.
  *
  * [baseScene] is the *target* position (the pieces already on their destination squares). Given a
  * [transition] and normalized [progress] in [0,1], this returns a copy of [baseScene] with the

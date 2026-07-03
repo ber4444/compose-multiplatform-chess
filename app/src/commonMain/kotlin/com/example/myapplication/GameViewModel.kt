@@ -5,6 +5,8 @@ import com.example.myapplication.movecoach.MoveCoachContextExtractor
 import com.example.myapplication.movecoach.MoveCoachUiState
 import com.example.ondeviceai.AiCoachOrchestrator
 import com.example.ondeviceai.MoveCoachEvent
+import com.example.myapplication.persistence.CurrentGameStore
+import com.example.myapplication.persistence.GameSnapshotMapper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -15,7 +17,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 class GameViewModel(
-    gameState: GameUiState = GameUiState()
+    gameState: GameUiState = GameUiState(),
+    private val currentGameStore: CurrentGameStore? = null,
+    initialShow3D: Boolean = true,
+    initialEngineDifficulty: EngineDifficulty = EngineDifficulty.MEDIUM,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -31,7 +36,9 @@ class GameViewModel(
     private val _animState = MutableStateFlow(PieceAnimationState())
     val animState: StateFlow<PieceAnimationState> = _animState
 
-    private val _viewState = MutableStateFlow(ViewState())
+    // Seeded from the persisted AppSettings.board3DEnabled at construction (entry points pass it in).
+    // GameScreen re-runs its 3D entry/teardown choreography whenever AppSettings.board3DEnabled flips.
+    private val _viewState = MutableStateFlow(ViewState(show3D = initialShow3D))
     val viewState: StateFlow<ViewState> = _viewState
 
     // Move coach state (plan §8.1). Hidden by default. The panel mounts only when
@@ -46,6 +53,13 @@ class GameViewModel(
     private var coachOrchestrator: AiCoachOrchestrator? = null
     private var coachJob: Job? = null
 
+    /** Current engine difficulty (issue #39 Phase 4). Applied to the engine on attach + on change. */
+    private var engineDifficulty: EngineDifficulty = initialEngineDifficulty
+
+    /** `true` when a real engine (Stockfish) drives Black; `false` = built-in CPU fallback.
+     *  Used for PGN player naming (issue #39 Phase 3: Black = "Stockfish" vs "CPU"). */
+    val engineAttached: Boolean get() = chessEngine != null
+
     companion object {
         private val logger = Logger.withTag("GameViewModel")
     }
@@ -53,6 +67,35 @@ class GameViewModel(
     fun attachEngine(engine: ChessEngine?) {
         chessEngine?.close()
         chessEngine = engine
+        // Apply the current difficulty to the new engine (issue #39 Phase 4). The default no-op
+        // configure() leaves the CPU fallback unaffected; real engines send the setoption.
+        applyDifficulty()
+        // Resume-later: if the game was restored from autosave and it's Black's move, nudge the
+        // turn-driven engine flow (mirrors `animationEnd()`'s Black branch). Skipped when there's
+        // no engine (CPU fallback resumes lazily via `moveCPU`) or the game is already over.
+        maybeResumeBlack()
+    }
+
+    /** Updates the engine difficulty and applies it to the attached engine (issue #39 Phase 4). */
+    fun setEngineDifficulty(difficulty: EngineDifficulty) {
+        engineDifficulty = difficulty
+        applyDifficulty()
+    }
+
+    private fun applyDifficulty() {
+        val engine = chessEngine ?: return
+        scope.launch { engine.configure(engineDifficulty) }
+    }
+
+    private fun maybeResumeBlack() {
+        if (chessEngine == null) return
+        if (_gameState.value.turn != Set.BLACK) return
+        if (_gameState.value.winState != WinState.NONE) return
+        if (_animState.value.pieceToAnimate != null) return  // don't race an in-flight animation
+        gameMoves?.cancel()
+        gameMoves = scope.launch {
+            if (!tryBlackDrawOffer()) moveBlackWithEngine()
+        }
     }
 
     /**
@@ -98,13 +141,6 @@ class GameViewModel(
     fun hideWindow() {
         _viewState.value = viewState.value.copy(buttonLock = true, hideWindow = true)
     }
-
-    data class GameViewState(
-        val hideWindow: Boolean = false,
-        val show3D: Boolean = false,
-        val buttonLock: Boolean = false,
-        val board3DUnavailable: Boolean = false
-    )
 
     fun setShow3D(enabled: Boolean) {
         _viewState.value = viewState.value.copy(show3D = enabled, board3DUnavailable = false)
@@ -174,6 +210,7 @@ class GameViewModel(
                 allyPositions = gameState.value.positionsWhite,
                 allyPieces = _gameState.value.piecesWhite
             )
+            autosave()
 
             val rookMove = castlingRookMove(movingPiece, preMovePosition, newPosition)
 
@@ -198,6 +235,7 @@ class GameViewModel(
             allyPositions = _gameState.value.positionsWhite, allyPieces = _gameState.value.piecesWhite,
             promotion = promotion
         )
+        autosave()
         _animState.value = PieceAnimationState(
             pieceToAnimate = pawn, animatePositionStart = pending.from, animatePositionEnd = pending.to
         )
@@ -251,6 +289,7 @@ class GameViewModel(
                 winState = WinState.DRAW,
                 drawOffer = null
             )
+            autosave()  // terminal: persist the agreed draw so resume shows it (or clears on reload)
         } else {
             _gameState.value = _gameState.value.copy(
                 drawOffer = null,
@@ -278,6 +317,7 @@ class GameViewModel(
         val state = _gameState.value
         if (state.drawOffer == Set.BLACK && state.winState == WinState.NONE) {
             _gameState.value = state.copy(drawOffer = null, winState = WinState.DRAW)
+            autosave()  // terminal draw: persist so resume reflects it
         }
     }
 
@@ -298,13 +338,31 @@ class GameViewModel(
         }
     }
 
-    fun resetGame() {
+    fun resetGame(show3D: Boolean = viewState.value.show3D) {
         logger.i { "Game reset" }
         coachJob?.cancel()
         _coachUiState.value = MoveCoachUiState.Hidden
         _gameState.value = GameUiState()
-        _viewState.value = ViewState()
+        _viewState.value = ViewState(show3D = show3D)
         _animState.value = PieceAnimationState()
+        // The fresh empty game replaces the autosaved one; drop the stale snapshot so a relaunch
+        // doesn't restore into a board the user already abandoned.
+        currentGameStore?.clear()
+    }
+
+    /**
+     * Writes the current game to [currentGameStore] (if configured). Called explicitly at move /
+     * draw-resolution boundaries — **not** on transient `selectedSquare` updates — so the autosave
+     * reflects positions a user would actually want to resume from. Gated on a non-empty board so
+     * the very first save of a brand-new game (before any move) is skipped.
+     */
+    private fun autosave() {
+        val store = currentGameStore ?: return
+        val state = _gameState.value
+        if (state.positionsWhite.isEmpty() && state.positionsBlack.isEmpty()) return
+        runCatching {
+            store.save(GameSnapshotMapper.fromState(state))
+        }.onFailure { logger.w(it) { "Autosave failed" } }
     }
 
     suspend fun moveCPU(
@@ -366,6 +424,7 @@ class GameViewModel(
             allyPieces = allyPieces,
             promotion = selectedMove.promotion
         )
+        autosave()
 
         // Plan §8.2: trigger the coach after Stockfish returns Black's move and
         // before/while the move animation plays. Never blocks move application.
@@ -476,7 +535,8 @@ class GameViewModel(
 
         mutableAllyPositions[pieceIndex] = newPosition
         
-        castlingRookMove(movingPiece, fromPosition, newPosition)?.let { (rookFrom, rookTo) ->
+        val castleRook = castlingRookMove(movingPiece, fromPosition, newPosition)
+        castleRook?.let { (rookFrom, rookTo) ->
             val rookIndex = allyPositions.indexOf(rookFrom)
             if (rookIndex != -1) {
                 mutableAllyPositions[rookIndex] = rookTo
@@ -561,8 +621,35 @@ class GameViewModel(
             else _gameState.value.positionHistory.ifEmpty { listOf(FenConverter.positionKey(_gameState.value)) }
         val newState = movedState.copy(positionHistory = priorHistory + FenConverter.positionKey(movedState))
         val winStateApplied = applyWinConditions(newState)
-        if (winStateApplied.winState != WinState.NONE) return winStateApplied
-        return applyDrawConditions(winStateApplied)
+        val finalState = if (winStateApplied.winState != WinState.NONE) winStateApplied
+                         else applyDrawConditions(winStateApplied)
+
+        // Append a MoveRecord for PGN/history. Built last so SAN's `#`/`+` suffix can use the
+        // post-move win/check evaluation. preMove = _gameState.value (the caller has not yet
+        // published the new state).
+        val preMove = _gameState.value
+        val checkSuffix = when {
+            finalState.winState == WinState.WHITE || finalState.winState == WinState.BLACK -> "#"
+            enemyInCheck -> "+"
+            else -> ""
+        }
+        val record = MoveRecord(
+            uci = UciMoveConverter.appMoveToUci(fromPosition, newPosition) +
+                (promotion?.uciChar?.toString() ?: ""),
+            san = SanConverter.toSan(
+                preMove = preMove,
+                pieceIndex = pieceIndex,
+                from = fromPosition,
+                to = newPosition,
+                movingPiece = movingPiece,
+                isCapture = captureOccurred,
+                promotion = promotion,
+                castleRook = castleRook,
+                checkSuffix = checkSuffix,
+            ),
+            fenAfter = FenConverter.gameStateToFen(finalState),
+        )
+        return finalState.copy(moveHistory = preMove.moveHistory + record)
     }
 
     private fun applyWinConditions(state: GameUiState): GameUiState {

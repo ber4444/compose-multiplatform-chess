@@ -3,19 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <title>Chess</title>
-    <!-- three.js import map — MUST be static in the HTML head, before any module script.
-         Browsers reject import maps injected after module resolution begins, so the dynamic
-         injection ThreeJsChessRenderer used to do was silently ignored on modern browsers and
-         three.js/GLTFLoader/RoomEnvironment failed to resolve. Keeping this static lets the
-         chess3d-renderer module (injected at runtime) resolve the bare specifiers correctly. -->
-    <script type="importmap">
-    {
-        "imports": {
-            "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
-            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
-        }
-    }
-    </script>
     <script type="application/javascript" src="app.js" defer></script>
     <style>
         html, body {

@@ -50,27 +50,6 @@ The 3D renderers use offline-generated papermill environment maps:
 
 These are generated offline for platform renderers and are not produced at runtime.
 
-## LWJGL
-
-Desktop 3D rendering uses LWJGL modules, including Vulkan and shaderc bindings.
-LWJGL is licensed under BSD-3-Clause.
-
-- https://www.lwjgl.org/license
-
-## jgltf-model
-
-Desktop GLB parsing uses `de.javagl:jgltf-model`.
-The library is licensed under MIT.
-
-- https://github.com/javagl/JglTF
-
-## JOML
-
-Desktop 3D rendering uses JOML for vector and matrix math.
-JOML is licensed under MIT.
-
-- https://github.com/JOML-CI/JOML
-
 ## SceneView
 
 Android 3D rendering uses SceneView (`io.github.sceneview:sceneview`) as the Compose-native
@@ -78,8 +57,11 @@ Filament host.
 
 - https://github.com/SceneView/sceneview-android
 
-## wgpu4k
+## Filament
 
-Desktop and Web 3D rendering use `io.ygdrasil:wgpu4k-toolkit`.
+Desktop, Web (Wasm), and iOS 3D rendering use Google's Filament renderer: desktop fetches the native
+C++ release with `tools/fetch_filament_desktop.sh`, web loads `filament.js` at runtime, and iOS
+fetches Filament xcframeworks with `tools/fetch_filament_ios.sh`. Android uses Filament via SceneView
+(above). Filament is licensed under Apache-2.0.
 
-- https://github.com/wgpu4k/wgpu4k
+- https://github.com/google/filament
