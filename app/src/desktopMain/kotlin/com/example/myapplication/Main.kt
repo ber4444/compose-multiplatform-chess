@@ -29,11 +29,14 @@ fun main() = application {
         if (restoredState.shouldClear) currentGameStore.clear()
         onDispose { }
     }
-    val viewModel = remember { GameViewModel(restoredState.state, currentGameStore) }
-    val board3D = remember { desktopBoard3DSupport() }
     val appSettings = remember { AppSettings(settings) }
     val gameHistory = remember { GameHistoryRepository(settings) }
     val pgnSharer = remember { desktopPgnSharer() }
+    val viewModel = remember {
+        // Seed the VM's runtime show3D from the persisted setting (3D on by default).
+        GameViewModel(restoredState.state, currentGameStore, initialShow3D = appSettings.board3DEnabled.value)
+    }
+    val board3D = remember { desktopBoard3DSupport() }
 
     DisposableEffect(Unit) {
         val engine = DesktopStockfishEngine()

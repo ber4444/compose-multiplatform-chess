@@ -26,10 +26,12 @@ fun main() {
             if (restoredState.shouldClear) currentGameStore.clear()
             onDispose { }
         }
-        val viewModel = remember { GameViewModel(restoredState.state, currentGameStore) }
         val appSettings = remember { AppSettings(settings) }
         val gameHistory = remember { GameHistoryRepository(settings) }
         val pgnSharer = remember { wasmPgnSharer() }
+        val viewModel = remember {
+            GameViewModel(restoredState.state, currentGameStore, initialShow3D = appSettings.board3DEnabled.value)
+        }
         LaunchedEffect(Unit) {
             val engine = WasmStockfishEngine()
             if (engine.start()) {

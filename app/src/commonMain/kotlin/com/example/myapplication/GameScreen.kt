@@ -6,6 +6,7 @@ import com.example.myapplication.board3d.BoardSquare
 import com.example.myapplication.board3d.Board3DSessionState
 import com.example.myapplication.persistence.GameActions
 import com.example.myapplication.persistence.GameHistoryRepository
+import com.example.myapplication.persistence.LocalAppSettings
 import com.example.myapplication.share.PgnSharer
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -42,8 +43,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -87,7 +86,6 @@ import game.app.generated.resources.decline_button
 import game.app.generated.resources.draw_offer_declined
 import game.app.generated.resources.draw_offer_prompt
 import game.app.generated.resources.offer_draw_button
-import game.app.generated.resources.board_3d_toggle_label
 import game.app.generated.resources.board_3d_unavailable
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -146,11 +144,44 @@ fun GameScreen(
     val animState by viewModel.animState.collectAsState()
     val viewState by viewModel.viewState.collectAsState()
     val scrollState = rememberScrollState()
+    // The 3D toggle now lives in SettingsScreen and writes to AppSettings.board3DEnabled. Observe it
+    // here (when a settings instance is provided via LocalAppSettings — production always provides
+    // one through AppRoot; tests that render GameScreen without AppRoot see `null` and fall back to
+    // the built-in default, 3D on) and re-run the entry/teardown frame choreography when it flips,
+    // so the loader/teardown overlays behave exactly as they did when the Switch was inline.
+    val appSettings = LocalAppSettings.current
+    val board3DEnabledFlow = remember(appSettings) {
+        appSettings?.board3DEnabled ?: kotlinx.coroutines.flow.MutableStateFlow(true)
+    }
+    val board3DEnabled by board3DEnabledFlow.collectAsState()
     val show3D = viewState.show3D && board3D != null
     val board3DCameraSession = remember { Board3DSessionState() }
     var isEntering3D by remember { mutableStateOf(false) }
     var isTearingDown3D by remember { mutableStateOf(false) }
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+
+    // Bridge the persisted setting → the VM's runtime show3D flag, preserving the exact frame
+    // choreography the old inline Switch used (teardown holds the surface for two frames while the
+    // loader paints; enter gives the surface one frame before mounting). Skipped when there's no
+    // 3D backend or the value didn't actually change relative to current runtime state.
+    LaunchedEffect(board3DEnabled, board3D != null) {
+        if (board3D == null) return@LaunchedEffect
+        if (board3DEnabled && !viewState.show3D) {
+            // Enter 3D.
+            isEntering3D = true
+            withFrameNanos { }
+            viewModel.setShow3D(true)
+            // isEntering3D is cleared by Board3D's onRendererReady/onUnavailable callbacks.
+        } else if (!board3DEnabled && viewState.show3D) {
+            // Tear down 3D. Keep the existing surface mounted while the teardown overlay paints.
+            isTearingDown3D = true
+            withFrameNanos { }
+            withFrameNanos { }
+            viewModel.setShow3D(false)
+            withFrameNanos { }
+            isTearingDown3D = false
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (gameState.winState != WinState.NONE && !viewState.hideWindow) {
@@ -392,8 +423,7 @@ fun GameScreen(
                 .offset(y = switchTopPadding)
                 .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
         ) {
-            // Settings + History entry points (issue #39). Always visible; the rest of this row
-            // (the 3D toggle) only shows when a 3D backend is injected.
+            // Settings + History entry points (issue #39). The 3D toggle moved to SettingsScreen.
             TextButton(
                 onClick = onOpenSettings,
                 modifier = Modifier.testTag("open_settings_button")
@@ -413,57 +443,6 @@ fun GameScreen(
                     text = "History",
                     color = THREE_D_CONTROL_ACCENT_COLOR,
                     style = MaterialTheme.typography.labelLarge
-                )
-            }
-            if (board3D != null) {
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stringResource(Res.string.board_3d_toggle_label),
-                    color = THREE_D_CONTROL_ACCENT_COLOR,
-                    style = MaterialTheme.typography.labelLarge
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Switch(
-                    checked = viewState.show3D,
-                    onCheckedChange = { checked ->
-                        if (!checked && viewState.show3D) {
-                            isTearingDown3D = true
-                            coroutineScope.launch {
-                                // Keep the existing surface mounted while Compose presents the
-                                // loader. Frame boundaries guarantee visible progress without a
-                                // timing guess; the second frame lets its animation advance before
-                                // SceneView/Filament teardown can occupy the UI thread.
-                                withFrameNanos { }
-                                withFrameNanos { }
-                                viewModel.setShow3D(false)
-                                // Disposal/recomposition has completed before controls re-enable.
-                                withFrameNanos { }
-                                isTearingDown3D = false
-                            }
-                        } else {
-                            isEntering3D = checked
-                            coroutineScope.launch {
-                                withFrameNanos { }
-                                viewModel.setShow3D(checked)
-                            }
-                        }
-                    },
-                    enabled = !viewState.buttonLock && !isEntering3D && !isTearingDown3D,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = THREE_D_CONTROL_CONTENT_COLOR,
-                        checkedTrackColor = THREE_D_CONTROL_CONTAINER_COLOR,
-                        checkedBorderColor = THREE_D_CONTROL_ACCENT_COLOR,
-                        uncheckedThumbColor = THREE_D_CONTROL_CONTENT_COLOR,
-                        uncheckedTrackColor = THREE_D_CONTROL_CONTAINER_COLOR,
-                        uncheckedBorderColor = THREE_D_CONTROL_ACCENT_COLOR,
-                        disabledCheckedThumbColor = THREE_D_CONTROL_DISABLED_CONTENT_COLOR,
-                        disabledCheckedTrackColor = THREE_D_CONTROL_CONTAINER_COLOR,
-                        disabledCheckedBorderColor = THREE_D_CONTROL_DISABLED_ACCENT_COLOR,
-                        disabledUncheckedThumbColor = THREE_D_CONTROL_DISABLED_CONTENT_COLOR,
-                        disabledUncheckedTrackColor = THREE_D_CONTROL_CONTAINER_COLOR,
-                        disabledUncheckedBorderColor = THREE_D_CONTROL_DISABLED_ACCENT_COLOR,
-                    ),
-                    modifier = Modifier.testTag("board_3d_toggle")
                 )
             }
         }

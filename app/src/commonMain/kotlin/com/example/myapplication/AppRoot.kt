@@ -78,7 +78,10 @@ fun AppRoot(
                         Text("Game history is unavailable.")
                     }
                 }
-                Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.GAME })
+                Screen.SETTINGS -> SettingsScreen(
+                    onBack = { screen = Screen.GAME },
+                    board3D = board3D,
+                )
             }
         }
     }

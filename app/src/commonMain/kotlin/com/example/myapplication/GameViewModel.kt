@@ -14,7 +14,8 @@ import kotlinx.coroutines.launch
 
 class GameViewModel(
     gameState: GameUiState = GameUiState(),
-    private val currentGameStore: CurrentGameStore? = null
+    private val currentGameStore: CurrentGameStore? = null,
+    initialShow3D: Boolean = true,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -30,7 +31,9 @@ class GameViewModel(
     private val _animState = MutableStateFlow(PieceAnimationState())
     val animState: StateFlow<PieceAnimationState> = _animState
 
-    private val _viewState = MutableStateFlow(ViewState())
+    // Seeded from the persisted AppSettings.board3DEnabled at construction (entry points pass it in).
+    // GameScreen re-runs its 3D entry/teardown choreography whenever AppSettings.board3DEnabled flips.
+    private val _viewState = MutableStateFlow(ViewState(show3D = initialShow3D))
     val viewState: StateFlow<ViewState> = _viewState
 
     private var gameMoves: Job? = null
@@ -74,13 +77,6 @@ class GameViewModel(
     fun hideWindow() {
         _viewState.value = viewState.value.copy(buttonLock = true, hideWindow = true)
     }
-
-    data class GameViewState(
-        val hideWindow: Boolean = false,
-        val show3D: Boolean = false,
-        val buttonLock: Boolean = false,
-        val board3DUnavailable: Boolean = false
-    )
 
     fun setShow3D(enabled: Boolean) {
         _viewState.value = viewState.value.copy(show3D = enabled, board3DUnavailable = false)
