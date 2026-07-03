@@ -27,7 +27,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.board3d.Board3DSupport
 import com.example.myapplication.persistence.AppSettings
+import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.persistence.LocalAppSettings
+import com.example.myapplication.share.PgnSharer
 import com.example.myapplication.ui.theme.MyApplicationTheme
 
 /**
@@ -46,6 +48,8 @@ fun AppRoot(
     viewModel: GameViewModel,
     settings: AppSettings,
     board3D: Board3DSupport? = null,
+    gameHistory: GameHistoryRepository? = null,
+    pgnSharer: PgnSharer? = null,
     switchTopPadding: Dp = 8.dp,
 ) {
     CompositionLocalProvider(LocalAppSettings provides settings) {
@@ -57,26 +61,26 @@ fun AppRoot(
                 Screen.GAME -> ChessApp(
                     viewModel = viewModel,
                     board3D = board3D,
+                    gameHistory = gameHistory,
+                    pgnSharer = pgnSharer,
                     switchTopPadding = switchTopPadding,
                     onOpenHistory = { screen = Screen.HISTORY },
                     onOpenSettings = { screen = Screen.SETTINGS },
                 )
-                Screen.HISTORY -> GameHistoryScreenPlaceholder(onBack = { screen = Screen.GAME })
+                Screen.HISTORY -> if (gameHistory != null) {
+                    GameHistoryScreen(
+                        gameHistory = gameHistory,
+                        pgnSharer = pgnSharer,
+                        onBack = { screen = Screen.GAME },
+                    )
+                } else {
+                    SubScreenScaffold(title = "Game History", onBack = { screen = Screen.GAME }) {
+                        Text("Game history is unavailable.")
+                    }
+                }
                 Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.GAME })
             }
         }
-    }
-}
-
-/**
- * Placeholder for the Game History screen (Phase 3). Exists now so [AppRoot]'s `when` is total and
- * the History entry button on `GameScreen` has somewhere meaningful to navigate.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun GameHistoryScreenPlaceholder(onBack: () -> Unit) {
-    SubScreenScaffold(title = "Game History", onBack = onBack) {
-        Text("Saved games will appear here.")
     }
 }
 
@@ -86,6 +90,7 @@ private fun GameHistoryScreenPlaceholder(onBack: () -> Unit) {
 internal fun SubScreenScaffold(
     title: String,
     onBack: () -> Unit,
+    scrollable: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     Scaffold(
@@ -100,11 +105,12 @@ internal fun SubScreenScaffold(
             )
         }
     ) { padding ->
+        val scrollState = rememberScrollState()
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState()),
+                .then(if (scrollable) Modifier.verticalScroll(scrollState) else Modifier),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.Start,
         ) { content() }

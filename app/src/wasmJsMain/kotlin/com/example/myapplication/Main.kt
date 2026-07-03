@@ -9,7 +9,9 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.CurrentGameStore
 import com.example.myapplication.persistence.CurrentGameStoreSupport
+import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.persistence.createSettings
+import com.example.myapplication.share.wasmPgnSharer
 import co.touchlab.kermit.Logger
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -26,6 +28,8 @@ fun main() {
         }
         val viewModel = remember { GameViewModel(restoredState.state, currentGameStore) }
         val appSettings = remember { AppSettings(settings) }
+        val gameHistory = remember { GameHistoryRepository(settings) }
+        val pgnSharer = remember { wasmPgnSharer() }
         LaunchedEffect(Unit) {
             val engine = WasmStockfishEngine()
             if (engine.start()) {
@@ -42,7 +46,9 @@ fun main() {
         AppRoot(
             viewModel = viewModel,
             settings = appSettings,
-            board3D = com.example.myapplication.board3d.wasmBoard3DSupport(viewModel)
+            board3D = com.example.myapplication.board3d.wasmBoard3DSupport(viewModel),
+            gameHistory = gameHistory,
+            pgnSharer = pgnSharer,
         )
     }
 }

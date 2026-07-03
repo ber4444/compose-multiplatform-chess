@@ -11,7 +11,9 @@ import androidx.lifecycle.ViewModel
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.CurrentGameStore
 import com.example.myapplication.persistence.CurrentGameStoreSupport
+import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.persistence.createSettings
+import com.example.myapplication.share.androidPgnSharer
 import android.content.pm.ApplicationInfo
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
@@ -35,12 +37,16 @@ class MainActivity : ComponentActivity() {
         holder.attachEngine(createStockfishEngine())
 
         val appSettings = AppSettings(createSettings("chess"))
+        // PgnSharer needs the host Activity (for ACTION_SEND), so it's built here, not in the holder.
+        val pgnSharer = androidPgnSharer(this)
 
         setContent {
             AppRoot(
                 viewModel = holder.gameViewModel,
                 settings = appSettings,
-                board3D = androidx.compose.runtime.remember { com.example.myapplication.board3d.androidBoard3DSupport() }
+                board3D = androidx.compose.runtime.remember { com.example.myapplication.board3d.androidBoard3DSupport() },
+                gameHistory = holder.gameHistory,
+                pgnSharer = pgnSharer,
             )
         }
     }
@@ -71,9 +77,14 @@ class AndroidGameViewModel : ViewModel() {
     // (survives config changes) and seeded into the VM. A saved game is loaded here so the VM
     // starts from the restored state; if the saved game was already over it's cleared and a fresh
     // game starts instead (CurrentGameStoreSupport.loadInitialState).
-    private val currentGameStore = CurrentGameStore(createSettings("chess"))
+    private val settings = createSettings("chess")
+    private val currentGameStore = CurrentGameStore(settings)
     private val restoredState = CurrentGameStoreSupport.loadInitialState(currentGameStore)
     val gameViewModel = GameViewModel(restoredState.state, currentGameStore)
+
+    // Phase 3: saved-games history lives on the same Settings backing store, owned by the holder so
+    // it survives config changes (and is observed by the History screen across recompositions).
+    val gameHistory = GameHistoryRepository(settings)
 
     init {
         if (restoredState.shouldClear) currentGameStore.clear()
