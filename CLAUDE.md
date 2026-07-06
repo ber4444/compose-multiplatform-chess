@@ -38,15 +38,18 @@ then runs `:app:connectedAndroidDeviceTest` on an API 35 emulator. A change isn'
 
 ## Module and source-set structure
 
-Two Gradle modules:
+Three Gradle modules:
 
-- `:app` — KMP library holding all UI, game rules, and resources. Targets: `android` (via `com.android.kotlin.multiplatform.library` plugin), `jvm("desktop")`, `wasmJs`.
+- `:chess-core` — the Compose-free, platform-agnostic chess engine core: all game rules, FEN/UCI/SAN/PGN converters, `GameViewModel`, and the pure-Kotlin 3D-board math/scene mapping. Targets: `android`, `jvm("desktop")`, `iosArm64`, `iosSimulatorArm64`, `js(IR)`, `wasmJs`. Published to GitHub Packages as `io.github.ber4444:chess-core` (see `.github/workflows/publish-chess-core.yml`) so the React Native repo `ber4444/react-native-kotlin-multiplatform-chess` can consume it with zero Kotlin duplication. Boundary rules — **no Compose** (no `androidx.compose.*`, no `DrawableResource`, no `@Composable`, no `@Immutable`), **no russhwolf/Settings**, **no `java.lang.Process`**, no platform glue. This is the single source of truth for chess logic.
+- `:app` — KMP library holding all UI, platform glue, and resources. Depends on `:chess-core` via `api(project(":chess-core"))`. Targets: `android` (via `com.android.kotlin.multiplatform.library` plugin), `jvm("desktop")`, `wasmJs`.
 - `:androidApp` — thin Android application wrapper (manifest, launcher icons) that depends on `:app`.
 
 `gradle.properties` sets `kotlin.mpp.applyDefaultHierarchyTemplate=false`, so the source-set hierarchy is manual. The KMP module graph is organized as follows:
 
 ```text
-commonMain
+chess-core commonMain            (pure Kotlin; published as io.github.ber4444:chess-core)
+
+:app commonMain
  ├── jvmCommonMain
  │    ├── androidMain
  │    └── desktopMain
@@ -57,6 +60,16 @@ commonMain
 A custom intermediate source set `jvmCommonMain` sits between `commonMain` and the two JVM-backed targets (`androidMain`, `desktopMain`); it holds process/IO code that can't live in commonMain (Wasm has no `java.lang.Process`). `iosMain` dependsOn commonMain holding `MainViewController`; `iosSimulatorArm64Test` holds Compose UI tests; `iosApp/` Xcode project is generated using XcodeGen (`project.yml` as source of truth — regenerate with `xcodegen generate`).
 
 All code uses package `com.example.myapplication` even though the project is named `game`. Generated compose resources class is `game.app.generated.resources`.
+
+### chess-core ↔ :app boundary (do not re-couple)
+
+The core was extracted from `:app` with three deliberate seams. **Do not undo them** — they keep the core publishable as a Compose-free artifact:
+
+- **Piece drawables** — the `Piece` interface has **no** `asset` field. `:app` resolves a piece's 2D drawable via the `Piece.asset()` extension in `app/src/commonMain/.../PieceAssets.kt` (it returns a `DrawableResource`). The core must never reference `DrawableResource` / `Res.drawable.*` / `game.app.generated.resources`.
+- **`@Immutable`** — was stripped from core types (`GameUiState`, `Piece` classes, `MoveRecord`). It's a Compose stability hint with no runtime effect; `:app`'s Compose compiler re-infers stability (all are immutable-by-construction). Do not re-add `androidx.compose.runtime.Immutable` to core files.
+- **Persistence** — `GameViewModel` takes an optional `GameSnapshotSink` (a core interface: `save(GameSnapshot)` / `clear()`), **not** the russhwolf-backed `CurrentGameStore`. `:app` adapts its store via `CurrentGameStore.asSnapshotSink()` (in `persistence/CurrentGameStore.kt`). `GameSnapshot` + `GameSnapshotMapper` live in the core's top-level package so the VM can build snapshots without pulling in platform persistence.
+
+When editing chess logic, ask: *does this need Compose, platform I/O, or russhwolf?* If not, it belongs in `:chess-core`. The `:chess-core` module is the source the RN repo compiles against — re-coupling it breaks that consumer.
 
 ### Expect/Actual Boundaries & Platform Glue Fences
 
