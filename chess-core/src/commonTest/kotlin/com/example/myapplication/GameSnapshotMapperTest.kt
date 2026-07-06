@@ -1,10 +1,5 @@
-package com.example.myapplication.persistence
+package com.example.myapplication
 
-import com.example.myapplication.CastlingRights
-import com.example.myapplication.FenConverter
-import com.example.myapplication.GameUiState
-import com.example.myapplication.WinState
-import com.example.myapplication.Set
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull

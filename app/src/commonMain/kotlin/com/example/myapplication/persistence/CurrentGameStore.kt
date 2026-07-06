@@ -1,5 +1,8 @@
 package com.example.myapplication.persistence
 
+import com.example.myapplication.GameSnapshot
+import com.example.myapplication.GameSnapshotMapper
+import com.example.myapplication.GameSnapshotSink
 import com.example.myapplication.GameUiState
 import com.example.myapplication.WinState
 import com.russhwolf.settings.Settings
@@ -33,6 +36,17 @@ class CurrentGameStore(
         const val KEY = "current_game.v1"
     }
 }
+
+/**
+ * Bridges the core's platform-neutral [GameSnapshotSink] to the russhwolf-backed
+ * [CurrentGameStore]. Entry points wrap their `CurrentGameStore` in this and pass it to
+ * `GameViewModel(snapshotSink = ...)` so the VM can autosave without knowing the storage backend.
+ */
+fun CurrentGameStore.asSnapshotSink(): GameSnapshotSink =
+    object : GameSnapshotSink {
+        override fun save(snapshot: GameSnapshot) = this@asSnapshotSink.save(snapshot)
+        override fun clear() = this@asSnapshotSink.clear()
+    }
 
 /**
  * Decides whether the autosaved game (if any) should be restored. Per the plan: a game that already

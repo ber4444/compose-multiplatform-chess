@@ -12,6 +12,7 @@ import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.CurrentGameStore
 import com.example.myapplication.persistence.CurrentGameStoreSupport
 import com.example.myapplication.persistence.GameHistoryRepository
+import com.example.myapplication.persistence.asSnapshotSink
 import com.example.myapplication.persistence.createSettings
 import com.example.myapplication.share.androidPgnSharer
 import android.content.pm.ApplicationInfo
@@ -84,7 +85,8 @@ class AndroidGameViewModel : ViewModel() {
     // 3D on, MEDIUM difficulty).
     private val appSettings = AppSettings(settings)
     val gameViewModel = GameViewModel(
-        restoredState.state, currentGameStore,
+        restoredState.state,
+        snapshotSink = currentGameStore.asSnapshotSink(),
         initialShow3D = appSettings.board3DEnabled.value,
         initialEngineDifficulty = appSettings.engineDifficulty.value,
     )

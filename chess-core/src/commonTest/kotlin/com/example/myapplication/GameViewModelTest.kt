@@ -4,6 +4,7 @@ import kotlin.test.assertTrue
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 
 class GameViewModelTest {
     private val viewModel = GameViewModel()
@@ -342,20 +343,31 @@ class GameViewModelTest {
     }
 
     // --- Phase 2: autosave + resume-later ---
+    // These exercise the core's [GameSnapshotSink] seam with an in-memory test double. The real
+    // russhwolf-backed `CurrentGameStore` (and its `MapSettings`-based test) lives in `:app`'s
+    // androidDeviceTest (AutoSaveRestoreTest) since it depends on russhwolf.
+
+    /** In-memory [GameSnapshotSink] capturing the last save + clear count for assertions. */
+    private class RecordingSnapshotSink : GameSnapshotSink {
+        var saved: GameSnapshot? = null
+        var saveCount = 0
+        var clearCount = 0
+        override fun save(snapshot: GameSnapshot) { saved = snapshot; saveCount++ }
+        override fun clear() { saved = null; clearCount++ }
+    }
 
     @Test
     fun `playing a move triggers an autosave`() = kotlinx.coroutines.test.runTest {
-        val backing = com.example.myapplication.persistence.MapSettings()
-        val store = com.example.myapplication.persistence.CurrentGameStore(backing)
-        val viewModel = GameViewModel(currentGameStore = store)
+        val sink = RecordingSnapshotSink()
+        val viewModel = GameViewModel(snapshotSink = sink)
 
         viewModel.moveCPU(Set.WHITE) { _, _, _, _ ->
             SelectedMove(Pair(4, 4), viewModel.gameState.value.positionsWhite.indexOf(Pair(6, 4)))
         }
 
-        // The autosave key is populated and decodes to a snapshot with the expected move count.
-        assertTrue(backing.hasKey(com.example.myapplication.persistence.CurrentGameStore.KEY))
-        val snapshot = store.load()
+        // The autosave fired once and captured a snapshot with the expected move count.
+        assertEquals(1, sink.saveCount)
+        val snapshot = sink.saved
         assertEquals(1, snapshot?.moveHistory?.size)
         assertEquals(viewModel.gameState.value.turn, snapshot!!.fen.split(" ").elementAt(1).let {
             if (it == "w") Set.WHITE else Set.BLACK
@@ -364,25 +376,24 @@ class GameViewModelTest {
 
     @Test
     fun `resetGame clears the autosave`() = kotlinx.coroutines.test.runTest {
-        val backing = com.example.myapplication.persistence.MapSettings()
-        val store = com.example.myapplication.persistence.CurrentGameStore(backing)
-        val viewModel = GameViewModel(currentGameStore = store)
+        val sink = RecordingSnapshotSink()
+        val viewModel = GameViewModel(snapshotSink = sink)
 
         viewModel.moveCPU(Set.WHITE) { _, _, _, _ ->
             SelectedMove(Pair(4, 4), viewModel.gameState.value.positionsWhite.indexOf(Pair(6, 4)))
         }
-        assertTrue(backing.hasKey(com.example.myapplication.persistence.CurrentGameStore.KEY))
+        assertEquals(1, sink.saveCount)
 
         viewModel.resetGame()
-        assertFalse(backing.hasKey(com.example.myapplication.persistence.CurrentGameStore.KEY))
+        assertEquals(1, sink.clearCount)
+        assertNull(sink.saved)
     }
 
     @Test
     fun `a VM constructed from a restored snapshot reproduces the same gameState`() = kotlinx.coroutines.test.runTest {
         // Play two moves on VM A, autosave fires after each.
-        val backing = com.example.myapplication.persistence.MapSettings()
-        val storeA = com.example.myapplication.persistence.CurrentGameStore(backing)
-        val vmA = GameViewModel(currentGameStore = storeA)
+        val sink = RecordingSnapshotSink()
+        val vmA = GameViewModel(snapshotSink = sink)
         vmA.moveCPU(Set.WHITE) { _, _, _, _ ->
             SelectedMove(Pair(4, 4), vmA.gameState.value.positionsWhite.indexOf(Pair(6, 4)))
         }
@@ -390,9 +401,9 @@ class GameViewModelTest {
             SelectedMove(Pair(3, 4), vmA.gameState.value.positionsBlack.indexOf(Pair(1, 4)))
         }
 
-        // Simulate process death: load the snapshot, build a fresh VM from it.
-        val snapshot = storeA.load()!!
-        val restored = com.example.myapplication.persistence.GameSnapshotMapper.toState(snapshot)
+        // Simulate process death: rebuild a GameUiState from the last snapshot, build a fresh VM.
+        val snapshot = sink.saved!!
+        val restored = GameSnapshotMapper.toState(snapshot)
         val vmB = GameViewModel(restored)
 
         // Board + move list reproduce. Compare via FEN (lossless board) + SAN list — GameUiState's

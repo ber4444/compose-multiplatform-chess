@@ -1,6 +1,5 @@
 package com.example.myapplication
 
-import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 
 /**
@@ -13,7 +12,6 @@ import kotlinx.serialization.Serializable
  * - [fenAfter] is the full FEN after the move — handy for history scrubbing, validation, and the
  *   Phase 3 "load saved game" affordance.
  */
-@Immutable
 @Serializable
 data class MoveRecord(
     val uci: String,

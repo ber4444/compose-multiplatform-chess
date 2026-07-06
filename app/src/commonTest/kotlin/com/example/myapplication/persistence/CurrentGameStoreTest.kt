@@ -1,6 +1,7 @@
 package com.example.myapplication.persistence
 
 import com.example.myapplication.FenConverter
+import com.example.myapplication.GameSnapshot
 import com.example.myapplication.GameUiState
 import com.example.myapplication.WinState
 import kotlin.test.Test

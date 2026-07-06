@@ -10,6 +10,7 @@ import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.CurrentGameStore
 import com.example.myapplication.persistence.CurrentGameStoreSupport
 import com.example.myapplication.persistence.GameHistoryRepository
+import com.example.myapplication.persistence.asSnapshotSink
 import com.example.myapplication.persistence.createSettings
 import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CoroutineScope
@@ -35,7 +36,8 @@ fun main() = application {
     val viewModel = remember {
         // Seed the VM's runtime show3D + engine difficulty from the persisted settings.
         GameViewModel(
-            restoredState.state, currentGameStore,
+            restoredState.state,
+            snapshotSink = currentGameStore.asSnapshotSink(),
             initialShow3D = appSettings.board3DEnabled.value,
             initialEngineDifficulty = appSettings.engineDifficulty.value,
         )

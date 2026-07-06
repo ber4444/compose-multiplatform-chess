@@ -1,15 +1,11 @@
 package com.example.myapplication
 
-import androidx.compose.runtime.Immutable
-
-@Immutable
 data class PendingPromotion(
     val pieceIndex: Int,        // index into piecesWhite/positionsWhite
     val from: Pair<Int, Int>,
     val to: Pair<Int, Int>      // back-rank square, possibly a capture
 )
 
-@Immutable
 data class CastlingRights(
     val whiteKingside: Boolean = true,
     val whiteQueenside: Boolean = true,
@@ -19,7 +15,6 @@ data class CastlingRights(
     companion object { val NONE = CastlingRights(false, false, false, false) }
 }
 
-@Immutable
 data class GameUiState(
     val turn: Set = Set.WHITE,
 
@@ -71,7 +66,6 @@ enum class WinState {
     STALEMATE   // The game is over because no more moves can be made by a Player (no winner)
 }
 
-@Immutable
 data class ViewState (
     val hideWindow: Boolean = false,        // If the gameOver window should be hidden
     val buttonLock : Boolean = false,       // Lock all game modifying buttons (doesn't include reset/exit)

@@ -56,5 +56,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "game"
+include(":chess-core")
 include(":app")
 include(":androidApp")
