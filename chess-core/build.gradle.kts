@@ -81,6 +81,14 @@ val chessCoreVersion: String =
         ?: project.findProperty("chessCoreVersion") as? String
         ?: "0.1.0").removePrefix("chess-core-v")
 
+// Set the project group + version so EVERY auto-generated publication KGP creates (the umbrella
+// `kotlinMultiplatform` one and the per-target ones — desktop, js, android, wasmJs) shares the same
+// coordinates. Without this the per-target publications fall back to the Gradle default group/name
+// and a `unspecified` version, which (a) makes them unresolvable as a versioned dep and (b)
+// 409-conflicts on re-publish since `unspecified` already exists from a prior publish.
+group = "io.github.ber4444"
+version = chessCoreVersion
+
 plugins.withId("maven-publish") {
     configure<PublishingExtension> {
         repositories {
@@ -93,25 +101,22 @@ plugins.withId("maven-publish") {
                 }
             }
         }
-        publications {
-            register<MavenPublication>("gpr") {
-                groupId = "io.github.ber4444"
-                artifactId = "chess-core"
-                version = chessCoreVersion
-                from(components["kotlin"])
-                pom {
-                    name.set("chess-core")
-                    description.set("Compose-free Kotlin Multiplatform chess engine core (rules, FEN/UCI/SAN/PGN, GameViewModel, 3D-board math).")
+        // Apply shared POM metadata to every KGP-generated publication (kotlinMultiplatform + the
+        // per-target ones). We don't create a manual publication: `from(components["kotlin"])` would
+        // duplicate the umbrella, and KGP's auto-generated publications already cover every target.
+        publications.withType<MavenPublication> {
+            pom {
+                name.set("chess-core")
+                description.set("Compose-free Kotlin Multiplatform chess engine core (rules, FEN/UCI/SAN/PGN, GameViewModel, 3D-board math).")
+                url.set("https://github.com/ber4444/compose-multiplatform-chess")
+                licenses {
+                    license {
+                        name.set("GNU General Public License v3.0")
+                        url.set("https://www.gnu.org/licenses/gpl-3.0.txt")
+                    }
+                }
+                scm {
                     url.set("https://github.com/ber4444/compose-multiplatform-chess")
-                    licenses {
-                        license {
-                            name.set("GNU General Public License v3.0")
-                            url.set("https://www.gnu.org/licenses/gpl-3.0.txt")
-                        }
-                    }
-                    scm {
-                        url.set("https://github.com/ber4444/compose-multiplatform-chess")
-                    }
                 }
             }
         }
