@@ -2,13 +2,13 @@ package com.example.myapplication
 
 import kotlin.math.abs
 
-const val DRAW_ACCEPT_THRESHOLD_CP = 100      // Black accepts immediately when worse by at least 1 pawn
-const val DRAW_OFFER_EVAL_WINDOW_CP = 60      // Black offers when |eval| <= this
-const val DRAW_OFFER_MIN_FULLMOVE = 20
-const val DRAW_OFFER_MIN_HALFMOVE_CLOCK = 8
-const val DRAW_OFFER_COOLDOWN_FULLMOVES = 10
+internal const val DRAW_ACCEPT_THRESHOLD_CP = 100      // Black accepts immediately when worse by at least 1 pawn
+internal const val DRAW_OFFER_EVAL_WINDOW_CP = 60      // Black offers when |eval| <= this
+internal const val DRAW_OFFER_MIN_FULLMOVE = 20
+internal const val DRAW_OFFER_MIN_HALFMOVE_CLOCK = 8
+internal const val DRAW_OFFER_COOLDOWN_FULLMOVES = 10
 
-fun pieceValueCp(piece: Piece): Int = when (piece) {
+internal fun pieceValueCp(piece: Piece): Int = when (piece) {
     is Pawn -> 100
     is Knight -> 320
     is Bishop -> 330
@@ -18,28 +18,28 @@ fun pieceValueCp(piece: Piece): Int = when (piece) {
     else -> 0 // Should not happen
 }
 
-fun materialBalanceCp(state: GameUiState): Int {
+internal fun materialBalanceCp(state: GameUiState): Int {
     val whiteSum = state.piecesWhite.sumOf { pieceValueCp(it) }
     val blackSum = state.piecesBlack.sumOf { pieceValueCp(it) }
     return whiteSum - blackSum
 }
 
-suspend fun evaluatePositionCp(engine: ChessEngine?, state: GameUiState): Int =
+internal suspend fun evaluatePositionCp(engine: ChessEngine?, state: GameUiState): Int =
     engine?.evaluate(FenConverter.gameStateToFen(state)) ?: materialBalanceCp(state)
 
-fun shouldBlackAcceptDraw(evalCp: Int): Boolean = evalCp >= DRAW_ACCEPT_THRESHOLD_CP
+internal fun shouldBlackAcceptDraw(evalCp: Int): Boolean = evalCp >= DRAW_ACCEPT_THRESHOLD_CP
 
-fun shouldBlackAcceptDraw(evalCp: Int, state: GameUiState): Boolean =
+internal fun shouldBlackAcceptDraw(evalCp: Int, state: GameUiState): Boolean =
     shouldBlackAcceptDraw(evalCp) ||
         (isQuietMatureDrawOfferPosition(state) && shouldBlackOfferDraw(evalCp))
 
-fun shouldBlackOfferDraw(evalCp: Int): Boolean = abs(evalCp) <= DRAW_OFFER_EVAL_WINDOW_CP
+internal fun shouldBlackOfferDraw(evalCp: Int): Boolean = abs(evalCp) <= DRAW_OFFER_EVAL_WINDOW_CP
 
 private fun isQuietMatureDrawOfferPosition(state: GameUiState): Boolean =
     state.fullmoveNumber >= DRAW_OFFER_MIN_FULLMOVE &&
         state.halfmoveClock >= DRAW_OFFER_MIN_HALFMOVE_CLOCK
 
-fun blackDrawOfferPreconditions(state: GameUiState): Boolean {
+internal fun blackDrawOfferPreconditions(state: GameUiState): Boolean {
     return state.winState == WinState.NONE && state.drawOffer == null && state.pendingPromotion == null &&
         state.fullmoveNumber >= DRAW_OFFER_MIN_FULLMOVE && state.halfmoveClock >= DRAW_OFFER_MIN_HALFMOVE_CLOCK &&
         (state.lastDrawOfferFullmove == 0 || state.fullmoveNumber - state.lastDrawOfferFullmove >= DRAW_OFFER_COOLDOWN_FULLMOVES)
