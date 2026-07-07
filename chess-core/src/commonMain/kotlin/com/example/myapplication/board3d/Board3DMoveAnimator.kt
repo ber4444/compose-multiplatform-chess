@@ -10,7 +10,7 @@ package com.example.myapplication.board3d
  * promoting pawn kept as a pawn until the move completes. At [progress] >= 1 the result equals
  * [baseScene].
  */
-object Board3DMoveAnimator {
+internal object Board3DMoveAnimator {
 
     /** How far (world units) a captured piece sinks through the board over the move. */
     private const val CAPTURE_SINK_DEPTH = 2.0f

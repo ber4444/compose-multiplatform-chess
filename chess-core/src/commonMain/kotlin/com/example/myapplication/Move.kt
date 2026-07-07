@@ -8,12 +8,12 @@ private val logger = Logger.withTag("Move")
 //  y and x values must always be between 0 and 8
 val INVALID_POSITION = Pair(-1, -1)
 
-val WHITE_KING_HOME = Pair(7, 4)
-val WHITE_KS_ROOK_HOME = Pair(7, 7)
-val WHITE_QS_ROOK_HOME = Pair(7, 0)
-val BLACK_KING_HOME = Pair(0, 4)
-val BLACK_KS_ROOK_HOME = Pair(0, 7)
-val BLACK_QS_ROOK_HOME = Pair(0, 0)
+internal val WHITE_KING_HOME = Pair(7, 4)
+internal val WHITE_KS_ROOK_HOME = Pair(7, 7)
+internal val WHITE_QS_ROOK_HOME = Pair(7, 0)
+internal val BLACK_KING_HOME = Pair(0, 4)
+internal val BLACK_KS_ROOK_HOME = Pair(0, 7)
+internal val BLACK_QS_ROOK_HOME = Pair(0, 0)
 
 data class SelectedMove(
     val position: Pair<Int, Int>,
@@ -21,11 +21,11 @@ data class SelectedMove(
     val promotion: PromotionType? = null
 )
 
-fun isPromotionMove(piece: Piece, newPosition: Pair<Int, Int>): Boolean =
+internal fun isPromotionMove(piece: Piece, newPosition: Pair<Int, Int>): Boolean =
     piece is Pawn && newPosition.first == if (piece.set == Set.WHITE) 0 else BOARD_SIZE - 1
 
 // Return a randomly selected move
-fun pickMoveRandom(
+internal fun pickMoveRandom(
     enemyPositions: List<Pair<Int, Int>>,
     enemyPieces: List<Piece>,
     allyPositions: List<Pair<Int, Int>>,
@@ -71,7 +71,7 @@ fun pickMoveRandom(
  * @param allyPieces The current team's pieces
  * @return A Pair of (new position, piece index) representing the chosen move
  */
-suspend fun pickMoveStockfish(
+internal suspend fun pickMoveStockfish(
     engine: ChessEngine?,
     gameState: GameUiState,
     enemyPositions: List<Pair<Int, Int>>,
@@ -146,7 +146,7 @@ fun pickMoveCPU(
 }
 
 // Get the possible moves for all ally Pieces
-fun getPossibleMoves(
+internal fun getPossibleMoves(
     enemyPositions: List<Pair<Int, Int>>,
     //enemyPieces: List<Piece>, // [REMOVE]: Could pass to getValidMoves to determine if a taken move would put the Enemy King in Check (not efficient, only needed for CPU)
     allyPositions: List<Pair<Int, Int>>,
@@ -170,7 +170,7 @@ fun getPossibleMoves(
 }
 
 // Return if the King is in Check/Checkmate
-fun checkCheck(
+internal fun checkCheck(
     kingPosition : Pair<Int, Int>,
     enemyPositions: List<Pair<Int, Int>>,
     enemyPieces: List<Piece>,
@@ -270,7 +270,7 @@ fun checkCheck(
 }
 
 // Return if the given team has any valid moves
-fun hasLegalMoves(
+internal fun hasLegalMoves(
     enemyPositions: List<Pair<Int, Int>>,
     enemyPieces: List<Piece>,
     allyPositions: List<Pair<Int, Int>>,
@@ -333,7 +333,7 @@ fun getLegalMovesForPiece(
     return allLegalMoves.filter { it.second == pieceIndex }.map { it.first }
 }
 
-fun getAllLegalMoves(
+internal fun getAllLegalMoves(
     enemyPositions: List<Pair<Int, Int>>,
     enemyPieces: List<Piece>,
     allyPositions: List<Pair<Int, Int>>,
@@ -376,7 +376,7 @@ fun getAllLegalMoves(
 }
 
 // Returns (rookFrom, rookTo) if this king move is castling, else null
-fun castlingRookMove(piece: Piece, from: Pair<Int, Int>, to: Pair<Int, Int>): Pair<Pair<Int, Int>, Pair<Int, Int>>? {
+internal fun castlingRookMove(piece: Piece, from: Pair<Int, Int>, to: Pair<Int, Int>): Pair<Pair<Int, Int>, Pair<Int, Int>>? {
     if (piece !is King || kotlin.math.abs(to.second - from.second) != 2) return null
     val row = to.first
     return if (to.second == 6) { // Kingside
@@ -386,7 +386,7 @@ fun castlingRookMove(piece: Piece, from: Pair<Int, Int>, to: Pair<Int, Int>): Pa
     }
 }
 
-fun getCastlingMoves(
+internal fun getCastlingMoves(
     castlingRights: CastlingRights,
     enemyPositions: List<Pair<Int, Int>>,
     enemyPieces: List<Piece>,
@@ -464,7 +464,7 @@ fun getCastlingMoves(
     return castlingMoves
 }
 
-fun getEnPassantMoves(
+internal fun getEnPassantMoves(
     enPassantTarget: Pair<Int, Int>?,
     enemyPositions: List<Pair<Int, Int>>,
     enemyPieces: List<Piece>,
