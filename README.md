@@ -36,6 +36,28 @@ because they are large generated dependencies and are intentionally gitignored.
 
 ## Architecture & Features
 
+### Modules
+
+The project is split into three Gradle modules:
+
+- **`:chess-core`** — the Compose-free, platform-agnostic chess engine core (all game rules,
+  FEN/UCI/SAN/PGN converters, `GameViewModel`, and the pure-Kotlin 3D-board math/scene mapping). It
+  has **no Compose, no russhwolf/Settings, no `java.lang.Process`**. Targets: Android, JVM (desktop),
+  iOS (arm64/simulator), **JS (IR)**, and Wasm. Published to GitHub Packages as
+  **`io.github.ber4444:chess-core`** (tag-driven: push `chess-core-v*` → `publish-chess-core.yml`
+  publishes that version). Consumed by `:app` (below) and by the
+  [React Native port](https://github.com/ber4444/react-native-kotlin-multiplatform-chess), so there
+  is **no duplicated Kotlin** across the two repos — bump `chessCoreVersion` to pick up core changes.
+- **`:app`** — the Compose Multiplatform app: all UI screens, platform glue, Stockfish bridges, and
+  the 3D renderers. Depends on `:chess-core` via `api(project(":chess-core"))`.
+- **`:androidApp`** — thin Android application wrapper (manifest, launcher icons) that depends on `:app`.
+
+The core↔app boundary is enforced by three seams (don't re-couple them):
+  - `Piece` has no `asset` field; `:app` resolves drawables via `PieceAssets.asset()`.
+  - Core types have no `@Immutable` (Compose stability hints); `:app`'s compiler re-infers stability.
+  - `GameViewModel` takes a `GameSnapshotSink` (core interface), not the russhwolf `CurrentGameStore`;
+    `:app` adapts via `CurrentGameStore.asSnapshotSink()`.
+
 ### 3D Rendering Pipeline
 
 ```mermaid
@@ -88,7 +110,8 @@ graph TD
 
 ## Project layout
 
-- `app/src/commonMain` shared chess UI, game rules, and compose resources
+- `chess-core/src/commonMain` the Compose-free chess engine core (rules, FEN/UCI/SAN/PGN, `GameViewModel`, board3d math) — published as `io.github.ber4444:chess-core`
+- `app/src/commonMain` the Compose UI, persistence, share, and 3D renderer glue (depends on `:chess-core`)
 - `app/src/androidMain` Android-specific shared implementation and Stockfish integration
 - `androidApp/src/main` Android application manifest that depends on the shared KMP module
 - `app/src/desktopMain` desktop launcher
@@ -100,6 +123,8 @@ Third-party asset and dependency notices live in [THIRD_PARTY_NOTICES.md](THIRD_
 
 ## Useful Gradle tasks
 
+- `./gradlew :chess-core:check` runs the chess-core test suite across all targets (desktop + iOS sim + JS)
+- `./gradlew :chess-core:jsNodeTest` runs just the Kotlin/JS tests (the target the React Native port consumes)
 - `./gradlew test` runs shared unit tests
 - `./gradlew :androidApp:assembleDebug :androidApp:installDebug` builds and installs the Android app
 - `./gradlew :app:run` launches the desktop app
@@ -108,6 +133,21 @@ Third-party asset and dependency notices live in [THIRD_PARTY_NOTICES.md](THIRD_
 - `./gradlew :app:connectedAndroidDeviceTest` runs Android UI tests
 - `./gradlew :app:iosSimulatorArm64Test` runs iOS Compose UI tests
 - `./gradlew :app:desktopTest --tests "*board3d*"` runs the 3D desktop tests (DesktopRendererSmokeTest writes `build/chess3d-*.png` to eyeball the render)
+- `./gradlew :chess-core:publishToMavenLocal` publishes `io.github.ber4444:chess-core` to the local Maven cache (for local cross-repo iteration)
 - `tools/ios_3d_screenshot.sh` captures the real iOS 3D board from a booted simulator
+
+### Publishing `chess-core`
+
+The core is published to GitHub Packages from CI (`.github/workflows/publish-chess-core.yml`), driven
+by a tag. To publish a new version:
+
+```bash
+git tag -a chess-core-v0.2.0 -m "Publish io.github.ber4444:chess-core:0.2.0"
+git push origin chess-core-v0.2.0
+```
+
+The version is the tag with the `chess-core-v` prefix stripped. Consumers (the RN port, or any other
+Kotlin project) add the GitHub Packages Maven repo (auth: PAT with `read:packages`) and depend on
+`io.github.ber4444:chess-core:<version>`.
 
 [Article with screenshots](https://medium.com/p/f6a983db0e45)
