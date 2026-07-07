@@ -7,7 +7,10 @@ private let sharedMoveTimeMs = 1_000
 // can exceed sharedEvalResponseTimeout on slow/contended machines (e.g. a debug build oversubscribed on
 // a 3-core CI runner), returning nil. A movetime bound always finishes within the response timeout.
 private let sharedEvalMoveTimeMs = 2_000
-private let sharedReadyTimeout: TimeInterval = 30
+// Generous on purpose: a cold start on a contended CI runner (Debug build, 3 cores) can spend 30-40s
+// loading NNUE before the engine acknowledges `readyok`. The previous 30s timeout produced intermittent
+// "Move was nil!" failures on the first Swift test (the engine wasn't ready when the search began).
+private let sharedReadyTimeout: TimeInterval = 90
 private let sharedBestMoveResponseTimeout: TimeInterval = 20
 private let sharedEvalResponseTimeout: TimeInterval = 8
 private let sharedStopGraceTimeout: TimeInterval = 5
@@ -29,8 +32,15 @@ private final class SharedStockfishCore {
     let engine = Engine(type: .stockfish)
     let requestLock = NSLock()
     let stateQueue = DispatchQueue(label: "stockfish.adapter.state")
+    // `readySemaphore` is awaited from a sync context (runSearch runs on a background DispatchQueue,
+    // not in an async task), so a DispatchSemaphore is correct there. For the uciok handshake below
+    // (which runs inside an async Task) we use a continuation instead — blocking a DispatchSemaphore
+    // from async code is a Swift 6 language-mode error.
     let readySemaphore = DispatchSemaphore(value: 0)
     var isReady = false
+    var isUciOk = false
+    // Resumed when the engine acknowledges `uciok`. Set under stateQueue; read by the startup task.
+    var uciOkContinuation: CheckedContinuation<Void, Never>?
     var pendingCompletion: ((String?) -> Void)?
     var lastRawScoreCp: Int32?
     // Engine difficulty (issue #39 Phase 4). Defaults to full-strength Stockfish; configure() lowers
@@ -40,33 +50,59 @@ private final class SharedStockfishCore {
     var evalMoveTimeMs: Int = sharedEvalMoveTimeMs
 
     private init() {
+        // Startup handshake (must be a strict sequence to avoid dropping responses on a cold start):
+        //   1. start the engine + get the response stream
+        //   2. START ITERATING the stream BEFORE sending any commands — ChessKitEngine's stream is
+        //      hot, so a `readyok`/`bestmove` emitted before `for await` begins is lost forever.
+        //      This was the root cause of the intermittent "Move was nil!" failures: the `isready`
+        //      reply (and sometimes the first `bestmove`) was emitted before the consumer loop ran.
+        //   3. send `uci`, await `uciok` (engine accepts `setoption` only after `uciok`)
+        //   4. send NNUE EvalFile/EvalFileSmall setoptions + Skill Level
+        //   5. send `isready`; `readyok` is awaited lazily by the first runSearch via readySemaphore.
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
             await self.engine.start()
             guard let stream = await self.engine.responseStream else { return }
+
+            // Launch the consumer FIRST so no response is missed, then drive the handshake.
             Task {
-                while !(await self.engine.isRunning) {
-                    try? await Task.sleep(nanoseconds: 50_000_000)
-                }
-                if let big = Bundle.main.url(forResource: "nn-1111cefa1111", withExtension: "nnue") {
-                    await self.engine.send(command: .setoption(id: "EvalFile", value: big.path))
-                }
-                if let small = Bundle.main.url(forResource: "nn-37f18f62d772", withExtension: "nnue") {
-                    await self.engine.send(command: .setoption(id: "EvalFileSmall", value: small.path))
-                }
-                // Apply any difficulty configured before the engine came up.
-                if let level = self.stateQueue.sync(execute: { self.skillLevel }) {
-                    await self.engine.send(command: .setoption(id: "Skill Level", value: String(level)))
-                }
-                await self.engine.send(command: .isready)
+                for await response in stream { self.handle(response) }
             }
-            for await response in stream { self.handle(response) }
+            // Give the consumer a chance to start iterating before we send `uci`. The stream buffers
+            // responses that arrive in the gap, so this is belt-and-suspenders.
+            try? await Task.sleep(nanoseconds: 100_000_000)
+
+            await self.engine.send(command: .uci)
+            // Await uciok before sending setoptions. NNUE setoptions sent before uciok can be silently
+            // dropped, leaving the engine unusable and readyok never arriving.
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                self.stateQueue.sync {
+                    // If uciok already arrived (fast path), resume immediately; else stash the cont.
+                    if self.isUciOk { cont.resume() } else { self.uciOkContinuation = cont }
+                }
+            }
+
+            if let big = Bundle.main.url(forResource: "nn-1111cefa1111", withExtension: "nnue") {
+                await self.engine.send(command: .setoption(id: "EvalFile", value: big.path))
+            }
+            if let small = Bundle.main.url(forResource: "nn-37f18f62d772", withExtension: "nnue") {
+                await self.engine.send(command: .setoption(id: "EvalFileSmall", value: small.path))
+            }
+            // Apply any difficulty configured before the engine came up.
+            if let level = self.stateQueue.sync(execute: { self.skillLevel }) {
+                await self.engine.send(command: .setoption(id: "Skill Level", value: String(level)))
+            }
+            await self.engine.send(command: .isready)
         }
     }
-    
+
     private func handle(_ response: EngineResponse) {
         stateQueue.sync {
             switch response {
+            case .uciok:
+                isUciOk = true
+                uciOkContinuation?.resume()
+                uciOkContinuation = nil
             case .readyok:
                 if !isReady { isReady = true; readySemaphore.signal() }
             case let .info(info):
