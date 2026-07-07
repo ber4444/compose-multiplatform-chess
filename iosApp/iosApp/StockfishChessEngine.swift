@@ -41,9 +41,13 @@ private final class SharedStockfishCore {
 
     private init() {
         Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self, let stream = await self.engine.responseStream else { return }
+            guard let self else { return }
+            await self.engine.start()
+            guard let stream = await self.engine.responseStream else { return }
             Task {
-                await self.engine.start()
+                while !(await self.engine.isRunning) {
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                }
                 if let big = Bundle.main.url(forResource: "nn-1111cefa1111", withExtension: "nnue") {
                     await self.engine.send(command: .setoption(id: "EvalFile", value: big.path))
                 }
