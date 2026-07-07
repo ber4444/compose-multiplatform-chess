@@ -7,7 +7,10 @@ private let sharedMoveTimeMs = 1_000
 // can exceed sharedEvalResponseTimeout on slow/contended machines (e.g. a debug build oversubscribed on
 // a 3-core CI runner), returning nil. A movetime bound always finishes within the response timeout.
 private let sharedEvalMoveTimeMs = 2_000
-private let sharedReadyTimeout: TimeInterval = 30
+// Generous on purpose: a cold start on a contended CI runner (Debug build, 3 cores) can spend 30-40s
+// loading NNUE before the engine acknowledges `readyok`. The previous 30s timeout produced intermittent
+// "Move was nil!" failures on the first Swift test (the engine wasn't ready when the search began).
+private let sharedReadyTimeout: TimeInterval = 90
 private let sharedBestMoveResponseTimeout: TimeInterval = 20
 private let sharedEvalResponseTimeout: TimeInterval = 8
 private let sharedStopGraceTimeout: TimeInterval = 5
@@ -29,6 +32,9 @@ private final class SharedStockfishCore {
     let engine = Engine(type: .stockfish)
     let requestLock = NSLock()
     let stateQueue = DispatchQueue(label: "stockfish.adapter.state")
+    // Awaited from a sync context (runSearch runs on a background DispatchQueue, not an async task),
+    // so a DispatchSemaphore is correct here. The startup handshake below drives ALL command/response
+    // sequencing inline from a single consumer `for await` loop — no cross-task signaling needed.
     let readySemaphore = DispatchSemaphore(value: 0)
     var isReady = false
     var pendingCompletion: ((String?) -> Void)?
@@ -40,31 +46,59 @@ private final class SharedStockfishCore {
     var evalMoveTimeMs: Int = sharedEvalMoveTimeMs
 
     private init() {
+        // Startup + runtime response processing in ONE consumer task. Driving the UCI handshake inline
+        // (uci → uciok → setoptions → isready → readyok) from the `for await` loop is race-free: the
+        // loop is single-threaded over the stream, so commands are sent in exact order and no response
+        // is ever missed.
+        //
+        // This fixes the intermittent cold-start crash/failure that hit the Swift tests on CI. The
+        // prior structure (a separate handshake Task racing a consumer Task, plus a
+        // CheckedContinuation for uciok) could crash when the continuation was abandoned, and the
+        // original could drop readyok because the consumer started iterating after `isready` was sent.
         Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self, let stream = await self.engine.responseStream else { return }
-            Task {
-                await self.engine.start()
-                if let big = Bundle.main.url(forResource: "nn-1111cefa1111", withExtension: "nnue") {
-                    await self.engine.send(command: .setoption(id: "EvalFile", value: big.path))
+            guard let self else { return }
+            await self.engine.start()
+            guard let stream = await self.engine.responseStream else { return }
+
+            // Kick off the handshake. The loop processes each response and sends the next command.
+            await self.engine.send(command: .uci)
+
+            var handshakeDone = false
+            for await response in stream {
+                // After the handshake, route responses to the shared handler (info/bestmove/...).
+                if handshakeDone {
+                    self.handleRuntime(response)
+                    continue
                 }
-                if let small = Bundle.main.url(forResource: "nn-37f18f62d772", withExtension: "nnue") {
-                    await self.engine.send(command: .setoption(id: "EvalFileSmall", value: small.path))
+                switch response {
+                case .uciok:
+                    // Engine now accepts setoptions. Send NNUE + difficulty, then isready.
+                    if let big = Bundle.main.url(forResource: "nn-1111cefa1111", withExtension: "nnue") {
+                        await self.engine.send(command: .setoption(id: "EvalFile", value: big.path))
+                    }
+                    if let small = Bundle.main.url(forResource: "nn-37f18f62d772", withExtension: "nnue") {
+                        await self.engine.send(command: .setoption(id: "EvalFileSmall", value: small.path))
+                    }
+                    if let level = self.stateQueue.sync(execute: { self.skillLevel }) {
+                        await self.engine.send(command: .setoption(id: "Skill Level", value: String(level)))
+                    }
+                    await self.engine.send(command: .isready)
+                case .readyok:
+                    // Engine has loaded NNUE and is ready to search.
+                    self.stateQueue.sync { self.isReady = true }
+                    self.readySemaphore.signal()
+                    handshakeDone = true
+                default:
+                    break   // id / info during handshake — ignore
                 }
-                // Apply any difficulty configured before the engine came up.
-                if let level = self.stateQueue.sync(execute: { self.skillLevel }) {
-                    await self.engine.send(command: .setoption(id: "Skill Level", value: String(level)))
-                }
-                await self.engine.send(command: .isready)
             }
-            for await response in stream { self.handle(response) }
         }
     }
-    
-    private func handle(_ response: EngineResponse) {
+
+    /// Routes post-handshake engine responses (info scores, bestmove) to the shared mutable state.
+    private func handleRuntime(_ response: EngineResponse) {
         stateQueue.sync {
             switch response {
-            case .readyok:
-                if !isReady { isReady = true; readySemaphore.signal() }
             case let .info(info):
                 if let score = info.score {
                     if let cp = score.cp {
@@ -76,11 +110,12 @@ private final class SharedStockfishCore {
             case let .bestmove(move, _):
                 pendingCompletion?(move)
                 pendingCompletion = nil
-            default: break
+            default:
+                break   // readyok/uciok re-emits are harmless after startup
             }
         }
     }
-    
+
     func waitUntilReady() -> Bool {
         if stateQueue.sync(execute: { isReady }) { return true }
         guard readySemaphore.wait(timeout: .now() + sharedReadyTimeout) == .success else { return false }
