@@ -88,7 +88,7 @@ jobs:
         run: tools/fetch_filament_desktop.sh
 
       - name: Build Android, Linux desktop, and Wasm targets
-        run: ./gradlew :androidApp:assembleDebug :app:assembleAndroidDeviceTest :app:check :app:desktopJar :app:packageDistributionForCurrentOS :app:wasmJsBrowserDistribution
+        run: ./gradlew :chess-core:check :androidApp:assembleDebug :app:assembleAndroidDeviceTest :app:check :app:desktopJar :app:packageDistributionForCurrentOS :app:wasmJsBrowserDistribution
 
       - name: Run instrumentation tests
         uses: reactivecircus/android-emulator-runner@v2.34.0

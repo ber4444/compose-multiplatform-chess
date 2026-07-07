@@ -1,10 +1,5 @@
-package com.example.myapplication.persistence
+package com.example.myapplication
 
-import com.example.myapplication.GameUiState
-import com.example.myapplication.WinState
-import com.example.myapplication.FenConverter
-import com.example.myapplication.MoveRecord
-import com.example.myapplication.Set
 import kotlinx.serialization.Serializable
 
 /**
@@ -18,6 +13,10 @@ import kotlinx.serialization.Serializable
  *
  * [clockWhiteMillis]/[clockBlackMillis] are reserved for the Phase 5 time-control subsystem; they
  * stay null until then (the mapper seeds the VM with them only when present).
+ *
+ * Lives in the Compose-free `:chess-core` module (top-level package) so [GameViewModel] can build it
+ * without pulling in platform persistence; the `:app` module's `CurrentGameStore` adapts a
+ * [GameSnapshotSink] over its russhwolf backend.
  */
 @Serializable
 data class GameSnapshot(

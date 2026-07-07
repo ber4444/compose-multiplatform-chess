@@ -10,6 +10,7 @@ import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.CurrentGameStore
 import com.example.myapplication.persistence.CurrentGameStoreSupport
 import com.example.myapplication.persistence.GameHistoryRepository
+import com.example.myapplication.persistence.asSnapshotSink
 import com.example.myapplication.persistence.createSettings
 import com.example.myapplication.share.iosPgnSharer
 
@@ -40,7 +41,8 @@ fun MainViewController(
     val pgnSharer = remember { iosPgnSharer() }
     val viewModel = remember {
         GameViewModel(
-            restoredState.state, currentGameStore,
+            restoredState.state,
+            snapshotSink = currentGameStore.asSnapshotSink(),
             initialShow3D = appSettings.board3DEnabled.value,
             initialEngineDifficulty = appSettings.engineDifficulty.value,
         )

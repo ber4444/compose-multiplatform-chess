@@ -1,0 +1,73 @@
+name: Publish chess-core
+
+# Publishes io.github.ber4444:chess-core:<version> to GitHub Packages.
+#
+# Triggers:
+#   - Tag push matching `chess-core-v*` (e.g. `chess-core-v0.1.0` → version `0.1.0`).
+#   - Manual dispatch with an explicit `version` input (for republishing/re-publishing without a tag).
+#
+# The version is derived by stripping the `chess-core-v` prefix from the tag (or taken from the
+# dispatch input) and passed to Gradle via the CHESS_CORE_VERSION env var, which the build file reads.
+# Publishes every KMP target variant (android, jvm, iosArm64, iosSimulatorArm64, js, wasmJs) in one
+# `io.github.ber4444:chess-core` artifact with full Gradle module metadata.
+#
+# Auth: the auto-provided GITHUB_TOKEN has `packages: write` (see permissions below). Consumers
+# (the RN repo) read it with a PAT carrying `read:packages`.
+
+on:
+  push:
+    tags:
+      - 'chess-core-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Publish to GitHub Packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5.0.0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5.0.0
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            # Strip the 'chess-core-v' prefix from the tag → '0.1.0'
+            echo "version=${GITHUB_REF_NAME#chess-core-v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish
+        run: ./gradlew :chess-core:publishAllPublicationsToGitHubPackagesRepository
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHESS_CORE_VERSION: ${{ steps.ver.outputs.version }}
+
+      - name: Summary
+        run: |
+          echo "### Published \`io.github.ber4444:chess-core:${{ steps.ver.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Consumers add the GitHub Packages Maven repo and depend on" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`io.github.ber4444:chess-core:${{ steps.ver.outputs.version }}\` (auth: PAT with \`read:packages\`)." >> "$GITHUB_STEP_SUMMARY"

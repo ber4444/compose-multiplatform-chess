@@ -698,19 +698,21 @@ fun Board(
             }
         }
 
-        if (animState.pieceToAnimate != null) {
+        val primaryPiece = animState.pieceToAnimate
+        if (primaryPiece != null) {
             if (animState.moveIsValid()) {
                 AnimatedChessPiece(
-                    piece = animState.pieceToAnimate,
+                    piece = primaryPiece,
                     squareSizePx = squareSizePx.value,
                     from = animState.animatePositionStart,
                     to = animState.animatePositionEnd,
                     animationEnd = animationEnd
                 )
-                if (animState.secondaryPiece != null) {
+                val secondaryPiece = animState.secondaryPiece
+                if (secondaryPiece != null) {
                     val fallbackSize = if (squareSizePx.value == IntSize.Zero) squareAvgSizePx.value else squareSizePx.value
                     AnimatedChessPiece(
-                        piece = animState.secondaryPiece,
+                        piece = secondaryPiece,
                         squareSizePx = fallbackSize,
                         from = animState.secondaryStart,
                         to = animState.secondaryEnd,
@@ -727,7 +729,7 @@ fun Board(
 @Composable
 fun Piece(pieceModel: Piece) {
     Icon(
-        painter = painterResource(pieceModel.asset),
+        painter = painterResource(pieceModel.asset()),
         tint = Color.Unspecified,
         contentDescription = pieceModel.name
     )

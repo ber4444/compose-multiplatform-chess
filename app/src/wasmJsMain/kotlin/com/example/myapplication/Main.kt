@@ -10,6 +10,7 @@ import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.CurrentGameStore
 import com.example.myapplication.persistence.CurrentGameStoreSupport
 import com.example.myapplication.persistence.GameHistoryRepository
+import com.example.myapplication.persistence.asSnapshotSink
 import com.example.myapplication.persistence.createSettings
 import com.example.myapplication.share.wasmPgnSharer
 import co.touchlab.kermit.Logger
@@ -31,7 +32,8 @@ fun main() {
         val pgnSharer = remember { wasmPgnSharer() }
         val viewModel = remember {
             GameViewModel(
-                restoredState.state, currentGameStore,
+                restoredState.state,
+                snapshotSink = currentGameStore.asSnapshotSink(),
                 initialShow3D = appSettings.board3DEnabled.value,
                 initialEngineDifficulty = appSettings.engineDifficulty.value,
             )

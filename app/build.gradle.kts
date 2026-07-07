@@ -58,10 +58,22 @@ kotlin {
     }
 
     iosArm64 {
-        binaries.framework { baseName = "ChessApp"; isStatic = true }
+        binaries.framework {
+            baseName = "ChessApp"
+            isStatic = true
+            // Export :chess-core so its public types (ChessEngine, GameViewModel, FenConverter, …)
+            // are merged into the ChessApp framework under UNPREFIXED Objective-C names. Without
+            // this, KGP qualifies cross-module types as `Chess_coreChessEngine`, breaking the Swift
+            // conformances (`StockfishChessEngine: ChessEngine`) and MainViewController signatures.
+            export(project(":chess-core"))
+        }
     }
     iosSimulatorArm64 {
-        binaries.framework { baseName = "ChessApp"; isStatic = true }
+        binaries.framework {
+            baseName = "ChessApp"
+            isStatic = true
+            export(project(":chess-core"))
+        }
         // KGP's default simulator device often doesn't exist on current Xcode images.
         testRuns.configureEach {
             deviceId = providers.gradleProperty("iosSimulatorDeviceId").getOrElse("iPhone 17")
@@ -80,6 +92,7 @@ kotlin {
         androidMain { dependsOn(jvmCommonMain) }
 
         commonMain.dependencies {
+            api(project(":chess-core"))
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.material3)

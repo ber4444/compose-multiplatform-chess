@@ -1,8 +1,6 @@
 package com.example.myapplication
 
 import co.touchlab.kermit.Logger
-import com.example.myapplication.persistence.CurrentGameStore
-import com.example.myapplication.persistence.GameSnapshotMapper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -14,7 +12,7 @@ import kotlinx.coroutines.launch
 
 class GameViewModel(
     gameState: GameUiState = GameUiState(),
-    private val currentGameStore: CurrentGameStore? = null,
+    private val snapshotSink: GameSnapshotSink? = null,
     initialShow3D: Boolean = true,
     initialEngineDifficulty: EngineDifficulty = EngineDifficulty.MEDIUM,
 ) {
@@ -295,21 +293,21 @@ class GameViewModel(
         _animState.value = PieceAnimationState()
         // The fresh empty game replaces the autosaved one; drop the stale snapshot so a relaunch
         // doesn't restore into a board the user already abandoned.
-        currentGameStore?.clear()
+        snapshotSink?.clear()
     }
 
     /**
-     * Writes the current game to [currentGameStore] (if configured). Called explicitly at move /
+     * Writes the current game to [snapshotSink] (if configured). Called explicitly at move /
      * draw-resolution boundaries — **not** on transient `selectedSquare` updates — so the autosave
      * reflects positions a user would actually want to resume from. Gated on a non-empty board so
      * the very first save of a brand-new game (before any move) is skipped.
      */
     private fun autosave() {
-        val store = currentGameStore ?: return
+        val sink = snapshotSink ?: return
         val state = _gameState.value
         if (state.positionsWhite.isEmpty() && state.positionsBlack.isEmpty()) return
         runCatching {
-            store.save(GameSnapshotMapper.fromState(state))
+            sink.save(GameSnapshotMapper.fromState(state))
         }.onFailure { logger.w(it) { "Autosave failed" } }
     }
 
