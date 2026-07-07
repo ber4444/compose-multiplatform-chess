@@ -99,7 +99,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           force-avd-creation: true
-          boot-timeout: 600  # Increase boot timeout to 10 minutes
+          emulator-boot-timeout: 600  # Increase boot timeout to 10 minutes
           emulator-options: >
             -no-snapshot-save
             -noaudio
@@ -119,14 +119,16 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: test-results-api-${{ matrix.api-level }}-device-${{ matrix.profile }}
-          path: app/build/reports/androidTests/connected/debug/index.html
+          path: |
+            app/build/reports/androidTests/connected/
+            app/build/outputs/androidTest-results/connected/
 
   # The Apple checks are split into two jobs that run concurrently (Kotlin + Xcode). The previous
   # single job ran them sequentially (~9 min of heavy work); splitting caps wall-clock at the
   # slower of the two instead of their sum, bringing the Apple pipeline in line with the Android one.
   apple-kotlin:
     name: Build + Kotlin checks (iOS sim/desktop tests)
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 40
 
     steps:
@@ -189,7 +191,7 @@ jobs:
 
   apple-xcode:
     name: Build + Xcode checks (iOS app Swift tests)
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 40
 
     steps:
