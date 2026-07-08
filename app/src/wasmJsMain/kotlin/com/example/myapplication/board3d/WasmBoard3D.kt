@@ -5,8 +5,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.foundation.background
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInWindow
@@ -71,9 +72,9 @@ fun WasmBoard3DSurface(
         canvas.id = "board3d-overlay"
         canvas.style.setProperty("position", "absolute")
         canvas.style.setProperty("pointer-events", stacking.pointerEvents)
-        // Compose renders into its own DOM canvas. Appending WebGPU after it made the board canvas
-        // paint over Reset / Offer Draw / the 3D switch. Put the non-interactive WebGPU canvas at
-        // the start of body so Compose remains the top visual and input layer.
+        // Compose renders into its own DOM canvas. Appending the Filament canvas after it made the
+        // board canvas paint over Reset / Offer Draw / the 3D switch. Put the non-interactive Filament
+        // canvas at the start of body so Compose remains the top visual and input layer.
         document.body?.let { body ->
             if (stacking.insertAsFirstBodyChild) body.insertBefore(canvas, body.firstChild)
             else body.appendChild(canvas)
@@ -113,27 +114,22 @@ fun WasmBoard3DSurface(
             }
         }
     }.let {
+        // Punch out the board area in the Compose/Skiko canvas so the Filament canvas behind it
+        // shows through. BlendMode.Clear sets destination pixels to (0,0,0,0) regardless of the
+        // Surface background already drawn — required because the Filament canvas is inserted as the
+        // first body child (behind the Compose canvas) so the board is visible without covering
+        // the controls that Compose draws on top.
         androidx.compose.foundation.layout.Box(
-            modifier = it.background(Color.Black.copy(alpha = 0.01f))
+            modifier = it.drawBehind {
+                drawRect(Color.Black, blendMode = BlendMode.Clear)
+            }
         )
     }
 }
 
 fun wasmBoard3DSupport(viewModel: GameViewModel): Board3DSupport? {
-    if (!hasWebGpu()) return null
-
     return Board3DSupport(
-        rendererFactory = {
-            runCatching {
-                val gpu = getNavigatorGpu() ?: return@runCatching null
-                val adapter = kotlinx.coroutines.withTimeoutOrNull(2000) { awaitPromiseSafe(requestAdapterJs(gpu)) }
-                if (adapter == null) return@runCatching null
-
-                val glb = kotlinx.coroutines.withTimeoutOrNull(5000) { Res.readBytes("files/models/chess.glb") }
-                if (glb == null) return@runCatching null
-                WebGpuChessRenderer(glb)
-            }.getOrNull()
-        },
+        rendererFactory = { FilamentWasmChessRenderer() },
         surfaceContent = { renderer, modifier ->
             WasmBoard3DSurface(renderer, modifier, viewModel)
         }

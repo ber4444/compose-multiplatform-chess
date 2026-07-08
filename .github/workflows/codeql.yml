@@ -1,0 +1,94 @@
+name: "CodeQL Advanced"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '0 0 * * 0'
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
+    timeout-minutes: ${{ (matrix.language == 'swift' && 120) || 360 }}
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - language: actions
+          build-mode: none
+        - language: c-cpp
+          build-mode: none
+        - language: java-kotlin
+          build-mode: manual
+        - language: javascript-typescript
+          build-mode: none
+        - language: swift
+          build-mode: manual
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up JDK
+      if: matrix.language == 'java-kotlin' || matrix.language == 'swift'
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Setup Gradle
+      if: matrix.language == 'java-kotlin' || matrix.language == 'swift'
+      uses: gradle/actions/setup-gradle@v6
+
+    - name: Fetch iOS Filament dependencies
+      if: matrix.language == 'swift'
+      run: tools/fetch_filament_ios.sh
+
+    - name: Ensure test simulator exists
+      if: matrix.language == 'swift'
+      run: |
+        if ! xcrun simctl list devices available | grep -qE "iPhone 16 \("; then
+          xcrun simctl create "iPhone 16" "com.apple.CoreSimulator.SimDeviceType.iPhone-16"
+        fi
+
+    - name: Pre-build everything (Swift optimization)
+      if: matrix.language == 'swift'
+      run: |
+        xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug -destination "platform=iOS Simulator,name=iPhone 16,OS=latest,arch=arm64" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        build-mode: ${{ matrix.build-mode }}
+
+    - name: Fetch Filament desktop dependencies
+      if: matrix.language == 'java-kotlin'
+      run: tools/fetch_filament_desktop.sh
+
+    - name: Build Java-Kotlin
+      if: matrix.language == 'java-kotlin'
+      run: ./gradlew :chess-core:compileAndroidMain :app:compileAndroidMain :androidApp:assembleDebug :app:desktopJar
+
+    - name: Force Swift recompilation
+      if: matrix.language == 'swift'
+      run: find iosApp -name "*.swift" -o -name "*.m" -o -name "*.mm" -exec touch {} +
+
+    - name: Build Swift (Traced)
+      if: matrix.language == 'swift'
+      run: |
+        xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug -destination "platform=iOS Simulator,name=iPhone 16,OS=latest,arch=arm64" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"

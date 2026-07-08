@@ -15,5 +15,7 @@ class WasmStockfishEngine(
 
     override suspend fun evaluate(fen: String): Int? = client.evaluate(fen)
 
+    override suspend fun configure(difficulty: EngineDifficulty) = client.configure(difficulty)
+
     override fun close() = client.close()
 }

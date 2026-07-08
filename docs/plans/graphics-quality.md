@@ -1,5 +1,10 @@
 # Issue #XX — Non-Android Graphics Quality Parity (Web, iOS, Desktop)
 
+> **Status: COMPLETED.** All phases (A–E) delivered. Three.js adopted for web + iOS (via WKWebView);
+> desktop shipped a `HIGH_QUALITY` preset (4× MSAA + 2048² PCF shadow mapping). See verdicts in
+> `docs/plans/web-graphics-spike-result.md` (ADOPTED), `docs/plans/ios-graphics-spike-result.md`
+> (ADOPTED — RealityKit rejected), and `docs/graphics/non-android-quality-findings.md`.
+
 > Self-contained plan for an AI coding agent. Repo: `compose-multiplatform-chess`. Paths relative to repo root. Suggested branch: `graphics-non-android-parity`.
 
 ## Context and decisions (final — do not revisit)
@@ -204,7 +209,47 @@ Goal: consolidate findings, choose next steps, and split any real migrations int
 
 ### Global definition of done
 
-- Baseline capture flows exist for Android, iOS, desktop, and web.
-- Web and iOS spikes are completed and documented.
-- Desktop has a documented quality-preset path.
-- A findings document summarizes the investigation and points to concrete follow-up issues.
+- Baseline capture flows exist for Android, iOS, desktop, and web. ✅
+- Web and iOS spikes are completed and documented. ✅
+- Desktop has a documented quality-preset path. ✅
+- A findings document summarizes the investigation and points to concrete follow-up issues. ✅
+
+## Prior work (issue-32 M7 — folded in from `issue-32-3d-ui-m7-apple-android-fidelity.md`)
+
+M7's goal was to bring the "vkChess look" (papermill HDR environment + image-based lighting +
+filmic tonemapping) to the iOS (SceneKit) and Android (Filament) 3D renderers, matching what
+M6 (desktop) + M4 (web) achieved on WebGPU.
+
+### Android (Filament) — completed, became the reference
+
+Android's SceneView/Filament path got the papermill IBL + skybox assets generated offline via
+Filament's `cmgen` and bundled as `files/env/papermill_ibl.ktx` + `files/env/papermill_skybox.ktx`.
+`AndroidBoard3DSurface` validates those Compose resources before reporting support, then passes
+their Android asset paths to SceneView's `EnvironmentLoader.createKTX1Environment`. This is the
+gold-standard reference renderer that the graphics-quality plan measures every other platform
+against.
+
+### iOS (SceneKit) — implemented but quality was insufficient
+
+M7 wired the papermill cube-map environment into `IosSceneKitChessRenderer`:
+`scene.lightingEnvironment.contents` = 6 EXR cube faces via Core Image,
+`scene.background.contents` = same cube, `cam.wantsHDR = true`, PBR materials with
+roughness/metalness tuned per piece kind. This was an improvement over the pre-M7 flat-color
+lighting environment but still fell short of Android Filament's visual quality — hard shadow
+edges, ~5% warm tint from the Core Image cube decode, and ~¼ stop early highlight clipping.
+
+That quality gap is what triggered this graphics-quality plan. After spiking RealityKit (rejected
+— can't load `.glb`, USDZ conversion loses materials, Sketchfab USDZ materials render as flat
+gray) and Filament-on-iOS (rejected — static-lib-only distribution, no SPM), the three.js via
+WKWebView path was adopted as the iOS successor renderer (see verdict in
+`docs/plans/ios-graphics-spike-result.md`).
+
+### Decisions from M7 (still in effect)
+
+- **Native mobile renderers are the product path** — SceneKit and Filament stay behind the shared
+  renderer contract unless a separate JNI/surface-ownership effort is explicitly approved.
+- **Asset conversion was the main unknown** — resolved by generating platform-specific assets
+  (Filament IBL via cmgen, SceneKit environment via Core Image cube decode from EXR faces).
+- **No dynamic shadows on mobile** (match vkChess + the other backends); SceneKit/Filament soft
+  shadows are an optional extra, out of scope for parity. (Desktop's `HIGH_QUALITY` preset added
+  shadows in Phase D.5; iOS/web will inherit shadows via three.js's `PCFSoftShadowMap`.)

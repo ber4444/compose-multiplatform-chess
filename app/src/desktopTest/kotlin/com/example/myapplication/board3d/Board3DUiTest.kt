@@ -1,47 +1,79 @@
 package com.example.myapplication.board3d
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
 import com.example.myapplication.GameScreen
 import com.example.myapplication.GameViewModel
+import com.example.myapplication.SettingsScreen
 import com.example.myapplication.WindowWidthSizeClass
+import com.example.myapplication.persistence.AppSettings
+import com.example.myapplication.persistence.LocalAppSettings
+import com.example.myapplication.persistence.MapSettings
+import kotlinx.coroutines.CompletableDeferred
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+/**
+ * Wraps `GameScreen` content with a `LocalAppSettings` so the screen's read of
+ * `AppSettings.board3DEnabled` resolves (GameScreen observes the persisted 3D setting to drive its
+ * mount/teardown choreography). Returns the [AppSettings] so tests can drive the toggle via the
+ * real setting path (`setBoard3DEnabled`), which is what fires the entry/teardown `LaunchedEffect`.
+ */
+@OptIn(ExperimentalTestApi::class)
+private fun androidx.compose.ui.test.ComposeUiTest.wrapGame(
+    viewModel: GameViewModel,
+    support: Board3DSupport,
+): AppSettings {
+    val appSettings = AppSettings(MapSettings())
+    setContent {
+        CompositionLocalProvider(LocalAppSettings provides appSettings) {
+            GameScreen(WindowWidthSizeClass.Medium, viewModel, support)
+        }
+    }
+    return appSettings
+}
+
 @OptIn(ExperimentalTestApi::class)
 class Board3DUiTest {
+
+    private fun fakeSupport(renderer: FakeChess3DRenderer) = Board3DSupport(
+        rendererFactory = { renderer },
+        surfaceContent = { r, modifier ->
+            androidx.compose.runtime.DisposableEffect(r) {
+                r.attach(FakeChess3DSurface())
+                onDispose { r.detach() }
+            }
+            Box(modifier)
+        },
+    )
 
     @Test
     fun teardownLoaderIsVisibleBeforeRendererDisposal() = runComposeUiTest {
         val fakeRenderer = FakeChess3DRenderer()
-        val support = Board3DSupport(
-            rendererFactory = { fakeRenderer },
-            surfaceContent = { renderer, modifier ->
-                androidx.compose.runtime.DisposableEffect(renderer) {
-                    renderer.attach(FakeChess3DSurface())
-                    onDispose { renderer.detach() }
-                }
-                Box(modifier)
-            },
-        )
         val viewModel = GameViewModel()
         mainClock.autoAdvance = false
 
-        setContent {
-            GameScreen(WindowWidthSizeClass.Medium, viewModel, support)
-        }
+        val appSettings = wrapGame(viewModel, fakeSupport(fakeRenderer))
         mainClock.advanceTimeByFrame()
         mainClock.advanceTimeByFrame()
 
-        onNodeWithTag("board_3d_toggle").performClick()
+        // Toggle 3D off via the persisted setting (the on-screen Switch moved to SettingsScreen;
+        // GameScreen's LaunchedEffect reacts to board3DEnabled and runs the teardown frames). The
+        // effect relaunch needs a frame, then its first statement sets isTearingDown3D=true.
+        appSettings.setBoard3DEnabled(false)
+        mainClock.advanceTimeByFrame()
         mainClock.advanceTimeByFrame()
 
-        onNodeWithTag("board_3d_tearing_down").assertExists()
+        assertTrue(onAllNodesWithTag("board_3d_tearing_down").fetchSemanticsNodes().isNotEmpty())
         assertEquals(0, fakeRenderer.events.count { it == "dispose" })
 
         mainClock.advanceTimeByFrame()
@@ -54,29 +86,10 @@ class Board3DUiTest {
     @Test
     fun test3DToggleAndFallback() = runComposeUiTest {
         val fakeRenderer = FakeChess3DRenderer()
-        val board3DSupport = Board3DSupport(
-            rendererFactory = { fakeRenderer },
-            surfaceContent = { renderer, modifier -> 
-                androidx.compose.runtime.DisposableEffect(renderer) {
-                    val fakeSurface = FakeChess3DSurface()
-                    renderer.attach(fakeSurface)
-                    onDispose {
-                        renderer.detach()
-                    }
-                }
-                Box(modifier) 
-            }
-        )
-
         val viewModel = GameViewModel()
 
-        setContent {
-            GameScreen(
-                windowSize = WindowWidthSizeClass.Medium,
-                viewModel = viewModel,
-                board3D = board3DSupport
-            )
-        }
+        val appSettings = wrapGame(viewModel, fakeSupport(fakeRenderer))
+        waitForIdle()
 
         // Initially 3D board is shown, 2D is not
         assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isNotEmpty())
@@ -85,8 +98,8 @@ class Board3DUiTest {
         // Verify renderer was attached
         assertEquals(1, fakeRenderer.events.count { it == "attach" })
 
-        // Toggle 3D off
-        viewModel.setShow3D(false)
+        // Toggle 3D off (via the setting → GameScreen's reactive bridge)
+        appSettings.setBoard3DEnabled(false)
         waitForIdle()
 
         // 2D board should be shown, 3D board should NOT be shown
@@ -98,15 +111,91 @@ class Board3DUiTest {
         assertEquals(1, fakeRenderer.events.count { it == "dispose" })
 
         // Toggle 3D on again
-        viewModel.setShow3D(true)
+        appSettings.setBoard3DEnabled(true)
         waitForIdle()
 
         // 3D back, 2D gone
         assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isNotEmpty())
         assertTrue(onAllNodesWithTag("chess_board").fetchSemanticsNodes().isEmpty())
-        
+
         // Verify renderer was attached again
         assertEquals(2, fakeRenderer.events.count { it == "attach" })
+    }
+
+    @Test
+    fun resetKeepsBoardModeFromSettingsWhen3DIsDisabled() = runComposeUiTest {
+        val fakeRenderer = FakeChess3DRenderer()
+        val viewModel = GameViewModel()
+
+        val appSettings = wrapGame(viewModel, fakeSupport(fakeRenderer))
+        waitForIdle()
+
+        appSettings.setBoard3DEnabled(false)
+        waitForIdle()
+        assertTrue(onAllNodesWithTag("chess_board").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isEmpty())
+
+        onNodeWithText("Reset").performClick()
+        waitForIdle()
+
+        assertTrue(onAllNodesWithTag("chess_board").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test
+    fun remounting3DFromSettingsKeepsEnteringOverlayUntilRendererReady() = runComposeUiTest {
+        val firstRenderer = FakeChess3DRenderer()
+        val secondRenderer = FakeChess3DRenderer()
+        val secondRendererReady = CompletableDeferred<Chess3DBoardRenderer?>()
+        var createCount = 0
+        val support = Board3DSupport(
+            rendererFactory = {
+                createCount += 1
+                if (createCount == 1) firstRenderer else secondRendererReady.await()
+            },
+            surfaceContent = { r, modifier ->
+                androidx.compose.runtime.DisposableEffect(r) {
+                    r.attach(FakeChess3DSurface())
+                    onDispose { r.detach() }
+                }
+                Box(modifier)
+            },
+        )
+        val viewModel = GameViewModel()
+        val appSettings = AppSettings(MapSettings())
+        var showingSettings by mutableStateOf(false)
+
+        setContent {
+            CompositionLocalProvider(LocalAppSettings provides appSettings) {
+                if (showingSettings) {
+                    SettingsScreen(onBack = {}, board3D = support)
+                } else {
+                    GameScreen(WindowWidthSizeClass.Medium, viewModel, support)
+                }
+            }
+        }
+        waitForIdle()
+        assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isNotEmpty())
+
+        runOnIdle { showingSettings = true }
+        waitForIdle()
+        assertEquals(1, firstRenderer.events.count { it == "dispose" })
+
+        mainClock.autoAdvance = false
+        runOnIdle { showingSettings = false }
+        mainClock.advanceTimeByFrame()
+        mainClock.advanceTimeByFrame()
+        mainClock.advanceTimeByFrame()
+
+        assertTrue(
+            onAllNodesWithTag("board_3d_entering").fetchSemanticsNodes().isNotEmpty(),
+            "Expected the opaque 3D entering overlay to remain visible while the remounted renderer is still pending"
+        )
+
+        secondRendererReady.complete(secondRenderer)
+        mainClock.autoAdvance = true
+        waitForIdle()
+        assertTrue(onAllNodesWithTag("board_3d").fetchSemanticsNodes().isNotEmpty())
     }
 
     @Test
@@ -117,17 +206,14 @@ class Board3DUiTest {
         )
 
         val viewModel = GameViewModel()
+        val appSettings = wrapGame(viewModel, board3DSupport)
+        waitForIdle()
 
-        setContent {
-            GameScreen(
-                windowSize = WindowWidthSizeClass.Medium,
-                viewModel = viewModel,
-                board3D = board3DSupport
-            )
-        }
-
-        // Toggle 3D on
-        viewModel.setShow3D(true)
+        // Toggle 3D on (the setting starts true; force a flip-flop so the enter effect re-fires
+        // against the failing factory).
+        appSettings.setBoard3DEnabled(false)
+        waitForIdle()
+        appSettings.setBoard3DEnabled(true)
         waitForIdle()
 
         // 2D board is still shown
@@ -141,28 +227,9 @@ class Board3DUiTest {
     @Test
     fun test3DAnimationDelivery() = runComposeUiTest {
         val fakeRenderer = FakeChess3DRenderer()
-        val board3DSupport = Board3DSupport(
-            rendererFactory = { fakeRenderer },
-            surfaceContent = { renderer, modifier -> 
-                androidx.compose.runtime.DisposableEffect(renderer) {
-                    val fakeSurface = FakeChess3DSurface()
-                    renderer.attach(fakeSurface)
-                    onDispose { renderer.detach() }
-                }
-                Box(modifier) 
-            }
-        )
-
         val viewModel = GameViewModel()
 
-        setContent {
-            GameScreen(
-                windowSize = WindowWidthSizeClass.Medium,
-                viewModel = viewModel,
-                board3D = board3DSupport
-            )
-        }
-
+        wrapGame(viewModel, fakeSupport(fakeRenderer))
         waitForIdle()
         fakeRenderer.events.clear()
 
@@ -171,11 +238,11 @@ class Board3DUiTest {
         val e4 = Pair(4, 4)
         viewModel.updateSelected(e2)
         waitForIdle()
-        
+
         // Find index of pawn at e2
         val state = viewModel.gameState.value
         val index = state.positionsWhite.indexOf(e2)
-        
+
         viewModel.playerMove(index, e4)
         waitForIdle()
 

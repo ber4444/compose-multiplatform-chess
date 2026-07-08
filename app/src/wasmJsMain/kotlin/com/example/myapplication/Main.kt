@@ -5,15 +5,39 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.window.ComposeViewport
 import kotlinx.browser.document
-import com.example.myapplication.ui.theme.MyApplicationTheme
 import androidx.compose.ui.ExperimentalComposeUiApi
+import com.example.myapplication.persistence.AppSettings
+import com.example.myapplication.persistence.CurrentGameStore
+import com.example.myapplication.persistence.CurrentGameStoreSupport
+import com.example.myapplication.persistence.GameHistoryRepository
+import com.example.myapplication.persistence.asSnapshotSink
+import com.example.myapplication.persistence.createSettings
+import com.example.myapplication.share.wasmPgnSharer
 import co.touchlab.kermit.Logger
 
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
     document.title = "Chess"
     ComposeViewport("ComposeTarget") {
-        val viewModel = remember { GameViewModel() }
+        // One Settings backing store shared by AppSettings and the autosave store (Phase 2).
+        val settings = remember { createSettings("chess") }
+        val currentGameStore = remember { CurrentGameStore(settings) }
+        val restoredState = remember { CurrentGameStoreSupport.loadInitialState(currentGameStore) }
+        DisposableEffect(Unit) {
+            if (restoredState.shouldClear) currentGameStore.clear()
+            onDispose { }
+        }
+        val appSettings = remember { AppSettings(settings) }
+        val gameHistory = remember { GameHistoryRepository(settings) }
+        val pgnSharer = remember { wasmPgnSharer() }
+        val viewModel = remember {
+            GameViewModel(
+                restoredState.state,
+                snapshotSink = currentGameStore.asSnapshotSink(),
+                initialShow3D = appSettings.board3DEnabled.value,
+                initialEngineDifficulty = appSettings.engineDifficulty.value,
+            )
+        }
         LaunchedEffect(Unit) {
             val engine = WasmStockfishEngine()
             if (engine.start()) {
@@ -27,11 +51,12 @@ fun main() {
             onDispose { viewModel.close() }
         }
 
-        MyApplicationTheme(darkTheme = false) {
-            ChessApp(
-                viewModel = viewModel,
-                board3D = com.example.myapplication.board3d.wasmBoard3DSupport(viewModel)
-            )
-        }
+        AppRoot(
+            viewModel = viewModel,
+            settings = appSettings,
+            board3D = com.example.myapplication.board3d.wasmBoard3DSupport(viewModel),
+            gameHistory = gameHistory,
+            pgnSharer = pgnSharer,
+        )
     }
 }

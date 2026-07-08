@@ -11,10 +11,12 @@
 
 Version: `sf_17`
 
-Downloaded from the official Stockfish GitHub releases:
+Downloaded from the official Stockfish GitHub releases, then manually recompiled from source using NDK 27.1 to enforce 16 KB memory page alignment (`-Wl,-z,max-page-size=16384`) for Android 15 compatibility:
 
 - `https://github.com/official-stockfish/Stockfish/releases/download/sf_17/stockfish-android-armv8.tar`
 - `https://github.com/official-stockfish/Stockfish/releases/download/sf_17/stockfish-android-armv7-neon.tar`
+
+*(Note: While the original binaries were downloaded from the official release, the current binaries in this repository were rebuilt from the `sf_17` tag because the official Android binaries lacked the required 16KB ELF alignment.)*
 
 This version was chosen because the official `sf_18` Android binaries are about 109-110 MB each,
 which exceeds GitHub's 100 MB per-file limit. The `sf_17` Android binaries stay under that limit

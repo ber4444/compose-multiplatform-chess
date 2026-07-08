@@ -4,6 +4,10 @@ import com.example.myapplication.board3d.Board3D
 import com.example.myapplication.board3d.Board3DSupport
 import com.example.myapplication.board3d.BoardSquare
 import com.example.myapplication.board3d.Board3DSessionState
+import com.example.myapplication.persistence.GameActions
+import com.example.myapplication.persistence.GameHistoryRepository
+import com.example.myapplication.persistence.LocalAppSettings
+import com.example.myapplication.share.PgnSharer
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -11,6 +15,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -38,9 +43,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -51,6 +55,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
@@ -80,7 +86,6 @@ import game.app.generated.resources.decline_button
 import game.app.generated.resources.draw_offer_declined
 import game.app.generated.resources.draw_offer_prompt
 import game.app.generated.resources.offer_draw_button
-import game.app.generated.resources.board_3d_toggle_label
 import game.app.generated.resources.board_3d_unavailable
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -88,28 +93,106 @@ import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.roundToInt
 
+internal val THREE_D_CONTROL_CONTAINER_COLOR = Color.Transparent
+internal val THREE_D_CONTROL_CONTENT_COLOR = Color.Black
+internal val THREE_D_CONTROL_ACCENT_COLOR = Color.LightGray.copy(alpha = 0.70f)
+internal val THREE_D_CONTROL_DISABLED_CONTENT_COLOR = Color.Black.copy(alpha = 0.38f)
+internal val THREE_D_CONTROL_DISABLED_ACCENT_COLOR = Color.LightGray.copy(alpha = 0.38f)
+
+@Composable
+private fun TransparentUnderlineButton(
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit,
+) {
+    val underlineColor = if (enabled) THREE_D_CONTROL_ACCENT_COLOR else THREE_D_CONTROL_DISABLED_ACCENT_COLOR
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = THREE_D_CONTROL_CONTAINER_COLOR,
+            contentColor = THREE_D_CONTROL_ACCENT_COLOR,
+            disabledContainerColor = THREE_D_CONTROL_CONTAINER_COLOR,
+            disabledContentColor = THREE_D_CONTROL_DISABLED_ACCENT_COLOR,
+        ),
+        modifier = modifier.drawBehind {
+            val strokeWidth = 1.dp.toPx()
+            drawLine(
+                color = underlineColor,
+                start = Offset(0f, size.height - strokeWidth / 2f),
+                end = Offset(size.width, size.height - strokeWidth / 2f),
+                strokeWidth = strokeWidth,
+            )
+        },
+        content = content,
+    )
+}
+
 @Composable
 fun GameScreen(
     windowSize: WindowWidthSizeClass,
     viewModel: GameViewModel,
     board3D: Board3DSupport? = null,
-    switchTopPadding: Dp = 8.dp
+    gameHistory: GameHistoryRepository? = null,
+    pgnSharer: PgnSharer? = null,
+    switchTopPadding: Dp = 8.dp,
+    onOpenHistory: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
 ) {
     val gameState by viewModel.gameState.collectAsState()
     val animState by viewModel.animState.collectAsState()
     val viewState by viewModel.viewState.collectAsState()
     val scrollState = rememberScrollState()
+    // The 3D toggle now lives in SettingsScreen and writes to AppSettings.board3DEnabled. Observe it
+    // here (when a settings instance is provided via LocalAppSettings — production always provides
+    // one through AppRoot; tests that render GameScreen without AppRoot see `null` and fall back to
+    // the built-in default, 3D on) and re-run the entry/teardown frame choreography when it flips,
+    // so the loader/teardown overlays behave exactly as they did when the Switch was inline.
+    val appSettings = LocalAppSettings.current
+    val board3DEnabledFlow = remember(appSettings) {
+        appSettings?.board3DEnabled ?: kotlinx.coroutines.flow.MutableStateFlow(true)
+    }
+    val board3DEnabled by board3DEnabledFlow.collectAsState()
     val show3D = viewState.show3D && board3D != null
     val board3DCameraSession = remember { Board3DSessionState() }
     var isEntering3D by remember { mutableStateOf(false) }
     var isTearingDown3D by remember { mutableStateOf(false) }
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
+    // Bridge the persisted setting → the VM's runtime show3D flag, preserving the exact frame
+    // choreography the old inline Switch used (teardown holds the surface for two frames while the
+    // loader paints; enter gives the surface one frame before mounting). Skipped when there's no
+    // 3D backend or the value didn't actually change relative to current runtime state.
+    LaunchedEffect(board3DEnabled, board3D != null) {
+        if (board3D == null) return@LaunchedEffect
+        if (board3DEnabled && !viewState.show3D) {
+            // Enter 3D.
+            isEntering3D = true
+            withFrameNanos { }
+            viewModel.setShow3D(true)
+            // isEntering3D is cleared by Board3D's onRendererReady/onUnavailable callbacks.
+        } else if (!board3DEnabled && viewState.show3D) {
+            // Tear down 3D. Keep the existing surface mounted while the teardown overlay paints.
+            isTearingDown3D = true
+            withFrameNanos { }
+            withFrameNanos { }
+            viewModel.setShow3D(false)
+            withFrameNanos { }
+            isTearingDown3D = false
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         if (gameState.winState != WinState.NONE && !viewState.hideWindow) {
+            // `gameSaved` guards against double-saves of the same finished game (tapping "Save game"
+            // twice). Reset whenever a new game-over is shown (winState transitions back to NONE
+            // between games, or hideWindow flips). Keyed on the result token so a genuinely new
+            // finished game can be saved even if the previous popup wasn't dismissed.
+            var gameSaved by remember(gameState.winState, gameState.fullmoveNumber) { mutableStateOf(false) }
             val resetGame = { reset: Boolean ->
                 if (reset) {
-                    viewModel.resetGame()
+                    viewModel.resetGame(show3D = board3DEnabled)
                 } else {
                     viewModel.hideWindow()
                 }
@@ -148,6 +231,43 @@ fun GameScreen(
                         Text(stringResource(Res.string.cancel_button))
                     }
                 }
+
+                // Save / Share PGN (issue #39 Phase 3). Save writes to GameHistory; Share routes
+                // through the platform PgnSharer. Both hidden when there's no gameHistory (Save) /
+                // no pgnSharer (Share) — mirroring the board3D-null gating.
+                if (gameHistory != null || pgnSharer != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (gameHistory != null) {
+                            Button(
+                                modifier = Modifier
+                                    .padding(5.dp)
+                                    .testTag("save_game_button"),
+                                enabled = !gameSaved,
+                                onClick = {
+                                    val saved = GameActions.toSavedGame(gameState, viewModel.engineAttached)
+                                    gameHistory.add(saved)
+                                    gameSaved = true
+                                }
+                            ) {
+                                Text(if (gameSaved) "Saved" else "Save game")
+                            }
+                        }
+                        if (pgnSharer != null) {
+                            Button(
+                                modifier = Modifier
+                                    .padding(5.dp)
+                                    .testTag("share_pgn_button"),
+                                onClick = {
+                                    val pgn = GameActions.toPgn(gameState, viewModel.engineAttached)
+                                    pgnSharer.share(pgn, "game-${PgnSerializer.resultToken(gameState.winState)}.pgn")
+                                }
+                            ) {
+                                Text("Share PGN")
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -171,17 +291,33 @@ fun GameScreen(
                 }
             }
             val fen = remember(gameState) { FenConverter.gameStateToFen(gameState) }
+            // Let the loading overlay paint and start animating before the 3D surface composes.
+            // The platform surface (notably Android SceneView/Filament) builds its scene
+            // synchronously on the UI thread during composition; composing it in the same frame as
+            // the loader leaves the spinner no frame to draw. Hold it back two frames.
+            var surfaceComposeReady by remember { mutableStateOf(false) }
+            var rendererReady by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                withFrameNanos { }
+                withFrameNanos { }
+                surfaceComposeReady = true
+            }
             Box(modifier = Modifier.fillMaxSize()) {
+                if (surfaceComposeReady) {
                 Board3D(
                     support = board3D,
                     fen = fen,
                     modifier = Modifier.fillMaxSize(),
                     onUnavailable = {
                         isEntering3D = false
+                        rendererReady = true
                         viewModel.markBoard3DUnavailable()
                     },
                     cameraSession = board3DCameraSession,
-                    onRendererReady = { isEntering3D = false },
+                    onRendererReady = {
+                        isEntering3D = false
+                        rendererReady = true
+                    },
                     selectedSquare = gameState.selectedSquare
                         .takeIf { it != INVALID_POSITION }
                         ?.let { BoardSquare(it.first, it.second) },
@@ -207,6 +343,20 @@ fun GameScreen(
                     }
                     }
                 )
+                }
+
+                if (isEntering3D || !surfaceComposeReady || !rendererReady) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.White.copy(alpha = 0.85f))
+                            .zIndex(2f)
+                            .testTag("board_3d_entering"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        ChessLoader("Loading 3D Engine")
+                    }
+                }
 
                 if (isTearingDown3D) {
                     Box(
@@ -226,6 +376,7 @@ fun GameScreen(
                 animState = animState,
                 viewState = viewState,
                 viewModel = viewModel,
+                onResetGame = { viewModel.resetGame(show3D = board3DEnabled) },
                 transparentButtons = true,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -233,92 +384,72 @@ fun GameScreen(
                     .padding(16.dp)
             )
         } else {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(scrollState)
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
-            ) {
-                Board(
-                    gameState = gameState,
-                    animState = animState,
-                    windowSize = windowSize,
-                    updateSelected = viewModel::updateSelected,
-                    playerMove = viewModel::playerMove,
-                    animationEnd = viewModel::animationEnd
-                )
+            // Measure the viewport OUTSIDE the verticalScroll — the scroll gives children infinite
+            // max height, so BoxWithConstraints inside it can't cap the board. Capping the board at
+            // min(width, 0.85 × height) keeps it fully visible on wide/landscape windows (web/desktop)
+            // while still using the full width on portrait.
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val boardMaxSize = minOf(maxWidth, maxHeight * 0.85f)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(scrollState)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                ) {
+                    Board(
+                        gameState = gameState,
+                        animState = animState,
+                        windowSize = windowSize,
+                        updateSelected = viewModel::updateSelected,
+                        playerMove = viewModel::playerMove,
+                        animationEnd = viewModel::animationEnd,
+                        boardMaxSize = boardMaxSize,
+                    )
 
-                Spacer(modifier = Modifier.padding(8.dp))
+                    Spacer(modifier = Modifier.padding(8.dp))
 
-                GameControls(
-                    gameState = gameState,
-                    animState = animState,
-                    viewState = viewState,
-                    viewModel = viewModel
-                )
+                    GameControls(
+                        gameState = gameState,
+                        animState = animState,
+                        viewState = viewState,
+                        viewModel = viewModel,
+                        onResetGame = { viewModel.resetGame(show3D = board3DEnabled) }
+                    )
+                }
             }
         }
 
-        if (board3D != null) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .zIndex(1f)
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
-                    .offset(y = switchTopPadding)
-                    .padding(end = 12.dp)
-                    .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .zIndex(1f)
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                .offset(y = switchTopPadding)
+                .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
+        ) {
+            // Settings + History entry points (issue #39). The 3D toggle moved to SettingsScreen.
+            TextButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.testTag("open_settings_button")
             ) {
                 Text(
-                    text = stringResource(Res.string.board_3d_toggle_label),
-                    color = Color.White,
+                    text = "Settings",
+                    color = THREE_D_CONTROL_ACCENT_COLOR,
                     style = MaterialTheme.typography.labelLarge
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                Switch(
-                    checked = viewState.show3D,
-                    onCheckedChange = { checked ->
-                        if (!checked && viewState.show3D) {
-                            isTearingDown3D = true
-                            coroutineScope.launch {
-                                // Keep the existing surface mounted while Compose presents the
-                                // loader. Frame boundaries guarantee visible progress without a
-                                // timing guess; the second frame lets its animation advance before
-                                // SceneView/Filament teardown can occupy the UI thread.
-                                withFrameNanos { }
-                                withFrameNanos { }
-                                viewModel.setShow3D(false)
-                                // Disposal/recomposition has completed before controls re-enable.
-                                withFrameNanos { }
-                                isTearingDown3D = false
-                            }
-                        } else {
-                            isEntering3D = checked
-                            coroutineScope.launch {
-                                withFrameNanos { }
-                                viewModel.setShow3D(checked)
-                            }
-                        }
-                    },
-                    enabled = !viewState.buttonLock && !isEntering3D && !isTearingDown3D,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = Color.Gray.copy(alpha = 0.48f),
-                        checkedBorderColor = Color.White.copy(alpha = 0.22f),
-                        uncheckedThumbColor = Color.White,
-                        uncheckedTrackColor = Color.Gray.copy(alpha = 0.28f),
-                        uncheckedBorderColor = Color.White.copy(alpha = 0.32f),
-                        disabledCheckedThumbColor = Color.White.copy(alpha = 0.42f),
-                        disabledCheckedTrackColor = Color.Gray.copy(alpha = 0.22f),
-                        disabledCheckedBorderColor = Color.White.copy(alpha = 0.16f),
-                        disabledUncheckedThumbColor = Color.White.copy(alpha = 0.32f),
-                        disabledUncheckedTrackColor = Color.Gray.copy(alpha = 0.14f),
-                        disabledUncheckedBorderColor = Color.White.copy(alpha = 0.16f)
-                    ),
-                    modifier = Modifier.testTag("board_3d_toggle")
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+            TextButton(
+                onClick = onOpenHistory,
+                modifier = Modifier.testTag("open_history_button")
+            ) {
+                Text(
+                    text = "History",
+                    color = THREE_D_CONTROL_ACCENT_COLOR,
+                    style = MaterialTheme.typography.labelLarge
                 )
             }
         }
@@ -331,6 +462,7 @@ private fun GameControls(
     animState: PieceAnimationState,
     viewState: ViewState,
     viewModel: GameViewModel,
+    onResetGame: () -> Unit,
     transparentButtons: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -347,29 +479,25 @@ private fun GameControls(
         }
 
         Row {
-            val buttonColors = if (transparentButtons) {
-                ButtonDefaults.buttonColors(
-                    containerColor = Color.Transparent,
-                    contentColor = Color.White,
-                    disabledContainerColor = Color.Transparent,
-                    disabledContentColor = Color.White.copy(alpha = 0.38f)
-                )
+            if (transparentButtons) {
+                TransparentUnderlineButton(onClick = onResetGame) {
+                    Text(stringResource(Res.string.reset_button))
+                }
+                TransparentUnderlineButton(
+                    onClick = viewModel::requestDrawOffer,
+                    enabled = canOfferDraw(gameState) && animState.pieceToAnimate == null,
+                    modifier = Modifier.testTag("offer_draw_button")
+                ) { Text(stringResource(Res.string.offer_draw_button)) }
             } else {
-                ButtonDefaults.buttonColors()
+                Button(onClick = onResetGame) {
+                    Text(stringResource(Res.string.reset_button))
+                }
+                Button(
+                    onClick = viewModel::requestDrawOffer,
+                    enabled = canOfferDraw(gameState) && animState.pieceToAnimate == null,
+                    modifier = Modifier.testTag("offer_draw_button")
+                ) { Text(stringResource(Res.string.offer_draw_button)) }
             }
-
-            Button(
-                onClick = viewModel::resetGame,
-                colors = buttonColors
-            ) {
-                Text(stringResource(Res.string.reset_button))
-            }
-            Button(
-                onClick = viewModel::requestDrawOffer,
-                enabled = canOfferDraw(gameState) && animState.pieceToAnimate == null,
-                colors = buttonColors,
-                modifier = Modifier.testTag("offer_draw_button")
-            ) { Text(stringResource(Res.string.offer_draw_button)) }
         }
 
         if (gameState.drawOfferDeclinedBy == Set.BLACK) {
@@ -438,7 +566,10 @@ fun Board(
     windowSize: WindowWidthSizeClass,
     updateSelected: (Pair<Int, Int>) -> Unit,
     playerMove: (Int, Pair<Int, Int>) -> Unit,
-    animationEnd: () -> Unit
+    animationEnd: () -> Unit,
+    /** Caps the board's size so it fits within the viewport on wide/landscape windows.
+     *  On portrait this equals the full width; on landscape it equals ~85% of the height. */
+    boardMaxSize: Dp = Dp.Unspecified,
 ) {
     val squareSizePx = remember { mutableStateOf(IntSize.Zero) }
     val squareAvgSizePx = remember { mutableStateOf(IntSize.Zero) }
@@ -460,7 +591,7 @@ fun Board(
     }
 
     val boxModifier = Modifier
-        .fillMaxWidth()
+        .then(if (boardMaxSize != Dp.Unspecified) Modifier.size(boardMaxSize) else Modifier.fillMaxWidth())
         .padding(
             when (windowSize) {
                 WindowWidthSizeClass.Expanded -> 18.dp
@@ -567,19 +698,21 @@ fun Board(
             }
         }
 
-        if (animState.pieceToAnimate != null) {
+        val primaryPiece = animState.pieceToAnimate
+        if (primaryPiece != null) {
             if (animState.moveIsValid()) {
                 AnimatedChessPiece(
-                    piece = animState.pieceToAnimate,
+                    piece = primaryPiece,
                     squareSizePx = squareSizePx.value,
                     from = animState.animatePositionStart,
                     to = animState.animatePositionEnd,
                     animationEnd = animationEnd
                 )
-                if (animState.secondaryPiece != null) {
+                val secondaryPiece = animState.secondaryPiece
+                if (secondaryPiece != null) {
                     val fallbackSize = if (squareSizePx.value == IntSize.Zero) squareAvgSizePx.value else squareSizePx.value
                     AnimatedChessPiece(
-                        piece = animState.secondaryPiece,
+                        piece = secondaryPiece,
                         squareSizePx = fallbackSize,
                         from = animState.secondaryStart,
                         to = animState.secondaryEnd,
@@ -596,7 +729,7 @@ fun Board(
 @Composable
 fun Piece(pieceModel: Piece) {
     Icon(
-        painter = painterResource(pieceModel.asset),
+        painter = painterResource(pieceModel.asset()),
         tint = Color.Unspecified,
         contentDescription = pieceModel.name
     )
@@ -642,20 +775,18 @@ fun AnimatedChessPiece(
 
 @Composable
 fun PopupWindow(onDismiss: (Boolean) -> Unit, content: @Composable () -> Unit) {
-    val height = 200.dp
     val cornerRoundness = 25.dp
     val contentPadding = 15.dp
 
     Dialog(onDismissRequest = { onDismiss(false) }) {
         Card(
-            modifier = Modifier.fillMaxWidth().height(height),
+            modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(cornerRoundness),
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
                     .padding(contentPadding)
-                    .wrapContentHeight(),
+                    .wrapContentHeight(Alignment.CenterVertically),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 content()

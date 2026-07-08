@@ -12,9 +12,11 @@ androidx-testExtJunit = "1.3.0"
 espressoDevice = "1.1.0"
 junit = "4.13.2"
 sceneview = "4.18.0"
-wgpu4k = "0.2.0-SNAPSHOT"
+multiplatformSettings = "1.3.0"
+kotlinxSerialization = "1.8.0"
 
 [libraries]
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 kermit = { group = "co.touchlab", name = "kermit", version.ref = "kermit" }
 androidx-compose-ui-test-junit4-android = { group = "androidx.compose.ui", name = "ui-test-junit4-android", version.ref = "androidx-composeUi" }
@@ -25,11 +27,11 @@ androidx-espresso-device = { group = "androidx.test.espresso", name = "espresso-
 androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "androidx-lifecycleRuntimeCompose" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidx-testExtJunit" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
-lwjgl = { module = "org.lwjgl:lwjgl", version = "3.3.6" }
-jgltf-model = { module = "de.javagl:jgltf-model", version = "2.0.4" }
-joml = { module = "org.joml:joml", version = "1.10.8" }
 sceneview = { module = "io.github.sceneview:sceneview", version.ref = "sceneview" }
-wgpu4k-toolkit = { module = "io.ygdrasil:wgpu4k-toolkit", version.ref = "wgpu4k" }
+multiplatform-settings = { module = "com.russhwolf:multiplatform-settings", version.ref = "multiplatformSettings" }
+multiplatform-settings-coroutines = { module = "com.russhwolf:multiplatform-settings-coroutines", version.ref = "multiplatformSettings" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+compose-ui-backhandler = { module = "org.jetbrains.compose.ui:ui-backhandler", version.ref = "composeMultiplatform" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }
@@ -37,3 +39,4 @@ androidKotlinMultiplatformLibrary = { id = "com.android.kotlin.multiplatform.lib
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

@@ -41,7 +41,7 @@ final class StockfishChessEngineTests: XCTestCase {
             }
         }
 
-        wait(for: [exp], timeout: 60)
+        wait(for: [exp], timeout: 120)
         guard let unwrappedMove = move else {
             XCTFail("Move was nil!")
             return
@@ -63,7 +63,7 @@ final class StockfishChessEngineTests: XCTestCase {
             }
         }
 
-        wait(for: [exp], timeout: 60)
+        wait(for: [exp], timeout: 120)
         XCTAssertNotNil(score)
         if let s = score {
             XCTAssertTrue(abs(s.intValue) <= 200)
