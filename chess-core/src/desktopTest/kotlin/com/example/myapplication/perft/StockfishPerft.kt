@@ -1,6 +1,6 @@
 package com.example.myapplication.perft
 
-import com.example.myapplication.DesktopStockfishEngine
+
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.InputStreamReader
