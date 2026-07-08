@@ -49,9 +49,21 @@ jobs:
       if: matrix.language == 'java-kotlin' || matrix.language == 'swift'
       uses: gradle/actions/setup-gradle@v6
 
-    - name: Pre-build Kotlin framework (Swift optimization)
+    - name: Fetch iOS Filament dependencies
       if: matrix.language == 'swift'
-      run: ./gradlew :app:linkDebugFrameworkIosSimulatorArm64
+      run: tools/fetch_filament_ios.sh
+
+    - name: Ensure test simulator exists
+      if: matrix.language == 'swift'
+      run: |
+        if ! xcrun simctl list devices available | grep -qE "iPhone 16 \("; then
+          xcrun simctl create "iPhone 16" "com.apple.CoreSimulator.SimDeviceType.iPhone-16"
+        fi
+
+    - name: Pre-build everything (Swift optimization)
+      if: matrix.language == 'swift'
+      run: |
+        xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug -destination "platform=iOS Simulator,name=iPhone 16,OS=latest,arch=arm64" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
 
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v3
@@ -67,18 +79,11 @@ jobs:
       if: matrix.language == 'java-kotlin'
       run: ./gradlew :chess-core:compileAndroidMain :app:compileAndroidMain :androidApp:assembleDebug :app:desktopJar
 
-    - name: Fetch iOS Filament dependencies
+    - name: Force Swift recompilation
       if: matrix.language == 'swift'
-      run: tools/fetch_filament_ios.sh
+      run: find iosApp -name "*.swift" -o -name "*.m" -o -name "*.mm" -exec touch {} +
 
-    - name: Ensure test simulator exists
-      if: matrix.language == 'swift'
-      run: |
-        if ! xcrun simctl list devices available | grep -qE "iPhone 16 \("; then
-          xcrun simctl create "iPhone 16" "com.apple.CoreSimulator.SimDeviceType.iPhone-16"
-        fi
-
-    - name: Build Swift
+    - name: Build Swift (Traced)
       if: matrix.language == 'swift'
       run: |
         xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug -destination "platform=iOS Simulator,name=iPhone 16,OS=latest,arch=arm64" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
