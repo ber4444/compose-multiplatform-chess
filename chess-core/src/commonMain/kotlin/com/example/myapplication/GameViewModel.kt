@@ -409,18 +409,19 @@ class GameViewModel(
         // post-move win/check evaluation. preMove = _gameState.value (the caller has not yet
         // published the new state).
         val preMove = _gameState.value
-        // Extract variables needed for SAN generation
-        val movingPiece = allyPieces[pieceIndex]
-        val fromPosition = allyPositions[pieceIndex]
-        val captureOccurred = newPosition in enemyPositions || (movingPiece is Pawn && fromPosition.second != newPosition.second && newPosition == preMove.enPassantTarget)
-        val castleRook = castlingRookMove(movingPiece, fromPosition, newPosition)
-        val enemyInCheck = if (turn == Set.WHITE) finalState.inCheckBlack else finalState.inCheckWhite
-
+        val enemyInCheck = if (preMove.turn == Set.WHITE) finalState.inCheckBlack else finalState.inCheckWhite
         val checkSuffix = when {
             finalState.winState == WinState.WHITE || finalState.winState == WinState.BLACK -> "#"
             enemyInCheck -> "+"
             else -> ""
         }
+        
+        val movingPiece = allyPieces[pieceIndex]
+        val fromPosition = allyPositions[pieceIndex]
+        val captureOccurred = newPosition in enemyPositions || 
+            (movingPiece is Pawn && fromPosition.second != newPosition.second && newPosition == preMove.enPassantTarget)
+        val castleRook = castlingRookMove(movingPiece, fromPosition, newPosition)
+
         val record = MoveRecord(
             uci = UciMoveConverter.appMoveToUci(fromPosition, newPosition) +
                 (promotion?.uciChar?.toString() ?: ""),
