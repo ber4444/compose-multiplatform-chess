@@ -13,6 +13,7 @@ class MoveCoachFallbackTest {
         evaluationBeforeCp = 20,
         evaluationAfterCp = 30,
         deterministicTags = tags,
+        engineDifficultyName = "Medium",
     )
 
     @Test

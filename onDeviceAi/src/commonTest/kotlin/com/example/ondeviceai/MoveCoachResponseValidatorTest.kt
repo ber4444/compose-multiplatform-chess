@@ -15,6 +15,7 @@ class MoveCoachResponseValidatorTest {
         evaluationBeforeCp = 20,
         evaluationAfterCp = 30,
         deterministicTags = listOf("develops"),
+        engineDifficultyName = "Medium",
     )
 
     @Test

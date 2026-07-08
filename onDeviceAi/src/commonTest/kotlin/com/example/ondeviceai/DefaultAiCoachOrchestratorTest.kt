@@ -17,6 +17,7 @@ class DefaultAiCoachOrchestratorTest {
         evaluationBeforeCp = 20,
         evaluationAfterCp = 30,
         deterministicTags = listOf("develops"),
+        engineDifficultyName = "Medium",
     )
 
     private fun orchestrator(
