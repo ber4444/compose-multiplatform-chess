@@ -38,12 +38,6 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Initialize CodeQL
-      uses: github/codeql-action/init@v3
-      with:
-        languages: ${{ matrix.language }}
-        build-mode: ${{ matrix.build-mode }}
-
     - name: Set up JDK
       if: matrix.language == 'java-kotlin' || matrix.language == 'swift'
       uses: actions/setup-java@v4
@@ -54,6 +48,16 @@ jobs:
     - name: Setup Gradle
       if: matrix.language == 'java-kotlin' || matrix.language == 'swift'
       uses: gradle/actions/setup-gradle@v6
+
+    - name: Pre-build Kotlin framework (Swift optimization)
+      if: matrix.language == 'swift'
+      run: ./gradlew :app:linkDebugFrameworkIosSimulatorArm64
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        build-mode: ${{ matrix.build-mode }}
 
     - name: Fetch Filament desktop dependencies
       if: matrix.language == 'java-kotlin'
