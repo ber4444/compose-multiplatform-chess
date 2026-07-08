@@ -3,7 +3,7 @@ package com.example.myapplication
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.myapplication.persistence.CurrentGameStore
-import com.example.myapplication.persistence.GameSnapshotMapper
+import com.example.myapplication.persistence.asSnapshotSink
 import com.russhwolf.settings.SharedPreferencesSettings
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -37,7 +37,7 @@ class AutoSaveRestoreTest {
     @Test
     fun playMovesThenRestoreFromStoreReproducesBoard() = runBlocking {
         val store = newStore()
-        val vmA = GameViewModel(currentGameStore = store)
+        val vmA = GameViewModel(snapshotSink = store.asSnapshotSink())
 
         // 1.e4 — CPU WHITE move (no engine; deterministic SelectedMove).
         vmA.moveCPU(Set.WHITE) { _, _, _, _ ->
@@ -75,7 +75,7 @@ class AutoSaveRestoreTest {
     @Test
     fun resetGameClearsTheStore() = runBlocking {
         val store = newStore()
-        val vm = GameViewModel(currentGameStore = store)
+        val vm = GameViewModel(snapshotSink = store.asSnapshotSink())
 
         vm.moveCPU(Set.WHITE) { _, _, _, _ ->
             val from = vm.gameState.value.positionsWhite.indexOf(Pair(6, 4))

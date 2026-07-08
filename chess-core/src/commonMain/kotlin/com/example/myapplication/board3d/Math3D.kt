@@ -34,8 +34,8 @@ data class Vec3(val x: Float, val y: Float, val z: Float) {
  * spline's outer control points by 10 units on a 2-unit-square board (peak hop ~0.6 squares) over
  * ~0.5s; our board uses 1-unit squares, so [PIECE_MOVE_LIFT] is scaled for the same relative hop.
  */
-const val PIECE_MOVE_LIFT: Float = 4f
-const val PIECE_MOVE_DURATION_MS: Long = 500L
+internal const val PIECE_MOVE_LIFT: Float = 4f
+internal const val PIECE_MOVE_DURATION_MS: Long = 500L
 
 /**
  * Arc/hop interpolation carried over from vkChess (`animatePce`): a Catmull-Rom spline through
@@ -44,7 +44,7 @@ const val PIECE_MOVE_DURATION_MS: Long = 500L
  * flat across it. [t] is normalized progress in [0,1]; it returns [start] at 0 and [end] at 1, with
  * a parabolic vertical hop peaking at [liftHeight]/8 around the midpoint.
  */
-fun catmullRomArc(start: Vec3, end: Vec3, t: Float, liftHeight: Float = PIECE_MOVE_LIFT): Vec3 {
+internal fun catmullRomArc(start: Vec3, end: Vec3, t: Float, liftHeight: Float = PIECE_MOVE_LIFT): Vec3 {
     // vUp points "down" (-y) so the lifted outer control points pull the spline's tangents upward,
     // mirroring vkChess where the same vec3(0,-10,0) produced an upward hop in its camera convention.
     val up = Vec3(0f, -liftHeight, 0f)
@@ -66,16 +66,16 @@ fun catmullRomArc(start: Vec3, end: Vec3, t: Float, liftHeight: Float = PIECE_MO
  * the time elapsed since selection: a `|sin|` curve so the piece springs up off the board and lands
  * back on it each cycle.
  */
-const val SELECTION_BOUNCE_HEIGHT: Float = 0.16f
-const val SELECTION_BOUNCE_PERIOD_MS: Long = 520L
+internal const val SELECTION_BOUNCE_HEIGHT: Float = 0.16f
+internal const val SELECTION_BOUNCE_PERIOD_MS: Long = 520L
 
-fun selectionBounceOffset(elapsedMs: Long): Float {
+internal fun selectionBounceOffset(elapsedMs: Long): Float {
     val phase = (elapsedMs % SELECTION_BOUNCE_PERIOD_MS).toFloat() / SELECTION_BOUNCE_PERIOD_MS
     return SELECTION_BOUNCE_HEIGHT * kotlin.math.abs(sin(phase * PI.toFloat()))
 }
 
 /** Copy of this scene with the piece on [square] raised by [dy] (drives the selection bounce). */
-fun Board3DScene.withSelectionLift(square: BoardSquare?, dy: Float): Board3DScene {
+internal fun Board3DScene.withSelectionLift(square: BoardSquare?, dy: Float): Board3DScene {
     if (square == null || dy == 0f) return this
     return copy(pieces = pieces.map { p ->
         if (p.square == square) p.copy(position = p.position.copy(y = p.position.y + dy)) else p

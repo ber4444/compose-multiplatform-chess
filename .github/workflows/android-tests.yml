@@ -27,21 +27,21 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5.0.0
+        uses: actions/checkout@v7
 
       - name: Set up JDK
-        uses: actions/setup-java@v5.0.0
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4.4.0
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3.2.2
+        uses: android-actions/setup-android@v4
 
       - name: Install latest command-line tools
         run: |
@@ -64,10 +64,10 @@ jobs:
         run: rm -rf ~/.android/avd/*
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
     # - name: AVD cache
-    #   uses: actions/cache@v4
+    #   uses: actions/cache@v6
     #   id: avd-cache
     #   with:
     #     path: |
@@ -88,10 +88,10 @@ jobs:
         run: tools/fetch_filament_desktop.sh
 
       - name: Build Android, Linux desktop, and Wasm targets
-        run: ./gradlew :androidApp:assembleDebug :app:assembleAndroidDeviceTest :app:check :app:desktopJar :app:packageDistributionForCurrentOS :app:wasmJsBrowserDistribution
+        run: ./gradlew :chess-core:check :androidApp:assembleDebug :app:assembleAndroidDeviceTest :app:check :app:desktopJar :app:packageDistributionForCurrentOS :app:wasmJsBrowserDistribution
 
       - name: Run instrumentation tests
-        uses: reactivecircus/android-emulator-runner@v2.34.0
+        uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: ${{ matrix.api-level }}
           target: ${{ matrix.target }}
@@ -99,7 +99,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           force-avd-creation: true
-          boot-timeout: 600  # Increase boot timeout to 10 minutes
+          emulator-boot-timeout: 600  # Increase boot timeout to 10 minutes
           emulator-options: >
             -no-snapshot-save
             -noaudio
@@ -116,35 +116,37 @@ jobs:
             ./gradlew :app:connectedAndroidDeviceTest
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-api-${{ matrix.api-level }}-device-${{ matrix.profile }}
-          path: app/build/reports/androidTests/connected/debug/index.html
+          path: |
+            app/build/reports/androidTests/connected/
+            app/build/outputs/androidTest-results/connected/
 
   # The Apple checks are split into two jobs that run concurrently (Kotlin + Xcode). The previous
   # single job ran them sequentially (~9 min of heavy work); splitting caps wall-clock at the
   # slower of the two instead of their sum, bringing the Apple pipeline in line with the Android one.
   apple-kotlin:
     name: Build + Kotlin checks (iOS sim/desktop tests)
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 40
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5.0.0
+        uses: actions/checkout@v7
 
       - name: Set up JDK
-        uses: actions/setup-java@v5.0.0
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Cache desktop Filament payload + built bridge
         id: filament-desktop
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           # The fetched Filament headers/libs (fetch_filament_desktop.sh) AND the CMake-built JNI
           # bridge (.dylib). Both are reproducible from the bridge C++ + the pinned Filament version,
@@ -182,32 +184,32 @@ jobs:
 
       - name: Upload test reports
         if: failure()
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7
         with:
           name: apple-kotlin-test-reports
           path: app/build/reports/tests/
 
   apple-xcode:
     name: Build + Xcode checks (iOS app Swift tests)
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 40
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5.0.0
+        uses: actions/checkout@v7
 
       - name: Set up JDK
-        uses: actions/setup-java@v5.0.0
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Cache iOS Filament payload + KTX resources
         id: filament-ios
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           # fetch_filament_ios.sh stages TWO things: the Filament xcframeworks (Filament/filament)
           # AND the papermill KTX IBL/skybox assets (Resources/*.ktx) that xcodebuild's CpResource
@@ -228,7 +230,7 @@ jobs:
 
       - name: Cache Xcode DerivedData + Swift Package Manager
         id: xcode-build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           # DerivedData holds the built app + ChessKitEngine framework; the SPM cache holds the
           # resolved package artifacts. Both are keyed on the iOS app sources + the pinned SPM version
@@ -262,17 +264,17 @@ jobs:
             -project iosApp/iosApp.xcodeproj \
             -scheme iosApp \
             -configuration Debug \
-            -destination "platform=iOS Simulator,name=iPhone 16" \
+            -destination "platform=iOS Simulator,name=iPhone 16,OS=latest,arch=arm64" \
             -derivedDataPath iosApp/build/DerivedData \
+            -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             test
 
       - name: Upload test reports
         if: failure()
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7
         with:
           name: apple-xcode-test-reports
           path: |
             iosApp/build/DerivedData/Logs/Test
             app/build/reports/tests/
-

@@ -20,6 +20,7 @@ import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.CurrentGameStore
 import com.example.myapplication.persistence.CurrentGameStoreSupport
 import com.example.myapplication.persistence.GameHistoryRepository
+import com.example.myapplication.persistence.asSnapshotSink
 import com.example.myapplication.persistence.createSettings
 import com.example.myapplication.share.iosPgnSharer
 
@@ -60,9 +61,16 @@ fun MainViewController(
     val pgnSharer = remember { iosPgnSharer() }
     val viewModel = remember {
         GameViewModel(
-            restoredState.state, currentGameStore,
+            restoredState.state,
+            snapshotSink = currentGameStore.asSnapshotSink(),
             initialShow3D = appSettings.board3DEnabled.value,
             initialEngineDifficulty = appSettings.engineDifficulty.value,
+        )
+    }
+    val moveCoachManager = remember {
+        com.example.myapplication.movecoach.MoveCoachManager(
+            gameViewModel = viewModel,
+            engineDifficultyName = appSettings.engineDifficulty.value.name
         )
     }
     DisposableEffect(Unit) {
@@ -71,7 +79,7 @@ fun MainViewController(
         // Surface loading state IMMEDIATELY so the panel mounts with a clear
         // "checking availability" message instead of staying Hidden through
         // the probe window (which on first launch can take seconds).
-        viewModel.setCoachModelState(
+        moveCoachManager.setCoachModelState(
             MoveCoachUiState.LoadingModel(message = "Checking Foundation Models availability…")
         )
 
@@ -90,7 +98,7 @@ fun MainViewController(
                     // We only reach this branch after the probe confirmed the
                     // Foundation Models generator reports Available, so reporting
                     // true here is consistent with reality.
-                    viewModel.attachCoachOrchestrator(
+                    moveCoachManager.attachCoachOrchestrator(
                         DefaultAiCoachOrchestrator(
                             factory = defaultOnDeviceTextGeneratorFactory(),
                             contextProvider = {
@@ -106,7 +114,7 @@ fun MainViewController(
                 else -> {
                     val reason = availabilityToHint(availability)
                     Logger.w("MainViewController") { "Foundation Models unavailable: $reason" }
-                    viewModel.setCoachModelState(MoveCoachUiState.Unavailable(reason = reason))
+                    moveCoachManager.setCoachModelState(MoveCoachUiState.Unavailable(reason = reason))
                 }
             }
         }
@@ -116,6 +124,7 @@ fun MainViewController(
         if (platform.posix.getenv("CHESS_START_3D") != null) viewModel.setShow3D(true)
         onDispose {
             scope.cancel()
+            moveCoachManager.close()
             viewModel.close() // also closes the attached engine and cancels coach job
         }
     }
@@ -126,6 +135,7 @@ fun MainViewController(
             board3D = remember { com.example.myapplication.board3d.iosBoard3DSupport(filamentFactory) },
             gameHistory = gameHistory,
             pgnSharer = pgnSharer,
+            moveCoachManager = moveCoachManager,
             switchTopPadding = (-16).dp
         )
     }

@@ -1,12 +1,7 @@
 package com.example.myapplication
 
 import co.touchlab.kermit.Logger
-import com.example.myapplication.movecoach.MoveCoachContextExtractor
-import com.example.myapplication.movecoach.MoveCoachUiState
-import com.example.ondeviceai.AiCoachOrchestrator
-import com.example.ondeviceai.MoveCoachEvent
-import com.example.myapplication.persistence.CurrentGameStore
-import com.example.myapplication.persistence.GameSnapshotMapper
+import com.example.myapplication.GameSnapshotMapper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -18,7 +13,7 @@ import kotlinx.coroutines.launch
 
 class GameViewModel(
     gameState: GameUiState = GameUiState(),
-    private val currentGameStore: CurrentGameStore? = null,
+    private val snapshotSink: GameSnapshotSink? = null,
     initialShow3D: Boolean = true,
     initialEngineDifficulty: EngineDifficulty = EngineDifficulty.MEDIUM,
 ) {
@@ -41,21 +36,11 @@ class GameViewModel(
     private val _viewState = MutableStateFlow(ViewState(show3D = initialShow3D))
     val viewState: StateFlow<ViewState> = _viewState
 
-    // Move coach state (plan §8.1). Hidden by default. The panel mounts only when
-    // an [AiCoachOrchestrator] is attached AND a coached move has been triggered
-    // (after Stockfish returns Black's move, plan §8.2). When no orchestrator is
-    // attached (desktop/wasm), the panel never mounts.
-    private val _coachUiState = MutableStateFlow<MoveCoachUiState>(MoveCoachUiState.Hidden)
-    val coachUiState: StateFlow<MoveCoachUiState> = _coachUiState
-
     private var gameMoves: Job? = null
     private var chessEngine: ChessEngine? = null
-    private var coachOrchestrator: AiCoachOrchestrator? = null
-    private var coachJob: Job? = null
 
     /** Current engine difficulty (issue #39 Phase 4). Applied to the engine on attach + on change. */
     private var engineDifficulty: EngineDifficulty = initialEngineDifficulty
-    var aiCoachEnabled: Boolean = true
 
     /** `true` when a real engine (Stockfish) drives Black; `false` = built-in CPU fallback.
      *  Used for PGN player naming (issue #39 Phase 3: Black = "Stockfish" vs "CPU"). */
@@ -99,43 +84,10 @@ class GameViewModel(
         }
     }
 
-    /**
-     * Inject the move-coach orchestrator (or null to disable). On Android this is
-     * wired to [DefaultAiCoachOrchestrator] with [com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory];
-     * on iOS, Swift registers a Foundation Models provider with
-     * [com.example.ondeviceai.FoundationModelsBridgeRegistry] before this is called.
-     * Desktop/wasm pass null and the coach panel stays hidden.
-     *
-     * If the caller is still preparing the local model (unpacking, initializing),
-     * it should call [setCoachModelState] with [MoveCoachUiState.LoadingModel]
-     * BEFORE calling this, so the UI can show a "warming up" message distinct
-     * from the missing-model [MoveCoachUiState.Unavailable] state.
-     */
-    fun attachCoachOrchestrator(orchestrator: AiCoachOrchestrator?) {
-        coachJob?.cancel()
-        coachOrchestrator = orchestrator
-        _coachUiState.value = if (orchestrator == null) MoveCoachUiState.Hidden else MoveCoachUiState.Hidden
-    }
-
-    /**
-     * Platform glue helper: set the coach panel state directly. Used while the
-     * local model is being unpacked / initialized, BEFORE [attachCoachOrchestrator]
-     * is called (when there's no orchestrator yet to drive the state via events).
-     *
-     * Once the orchestrator is attached and the first coached move fires, its
-     * Loading/Streaming/Ready/Fallback/Error states override this.
-     */
-    fun setCoachModelState(state: MoveCoachUiState) {
-        coachJob?.cancel()
-        _coachUiState.value = state
-    }
-
     fun close() {
         gameMoves?.cancel()
-        coachJob?.cancel()
         chessEngine?.close()
         chessEngine = null
-        coachOrchestrator = null
         scope.cancel()
     }
 
@@ -170,10 +122,6 @@ class GameViewModel(
             if (selectedPieceIndex == -1) {
                 throw IllegalStateException("Cannot identify selected Piece!")
             }
-
-            // Plan §8.2: cancel any stale coach job when the player starts a new move.
-            coachJob?.cancel()
-            _coachUiState.value = MoveCoachUiState.Hidden
 
             val legalMoves = getAllLegalMoves(
                 enemyPositions = gameState.value.positionsBlack,
@@ -341,28 +289,26 @@ class GameViewModel(
 
     fun resetGame(show3D: Boolean = viewState.value.show3D) {
         logger.i { "Game reset" }
-        coachJob?.cancel()
-        _coachUiState.value = MoveCoachUiState.Hidden
         _gameState.value = GameUiState()
         _viewState.value = ViewState(show3D = show3D)
         _animState.value = PieceAnimationState()
         // The fresh empty game replaces the autosaved one; drop the stale snapshot so a relaunch
         // doesn't restore into a board the user already abandoned.
-        currentGameStore?.clear()
+        snapshotSink?.clear()
     }
 
     /**
-     * Writes the current game to [currentGameStore] (if configured). Called explicitly at move /
+     * Writes the current game to [snapshotSink] (if configured). Called explicitly at move /
      * draw-resolution boundaries — **not** on transient `selectedSquare` updates — so the autosave
      * reflects positions a user would actually want to resume from. Gated on a non-empty board so
      * the very first save of a brand-new game (before any move) is skipped.
      */
     private fun autosave() {
-        val store = currentGameStore ?: return
+        val sink = snapshotSink ?: return
         val state = _gameState.value
         if (state.positionsWhite.isEmpty() && state.positionsBlack.isEmpty()) return
         runCatching {
-            store.save(GameSnapshotMapper.fromState(state))
+            sink.save(GameSnapshotMapper.fromState(state))
         }.onFailure { logger.w(it) { "Autosave failed" } }
     }
 
@@ -431,17 +377,15 @@ class GameViewModel(
         // before/while the move animation plays. Never blocks move application.
         // Skip if the move ended the game (checkmate/stalemate/draw).
         if (turn == Set.BLACK &&
-            coachOrchestrator != null &&
-            aiCoachEnabled &&
             _gameState.value.winState == WinState.NONE
         ) {
-            triggerCoach(
-                stateBefore = stateBeforeCoach,
-                stateAfter = _gameState.value,
-                movingPieceSide = Set.BLACK,
-                fromSquare = preMovePosition,
-                toSquare = newPosition,
-                promotionType = selectedMove.promotion,
+            onMoveCoached?.invoke(
+                stateBeforeCoach,
+                _gameState.value,
+                Set.BLACK,
+                preMovePosition,
+                newPosition,
+                selectedMove.promotion
             )
         }
 
@@ -689,63 +633,8 @@ class GameViewModel(
         return updatedState
     }
 
-    /**
-     * Drive the move-coach panel for the supplied Black move (plan §8). Builds the
-     * request from before/after snapshots + tags, launches the orchestrator on the
-     * viewModel scope, and emits [MoveCoachUiState] updates as events arrive.
-     *
-     * The coach job is cancelled on reset, on a new White move, on a draw offer
-     * acceptance, and on close. Per plan §8.2 it never blocks move application.
-     */
-    private fun triggerCoach(
-        stateBefore: GameUiState,
-        stateAfter: GameUiState,
-        movingPieceSide: Set,
-        fromSquare: Pair<Int, Int>,
-        toSquare: Pair<Int, Int>,
-        promotionType: PromotionType?,
-    ) {
-        val orchestrator = coachOrchestrator ?: return
-        coachJob?.cancel()
+    private var engineJob: Job? = null
+    var aiCoachEnabled: Boolean = true
 
-        val request = MoveCoachContextExtractor.build(
-            stateBefore = stateBefore,
-            stateAfter = stateAfter,
-            movingPieceSide = movingPieceSide,
-            fromSquare = fromSquare,
-            toSquare = toSquare,
-            promotionType = promotionType,
-            evaluationBeforeCp = null, // Wired when engine eval caching lands; coach tolerates null.
-            evaluationAfterCp = null,
-            engineDifficultyName = engineDifficulty.name,
-        )
-
-        _coachUiState.value = MoveCoachUiState.Loading(request.bestMoveDisplay)
-        coachJob = scope.launch {
-            try {
-                orchestrator.explainMoveStreaming(request).collect { event ->
-                    when (event) {
-                        is MoveCoachEvent.Streaming ->
-                            _coachUiState.value = MoveCoachUiState.Streaming(
-                                move = request.bestMoveDisplay,
-                                text = event.partialText,
-                            )
-                        is MoveCoachEvent.Complete -> when (val result = event.result) {
-                            is com.example.ondeviceai.MoveCoachResult.Success ->
-                                _coachUiState.value = MoveCoachUiState.Ready(result.explanation)
-                            is com.example.ondeviceai.MoveCoachResult.FellBack ->
-                                _coachUiState.value = MoveCoachUiState.Fallback(result.text, result.reason)
-                            is com.example.ondeviceai.MoveCoachResult.Failed ->
-                                _coachUiState.value = MoveCoachUiState.Error(result.message)
-                        }
-                    }
-                }
-            } catch (ce: kotlinx.coroutines.CancellationException) {
-                throw ce
-            } catch (t: Throwable) {
-                logger.w(t) { "Coach orchestrator failed" }
-                _coachUiState.value = MoveCoachUiState.Error(t.message ?: "coach failed")
-            }
-        }
-    }
+    var onMoveCoached: ((stateBefore: GameUiState, stateAfter: GameUiState, movingPieceSide: Set, fromSquare: Pair<Int, Int>, toSquare: Pair<Int, Int>, promotionType: PromotionType?) -> Unit)? = null
 }

@@ -15,9 +15,11 @@ import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.CurrentGameStore
 import com.example.myapplication.persistence.CurrentGameStoreSupport
 import com.example.myapplication.persistence.GameHistoryRepository
+import com.example.myapplication.persistence.asSnapshotSink
 import com.example.myapplication.persistence.createSettings
 import com.example.myapplication.share.androidPgnSharer
 import android.content.pm.ApplicationInfo
+import com.example.myapplication.movecoach.MoveCoachManager
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
 import kotlinx.coroutines.CoroutineScope
@@ -54,6 +56,7 @@ class MainActivity : ComponentActivity() {
                 board3D = androidx.compose.runtime.remember { com.example.myapplication.board3d.androidBoard3DSupport() },
                 gameHistory = holder.gameHistory,
                 pgnSharer = pgnSharer,
+                moveCoachManager = holder.moveCoachManager,
             )
         }
     }
@@ -83,14 +86,14 @@ class MainActivity : ComponentActivity() {
      */
     private fun attachMoveCoach(isDebug: Boolean) {
         if (!isDebug) {
-            holder.gameViewModel.attachCoachOrchestrator(null)
+            holder.moveCoachManager.attachCoachOrchestrator(null)
             return
         }
 
         // Initialize Cactus native runtime (required before any CactusLM use)
         initializeCactus(this)
 
-        holder.gameViewModel.setCoachModelState(
+        holder.moveCoachManager.setCoachModelState(
             com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
                 message = "Downloading Gemma 270M model (first launch only)…"
             )
@@ -102,13 +105,13 @@ class MainActivity : ComponentActivity() {
             // Pre-initialize: download model (first launch) + load into memory
             runCatching { generator?.warmup() }
 
-            holder.gameViewModel.setCoachModelState(
+            holder.moveCoachManager.setCoachModelState(
                 com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
                     message = "Starting Gemma engine…"
                 )
             )
 
-            holder.gameViewModel.attachCoachOrchestrator(
+            holder.moveCoachManager.attachCoachOrchestrator(
                 DefaultAiCoachOrchestrator(
                     factory = factory,
                     contextProvider = {
@@ -151,12 +154,18 @@ class AndroidGameViewModel : ViewModel() {
     // 3D on, MEDIUM difficulty).
     private val appSettings = AppSettings(settings)
     val gameViewModel = GameViewModel(
-        restoredState.state, currentGameStore,
+        restoredState.state,
+        snapshotSink = currentGameStore.asSnapshotSink(),
         initialShow3D = appSettings.board3DEnabled.value,
         initialEngineDifficulty = appSettings.engineDifficulty.value,
     ).apply {
         aiCoachEnabled = appSettings.aiCoachEnabled.value
     }
+
+    val moveCoachManager = MoveCoachManager(
+        gameViewModel = gameViewModel,
+        engineDifficultyName = appSettings.engineDifficulty.value.name
+    )
 
     // Phase 3: saved-games history lives on the same Settings backing store, owned by the holder so
     // it survives config changes (and is observed by the History screen across recompositions).
@@ -172,6 +181,7 @@ class AndroidGameViewModel : ViewModel() {
 
     override fun onCleared() {
         super.onCleared()
+        moveCoachManager.close()
         gameViewModel.close()
     }
 }

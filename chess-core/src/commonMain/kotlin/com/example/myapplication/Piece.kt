@@ -1,15 +1,10 @@
 package com.example.myapplication
 
-import androidx.compose.runtime.Immutable
-import game.app.generated.resources.*
-import org.jetbrains.compose.resources.DrawableResource
-
 const val BOARD_SIZE = 8
 
 interface Piece {
     val set: Set
     val name: String
-    val asset: DrawableResource
 
     fun getValidMovesPositions(
         position: Pair<Int, Int>,
@@ -67,13 +62,8 @@ enum class Set {
     BLACK
 }
 
-@Immutable
 class King(override val set: Set) : Piece {
     override val name = "King"
-    override val asset: DrawableResource = when (set) {
-        Set.WHITE -> Res.drawable.king_light
-        Set.BLACK -> Res.drawable.king_dark
-    }
 
     override fun getValidMovesPositions(
         position: Pair<Int, Int>,
@@ -92,13 +82,8 @@ class King(override val set: Set) : Piece {
     }
 }
 
-@Immutable
 class Bishop(override val set: Set) : Piece {
     override val name = "Bishop"
-    override val asset: DrawableResource = when (set) {
-        Set.WHITE -> Res.drawable.bishop_light
-        Set.BLACK -> Res.drawable.bishop_dark
-    }
 
     override fun getValidMovesPositions(
         position: Pair<Int, Int>,
@@ -114,13 +99,8 @@ class Bishop(override val set: Set) : Piece {
     }
 }
 
-@Immutable
 class Knight(override val set: Set) : Piece {
     override val name = "Knight"
-    override val asset: DrawableResource = when (set) {
-        Set.WHITE -> Res.drawable.knight_light
-        Set.BLACK -> Res.drawable.knight_dark
-    }
 
     override fun getValidMovesPositions(
         position: Pair<Int, Int>,
@@ -139,13 +119,8 @@ class Knight(override val set: Set) : Piece {
     }
 }
 
-@Immutable
 class Pawn(override val set: Set) : Piece {
     override val name = "Pawn"
-    override val asset: DrawableResource = when (set) {
-        Set.WHITE -> Res.drawable.pawn_light
-        Set.BLACK -> Res.drawable.pawn_dark
-    }
 
     override fun getValidMovesPositions(
         position: Pair<Int, Int>,
@@ -176,13 +151,8 @@ class Pawn(override val set: Set) : Piece {
     }
 }
 
-@Immutable
 class Queen(override val set: Set) : Piece {
     override val name = "Queen"
-    override val asset: DrawableResource = when (set) {
-        Set.WHITE -> Res.drawable.queen_light
-        Set.BLACK -> Res.drawable.queen_dark
-    }
 
     override fun getValidMovesPositions(
         position: Pair<Int, Int>,
@@ -202,13 +172,8 @@ class Queen(override val set: Set) : Piece {
     }
 }
 
-@Immutable
 class Rook(override val set: Set) : Piece {
     override val name = "Rook"
-    override val asset: DrawableResource = when (set) {
-        Set.WHITE -> Res.drawable.rook_light
-        Set.BLACK -> Res.drawable.rook_dark
-    }
 
     override fun getValidMovesPositions(
         position: Pair<Int, Int>,

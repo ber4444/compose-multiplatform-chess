@@ -145,7 +145,8 @@ fun GameScreen(
     val gameState by viewModel.gameState.collectAsState()
     val animState by viewModel.animState.collectAsState()
     val viewState by viewModel.viewState.collectAsState()
-    val coachState by viewModel.coachUiState.collectAsState()
+    val moveCoachManager = LocalMoveCoachManager.current
+    val coachState = moveCoachManager?.coachUiState?.collectAsState()?.value ?: MoveCoachUiState.Hidden
     val scrollState = rememberScrollState()
     // The 3D toggle now lives in SettingsScreen and writes to AppSettings.board3DEnabled. Observe it
     // here (when a settings instance is provided via LocalAppSettings — production always provides
@@ -724,19 +725,21 @@ fun Board(
             }
         }
 
-        if (animState.pieceToAnimate != null) {
+        val primaryPiece = animState.pieceToAnimate
+        if (primaryPiece != null) {
             if (animState.moveIsValid()) {
                 AnimatedChessPiece(
-                    piece = animState.pieceToAnimate,
+                    piece = primaryPiece,
                     squareSizePx = squareSizePx.value,
                     from = animState.animatePositionStart,
                     to = animState.animatePositionEnd,
                     animationEnd = animationEnd
                 )
-                if (animState.secondaryPiece != null) {
+                val secondaryPiece = animState.secondaryPiece
+                if (secondaryPiece != null) {
                     val fallbackSize = if (squareSizePx.value == IntSize.Zero) squareAvgSizePx.value else squareSizePx.value
                     AnimatedChessPiece(
-                        piece = animState.secondaryPiece,
+                        piece = secondaryPiece,
                         squareSizePx = fallbackSize,
                         from = animState.secondaryStart,
                         to = animState.secondaryEnd,
@@ -753,7 +756,7 @@ fun Board(
 @Composable
 fun Piece(pieceModel: Piece) {
     Icon(
-        painter = painterResource(pieceModel.asset),
+        painter = painterResource(pieceModel.asset()),
         tint = Color.Unspecified,
         contentDescription = pieceModel.name
     )
