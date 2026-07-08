@@ -19,11 +19,11 @@ buildscript {
     }
     dependencies {
         constraints {
-            classpath("org.bouncycastle:bcprov-jdk18on:1.80.2")
-            classpath("io.netty:netty-codec-http2:4.1.135.Final")
-            classpath("io.netty:netty-handler:4.1.135.Final")
-            classpath("io.netty:netty-codec-http:4.1.135.Final")
-            classpath("io.netty:netty-codec:4.1.135.Final")
+            classpath("org.bouncycastle:bcprov-jdk18on:1.84")
+            classpath("io.netty:netty-codec-http2:4.2.16.Final")
+            classpath("io.netty:netty-handler:4.2.16.Final")
+            classpath("io.netty:netty-codec-http:4.2.16.Final")
+            classpath("io.netty:netty-codec:4.2.16.Final")
             classpath("org.bitbucket.b_c:jose4j:0.9.6")
             classpath("org.jdom:jdom2:2.0.6.1")
         }
