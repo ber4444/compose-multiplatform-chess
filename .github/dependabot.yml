@@ -1,0 +1,33 @@
+# Dependabot configuration.
+#
+# This repo relies on Dependabot *security* updates (enabled in the repo's Security settings);
+# it does NOT run scheduled version updates. This file exists only to scope `ignore` rules onto
+# the build/test-only BouncyCastle + Netty versions we pin via buildscript `constraints`
+# (build.gradle.kts / settings.gradle.kts) to override the vulnerable copies AGP bundles
+# (apksig -> BouncyCastle, Unified Test Platform -> grpc-netty -> Netty). Neither ships in the
+# app or the published :chess-core artifact -- they run only on a build/CI machine.
+#
+# `open-pull-requests-limit: 0` keeps scheduled version updates OFF (so this file does not start
+# opening version-bump PRs for the whole Gradle graph) while the `ignore` conditions still apply
+# to security-update PRs.
+#
+# The current pins (bcprov 1.80.2, netty 4.1.135.Final) already satisfy every open advisory. We
+# block only the disruptive *series* jumps Dependabot keeps proposing (see closed PR #82):
+#   - Netty 4.1 -> 4.2 would force grpc-netty 1.69.1 (AGP's Unified Test Platform emulator-control
+#     gRPC path) onto a minor series it was not built against.
+#   - bcprov 1.80.2 -> 1.84 desyncs from AGP's still-1.79 bcpkix/bcutil (BouncyCastle version skew).
+# In-series patches (e.g. a future 4.1.x / 1.80.x) are still allowed so genuine fixes get through.
+version: 2
+updates:
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+    ignore:
+      # Stay on Netty 4.1.x; block the 4.2.x series jump (grpc-netty 1.69.1 compatibility).
+      - dependency-name: "io.netty:*"
+        versions: [">= 4.2.0"]
+      # Stay on BouncyCastle 1.80.x; block 1.81+ so bcprov doesn't drift ahead of AGP's bcpkix/bcutil.
+      - dependency-name: "org.bouncycastle:bcprov-jdk18on"
+        versions: [">= 1.81"]
