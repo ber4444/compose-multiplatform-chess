@@ -5,6 +5,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
+    `maven-publish`
 }
 
 val rulesCorpusFile = layout.projectDirectory.file("src/commonMain/resources/rulesCorpus/passages.tsv")
@@ -101,6 +102,14 @@ kotlin {
         binaries.executable()
     }
 
+    js(IR) {
+        // nodejs() for headless testing + the importable JS library artifact the React Native port
+        // consumes (mirrors :chess-core's js target). The JS actuals (defaultOnDeviceTextGeneratorFactory,
+        // defaultNowMs, defaultRulesQaAnswerer) are no-op stubs mirroring the wasmJs/desktop ones —
+        // there's no on-device LLM runtime on JS, so the orchestrators degrade to deterministic fallbacks.
+        nodejs()
+    }
+
     sourceSets {
         val iosMain by creating { dependsOn(commonMain.get()) }
         val iosArm64Main by getting { dependsOn(iosMain) }
@@ -109,7 +118,7 @@ kotlin {
         commonMain.dependencies {
             api(project(":coachApi"))
             implementation(libs.kermit)
-            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+            implementation(libs.kotlinx.coroutines.core)
         }
 
         commonMain.get().kotlin.srcDir(generatedRulesCorpusDir)
@@ -144,4 +153,57 @@ kotlin {
 
 tasks.matching { it.name.startsWith("compile") }.configureEach {
     dependsOn(generateRulesCorpus)
+}
+
+// The `*SourcesJar` / `sourcesJar` tasks (added by `maven-publish`) consume the generated rules-corpus
+// source dir without declaring the dependency — Gradle's dependency-validation rejects this as an
+// undeclared-output usage. Make them all explicit so publishToMavenLocal / publishAllPublications works.
+// Covers: sourcesJar (umbrella), androidSourcesJar, desktopSourcesJar, jsSourcesJar, etc.
+tasks.matching { it.name.endsWith("sourcesJar") || it.name.endsWith("SourcesJar") }.configureEach {
+    dependsOn(generateRulesCorpus)
+}
+
+// ── Publish to GitHub Packages ────────────────────────────────────────────────
+// `io.github.ber4444:onDeviceAi:<version>`. The on-device AI orchestration (move coach, rules Q&A,
+// opening explainer, route policy) shared between the chess app and the React Native port. Depends on
+// `io.github.ber4444:coachApi` via `api(project(":coachApi"))` — coachApi types leak into the public
+// signatures of OpeningExplainer.kt, so both artifacts are published together under one
+// `on-device-ai-v*` tag. Mirrors :chess-core's publish block.
+val onDeviceAiVersion: String =
+    (System.getenv("ON_DEVICE_AI_VERSION")?.takeIf { it.isNotBlank() }
+        ?: project.findProperty("onDeviceAiVersion") as? String
+        ?: "0.1.0").removePrefix("on-device-ai-v")
+
+group = "io.github.ber4444"
+version = onDeviceAiVersion
+
+plugins.withId("maven-publish") {
+    configure<PublishingExtension> {
+        repositories {
+            maven {
+                name = "GitHubPackages"
+                url = uri("https://maven.pkg.github.com/ber4444/compose-multiplatform-chess")
+                credentials {
+                    username = System.getenv("GITHUB_ACTOR") ?: findProperty("gpr.user") as? String
+                    password = System.getenv("GITHUB_TOKEN") ?: findProperty("gpr.key") as? String
+                }
+            }
+        }
+        publications.withType<MavenPublication> {
+            pom {
+                name.set("onDeviceAi")
+                description.set("On-device AI orchestration for chess (move coach, rules Q&A, opening explainer, route policy) — Kotlin Multiplatform.")
+                url.set("https://github.com/ber4444/compose-multiplatform-chess")
+                licenses {
+                    license {
+                        name.set("GNU General Public License v3.0")
+                        url.set("https://www.gnu.org/licenses/gpl-3.0.txt")
+                    }
+                }
+                scm {
+                    url.set("https://github.com/ber4444/compose-multiplatform-chess")
+                }
+            }
+        }
+    }
 }
