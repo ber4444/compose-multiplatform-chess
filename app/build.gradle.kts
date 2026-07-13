@@ -314,6 +314,13 @@ tasks.withType<Test>().configureEach {
             jvmArgs("-Djava.library.path=${desktopFilamentNativeLibraryPath.get()}")
         }
     }
+
+    // Forward `perft.*` gradle/system properties (e.g. `-Dperft.deep=true`) into the test JVM so
+    // opt-in tests like PerftDeepTest can gate on System.getProperty. Without this, -D on the
+    // gradle command line only sets the property on the gradle daemon, not on the forked test JVM.
+    System.getProperties()
+        .filterKeys { it.toString().startsWith("perft.") }
+        .forEach { (k, v) -> systemProperty(k.toString(), v.toString()) }
 }
 
 // The Compose Desktop run tasks (JavaExec) use the same scoped JDK 26 launcher and the Rococoa

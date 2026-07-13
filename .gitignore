@@ -8,6 +8,7 @@ chess-core/build/*
 coachApi/build/*
 server/build/*
 evals/build/*
+perft-mcp/build/*
 .kotlin/*
 .gradle/*
 .idea/*

@@ -52,8 +52,13 @@ The repo does **not** have the `applyMove` half in pure form. The state transiti
 
 - **`private`** to `GameViewModel`, and
 - **not a function of its arguments** — it reads `_gameState.value.castlingRights`, `_gameState.value.enPassantTarget`, `_gameState.value.halfmoveClock`, `_gameState.value.turn`, `_gameState.value.fullmoveNumber`, and returns `_gameState.value.copy(...)` (`GameViewModel.kt:342`, `:363`, `:377-379`, `:433`, `:444-480`). It mutates around the ViewModel's live `StateFlow`.
+- **loaded with massive side effects** — recent lifecycle PRs added `autosave()` disk I/O, SAN generation for `MoveRecord`, and `positionHistory` tracking for draw rules directly into this function.
 
-So **Step 1 of this plan is an enabling refactor**: extract a pure top-level `applyMove(state: GameUiState, pieceIndex: Int, to: Pair<Int,Int>, promotion: PromotionType?): GameUiState` into `Move.kt`, and have `GameViewModel.deriveNewGameState` delegate to it. This is plain game-rules code, **not** platform glue — the `DO NOT TOUCH` fence in `CLAUDE.md` is about the 3D `actual` renderers and the Stockfish bridges, not this. Extracting it improves testability and leaves all UI/animation behavior identical.
+So **Step 1 of this plan is an enabling refactor**: extract a pure top-level `applyMove(state: GameUiState, pieceIndex: Int, to: Pair<Int,Int>, promotion: PromotionType?): GameUiState` into `Move.kt`, and have `GameViewModel.deriveNewGameState` delegate to it. 
+
+**CRITICAL WARNING:** The extracted `applyMove` function must ONLY return the raw board state (pieces, castling rights, en passant target, halfmove clock). All side effects (autosave, SAN generation, draw history) MUST be left behind in `deriveNewGameState`. If an agent attempts to run a perft loop through the full `deriveNewGameState` instead of a pure `applyMove`, it will trigger millions of autosave disk I/O calls and immediately crash or hang.
+
+This is plain game-rules code, **not** platform glue — the `DO NOT TOUCH` fence in `CLAUDE.md` is about the 3D `actual` renderers and the Stockfish bridges, not this. Extracting it improves testability and leaves all UI/animation behavior identical.
 
 Before extracting, **enumerate every `_gameState.value.X` read inside `deriveNewGameState`** (`castlingRights`, `enPassantTarget`, `halfmoveClock`, `turn`, `fullmoveNumber`) and map each to a `state.` field. A single missed read won't fail the existing UI suite — those tests drive one move at a time off the live flow — but it will silently corrupt deep perft counts, the hardest class of bug to localize. Also note the signatures differ: `deriveNewGameState` takes the ally/enemy split as eight explicit parameters, while `applyMove(state, …)` must derive that split from `state.turn`. Pick one home for the split-derivation (either the delegating `deriveNewGameState` computes it and forwards, or `applyMove` does) and keep it the only place that decision lives.
 
@@ -123,8 +128,8 @@ This is the oracle that makes the loop autonomous on *new* bugs: the agent doesn
 These are the usual suspects in hand-written generators, and where the current code has subtle, simulation-based handling worth confirming:
 
 - **Promotion fan-out** in the harness itself (§4.1) — rule it out first.
-- **En-passant pin / discovered check**: `getEnPassantMoves` (`Move.kt:467`) simulates removing the victim and calls `checkCheck` — this should handle the horizontal-pin illegal-ep case, but ep is the classic perft-diverging move; depths 4–5 of Kiwipete and Position 3 exercise it hard.
-- **Castling legality**: through/into-check and squares-empty checks (`getCastlingMoves`, `Move.kt:389`), plus **castling-rights loss when a rook is captured on its home square** (handled in the capture branch, `GameViewModel.kt:350-358` — make sure it survives the §2 extraction).
+- **En-passant pin / discovered check**: `getEnPassantMoves` (`Move.kt:467`) simulates removing the victim and calls `checkCheck` — this should handle the horizontal-pin illegal-ep case, but ep is the classic perft-diverging move; depths 4–5 of Kiwipete and Position 3 exercise it hard. Note: While recent lifecycle PRs tightened en passant handling (e.g. `FenConverter` now correctly parses/emits en passant targets), perft is still needed to verify these interactions at depth.
+- **Castling legality**: through/into-check and squares-empty checks (`getCastlingMoves`, `Move.kt:389`), plus **castling-rights loss when a rook is captured on its home square** (handled in the capture branch, `GameViewModel.kt:350-358` — make sure it survives the §2 extraction). Note: Castling was also tightened recently, but similarly needs deep verification.
 - **Pawn double-push blocked by an intermediate piece**, and `checkCheck` coverage for every attacker type (`Move.kt:173`).
 - **Double-counting risk**: `getAllLegalMoves` appends castling/ep lists separately (`Move.kt:373-374`); confirm no `(dest, pieceIndex)` collisions inflate counts.
 

@@ -401,6 +401,11 @@ class GameViewModel(
         )
     }
 
+    @Suppress("UNUSED_PARAMETER")
+    // turn/enemy/ally params are retained for the existing call sites in playerMove / moveCPU /
+    // promotePawn; the pure transition now lives in the top-level applyMove (Move.kt), which
+    // derives the ally/enemy split from _gameState.value.turn. Keeping this as a thin delegate
+    // preserves every existing call without touching UI/animation behavior.
     private fun deriveNewGameState(
         pieceIndex: Int,
         newPosition: Pair<Int, Int>,
@@ -411,160 +416,11 @@ class GameViewModel(
         allyPieces: List<Piece>,
         promotion: PromotionType? = null
     ): GameUiState {
-        val mutableEnemyPieces = enemyPieces.toMutableList()
-        val mutableEnemyPositions = enemyPositions.toMutableList()
-        val mutableAllyPositions = allyPositions.toMutableList()
-        val mutableAllyPieces = allyPieces.toMutableList()
-
-        logger.d { "Moving $turn ${allyPieces[pieceIndex].name} from ${allyPositions[pieceIndex]} to $newPosition" }
-
-        var updatedRights = _gameState.value.castlingRights
-        var captureOccurred = false
-
-        if (newPosition in enemyPositions) {
-            val index = enemyPositions.indexOf(newPosition)
-            logger.i { "${when (turn) { Set.WHITE -> Set.BLACK.name; Set.BLACK -> Set.WHITE.name }} ${enemyPieces[index].name} was captured!" }
-            
-            val capturedPiece = enemyPieces[index]
-            if (capturedPiece is Rook) {
-                if (turn == Set.WHITE) {
-                    if (newPosition == BLACK_KS_ROOK_HOME) updatedRights = updatedRights.copy(blackKingside = false)
-                    if (newPosition == BLACK_QS_ROOK_HOME) updatedRights = updatedRights.copy(blackQueenside = false)
-                } else {
-                    if (newPosition == WHITE_KS_ROOK_HOME) updatedRights = updatedRights.copy(whiteKingside = false)
-                    if (newPosition == WHITE_QS_ROOK_HOME) updatedRights = updatedRights.copy(whiteQueenside = false)
-                }
-            }
-
-            mutableEnemyPositions.removeAt(index)
-            mutableEnemyPieces.removeAt(index)
-            captureOccurred = true
-        } else if (allyPieces[pieceIndex] is Pawn && allyPositions[pieceIndex].second != newPosition.second && newPosition == _gameState.value.enPassantTarget) {
-            val victimPosition = Pair(allyPositions[pieceIndex].first, newPosition.second)
-            val index = enemyPositions.indexOf(victimPosition)
-            if (index != -1) {
-                logger.i { "${when (turn) { Set.WHITE -> Set.BLACK.name; Set.BLACK -> Set.WHITE.name }} ${enemyPieces[index].name} was captured en passant!" }
-                mutableEnemyPositions.removeAt(index)
-                mutableEnemyPieces.removeAt(index)
-                captureOccurred = true
-            }
-        }
-
-        val movingPiece = allyPieces[pieceIndex]
-        val fromPosition = allyPositions[pieceIndex]
+        val state = _gameState.value
+        val movedState = applyMove(state, pieceIndex, newPosition, promotion)
         
-        val newHalfmoveClock = if (captureOccurred || movingPiece is Pawn) 0
-                               else _gameState.value.halfmoveClock + 1
-        val newFullmoveNumber = _gameState.value.fullmoveNumber + if (turn == Set.BLACK) 1 else 0
-        
-        val newEnPassantTarget = if (movingPiece is Pawn && kotlin.math.abs(newPosition.first - fromPosition.first) == 2) {
-            Pair((newPosition.first + fromPosition.first) / 2, fromPosition.second)
-        } else {
-            null
-        }
-        
-        if (movingPiece is King) {
-            if (turn == Set.WHITE) {
-                updatedRights = updatedRights.copy(whiteKingside = false, whiteQueenside = false)
-            } else {
-                updatedRights = updatedRights.copy(blackKingside = false, blackQueenside = false)
-            }
-        } else if (movingPiece is Rook) {
-            if (turn == Set.WHITE) {
-                if (fromPosition == WHITE_KS_ROOK_HOME) updatedRights = updatedRights.copy(whiteKingside = false)
-                if (fromPosition == WHITE_QS_ROOK_HOME) updatedRights = updatedRights.copy(whiteQueenside = false)
-            } else {
-                if (fromPosition == BLACK_KS_ROOK_HOME) updatedRights = updatedRights.copy(blackKingside = false)
-                if (fromPosition == BLACK_QS_ROOK_HOME) updatedRights = updatedRights.copy(blackQueenside = false)
-            }
-        }
-
-        mutableAllyPositions[pieceIndex] = newPosition
-        
-        val castleRook = castlingRookMove(movingPiece, fromPosition, newPosition)
-        castleRook?.let { (rookFrom, rookTo) ->
-            val rookIndex = allyPositions.indexOf(rookFrom)
-            if (rookIndex != -1) {
-                mutableAllyPositions[rookIndex] = rookTo
-            }
-        }
-        if (isPromotionMove(allyPieces[pieceIndex], newPosition)) {
-            val promoted = (promotion ?: PromotionType.QUEEN).toPiece(turn)
-            logger.i { "$turn Pawn promoted to ${promoted.name}!" }
-            mutableAllyPieces[pieceIndex] = promoted
-        }
-
-        val allyKingIndex = mutableAllyPieces.indexOfFirst { it::class == King::class }
-        val allyInCheck = checkCheck(
-            mutableAllyPositions[allyKingIndex],
-            mutableEnemyPositions,
-            mutableEnemyPieces,
-            mutableAllyPositions
-        )
-
-        val enemyKingIndex = mutableEnemyPieces.indexOfFirst { it::class == King::class }
-        val enemyInCheck = checkCheck(
-            mutableEnemyPositions[enemyKingIndex],
-            mutableAllyPositions,
-            mutableAllyPieces,
-            mutableEnemyPositions
-        )
-
-        val nextTurn = when (_gameState.value.turn) {
-            Set.WHITE -> Set.BLACK
-            Set.BLACK -> Set.WHITE
-        }
-
-        if (allyInCheck) {
-            logger.i { "Ally $turn in Check!" }
-        } else if (enemyInCheck) {
-            logger.i { "Enemy $nextTurn in Check!" }
-        }
-
-        val movedState = when (turn) {
-            Set.WHITE -> _gameState.value.copy(
-                turn = nextTurn,
-                piecesBlack = mutableEnemyPieces,
-                positionsBlack = mutableEnemyPositions,
-                positionsWhite = mutableAllyPositions,
-                piecesWhite = mutableAllyPieces,
-                inCheckWhite = allyInCheck,
-                inCheckBlack = enemyInCheck,
-                pendingPromotion = null,
-                castlingRights = updatedRights,
-                enPassantTarget = newEnPassantTarget,
-                halfmoveClock = newHalfmoveClock,
-                fullmoveNumber = newFullmoveNumber,
-                drawOffer = null,
-                drawOfferDeclinedBy = null,
-                selectedSquare = INVALID_POSITION
-            )
-
-            Set.BLACK -> _gameState.value.copy(
-                turn = nextTurn,
-                piecesWhite = mutableEnemyPieces,
-                positionsWhite = mutableEnemyPositions,
-                positionsBlack = mutableAllyPositions,
-                piecesBlack = mutableAllyPieces,
-                inCheckWhite = enemyInCheck,
-                inCheckBlack = allyInCheck,
-                pendingPromotion = null,
-                castlingRights = updatedRights,
-                enPassantTarget = newEnPassantTarget,
-                halfmoveClock = newHalfmoveClock,
-                fullmoveNumber = newFullmoveNumber,
-                drawOffer = null,
-                drawOfferDeclinedBy = null,
-                selectedSquare = INVALID_POSITION
-            )
-        }
-
-        // Captures/pawn moves are irreversible: earlier positions can never recur, so reset history.
-        // Otherwise lazily seed the pre-move position (covers fresh games, resetGame, and FEN-loaded
-        // states without touching the constructor — some tests build GameUiState with mismatched
-        // piece/position lists that must never reach positionKey).
-        val priorHistory = if (newHalfmoveClock == 0) emptyList()
-            else _gameState.value.positionHistory.ifEmpty { listOf(FenConverter.positionKey(_gameState.value)) }
+        val priorHistory = if (movedState.halfmoveClock == 0) emptyList()
+            else state.positionHistory.ifEmpty { listOf(FenConverter.positionKey(state)) }
         val newState = movedState.copy(positionHistory = priorHistory + FenConverter.positionKey(movedState))
         val winStateApplied = applyWinConditions(newState)
         val finalState = if (winStateApplied.winState != WinState.NONE) winStateApplied
@@ -574,11 +430,19 @@ class GameViewModel(
         // post-move win/check evaluation. preMove = _gameState.value (the caller has not yet
         // published the new state).
         val preMove = _gameState.value
+        val enemyInCheck = if (preMove.turn == Set.WHITE) finalState.inCheckBlack else finalState.inCheckWhite
         val checkSuffix = when {
             finalState.winState == WinState.WHITE || finalState.winState == WinState.BLACK -> "#"
             enemyInCheck -> "+"
             else -> ""
         }
+        
+        val movingPiece = allyPieces[pieceIndex]
+        val fromPosition = allyPositions[pieceIndex]
+        val captureOccurred = newPosition in enemyPositions || 
+            (movingPiece is Pawn && fromPosition.second != newPosition.second && newPosition == preMove.enPassantTarget)
+        val castleRook = castlingRookMove(movingPiece, fromPosition, newPosition)
+
         val record = MoveRecord(
             uci = UciMoveConverter.appMoveToUci(fromPosition, newPosition) +
                 (promotion?.uciChar?.toString() ?: ""),
@@ -596,41 +460,6 @@ class GameViewModel(
             fenAfter = FenConverter.gameStateToFen(finalState),
         )
         return finalState.copy(moveHistory = preMove.moveHistory + record)
-    }
-
-    private fun applyWinConditions(state: GameUiState): GameUiState {
-        if (state.winState != WinState.NONE) return state
-
-        // Re-evaluate check status to be safe, especially if loaded from FEN
-        val whiteKingIndex = state.piecesWhite.indexOfFirst { it is King }
-        val inCheckWhite = if (whiteKingIndex != -1) {
-            checkCheck(state.positionsWhite[whiteKingIndex], state.positionsBlack, state.piecesBlack, state.positionsWhite)
-        } else false
-
-        val blackKingIndex = state.piecesBlack.indexOfFirst { it is King }
-        val inCheckBlack = if (blackKingIndex != -1) {
-            checkCheck(state.positionsBlack[blackKingIndex], state.positionsWhite, state.piecesWhite, state.positionsBlack)
-        } else false
-
-        // Update the state with actual check statuses
-        var updatedState = state.copy(inCheckWhite = inCheckWhite, inCheckBlack = inCheckBlack)
-
-        val enemyPositions = if (updatedState.turn == Set.WHITE) updatedState.positionsBlack else updatedState.positionsWhite
-        val enemyPieces = if (updatedState.turn == Set.WHITE) updatedState.piecesBlack else updatedState.piecesWhite
-        val allyPositions = if (updatedState.turn == Set.WHITE) updatedState.positionsWhite else updatedState.positionsBlack
-        val allyPieces = if (updatedState.turn == Set.WHITE) updatedState.piecesWhite else updatedState.piecesBlack
-
-        val hasMoves = hasLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces, updatedState.enPassantTarget)
-
-        if (!hasMoves) {
-            val inCheck = if (updatedState.turn == Set.WHITE) inCheckWhite else inCheckBlack
-            if (inCheck) {
-                updatedState = updatedState.copy(winState = if (updatedState.turn == Set.WHITE) WinState.BLACK else WinState.WHITE)
-            } else {
-                updatedState = updatedState.copy(winState = WinState.STALEMATE)
-            }
-        }
-        return updatedState
     }
 
     private var engineJob: Job? = null
