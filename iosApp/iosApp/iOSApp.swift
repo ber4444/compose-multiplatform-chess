@@ -50,3 +50,22 @@ struct iOSApp: App {
         }
     }
 }
+
+struct BenchmarkView: View {
+    @State private var status = "Running Benchmark..."
+    
+    var body: some View {
+        Color.black.ignoresSafeArea().overlay(
+            Text(status)
+                .foregroundColor(.white)
+        ).task {
+            do {
+                try await IosBenchRunnerKt.runIosBench(iterations: 1)
+                status = "Benchmark Complete"
+            } catch {
+                print("Benchmark failed: \(error)")
+                status = "Benchmark Failed"
+            }
+        }
+    }
+}
