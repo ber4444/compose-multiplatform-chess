@@ -190,8 +190,9 @@ plugins.withId("maven-publish") {
             }
         }
         publications.withType<MavenPublication> {
+            artifactId = artifactId.lowercase()
             pom {
-                name.set("onDeviceAi")
+                name.set("ondeviceai")
                 description.set("On-device AI orchestration for chess (move coach, rules Q&A, opening explainer, route policy) — Kotlin Multiplatform.")
                 url.set("https://github.com/ber4444/compose-multiplatform-chess")
                 licenses {

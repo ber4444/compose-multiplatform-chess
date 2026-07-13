@@ -79,8 +79,9 @@ plugins.withId("maven-publish") {
             }
         }
         publications.withType<MavenPublication> {
+            artifactId = artifactId.lowercase()
             pom {
-                name.set("coachApi")
+                name.set("coachapi")
                 description.set("Serialization-only KMP wire models shared by the chess app and the opening-explainer service.")
                 url.set("https://github.com/ber4444/compose-multiplatform-chess")
                 licenses {
