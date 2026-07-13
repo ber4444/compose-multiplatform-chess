@@ -73,6 +73,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
 import com.example.myapplication.movecoach.MoveCoachPanel
 import com.example.myapplication.movecoach.MoveCoachUiState
+import com.example.myapplication.movecoach.GameSummaryUiState
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.CircularProgressIndicator
 import game.app.generated.resources.Res
 import game.app.generated.resources.cancel_button
 import game.app.generated.resources.game_end_message_no_winner
@@ -269,6 +272,58 @@ fun GameScreen(
                             ) {
                                 Text("Share PGN")
                             }
+                        }
+                    }
+                }
+
+                // Coach Summary (issue #39 Phase 4 / issue #33)
+                val gameSummaryManager = LocalGameSummaryManager.current
+                if (gameSummaryManager != null) {
+                    val summaryState by gameSummaryManager.uiState.collectAsState()
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    when (summaryState) {
+                        is GameSummaryUiState.Hidden -> {
+                            Button(
+                                onClick = {
+                                    val pgn = GameActions.toPgn(gameState, viewModel.engineAttached)
+                                    gameSummaryManager.triggerSummary(pgn)
+                                }
+                            ) {
+                                Text("Get Coach Summary")
+                            }
+                        }
+                        is GameSummaryUiState.Loading -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Crunching data...", style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                        is GameSummaryUiState.Streaming -> {
+                            val text = (summaryState as GameSummaryUiState.Streaming).text
+                            Text(
+                                text = text,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                        is GameSummaryUiState.Ready -> {
+                            val exp = (summaryState as GameSummaryUiState.Ready).explanation
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text("Coach Summary", fontWeight = FontWeight.Bold)
+                                Text(exp.explanation, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                        is GameSummaryUiState.Fallback -> {
+                            val fallback = (summaryState as GameSummaryUiState.Fallback)
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text("Coach Summary", fontWeight = FontWeight.Bold)
+                                Text(fallback.text, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                        is GameSummaryUiState.Error -> {
+                            Text("Error: ${(summaryState as GameSummaryUiState.Error).message}", color = Color.Red, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
