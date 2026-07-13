@@ -43,11 +43,22 @@ Three Gradle modules:
 - `:chess-core` — the Compose-free, platform-agnostic chess engine core: all game rules, FEN/UCI/SAN/PGN converters, `GameViewModel`, and the pure-Kotlin 3D-board math/scene mapping. Targets: `android`, `jvm("desktop")`, `iosArm64`, `iosSimulatorArm64`, `js(IR)`, `wasmJs`. Published to GitHub Packages as `io.github.ber4444:chess-core` (see `.github/workflows/publish-chess-core.yml`) so the React Native repo `ber4444/react-native-kotlin-multiplatform-chess` can consume it with zero Kotlin duplication. Boundary rules — **no Compose** (no `androidx.compose.*`, no `DrawableResource`, no `@Composable`, no `@Immutable`), **no russhwolf/Settings**, **no `java.lang.Process`**, no platform glue. This is the single source of truth for chess logic.
 - `:app` — KMP library holding all UI, platform glue, and resources. Depends on `:chess-core` via `api(project(":chess-core"))`. Targets: `android` (via `com.android.kotlin.multiplatform.library` plugin), `jvm("desktop")`, `wasmJs`.
 - `:androidApp` — thin Android application wrapper (manifest, launcher icons) that depends on `:app`.
+- `:onDeviceAi` — on-device AI orchestration (move coach, rules Q&A, opening explainer, route policy). Targets: `android`, `jvm("desktop")`, `iosArm64`, `iosSimulatorArm64`, `js(IR)`, `wasmJs`. Published to GitHub Packages as `io.github.ber4444:onDeviceAi` alongside `:coachApi` (see `.github/workflows/publish-on-device-ai.yml`) so the React Native repo can consume it. Has `api(project(":coachApi"))` — coachApi types leak into `OpeningExplainer.kt`'s public signatures, so both artifacts move in lockstep under one `on-device-ai-v*` tag.
+- `:coachApi` — serialization-only KMP wire models. Published as `io.github.ber4444:coachApi`. Targets mirror `:onDeviceAi`.
 
 `gradle.properties` sets `kotlin.mpp.applyDefaultHierarchyTemplate=false`, so the source-set hierarchy is manual. The KMP module graph is organized as follows:
 
 ```text
 chess-core commonMain            (pure Kotlin; published as io.github.ber4444:chess-core)
+
+coachApi commonMain              (serialization-only wire models; published as io.github.ber4444:coachApi)
+
+onDeviceAi commonMain            (on-device AI orchestration; published as io.github.ber4444:onDeviceAi)
+ ├── androidMain                 (Cactus / llama.cpp)
+ ├── desktopMain                 (deterministic fallback)
+ ├── iosMain                     (Foundation Models)
+ ├── wasmJsMain                  (deterministic fallback)
+ └── jsMain                      (deterministic fallback — the target the RN port consumes)
 
 :app commonMain
  ├── jvmCommonMain

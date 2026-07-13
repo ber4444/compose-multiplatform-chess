@@ -1,0 +1,80 @@
+name: Publish onDeviceAi + coachApi
+
+# Publishes io.github.ber4444:ondeviceai:<version> and io.github.ber4444:coachapi:<version> to
+# GitHub Packages. Both are published together because :onDeviceAi has `api(project(":coachApi"))`
+# and OpeningExplainer.kt leaks coachApi types into onDeviceAi's public signatures — consumers of
+# :onDeviceAi need :coachApi transitively, so the two artifacts must move in lockstep.
+#
+# Triggers:
+#   - Tag push matching `on-device-ai-v*` (e.g. `on-device-ai-v0.1.0` → version `0.1.0`).
+#   - Manual dispatch with an explicit `version` input.
+#
+# Both artifacts share the same version number (driven by one tag / one dispatch input). The version
+# is passed to Gradle via two env vars — ON_DEVICE_AI_VERSION and COACH_API_VERSION — which the build
+# files read. coachApi is published first so its metadata is available when onDeviceAi's POM is
+# generated (though in practice Gradle resolves project deps within one build regardless of order).
+#
+# Auth: the auto-provided GITHUB_TOKEN has `packages: write`. Consumers read with a PAT carrying
+# `read:packages`.
+
+on:
+  push:
+    tags:
+      - 'on-device-ai-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Publish to GitHub Packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            # Strip the 'on-device-ai-v' prefix from the tag → '0.1.0'
+            echo "version=${GITHUB_REF_NAME#on-device-ai-v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish coachApi then onDeviceAi
+        # Order matters conceptually (onDeviceAi's metadata references coachApi), though Gradle
+        # resolves the project dep within the same build regardless. Both use the same version.
+        run: ./gradlew :coachapi:publishAllPublicationsToGitHubPackagesRepository :ondeviceai:publishAllPublicationsToGitHubPackagesRepository
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COACH_API_VERSION: ${{ steps.ver.outputs.version }}
+          ON_DEVICE_AI_VERSION: ${{ steps.ver.outputs.version }}
+
+      - name: Summary
+        run: |
+          echo "### Published \`io.github.ber4444:ondeviceai:${{ steps.ver.outputs.version }}\` + \`io.github.ber4444:coachapi:${{ steps.ver.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Consumers add the GitHub Packages Maven repo and depend on" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`io.github.ber4444:ondeviceai:${{ steps.ver.outputs.version }}\` — coachApi comes transitively via \`api()\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "Auth: PAT with \`read:packages\`." >> "$GITHUB_STEP_SUMMARY"

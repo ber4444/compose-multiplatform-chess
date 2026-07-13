@@ -69,7 +69,7 @@ kotlin {
             // classes + runtime into ChessApp so the iOS app links exactly one
             // Kotlin framework. Swift accesses onDeviceAi symbols via
             // `import ChessApp` — no `import OnDeviceAi` needed.
-            export(project(":onDeviceAi"))
+            export(project(":ondeviceai"))
             // Export :chess-core so its public types (ChessEngine, GameViewModel, FenConverter, …)
             // are merged into the ChessApp framework under UNPREFIXED Objective-C names. Without
             // this, KGP qualifies cross-module types as `Chess_coreChessEngine`, breaking the Swift
@@ -81,7 +81,7 @@ kotlin {
         binaries.framework {
             baseName = "ChessApp"
             isStatic = true
-            export(project(":onDeviceAi"))
+            export(project(":ondeviceai"))
             export(project(":chess-core"))
         }
         // KGP's default simulator device often doesn't exist on current Xcode images.
@@ -103,7 +103,7 @@ kotlin {
 
         commonMain.dependencies {
             api(project(":chess-core"))
-            implementation(project(":coachApi"))
+            implementation(project(":coachapi"))
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.material3)
@@ -112,7 +112,7 @@ kotlin {
             implementation(compose.components.uiToolingPreview)
             implementation(libs.compose.ui.backhandler)
             implementation(libs.kermit)
-            api(project(":onDeviceAi"))
+            api(project(":ondeviceai"))
             implementation(libs.multiplatform.settings)
             implementation(libs.multiplatform.settings.coroutines)
             implementation(libs.kotlinx.serialization.json)

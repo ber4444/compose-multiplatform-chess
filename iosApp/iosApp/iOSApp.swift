@@ -37,16 +37,7 @@ struct iOSApp: App {
     var body: some Scene {
         WindowGroup {
             if Self.isBenchmarkMode {
-                Color.black.ignoresSafeArea().task {
-                    // BENCHMARK_MODE is set, run one cold init iteration and exit
-                    do {
-                        try await IosBenchRunnerKt.runIosBench(iterations: 1)
-                        exit(0)
-                    } catch {
-                        print("Benchmark failed: \(error)")
-                        exit(1)
-                    }
-                }
+                BenchmarkView()
             } else if Self.isRunningTests {
                 // Under XCTest, don't spin up the Compose (Skia-Metal) + Filament UI. The GPU-limited
                 // CI simulator's Metal host (SimMetalHost) crashes while rendering the first frame of
@@ -55,6 +46,25 @@ struct iOSApp: App {
                 Color.black.ignoresSafeArea()
             } else {
                 ContentView()
+            }
+        }
+    }
+}
+
+struct BenchmarkView: View {
+    @State private var status = "Running Benchmark..."
+    
+    var body: some View {
+        Color.black.ignoresSafeArea().overlay(
+            Text(status)
+                .foregroundColor(.white)
+        ).task {
+            do {
+                try await IosBenchRunnerKt.runIosBench(iterations: 1)
+                status = "Benchmark Complete"
+            } catch {
+                print("Benchmark failed: \(error)")
+                status = "Benchmark Failed"
             }
         }
     }

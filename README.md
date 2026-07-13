@@ -53,7 +53,16 @@ The project is split into focused Gradle modules:
 - **`:app`** — the Compose Multiplatform app: all UI screens, platform glue, Stockfish bridges, and
   the 3D renderers. Depends on `:chess-core` via `api(project(":chess-core"))`.
 - **`:androidApp`** — thin Android application wrapper (manifest, launcher icons) that depends on `:app`.
-- **`:coachApi`** — serialization-only KMP wire models shared by the app and opening explainer.
+- **`:onDeviceAi`** — on-device AI orchestration (move coach, rules Q&A, opening explainer, route
+  policy) in `commonMain`, with platform-specific LLM runtimes injected (Cactus on Android, Foundation
+  Models on iOS, deterministic fallback on desktop/wasm/JS). Published to GitHub Packages as
+  **`io.github.ber4444:onDeviceAi`** (tag-driven: push `on-device-ai-v*` → `publish-on-device-ai.yml`
+  publishes both `:onDeviceAi` and `:coachApi` together). Consumed by `:app` and by the
+  [React Native port](https://github.com/ber4444/react-native-kotlin-multiplatform-chess).
+- **`:coachApi`** — serialization-only KMP wire models (`OpeningExplainRequest`/`Response`, etc.)
+  shared by `:onDeviceAi` and the opening explainer service. Published as
+  **`io.github.ber4444:coachApi`** because `:onDeviceAi` exposes its types in public signatures
+  (OpeningExplainer returns `OpeningExplainResponse`), so consumers need it transitively.
 - **`:server`** — JVM Ktor opening-explainer service with pgvector retrieval and deterministic
   composition; the optional provider composer always validates and falls back locally.
 - **`:evals`** — rule-based grounding and length regression suite for AI coach routes.
@@ -136,10 +145,11 @@ graph TD
 - `app/src/wasmJsMain` web launcher
 - `app/src/iosMain` shared iOS implementation
 - `iosApp/` Xcode project and Swift adapter
-- `coachApi/src/commonMain` serialization-only wire models shared by the app and the opening-explainer service
+- `coachApi/src/commonMain` serialization-only wire models — published as `io.github.ber4444:coachApi`
 - `server/` JVM Ktor opening-explainer service (Postgres + pgvector retrieval, ONNX MiniLM embeddings, `:server:seed` corpus loader)
 - `evals/` rule-based eval harness and golden-set scorecard for all AI coach routes
 - `onDeviceAi/src/commonMain/resources/rulesCorpus/` the bundled offline FIDE/Wikibooks rules corpus (30 passages, BM25-lookupable)
+- `onDeviceAi/src/` published as `io.github.ber4444:onDeviceAi` — the on-device AI orchestration consumed by `:app` and the RN port
 - `perft-mcp/` the [perft MCP server](docs/perft.md#the-mcp-server-perft-mcp) — a thin stdio adapter exposing the rig as agent tools
 
 Third-party asset and dependency notices live in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
@@ -151,6 +161,37 @@ Third-party asset and dependency notices live in [THIRD_PARTY_NOTICES.md](THIRD_
 - **Dependency split (`api` vs `implementation`)**: `kotlinx-coroutines-core` is an `api` dependency because `StateFlow` is exposed on `GameViewModel`. `kermit` and `kotlinx-serialization-json` are `implementation` details.
 - **Public API surface**: The core intentionally exposes engine entry points (`GameViewModel`, `ChessEngine`), state types (`GameUiState`, `WinState`), the piece model, FEN/PGN converters, the persistence seam (`GameSnapshotSink`), and `board3d` scene types.
 - **Internal implementation**: Raw move-generation rules, draw-condition internals, and 3D math helpers are deliberately marked `internal` and are completely unreachable by consumers. If a symbol isn't listed above, assume it is internal.
+
+## `:onDeviceAi` & `:coachApi` — public API & dependency boundary
+
+`:onDeviceAi` is the on-device AI orchestration module (move coach, rules Q&A, opening explainer,
+route policy). It is consumed by `:app` for the chess UI and published as
+`io.github.ber4444:onDeviceAi` for the React Native repository. `:coachApi` is its serialization-only
+wire-model dependency, published as `io.github.ber4444:coachApi`.
+
+- **Dependency split (`api` vs `implementation`)**: `:coachApi` is an `api` dependency because
+  `OpeningExplainer.kt` exposes `OpeningExplainRequest`/`OpeningExplainResponse` in public signatures
+  (constructor params, return types, sealed-result properties). `kermit` and `kotlinx-coroutines-core`
+  are `implementation` details. Consumers of `:onDeviceAi` transitively get `:coachApi` on their
+  compile classpath.
+- **Public API surface**: `AiCoachOrchestrator` / `DefaultAiCoachOrchestrator`, `GameSummaryOrchestrator`,
+  `RulesQa` orchestrator + `RulesQaResult`/`RulesQaModelOutput`, `OpeningExplainer` +
+  `OpeningExplainerResult`, `RuleLookupTool` / `BundledRuleLookupTool`, `AiRoutePolicy` /
+  `AiRoutePolicies`, `OnDeviceTextGenerator` / `OnDeviceTextGeneratorFactory`, the `MoveCoach*` /
+  `GameSummary*` model + result sealed types.
+- **Platform actuals**: `commonMain` declares `expect` factories for the on-device text generator,
+  `defaultNowMs()`, and the rules-QA answerer. Each platform provides an `actual`: Android = Cactus
+  (llama.cpp), iOS = Foundation Models, desktop/wasm/JS = deterministic no-op fallback
+  (`UnsupportedTextGenerator` / `null`). The RN consumer's JS target gets the fallback — no on-device
+  LLM on JS, so the orchestrators degrade to rule-based text.
+- **Publishing**: tag `on-device-ai-v*` triggers `publish-on-device-ai.yml`, which publishes both
+  artifacts at the same version. Both target Android, JVM (desktop), iOS (arm64/simulator), JS (IR),
+  and Wasm.
+
+```bash
+git tag -a on-device-ai-v0.1.0 -m "Publish io.github.ber4444:onDeviceAi:0.1.0 + coachApi"
+git push origin on-device-ai-v0.1.0
+```
 
 ## Benchmarking
 
@@ -172,6 +213,7 @@ To measure performance metrics of the on-device AI integration (init times, toke
 - `./gradlew :app:desktopTest --tests "*board3d*"` runs the 3D desktop tests (DesktopRendererSmokeTest writes `build/chess3d-*.png` to eyeball the render)
 - `./gradlew :chess-core:publishToMavenLocal` publishes `io.github.ber4444:chess-core` to the local Maven cache (for local cross-repo iteration)
 - `./gradlew :coachApi:build` builds and tests the serialization-only wire-model module
+- `./gradlew :coachApi:publishToMavenLocal :onDeviceAi:publishToMavenLocal` publishes both AI artifacts to the local Maven cache (for local cross-repo iteration with the RN port)
 - `./gradlew :server:test` runs the opening-explainer service tests (Testcontainers Postgres; skips without Docker)
 - `./gradlew :server:seed` seeds the opening corpus into a Postgres database (needs `DATABASE_URL` + embedding model paths)
 - `./gradlew :evals:run` runs the rule-based eval harness and regenerates `evals/scorecard.md` (fails on grounding regression)
