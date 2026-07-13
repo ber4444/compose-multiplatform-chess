@@ -2,6 +2,7 @@
 @file:Suppress("UnstableApiUsage")
 
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.api.tasks.testing.Test
 
 // `:chess-core` — the Compose-free, platform-agnostic chess engine core.
 //
@@ -121,4 +122,17 @@ plugins.withId("maven-publish") {
             }
         }
     }
+}
+
+// ── Forward `perft.*` system properties into the desktop test JVM ───────────────
+// PerftDeepTest (in this module's desktopTest source set) gates on
+// `System.getProperty("perft.deep")?.toBoolean() == true`. Without this forwarding, `-Dperft.deep=true`
+// on the gradle command line only sets the property on the gradle daemon, not on the forked test JVM,
+// so the deep tier (start d5, Kiwipete d4, etc.) would assume-skip forever — the CI nightly would be a
+// silent no-op even with the flag passed. Mirrors the same forwarding in app/build.gradle.kts (which
+// the perft rig used before the "move perft tests to chess-core" commit moved the tests here).
+tasks.withType<Test>().configureEach {
+    System.getProperties()
+        .filterKeys { it.toString().startsWith("perft.") }
+        .forEach { (k, v) -> systemProperty(k.toString(), v.toString()) }
 }

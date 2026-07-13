@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "perft-rig": {
+      "command": "perft-mcp/build/install/perft-mcp/bin/perft-mcp"
+    }
+  }
+}

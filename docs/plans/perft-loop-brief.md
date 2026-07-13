@@ -91,10 +91,22 @@ If red, do exactly this:
 | Portable shallow | `PerftTest` (commonTest) | start d3, others d2/d3 | every PR, every target (`:app:check`) |
 | Canonical deep | `PerftCanonicalGateTest` (desktopTest) | start d4, Kiwipete d3, Pos3 d4, Pos4/5/6 d3 | every PR, desktop only |
 | Opt-in deeper | `PerftDeepTest` (desktopTest) | start d5, Kiwipete d4, Pos3 d5, Pos4/5/6 d4 | CI nightly (`perft-nightly` job) via `-Dperft.deep=true` |
-| Stockfish oracle | `PerftVsStockfishTest` (desktopTest) | d3 divide diff | every PR on macOS runner (binary installed via brew); nightly on Linux (apt) |
+| Stockfish oracle | `PerftVsStockfishTest` (desktopTest) | d3 divide diff | every PR (stockfish installed via apt on Linux, brew on macOS); nightly on Linux |
+
+> **Note:** all perft tests live in `:chess-core` (moved out of `:app`). Every gradle target below
+> uses `:chess-core:desktopTest`, NOT `:app:desktopTest` — the latter matches zero tests post-move.
+> See `docs/plans/perft-ci-completion.md` for the full CI story.
 
 Run the opt-in tier locally with:
 
 ```
-./gradlew :app:desktopTest --tests "*PerftDeepTest*" -Dperft.deep=true
+./gradlew :chess-core:desktopTest --tests "*PerftDeepTest*" -Dperft.deep=true
 ```
+
+## MCP server (executable form of this brief)
+
+The `:perft-mcp` module (`./gradlew :perft-mcp:installDist`) exposes three tools —
+`run_perft_gate`, `stockfish_divide`, `read_divergence` — that are the executable form of this
+brief. An MCP-aware agent (Claude Code, etc.) can call them instead of parsing this document. See
+`docs/plans/perft-mcp-server.md` for details and `.mcp.json.example` for host wiring. **The agent
+still cannot edit the oracle (`PerftPositions.kt`); the tools only make the loop faster.**
