@@ -31,4 +31,20 @@ object AiRoutePolicies {
         allowCloud = false,
         requireOffline = true,
     )
+
+    val openingExplainer = AiRoutePolicy(
+        privacyClass = PrivacyClass.PUBLIC_OR_SYNTHETIC,
+        latencyBudget = LatencyBudget(firstTokenMs = 2500, completeMs = 8000),
+        costBudget = CostBudget(maxUsdCents = 0.2),
+        allowCloud = true,
+        requireOffline = false,
+    )
+
+    val rulesQaOffline = AiRoutePolicy(
+        privacyClass = PrivacyClass.LOCAL_ONLY,
+        latencyBudget = LatencyBudget(firstTokenMs = 5000, completeMs = 20000),
+        costBudget = CostBudget(maxUsdCents = 0.0),
+        allowCloud = false,
+        requireOffline = true,
+    )
 }

@@ -1,0 +1,119 @@
+openapi: 3.0.3
+info:
+  title: Chess Opening Explainer API
+  version: 1.0.0
+  description: Explains public or synthetic chess opening positions using retrieved source passages.
+paths:
+  /health:
+    get:
+      operationId: health
+      responses:
+        '200':
+          description: Service is running.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+  /v1/openings/explain:
+    post:
+      operationId: explainOpening
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpeningExplainRequest'
+      responses:
+        '200':
+          description: A grounded opening explanation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpeningExplainResponse'
+        '400':
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '413':
+          description: Request body exceeds the service limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '429':
+          description: Caller exceeded the in-process request limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: The explanation could not be produced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+components:
+  schemas:
+    OpeningExplainRequest:
+      type: object
+      additionalProperties: false
+      required: [fen, movesSan]
+      properties:
+        fen:
+          type: string
+          minLength: 1
+          maxLength: 128
+        movesSan:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 16
+        eco:
+          type: string
+          nullable: true
+          pattern: '^[A-E][0-9]{2}[a-z]?$'
+        locale:
+          type: string
+          nullable: true
+          maxLength: 64
+    Passage:
+      type: object
+      additionalProperties: false
+      required: [sourceId, title, text]
+      properties:
+        sourceId:
+          type: string
+        title:
+          type: string
+        text:
+          type: string
+    OpeningExplainResponse:
+      type: object
+      additionalProperties: false
+      required: [text, passages, composerId]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 300
+        passages:
+          type: array
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/Passage'
+        composerId:
+          type: string
+          enum: [template-v1, llm-v1]
+    ApiError:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string

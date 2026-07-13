@@ -38,7 +38,7 @@ because they are large generated dependencies and are intentionally gitignored.
 
 ### Modules
 
-The project is split into three Gradle modules:
+The project is split into focused Gradle modules:
 
 - **`:chess-core`** — the Compose-free, platform-agnostic chess engine core (all game rules,
   FEN/UCI/SAN/PGN converters, `GameViewModel`, and the pure-Kotlin 3D-board math/scene mapping). It
@@ -51,6 +51,10 @@ The project is split into three Gradle modules:
 - **`:app`** — the Compose Multiplatform app: all UI screens, platform glue, Stockfish bridges, and
   the 3D renderers. Depends on `:chess-core` via `api(project(":chess-core"))`.
 - **`:androidApp`** — thin Android application wrapper (manifest, launcher icons) that depends on `:app`.
+- **`:coachApi`** — serialization-only KMP wire models shared by the app and opening explainer.
+- **`:server`** — JVM Ktor opening-explainer service with pgvector retrieval and deterministic
+  composition; the optional provider composer always validates and falls back locally.
+- **`:evals`** — rule-based grounding and length regression suite for AI coach routes.
 
 The core↔app boundary is enforced by three seams (don't re-couple them):
   - `Piece` has no `asset` field; `:app` resolves drawables via `PieceAssets.asset()`.
@@ -153,6 +157,35 @@ To measure performance metrics of the on-device AI integration (init times, toke
 - `./gradlew :app:desktopTest --tests "*board3d*"` runs the 3D desktop tests (DesktopRendererSmokeTest writes `build/chess3d-*.png` to eyeball the render)
 - `./gradlew :chess-core:publishToMavenLocal` publishes `io.github.ber4444:chess-core` to the local Maven cache (for local cross-repo iteration)
 - `tools/ios_3d_screenshot.sh` captures the real iOS 3D board from a booted simulator
+
+### Opening explainer service
+
+The service contract is [server/openapi.yaml](server/openapi.yaml). Runtime configuration is read
+only from environment variables:
+
+- `DATABASE_URL` — Postgres with pgvector enabled
+- `COACH_EMBEDDING_MODEL` and `COACH_EMBEDDING_VOCAB` — local MiniLM ONNX assets
+- optional `COACH_LLM_API_KEY`, `COACH_LLM_API_URL`, and `COACH_LLM_MODEL`; paid composition is
+  enabled only when `COACH_LLM_INPUT_USD_PER_MILLION` and
+  `COACH_LLM_OUTPUT_USD_PER_MILLION` are also set so the 0.2-cent request ceiling can be checked
+- optional comma-separated `COACH_ALLOWED_ORIGINS` hostnames for the Wasm app (for example,
+  `chess.example.com`; schemes are added by the server)
+
+On Fly.io, the runtime detects `FLY_APP_NAME` and uses Fly Proxy's `Fly-Client-IP` header for the
+bounded, expiring in-process request limiter. Outside Fly, the direct peer address is used.
+
+No production URL or credential is committed. Deployment is intentionally a human step:
+
+```bash
+fly launch --no-deploy --config server/fly.toml
+fly secrets set --config server/fly.toml DATABASE_URL=…
+fly deploy --config server/fly.toml
+DATABASE_URL=… COACH_EMBEDDING_MODEL=… COACH_EMBEDDING_VOCAB=… ./gradlew :server:seed
+curl https://<fly-app>.fly.dev/health
+```
+
+After deployment, replace `<fly-app>` with the assigned app name and record the verified base URL
+here. Do not put database URLs or provider keys in this file or any `.env` file.
 
 ### Publishing `chess-core`
 

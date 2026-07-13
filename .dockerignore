@@ -1,0 +1,10 @@
+.git
+.gradle
+.kotlin
+**/build
+**/.DS_Store
+.env
+.env.*
+local.properties
+iosApp/iosApp/Filament/filament
+app/src/desktopMain/filament/filament

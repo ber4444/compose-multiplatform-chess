@@ -5,6 +5,9 @@ app/build/*
 androidApp/build/*
 onDeviceAi/build/*
 chess-core/build/*
+coachApi/build/*
+server/build/*
+evals/build/*
 .kotlin/*
 .gradle/*
 .idea/*

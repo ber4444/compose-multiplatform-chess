@@ -1,0 +1,9 @@
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE IF NOT EXISTS passages (
+    id BIGSERIAL PRIMARY KEY,
+    source_id TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    text TEXT NOT NULL,
+    embedding vector(384) NOT NULL
+);

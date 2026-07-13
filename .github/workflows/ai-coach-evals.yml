@@ -1,0 +1,61 @@
+name: AI coach evals
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'onDeviceAi/**'
+      - 'coachApi/**'
+      - 'server/**'
+      - 'evals/**'
+      - 'app/src/**/opening/**'
+      - 'settings.gradle.kts'
+      - 'gradle/libs.versions.toml'
+      - '.github/workflows/ai-coach-evals.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'onDeviceAi/**'
+      - 'coachApi/**'
+      - 'server/**'
+      - 'evals/**'
+      - 'app/src/**/opening/**'
+      - 'settings.gradle.kts'
+      - 'gradle/libs.versions.toml'
+      - '.github/workflows/ai-coach-evals.yml'
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  evals:
+    name: Grounding regression gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Run fake, fallback, and local-server evals
+        run: ./gradlew :evals:run
+
+      - name: Upload scorecard
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ai-coach-scorecard
+          path: evals/scorecard.md
+          if-no-files-found: error

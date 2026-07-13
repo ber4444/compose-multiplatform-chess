@@ -46,6 +46,9 @@ struct iOSApp: App {
                 bridge: FoundationMoveCoachBridge()
             )
         })
+        FoundationRulesQaBridgeKt.registerFoundationRulesQaProvider(provider: { lookupBridge in
+            FoundationRulesQANativeBridge(lookupBridge: lookupBridge)
+        })
     }
 
     var body: some Scene {
