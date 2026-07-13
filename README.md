@@ -48,9 +48,15 @@ The project is split into three Gradle modules:
   publishes that version). Consumed by `:app` (below) and by the
   [React Native port](https://github.com/ber4444/react-native-kotlin-multiplatform-chess), so there
   is **no duplicated Kotlin** across the two repos — bump `chessCoreVersion` to pick up core changes.
+  Also home to the [perft verification rig](docs/perft.md) — the move generator is proven correct
+  against arithmetic ground truth (canonical perft counts + Stockfish cross-check).
 - **`:app`** — the Compose Multiplatform app: all UI screens, platform glue, Stockfish bridges, and
   the 3D renderers. Depends on `:chess-core` via `api(project(":chess-core"))`.
 - **`:androidApp`** — thin Android application wrapper (manifest, launcher icons) that depends on `:app`.
+- **`:perft-mcp`** — a thin stdio [MCP server](docs/perft.md#the-mcp-server-perft-mcp) exposing the
+  perft rig as three tools (`run_perft_gate`, `stockfish_divide`, `read_divergence`) for agent-driven
+  verification loops. JVM-only; no dependency on `:app` or `:chess-core` (it shells out to gradle +
+  stockfish as an adapter, not an engine).
 
 The core↔app boundary is enforced by three seams (don't re-couple them):
   - `Piece` has no `asset` field; `:app` resolves drawables via `PieceAssets.asset()`.
@@ -107,10 +113,12 @@ graph TD
   - **Desktop:** Relies on system-installed binaries (e.g., via `apt` or `brew`).
   - **Web (Wasm):** Uses a lightweight `stockfish-18-lite-single.js` running in a Web Worker.
   - **iOS:** Wraps `ChessKitEngine` using an async-sync bridge and utilizes NNUE via `EvalFileSmall`.
+- **Perft Verification Rig:** The move generator is proven correct against arithmetic ground truth — [canonical perft counts](https://www.chessprogramming.org/Perft_Results) for six standard positions, plus a Stockfish `go perft` divide-diff cross-check over a seeded random walk of arbitrary midgame/endgame positions. The rig runs in CI on every PR and nightly (deep tier). A pure top-level `applyMove` (extracted from `GameViewModel.deriveNewGameState`) makes the generator testable to perft depth without ViewModel side effects. An optional MCP server (`:perft-mcp`) exposes the rig as tools for agent-driven verification loops. See **[docs/perft.md](docs/perft.md)** for the full walkthrough.
 
 ## Project layout
 
 - `chess-core/src/commonMain` the Compose-free chess engine core (rules, FEN/UCI/SAN/PGN, `GameViewModel`, board3d math) — published as `io.github.ber4444:chess-core`
+- `chess-core/src/commonTest` + `chess-core/src/desktopTest` the [perft verification rig](docs/perft.md) (canonical gate + Stockfish oracle + deep tier)
 - `app/src/commonMain` the Compose UI, persistence, share, and 3D renderer glue (depends on `:chess-core`)
 - `app/src/androidMain` Android-specific shared implementation and Stockfish integration
 - `androidApp/src/main` Android application manifest that depends on the shared KMP module
@@ -118,6 +126,7 @@ graph TD
 - `app/src/wasmJsMain` web launcher
 - `app/src/iosMain` shared iOS implementation
 - `iosApp/` Xcode project and Swift adapter
+- `perft-mcp/` the [perft MCP server](docs/perft.md#the-mcp-server-perft-mcp) — a thin stdio adapter exposing the rig as agent tools
 
 Third-party asset and dependency notices live in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
@@ -142,6 +151,9 @@ Third-party asset and dependency notices live in [THIRD_PARTY_NOTICES.md](THIRD_
 - `./gradlew :app:iosSimulatorArm64Test` runs iOS Compose UI tests
 - `./gradlew :app:desktopTest --tests "*board3d*"` runs the 3D desktop tests (DesktopRendererSmokeTest writes `build/chess3d-*.png` to eyeball the render)
 - `./gradlew :chess-core:publishToMavenLocal` publishes `io.github.ber4444:chess-core` to the local Maven cache (for local cross-repo iteration)
+- `./gradlew :chess-core:desktopTest --tests "*Perft*"` runs the [perft gate](docs/perft.md) (canonical counts + Stockfish cross-check)
+- `./gradlew :chess-core:desktopTest --tests "*PerftDeepTest*" -Dperft.deep=true` runs the deep perft tier (nightly-only depths; slow)
+- `./gradlew :perft-mcp:test :perft-mcp:installDist` builds the [perft MCP server](docs/perft.md#the-mcp-server-perft-mcp)
 - `tools/ios_3d_screenshot.sh` captures the real iOS 3D board from a booted simulator
 
 ### Publishing `chess-core`
