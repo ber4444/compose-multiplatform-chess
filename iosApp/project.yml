@@ -37,6 +37,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.myapplication
+        # Only ChessApp is linked directly; OnDeviceAi is exported into ChessApp
+        # via `export(project(":onDeviceAi"))` in app/build.gradle.kts to avoid
+        # KT-42254 (duplicate Kotlin/Native runtime injection).
         FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
         OTHER_LDFLAGS: "$(inherited) -framework ChessApp"
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -65,6 +68,16 @@ targets:
         FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/iosApp.app/iosApp"
         BUNDLE_LOADER: "$(TEST_HOST)"
+  iosAppUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [iosAppUITests]
+    dependencies:
+      - target: iosApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.myapplication.uitests
+        TEST_TARGET_NAME: iosApp
 schemes:
   iosApp:
     build:
@@ -73,4 +86,4 @@ schemes:
       config: Debug
     test:
       config: Debug
-      targets: [iosAppTests]
+      targets: [iosAppTests, iosAppUITests]

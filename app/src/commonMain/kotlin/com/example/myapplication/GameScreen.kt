@@ -71,6 +71,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
+import com.example.myapplication.movecoach.MoveCoachPanel
+import com.example.myapplication.movecoach.MoveCoachUiState
+import com.example.myapplication.movecoach.GameSummaryUiState
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.CircularProgressIndicator
 import game.app.generated.resources.Res
 import game.app.generated.resources.cancel_button
 import game.app.generated.resources.game_end_message_no_winner
@@ -143,6 +148,8 @@ fun GameScreen(
     val gameState by viewModel.gameState.collectAsState()
     val animState by viewModel.animState.collectAsState()
     val viewState by viewModel.viewState.collectAsState()
+    val moveCoachManager = LocalMoveCoachManager.current
+    val coachState = moveCoachManager?.coachUiState?.collectAsState()?.value ?: MoveCoachUiState.Hidden
     val scrollState = rememberScrollState()
     // The 3D toggle now lives in SettingsScreen and writes to AppSettings.board3DEnabled. Observe it
     // here (when a settings instance is provided via LocalAppSettings — production always provides
@@ -268,6 +275,58 @@ fun GameScreen(
                         }
                     }
                 }
+
+                // Coach Summary (issue #39 Phase 4 / issue #33)
+                val gameSummaryManager = LocalGameSummaryManager.current
+                if (gameSummaryManager != null) {
+                    val summaryState by gameSummaryManager.uiState.collectAsState()
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    when (summaryState) {
+                        is GameSummaryUiState.Hidden -> {
+                            Button(
+                                onClick = {
+                                    val pgn = GameActions.toPgn(gameState, viewModel.engineAttached)
+                                    gameSummaryManager.triggerSummary(pgn)
+                                }
+                            ) {
+                                Text("Get Coach Summary")
+                            }
+                        }
+                        is GameSummaryUiState.Loading -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Crunching data...", style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                        is GameSummaryUiState.Streaming -> {
+                            val text = (summaryState as GameSummaryUiState.Streaming).text
+                            Text(
+                                text = text,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                        is GameSummaryUiState.Ready -> {
+                            val exp = (summaryState as GameSummaryUiState.Ready).explanation
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text("Coach Summary", fontWeight = FontWeight.Bold)
+                                Text(exp.explanation, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                        is GameSummaryUiState.Fallback -> {
+                            val fallback = (summaryState as GameSummaryUiState.Fallback)
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text("Coach Summary", fontWeight = FontWeight.Bold)
+                                Text(fallback.text, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                        is GameSummaryUiState.Error -> {
+                            Text("Error: ${(summaryState as GameSummaryUiState.Error).message}", color = Color.Red, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
             }
         }
 
@@ -371,18 +430,33 @@ fun GameScreen(
                 }
             }
 
-            GameControls(
-                gameState = gameState,
-                animState = animState,
-                viewState = viewState,
-                viewModel = viewModel,
-                onResetGame = { viewModel.resetGame(show3D = board3DEnabled) },
-                transparentButtons = true,
+            // Stack controls + coach panel at the bottom. Panel fills remaining
+            // vertical space below the buttons down to the bottom of the screen;
+            // internally scrolls with a 5s auto-scroll delay if text overflows.
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
-                    .padding(16.dp)
-            )
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 4.dp)
+            ) {
+                GameControls(
+                    gameState = gameState,
+                    animState = animState,
+                    viewState = viewState,
+                    viewModel = viewModel,
+                    onResetGame = { viewModel.resetGame(show3D = board3DEnabled) },
+                    transparentButtons = true,
+                )
+                if (coachState !is MoveCoachUiState.Hidden) {
+                    MoveCoachPanel(
+                        state = coachState,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                }
+            }
         } else {
             // Measure the viewport OUTSIDE the verticalScroll — the scroll gives children infinite
             // max height, so BoxWithConstraints inside it can't cap the board. Capping the board at
@@ -417,6 +491,14 @@ fun GameScreen(
                         viewModel = viewModel,
                         onResetGame = { viewModel.resetGame(show3D = board3DEnabled) }
                     )
+
+                    // Move Coach panel — fills remaining space below the buttons.
+                    if (coachState !is MoveCoachUiState.Hidden) {
+                        MoveCoachPanel(
+                            state = coachState,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                    }
                 }
             }
         }

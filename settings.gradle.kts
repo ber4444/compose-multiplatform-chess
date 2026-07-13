@@ -77,4 +77,5 @@ rootProject.name = "game"
 include(":chess-core")
 include(":app")
 include(":androidApp")
+include(":onDeviceAi")
 include(":perft-mcp")

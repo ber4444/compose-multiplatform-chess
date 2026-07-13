@@ -14,7 +14,7 @@ Add a "Move Coach" panel to the chess app:
 1. The existing `ChessEngine`/Stockfish path still chooses Black's move and can also evaluate candidate moves.
 2. The app builds a small, deterministic explanation context from the current position:
    - FEN before the move
-   - engine best move in UCI and SAN-like display text
+   - engine best move in UCI and standard SAN (via `SanConverter.toSan(...)`)
    - shallow engine evaluation before/after if available (the *after* value is a second engine call per coached move — bound its depth or skip it on slower devices)
    - tactical tags produced by deterministic code when cheap: capture, check, castle, promotion, material swing, defended/undefended piece
 3. A local language model turns that context into one short explanation:
@@ -101,6 +101,7 @@ Do not put this directly into `:app` at first. The chess app should consume a na
 The app owns:
 
 - chess-specific context extraction
+- adding the "Enable AI Coach" toggle and related AI routing/privacy settings to `AppSettings` (rendered in the new `SettingsScreen`, rather than a standalone UI)
 - UI state
 - deterministic fallback explanation
 - when to show and cancel coach requests
@@ -384,7 +385,9 @@ Do not mix this into M5 unless Foundation Models cannot meet the move-coach requ
 
 ## 8. Chess-app integration
 
-### 8.1 View model state
+### 8.1 Settings and View model state
+
+The "Enable AI Coach" toggle and any related AI routing/privacy settings should be added to `AppSettings` and rendered in the new `SettingsScreen`, rather than creating a standalone UI.
 
 Add fields to `GameUiState` or a small `MoveCoachUiState`:
 
@@ -410,7 +413,7 @@ Best first trigger:
 
 ### 8.3 Prompt contract
 
-The prompt must be small and grounded:
+The prompt must be small and grounded. The app generates perfect SAN for the `MoveRecord`, so the prompt can just consume `SanConverter.toSan(...)`. Additionally, include the current `EngineDifficulty` so the coach can explain if a sub-optimal move was chosen because the engine is on 'Easy'.
 
 ```text
 You are a chess coach for a casual player.
@@ -418,8 +421,9 @@ Explain only the provided move. Do not name openings or engine depth unless pres
 Use at most 2 sentences.
 
 Position FEN: {fen}
-Best move: {bestMoveDisplay} ({bestMoveUci})
+Best move: {bestMoveSan} ({bestMoveUci})
 Side to move: {sideToMove}
+Engine difficulty: {engineDifficulty}
 Evaluation before: {evaluationBefore}
 Evaluation after: {evaluationAfter}
 Tags: {deterministicTags}

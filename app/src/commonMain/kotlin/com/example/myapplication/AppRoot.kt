@@ -32,6 +32,9 @@ import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.persistence.LocalAppSettings
 import com.example.myapplication.share.PgnSharer
 import com.example.myapplication.ui.theme.MyApplicationTheme
+import com.example.myapplication.movecoach.MoveCoachManager
+import com.example.myapplication.movecoach.GameSummaryManager
+import androidx.compose.runtime.staticCompositionLocalOf
 
 /**
  * Top-level navigation host. Owns the single source of truth for the current screen, applies the
@@ -43,6 +46,9 @@ import com.example.myapplication.ui.theme.MyApplicationTheme
  */
 enum class Screen { GAME, HISTORY, SETTINGS }
 
+val LocalMoveCoachManager = staticCompositionLocalOf<MoveCoachManager?> { null }
+val LocalGameSummaryManager = staticCompositionLocalOf<GameSummaryManager?> { null }
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun AppRoot(
@@ -51,9 +57,15 @@ fun AppRoot(
     board3D: Board3DSupport? = null,
     gameHistory: GameHistoryRepository? = null,
     pgnSharer: PgnSharer? = null,
+    moveCoachManager: MoveCoachManager? = null,
+    gameSummaryManager: GameSummaryManager? = null,
     switchTopPadding: Dp = 8.dp,
 ) {
-    CompositionLocalProvider(LocalAppSettings provides settings) {
+    CompositionLocalProvider(
+        LocalAppSettings provides settings,
+        LocalMoveCoachManager provides moveCoachManager,
+        LocalGameSummaryManager provides gameSummaryManager
+    ) {
         MyApplicationTheme(darkTheme = isSystemInDarkTheme()) {
             var screen by rememberSaveable { mutableStateOf(Screen.GAME) }
             BackHandler(enabled = screen != Screen.GAME) { screen = Screen.GAME }
@@ -63,6 +75,9 @@ fun AppRoot(
             // SettingsScreen, applying them to the attached engine via setEngineDifficulty.
             LaunchedEffect(Unit) {
                 settings.engineDifficulty.collect { viewModel.setEngineDifficulty(it) }
+            }
+            LaunchedEffect(Unit) {
+                settings.aiCoachEnabled.collect { viewModel.aiCoachEnabled = it }
             }
 
             when (screen) {
