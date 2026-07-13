@@ -129,6 +129,10 @@ Third-party asset and dependency notices live in [THIRD_PARTY_NOTICES.md](THIRD_
 - **Public API surface**: The core intentionally exposes engine entry points (`GameViewModel`, `ChessEngine`), state types (`GameUiState`, `WinState`), the piece model, FEN/PGN converters, the persistence seam (`GameSnapshotSink`), and `board3d` scene types.
 - **Internal implementation**: Raw move-generation rules, draw-condition internals, and 3D math helpers are deliberately marked `internal` and are completely unreachable by consumers. If a symbol isn't listed above, assume it is internal.
 
+## Benchmarking
+
+To measure performance metrics of the on-device AI integration (init times, tokens/sec, memory), the project includes a dedicated benchmarking harness for both Android and iOS targets. See [On-Device Benchmark Harness](docs/benchmark-harness.md) for execution instructions and architecture details.
+
 ## Useful Gradle tasks
 
 - `./gradlew :chess-core:check` runs the chess-core test suite across all targets (desktop + iOS sim + JS)

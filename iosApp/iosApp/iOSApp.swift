@@ -8,6 +8,9 @@ struct iOSApp: App {
     // True when the app is launched as an XCTest host (Xcode sets this env var for hosted unit tests).
     private static let isRunningTests =
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        
+    private static let isBenchmarkMode =
+        ProcessInfo.processInfo.environment["BENCHMARK_MODE"] != nil
 
     init() {
         // Register the Foundation Models-backed coach provider before any Kotlin
@@ -28,7 +31,18 @@ struct iOSApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if Self.isRunningTests {
+            if Self.isBenchmarkMode {
+                Color.black.ignoresSafeArea().task {
+                    // BENCHMARK_MODE is set, run one cold init iteration and exit
+                    do {
+                        try await IosBenchRunnerKt.runIosBench(iterations: 1)
+                        exit(0)
+                    } catch {
+                        print("Benchmark failed: \(error)")
+                        exit(1)
+                    }
+                }
+            } else if Self.isRunningTests {
                 // Under XCTest, don't spin up the Compose (Skia-Metal) + Filament UI. The GPU-limited
                 // CI simulator's Metal host (SimMetalHost) crashes while rendering the first frame of
                 // the full app, which aborted the test host before tests could connect. The Swift unit

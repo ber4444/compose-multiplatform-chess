@@ -22,6 +22,7 @@ import android.content.pm.ApplicationInfo
 import com.example.myapplication.movecoach.MoveCoachManager
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
+import com.example.myapplication.bench.runAndroidBench
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -35,6 +36,15 @@ class MainActivity : ComponentActivity() {
         val isDebug = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         if (!isDebug) {
             Logger.setMinSeverity(Severity.Assert)
+        }
+
+        if (isDebug && intent.hasExtra("bench_iterations")) {
+            val iterations = intent.getIntExtra("bench_iterations", 1)
+            CoroutineScope(Dispatchers.IO).launch {
+                runAndroidBench(this@MainActivity, iterations)
+                finish()
+            }
+            return
         }
 
         enableEdgeToEdge(
