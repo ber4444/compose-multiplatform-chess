@@ -5,6 +5,10 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  schedule:
+    # 07:00 UTC daily — runs the opt-in depth-5/6 perft gate (PerftDeepTest) plus the full
+    # Stockfish-backed Oracle 2 that's too slow / off-path for the per-commit gate.
+    - cron: '0 7 * * *'
 
 permissions:
   contents: read
@@ -81,14 +85,37 @@ jobs:
           echo "Running on device: ${{ matrix.profile }}"
           echo "Building Android, Linux desktop, and Wasm targets"
 
-      - name: Install desktop Filament native build prerequisites
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libgl1-mesa-dev libegl1-mesa-dev libx11-dev
+      - name: Install desktop Filament native build prerequisites + Stockfish
+        # stockfish is installed here (not just in the nightly) so the per-commit :chess-core:check
+        # actually runs the PerftVsStockfish localizer (Oracle 2) instead of silently skipping it.
+        # It's a single apt package, so the wall-time cost is negligible vs. the Filament deps.
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libgl1-mesa-dev libegl1-mesa-dev libx11-dev stockfish
 
       - name: Fetch desktop Filament dependencies
         run: tools/fetch_filament_desktop.sh
 
       - name: Build Android, Linux desktop, and Wasm targets
-        run: ./gradlew :chess-core:check :androidApp:assembleDebug :app:assembleAndroidDeviceTest :app:check :app:desktopJar :app:packageDistributionForCurrentOS :app:wasmJsBrowserDistribution
+        # :chess-core:check runs the full per-target test matrix including :chess-core:desktopTest,
+        # which carries the perft rig (PerftCanonicalGateTest, PerftVsStockfishTest, PerftDeepTest).
+        # PerftDeepTest assume-skips without -Dperft.deep=true (intentional — it's nightly-only).
+        # :perft-mcp:test runs the MCP adapter's unit tests (parser, repo-root discovery, tool registration).
+        run: ./gradlew :chess-core:check :perft-mcp:test :androidApp:assembleDebug :app:assembleAndroidDeviceTest :app:check :app:desktopJar :app:packageDistributionForCurrentOS :app:wasmJsBrowserDistribution
+
+      - name: Report perft localizer status
+        # Surface whether Oracle 2 (PerftVsStockfishTest) ran or skipped, so a missing stockfish is
+        # a visible warning in the run summary rather than a silent green. Mirrors the apple-kotlin job.
+        if: always()
+        run: |
+          xml="$(find chess-core/build/test-results -name '*PerftVsStockfish*.xml' 2>/dev/null | head -1 || true)"
+          if [ -z "$xml" ]; then
+            echo "### ⚠️ Perft Stockfish localizer: NOT RUN (PerftVsStockfishTest produced no result file)" >> "$GITHUB_STEP_SUMMARY"
+          elif grep -q '<skipped' "$xml"; then
+            echo "### ⚠️ Perft Stockfish localizer: SKIPPED (stockfish binary not available)" >> "$GITHUB_STEP_SUMMARY"
+          elif grep -q '<failure' "$xml"; then
+            echo "### Perft Stockfish localizer: ran (with failures — see report)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Perft Stockfish localizer: ran" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Run instrumentation tests
         uses: reactivecircus/android-emulator-runner@v2.38.0
@@ -162,6 +189,13 @@ jobs:
         if: steps.filament-desktop.outputs.cache-hit != 'true'
         run: tools/fetch_filament_desktop.sh
 
+      - name: Install Stockfish (for the perft Stockfish oracle / localizer)
+        # PerftVsStockfishTest (Oracle 2) lives in :chess-core and degrades to "skipped" without a
+        # binary; installing stockfish here makes the canonical + random-walk divide diff actually
+        # run on every PR. Without this the localizer silently skips and the per-commit perft gate
+        # only exercises the canonical static-count oracle, not the Stockfish cross-check.
+        run: brew install stockfish
+
       - name: Ensure test simulator exists
         run: |
           # Match the EXACT device name ("iPhone 16 (" in the simctl listing) so a pre-installed
@@ -174,20 +208,44 @@ jobs:
 
       - name: Kotlin checks (simulator unit+UI tests, desktop tests)
         # --parallel runs the independent iosSimulatorArm64Test / desktopTest targets concurrently.
-        # desktopTest is kept here (not redundant): it uniquely compiles+tests the C++ Filament bridge
-        # .dylib + macOS desktop renderer tests the Linux runner cannot run.
+        # Two desktopTest tasks run here:
+        #   - :app:desktopTest      — the macOS-only C++ Filament bridge .dylib + desktop renderer
+        #                             tests the Linux runner cannot run (kept for that reason).
+        #   - :chess-core:desktopTest — the perft rig (PerftCanonicalGateTest + PerftVsStockfishTest
+        #                             + PerftDeepTest). The perft tests moved to :chess-core in the
+        #                             "move perft tests to chess-core" commit; without this target the
+        #                             per-commit perft gate would be a silent no-op (a `--tests "*Perft*"`
+        #                             filter on :app:desktopTest matches nothing post-move).
         # NOTE: linkDebugFrameworkIosArm64 (the iOS *device* framework) was removed — CI tests on the
         # simulator, and the xcode job builds its own framework via embedAndSignAppleFrameworkForXcode,
         # so the device link was ~2.5min of dead weight. (configuration-cache is intentionally NOT
         # enabled — the build's reflection-based task config is incompatible with it; see build.gradle.kts.)
-        run: ./gradlew --parallel :app:iosSimulatorArm64Test :app:desktopTest "-PiosSimulatorDeviceId=iPhone 16"
+        run: ./gradlew --parallel :app:iosSimulatorArm64Test :app:desktopTest :chess-core:desktopTest "-PiosSimulatorDeviceId=iPhone 16"
+
+      - name: Report perft localizer status
+        # Surface whether Oracle 2 (PerftVsStockfishTest) ran or skipped, so a missing stockfish is
+        # a visible warning in the run summary rather than a silent green. Mirrors the Linux job.
+        if: always()
+        run: |
+          xml="$(find chess-core/build/test-results -name '*PerftVsStockfish*.xml' 2>/dev/null | head -1 || true)"
+          if [ -z "$xml" ]; then
+            echo "### ⚠️ Perft Stockfish localizer: NOT RUN (PerftVsStockfishTest produced no result file)" >> "$GITHUB_STEP_SUMMARY"
+          elif grep -q '<skipped' "$xml"; then
+            echo "### ⚠️ Perft Stockfish localizer: SKIPPED (stockfish binary not available)" >> "$GITHUB_STEP_SUMMARY"
+          elif grep -q '<failure' "$xml"; then
+            echo "### Perft Stockfish localizer: ran (with failures — see report)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Perft Stockfish localizer: ran" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: apple-kotlin-test-reports
-          path: app/build/reports/tests/
+          path: |
+            app/build/reports/tests/
+            chess-core/build/reports/tests/
 
   apple-xcode:
     name: Build + Xcode checks (iOS app Swift tests)
@@ -248,6 +306,11 @@ jobs:
           xcodebuild -version
           xcrun simctl list devices available | head -30
 
+      - name: Install Stockfish (for Oracle 2 perft divide diff)
+        # PerftVsStockfishTest degrades to "skipped" without a binary; installing stockfish
+        # here makes the canonical + random-walk diff actually run on every PR.
+        run: brew install stockfish
+
       - name: Ensure test simulator exists
         run: |
           if ! xcrun simctl list devices available | grep -qE "iPhone 16 \("; then
@@ -278,3 +341,50 @@ jobs:
           path: |
             iosApp/build/DerivedData/Logs/Test
             app/build/reports/tests/
+
+  perft-nightly:
+    name: Perft deep + Stockfish oracle (nightly)
+    # Runs on schedule (see top-level `on:`) and on manual dispatch. Skipped on ordinary
+    # push/PR — the per-commit perft gate is already covered by :app:check (commonTest) and
+    # :app:desktopTest in the jobs above.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5.0.0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5.0.0
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # PerftDeepTest gates on -Dperft.deep=true (see chess-core/build.gradle.kts systemProperty
+      # forwarding). Without the flag the deep tests assume-skip; the broad --tests filter
+      # also re-runs the always-on canonical gate + Oracle 2 so the nightly exercises the
+      # full perft surface, not just the deep half.
+      # NOTE: the target is :chess-core:desktopTest, NOT :app:desktopTest — the perft tests moved
+      # to :chess-core, and a `--tests "*Perft*"` filter on :app:desktopTest matches zero tests
+      # post-move (silent green no-op). See docs/plans/perft-ci-completion.md.
+      - name: Install Stockfish (for Oracle 2 perft divide diff)
+        run: sudo apt-get update && sudo apt-get install -y stockfish
+
+      - name: Run deep perft gate + full Stockfish oracle
+        run: ./gradlew :chess-core:desktopTest --tests "*Perft*" -Dperft.deep=true
+
+      - name: Upload divergence report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: perft-divergence-report
+          path: build/perft-divergence.txt
+          if-no-files-found: ignore
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: perft-nightly-reports
+          path: chess-core/build/reports/tests/

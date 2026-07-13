@@ -5,6 +5,7 @@ app/build/*
 androidApp/build/*
 onDeviceAi/build/*
 chess-core/build/*
+perft-mcp/build/*
 .kotlin/*
 .gradle/*
 .idea/*
