@@ -1,0 +1,2058 @@
+[
+  {
+    "id": "opening-001",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "bestMoveUci": "g1h3",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "Nh3"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-002",
+    "fen": "rnbqkbnr/ppp2ppp/8/3pp3/8/6PN/PPPPPP1P/RNBQKB1R w KQkq - 0 3",
+    "bestMoveUci": "f2f4",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "Nh3",
+      "d5",
+      "g3",
+      "e5",
+      "f4"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-003",
+    "fen": "rn1qkbnr/ppp2ppp/8/3p4/8/6pB/PPPPP2P/RNBQ1RK1 w kq - 0 6",
+    "bestMoveUci": "h2g3",
+    "tags": [
+      "opening",
+      "king-safety"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "Nh3",
+      "d5",
+      "g3",
+      "e5",
+      "f4",
+      "Bxh3",
+      "Bxh3",
+      "exf4",
+      "O-O",
+      "fxg3",
+      "hxg3"
+    ],
+    "expectedConcepts": [
+      "king safety",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-004",
+    "fen": "r1bqkbnr/ppp2ppp/2np4/4p3/2P5/1PN1P3/P2P1PPP/R1BQKBNR b KQkq - 0 4",
+    "bestMoveUci": "g8f6",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "e3",
+      "e5",
+      "c4",
+      "d6",
+      "Nc3",
+      "Nc6",
+      "b3",
+      "Nf6"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-005",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "bestMoveUci": "a2a3",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "a3"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-006",
+    "fen": "rnbqkbnr/1ppppppp/8/p7/8/P7/1PPPPPPP/RNBQKBNR w KQkq - 0 2",
+    "bestMoveUci": "b2b4",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "a3",
+      "a5",
+      "b4"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-007",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "bestMoveUci": "f2f3",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "f3"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-008",
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 2",
+    "bestMoveUci": "d8h4",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "f3",
+      "e5",
+      "g4",
+      "Qh4#"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-009",
+    "fen": "rnbqkbnr/ppp1pp1p/6p1/8/3Pp3/5P2/PPP3PP/RNBQKBNR w KQkq - 0 4",
+    "bestMoveUci": "c2c3",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "f3",
+      "d5",
+      "e4",
+      "g6",
+      "d4",
+      "dxe4",
+      "c3"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-010",
+    "fen": "rnbqkbnr/ppppp1pp/8/8/4p3/5P2/PPPP2PP/RNBQKBNR w KQkq - 0 3",
+    "bestMoveUci": "b1c3",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "f3",
+      "f5",
+      "e4",
+      "fxe4",
+      "Nc3"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-011",
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/8/5P2/PPPPP1PP/RNBQKBNR w KQkq - 0 2",
+    "bestMoveUci": "e1f2",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "f3",
+      "e5",
+      "Kf2"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-012",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "bestMoveUci": "h2h3",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "h3"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-013",
+    "fen": "rnbqkbnr/ppppppp1/8/7p/8/7P/PPPPPPP1/RNBQKBNR w KQkq - 0 2",
+    "bestMoveUci": "g2g4",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "h3",
+      "h5",
+      "g4"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-014",
+    "fen": "rnbqkbnr/ppp1pppp/8/3p4/8/P6P/1PPPPPP1/RNBQKBNR b KQkq - 0 2",
+    "bestMoveUci": "e7e5",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "h3",
+      "d5",
+      "a3",
+      "e5"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-015",
+    "fen": "r1bq1rk1/ppp2ppp/2nb1n2/3pp3/8/PPPPPP2/6PP/RNBQKBNR w KQ - 1 7",
+    "bestMoveUci": "g2g3",
+    "tags": [
+      "opening",
+      "king-safety"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "a3",
+      "e5",
+      "b3",
+      "d5",
+      "c3",
+      "Nf6",
+      "d3",
+      "Nc6",
+      "e3",
+      "Bd6",
+      "f3",
+      "O-O",
+      "g3"
+    ],
+    "expectedConcepts": [
+      "king safety",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-016",
+    "fen": "r1bq1rk1/ppp2ppp/2nb1n2/3pp3/8/P2PP1P1/1PPN1PBP/R1BQK1NR w KQ - 1 7",
+    "bestMoveUci": "h2h3",
+    "tags": [
+      "opening",
+      "king-safety"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "a3",
+      "e5",
+      "g3",
+      "d5",
+      "Bg2",
+      "Nf6",
+      "d3",
+      "Nc6",
+      "Nd2",
+      "Bd6",
+      "e3",
+      "O-O",
+      "h3"
+    ],
+    "expectedConcepts": [
+      "king safety",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-017",
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/8/7P/PPPPPPP1/RNBQKBNR w KQkq - 0 2",
+    "bestMoveUci": "a2a3",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "h3",
+      "e5",
+      "a3"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-018",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "bestMoveUci": "g2g4",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-019",
+    "fen": "rnbqkbnr/pppppppp/8/8/6P1/8/PPPPPP1P/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "f7f5",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "f5"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-020",
+    "fen": "rnbqkbnr/pppppppp/8/8/6P1/8/PPPPPP1P/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "g7g5",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "g5"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-021",
+    "fen": "rnbqkbnr/pppppp1p/8/6p1/6P1/8/PPPPPP1P/RNBQKBNR w KQkq - 0 2",
+    "bestMoveUci": "f2f4",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "g5",
+      "f4"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-022",
+    "fen": "rnbqkbnr/ppp1pppp/8/3p4/6P1/8/PPPPPP1P/RNBQKBNR w KQkq - 0 2",
+    "bestMoveUci": "f1g2",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "d5",
+      "Bg2"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-023",
+    "fen": "rnbqkbnr/ppp1pppp/8/3p4/6P1/8/PPPPPPBP/RNBQK1NR b KQkq - 1 2",
+    "bestMoveUci": "c7c6",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "d5",
+      "Bg2",
+      "c6"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-024",
+    "fen": "rnbqkbnr/ppp1ppp1/8/3p3p/6P1/8/PPPPPPBP/RNBQK1NR w KQkq - 0 3",
+    "bestMoveUci": "g4h5",
+    "tags": [
+      "opening",
+      "pawn-tension"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "d5",
+      "Bg2",
+      "h5",
+      "gxh5"
+    ],
+    "expectedConcepts": [
+      "pawn tension",
+      "counterplay"
+    ]
+  },
+  {
+    "id": "opening-025",
+    "fen": "rn1qkbnr/ppp1pppp/8/3p4/6b1/8/PPPPPPBP/RNBQK1NR w KQkq - 0 3",
+    "bestMoveUci": "c2c4",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "d5",
+      "Bg2",
+      "Bxg4",
+      "c4"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-026",
+    "fen": "B2qkbnr/p1pnpppp/8/8/2Pp2b1/8/PP1PPP1P/RNBQK1NR b KQk - 0 5",
+    "bestMoveUci": "d8a8",
+    "tags": [
+      "opening",
+      "pawn-tension"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "d5",
+      "Bg2",
+      "Bxg4",
+      "c4",
+      "d4",
+      "Bxb7",
+      "Nd7",
+      "Bxa8",
+      "Qxa8"
+    ],
+    "expectedConcepts": [
+      "pawn tension",
+      "counterplay"
+    ]
+  },
+  {
+    "id": "opening-027",
+    "fen": "rnbqkbnr/ppp2ppp/8/3p4/3p2P1/8/PPP1PPBP/RNBQK1NR w KQkq - 0 4",
+    "bestMoveUci": "c2c3",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "d5",
+      "Bg2",
+      "e5",
+      "d4",
+      "exd4",
+      "c3"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-028",
+    "fen": "rnbqkbnr/pp2pppp/2p5/8/2p3P1/8/PP1PPPBP/RNBQK1NR w KQkq - 0 4",
+    "bestMoveUci": "b2b3",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "d5",
+      "Bg2",
+      "c6",
+      "c4",
+      "dxc4",
+      "b3"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-029",
+    "fen": "rnbqkbnr/ppp2ppp/8/3pp3/6P1/7P/PPPPPPB1/RNBQK1NR b KQkq - 1 3",
+    "bestMoveUci": "c7c6",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "d5",
+      "h3",
+      "e5",
+      "Bg2",
+      "c6"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-030",
+    "fen": "rnbqk1nr/pp3ppp/2pb4/3p4/2PPp1P1/2N4P/PP2PPB1/R1BQK1NR b KQkq - 2 6",
+    "bestMoveUci": "g8e7",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "d5",
+      "h3",
+      "e5",
+      "Bg2",
+      "c6",
+      "d4",
+      "e4",
+      "c4",
+      "Bd6",
+      "Nc3",
+      "Ne7"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-031",
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/6P1/7P/PPPPPP2/RNBQKBNR b KQkq - 0 2",
+    "bestMoveUci": "b8c6",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "e5",
+      "h3",
+      "Nc6"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-032",
+    "fen": "rn1qkbnr/ppp1pppp/8/3p4/2P3b1/8/PP1PPPBP/RNBQK1NR b KQkq - 0 3",
+    "bestMoveUci": "d5d4",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "d5",
+      "Bg2",
+      "Bxg4",
+      "c4",
+      "d4"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-033",
+    "fen": "rnbqkbnr/pp2pppp/2p5/3p4/6P1/8/PPPPPPBP/RNBQK1NR w KQkq - 0 3",
+    "bestMoveUci": "g4g5",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "d5",
+      "Bg2",
+      "c6",
+      "g5"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-034",
+    "fen": "rnbqkbnr/ppp2ppp/8/3pp3/6P1/8/PPPPPPBP/RNBQK1NR w KQkq - 0 3",
+    "bestMoveUci": "c2c4",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "e5",
+      "Bg2",
+      "d5",
+      "c4"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-035",
+    "fen": "rnbqkbnr/ppp1pppp/8/8/4p1P1/8/PPPP1P1P/RNBQKBNR w KQkq - 0 3",
+    "bestMoveUci": "b1c3",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "d5",
+      "e4",
+      "dxe4",
+      "Nc3"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-036",
+    "fen": "rnbqkbnr/ppp1pppp/8/8/4p1P1/2N5/PPPP1P1P/R1BQKBNR b KQkq - 1 3",
+    "bestMoveUci": "h7h5",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "d5",
+      "e4",
+      "dxe4",
+      "Nc3",
+      "h5"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-037",
+    "fen": "rnbqkbnr/ppp2ppp/8/4p3/4p1P1/2N5/PPPP1P1P/R1BQKBNR w KQkq - 0 4",
+    "bestMoveUci": "d2d3",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g4",
+      "d5",
+      "e4",
+      "dxe4",
+      "Nc3",
+      "e5",
+      "d3"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-038",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "bestMoveUci": "g2g3",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-039",
+    "fen": "r1bqkbnr/ppp2ppp/2n5/4P3/3pN3/6P1/PPP1PP1P/R1BQKBNR b KQkq - 1 5",
+    "bestMoveUci": "f7f5",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "Nc6",
+      "Nc3",
+      "d5",
+      "d4",
+      "e5",
+      "dxe5",
+      "d4",
+      "Ne4",
+      "f5"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-040",
+    "fen": "rnbqk1nr/ppp1bppp/8/3p4/4p2N/P5P1/1PPPPP1P/RNBQKB1R w KQkq - 2 5",
+    "bestMoveUci": "d2d3",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "e5",
+      "a3",
+      "d5",
+      "Nf3",
+      "e4",
+      "Nh4",
+      "Be7",
+      "d3"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-041",
+    "fen": "rnbqkbnr/ppp2ppp/8/3pp3/8/6P1/PPPPPPBP/RNBQK1NR w KQkq - 0 3",
+    "bestMoveUci": "b2b4",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "d5",
+      "Bg2",
+      "e5",
+      "b4"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-042",
+    "fen": "rnbqkbnr/ppp1pppp/8/3p4/8/6P1/PPPPPPBP/RNBQK1NR b KQkq - 1 2",
+    "bestMoveUci": "e7e6",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "d5",
+      "Bg2",
+      "e6"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-043",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/6P1/PPPPPP1P/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "f7f5",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "f5"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-044",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/6P1/PPPPPP1P/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "g8f6",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "Nf6"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-045",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/6P1/PPPPPP1P/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "g7g5",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "g5"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-046",
+    "fen": "rnbqkbnr/ppppp1pp/8/7Q/4p3/6P1/PPPP1P1P/RNB1KBNR b KQkq - 1 3",
+    "bestMoveUci": "g7g6",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "f5",
+      "e4",
+      "fxe4",
+      "Qh5+",
+      "g6"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-047",
+    "fen": "rn1qkbnr/ppp2ppp/8/3p4/5p2/6PB/PPPPP2P/RNBQK2R w KQkq - 0 5",
+    "bestMoveUci": "e1g1",
+    "tags": [
+      "opening",
+      "king-safety"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "e5",
+      "Nh3",
+      "d5",
+      "f4",
+      "Bxh3",
+      "Bxh3",
+      "exf4",
+      "O-O"
+    ],
+    "expectedConcepts": [
+      "king safety",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-048",
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/8/6P1/PPPPPP1P/RNBQKBNR w KQkq - 0 2",
+    "bestMoveUci": "g1f3",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "e5",
+      "Nf3"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-049",
+    "fen": "rnbqkb1r/pppp1ppp/5n2/8/4p3/6P1/PPPPPP1P/RNBQKBNR w KQkq - 2 4",
+    "bestMoveUci": "b2b4",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "e5",
+      "Nf3",
+      "e4",
+      "Ng1",
+      "Nf6",
+      "b4"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-050",
+    "fen": "rnbqkbnr/ppp1pppp/8/3p4/8/6P1/PPPPPPBP/RNBQK1NR b KQkq - 1 2",
+    "bestMoveUci": "c7c5",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "d5",
+      "Bg2",
+      "c5"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-051",
+    "fen": "rnbqkbnr/pppp1ppp/8/8/4p3/5NP1/PPPPPP1P/RNBQKB1R w KQkq - 0 3",
+    "bestMoveUci": "f3h4",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "e5",
+      "Nf3",
+      "e4",
+      "Nh4"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-052",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/6P1/PPPPPP1P/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "c7c5",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "c5"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-053",
+    "fen": "rnbqkbnr/ppp1pppp/8/3p4/8/6P1/PPPPPPBP/RNBQK1NR b KQkq - 1 2",
+    "bestMoveUci": "c7c6",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "d5",
+      "Bg2",
+      "c6"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-054",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/6P1/PPPPPP1P/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "g7g6",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "g6"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-055",
+    "fen": "rnbqkbnr/ppppppp1/8/7p/8/5NP1/PPPPPP1P/RNBQKB1R b KQkq - 1 2",
+    "bestMoveUci": "h5h4",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "h5",
+      "Nf3",
+      "h4"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-056",
+    "fen": "rnbqkbnr/ppp2ppp/8/4p3/2p5/6P1/PP1PPPBP/RNBQK1NR w KQkq - 0 4",
+    "bestMoveUci": "b2b3",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "d5",
+      "Bg2",
+      "e5",
+      "c4",
+      "dxc4",
+      "b3"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-057",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "bestMoveUci": "h2h4",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "h4"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-058",
+    "fen": "rnbqkbnr/ppp1pppp/8/3p4/7P/8/PPPPPPP1/RNBQKBNR w KQkq - 0 2",
+    "bestMoveUci": "h1h3",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "h4",
+      "d5",
+      "Rh3"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-059",
+    "fen": "rnbqkbnr/pppppppp/8/8/7P/8/PPPPPPP1/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "a7a5",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "h4",
+      "a5"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-060",
+    "fen": "rnbqkbnr/pp1ppppp/8/2p5/7P/8/PPPPPPP1/RNBQKBNR w KQkq - 0 2",
+    "bestMoveUci": "b2b4",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "h4",
+      "c5",
+      "b4"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-061",
+    "fen": "rnbqkbnr/pp2pppp/8/3p4/3p3P/5N2/PPP1PPP1/RNBQKB1R w KQkq - 0 4",
+    "bestMoveUci": "c2c3",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "h4",
+      "d5",
+      "d4",
+      "c5",
+      "Nf3",
+      "cxd4",
+      "c3"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-062",
+    "fen": "rnbqkbnr/pppp1ppp/8/8/3p3P/8/PPP1PPP1/RNBQKBNR w KQkq - 0 3",
+    "bestMoveUci": "c2c3",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "h4",
+      "e5",
+      "d4",
+      "exd4",
+      "c3"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-063",
+    "fen": "rnbqkbnr/pp2pppp/8/2pp4/3P3P/8/PPP1PPP1/RNBQKBNR w KQkq - 0 3",
+    "bestMoveUci": "e2e4",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "h4",
+      "d5",
+      "d4",
+      "c5",
+      "e4"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-064",
+    "fen": "rnbqkbnr/pppppppp/8/8/7P/8/PPPPPPP1/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "g7g5",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "h4",
+      "g5"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-065",
+    "fen": "rnbqkbnr/ppppp1pp/8/8/4p2P/8/PPPP1PP1/RNBQKBNR w KQkq - 0 3",
+    "bestMoveUci": "d2d3",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "h4",
+      "f5",
+      "e4",
+      "fxe4",
+      "d3"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-066",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/6P1/PPPPPP1P/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "h7h5",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "g3",
+      "h5"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-067",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "bestMoveUci": "d2d3",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "d3"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-068",
+    "fen": "rnbqkbnr/pppppp1p/6p1/8/8/3P4/PPP1PPPP/RNBQKBNR w KQkq - 0 2",
+    "bestMoveUci": "g2g4",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "d3",
+      "g6",
+      "g4"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-069",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/3P4/PPP1PPPP/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "e7e5",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "d3",
+      "e5"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-070",
+    "fen": "r1bqkbnr/pp1ppppp/2n5/2p5/8/2NP4/PPP1PPPP/R1BQKBNR w KQkq - 2 3",
+    "bestMoveUci": "g2g3",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "d3",
+      "c5",
+      "Nc3",
+      "Nc6",
+      "g3"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-071",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "bestMoveUci": "b2b4",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-072",
+    "fen": "rnbqkbnr/pppppppp/8/8/1P6/8/P1PPPPPP/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "d7d5",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "d5"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-073",
+    "fen": "rnbqkb1r/ppp1pppp/5n2/3p4/1P6/8/PBPPPPPP/RN1QKBNR w KQkq - 2 3",
+    "bestMoveUci": "g1f3",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "d5",
+      "Bb2",
+      "Nf6",
+      "Nf3"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-074",
+    "fen": "rnbqkbnr/ppp1pppp/8/3p4/1P6/8/PBPPPPPP/RN1QKBNR b KQkq - 1 2",
+    "bestMoveUci": "c8f5",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "d5",
+      "Bb2",
+      "Bf5"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-075",
+    "fen": "rnbqkbnr/pppppppp/8/8/1P6/8/P1PPPPPP/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "c7c5",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "c5"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-076",
+    "fen": "rnbqkbnr/pppp2pp/5p2/4p3/1P6/8/PBPPPPPP/RN1QKBNR w KQkq - 0 3",
+    "bestMoveUci": "b4b5",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "e5",
+      "Bb2",
+      "f6",
+      "b5"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-077",
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 0 2",
+    "bestMoveUci": "a2a3",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "e5",
+      "a3"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-078",
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/1P6/8/PBPPPPPP/RN1QKBNR b KQkq - 1 2",
+    "bestMoveUci": "d7d6",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "e5",
+      "Bb2",
+      "d6"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-079",
+    "fen": "rnbqkbnr/pppppppp/8/8/1P6/8/P1PPPPPP/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "f7f5",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "f5"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-080",
+    "fen": "rnbqkbnr/ppp1pppp/8/3p4/1P6/8/PBPPPPPP/RN1QKBNR b KQkq - 1 2",
+    "bestMoveUci": "d8d6",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "d5",
+      "Bb2",
+      "Qd6"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-081",
+    "fen": "rnbqkbnr/pppppppp/8/8/1P6/8/P1PPPPPP/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "b8c6",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "Nc6"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-082",
+    "fen": "rnbqkbnr/pppppppp/8/8/1P6/8/P1PPPPPP/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "g8h6",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "Nh6"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-083",
+    "fen": "rnbqkb1r/pppppppp/5n2/8/1P6/8/PBPPPPPP/RN1QKBNR b KQkq - 2 2",
+    "bestMoveUci": "g7g6",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "Nf6",
+      "Bb2",
+      "g6"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-084",
+    "fen": "rnbqkb1r/pppppp1p/5np1/8/1P6/8/PBPPPPPP/RN1QKBNR w KQkq - 0 3",
+    "bestMoveUci": "e2e4",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "Nf6",
+      "Bb2",
+      "g6",
+      "e4"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-085",
+    "fen": "rnbq1rk1/ppp1ppbp/3p1np1/8/1PP5/4PN2/PB1P1PPP/RN1QKB1R w KQ - 2 6",
+    "bestMoveUci": "d2d4",
+    "tags": [
+      "opening",
+      "king-safety"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "Nf6",
+      "Bb2",
+      "g6",
+      "c4",
+      "Bg7",
+      "e3",
+      "d6",
+      "Nf3",
+      "O-O",
+      "d4"
+    ],
+    "expectedConcepts": [
+      "king safety",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-086",
+    "fen": "rnbqkbnr/pp2pppp/2p5/3p4/1P6/8/PBPPPPPP/RN1QKBNR w KQkq - 0 3",
+    "bestMoveUci": "a2a4",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "d5",
+      "Bb2",
+      "c6",
+      "a4"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-087",
+    "fen": "rnbqkbnr/pppppppp/8/8/1P6/8/P1PPPPPP/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "c7c6",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "c6"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-088",
+    "fen": "rnbqkbnr/1p1ppppp/2p5/p7/1P6/8/PBPPPPPP/RN1QKBNR w KQkq - 0 3",
+    "bestMoveUci": "b4b5",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "c6",
+      "Bb2",
+      "a5",
+      "b5"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-089",
+    "fen": "rnbqkb1r/pppp1ppp/4pn2/1P6/8/8/PBPPPPPP/RN1QKBNR b KQkq - 0 3",
+    "bestMoveUci": "b7b6",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "e6",
+      "Bb2",
+      "Nf6",
+      "b5",
+      "b6"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-090",
+    "fen": "rnbqkb1r/pppp1ppp/4pn2/1P6/8/8/PBPPPPPP/RN1QKBNR b KQkq - 0 3",
+    "bestMoveUci": "a7a6",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "e6",
+      "Bb2",
+      "Nf6",
+      "b5",
+      "a6"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-091",
+    "fen": "1nbqkb1r/1ppp1ppp/4pn2/1P6/8/8/1BPPPPPP/rN1QKBNR w Kk - 0 6",
+    "bestMoveUci": "b2a1",
+    "tags": [
+      "opening",
+      "pawn-tension"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "e6",
+      "Bb2",
+      "Nf6",
+      "b5",
+      "a6",
+      "a4",
+      "axb5",
+      "axb5",
+      "Rxa1",
+      "Bxa1"
+    ],
+    "expectedConcepts": [
+      "pawn tension",
+      "counterplay"
+    ]
+  },
+  {
+    "id": "opening-092",
+    "fen": "rnbqkb1r/ppp2ppp/4pn2/1P1p4/8/8/PBPPPPPP/RN1QKBNR w KQkq - 0 4",
+    "bestMoveUci": "e2e3",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "e6",
+      "Bb2",
+      "Nf6",
+      "b5",
+      "d5",
+      "e3"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-093",
+    "fen": "rnbqkbnr/1p1ppppp/8/pp6/8/8/PBPPPPPP/RN1QKBNR w KQkq - 0 4",
+    "bestMoveUci": "e2e4",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "c6",
+      "Bb2",
+      "a5",
+      "b5",
+      "cxb5",
+      "e4"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-094",
+    "fen": "rnbqkbnr/pppppppp/8/8/1P6/8/P1PPPPPP/RNBQKBNR b KQkq - 0 1",
+    "bestMoveUci": "b7b5",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "b5"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-095",
+    "fen": "rnbqkbnr/pppp2pp/5p2/4p3/1P6/8/PBPPPPPP/RN1QKBNR w KQkq - 0 3",
+    "bestMoveUci": "e2e4",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "e5",
+      "Bb2",
+      "f6",
+      "e4"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-096",
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/1P6/8/PBPPPPPP/RN1QKBNR b KQkq - 1 2",
+    "bestMoveUci": "c7c5",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "b4",
+      "e5",
+      "Bb2",
+      "c5"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-097",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "bestMoveUci": "c2c3",
+    "tags": [
+      "opening",
+      "center"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "c3"
+    ],
+    "expectedConcepts": [
+      "center",
+      "development"
+    ]
+  },
+  {
+    "id": "opening-098",
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "bestMoveUci": "b1a3",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "Na3"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-099",
+    "fen": "rnbqk1nr/pp3ppp/8/2ppp3/8/P2PP3/P1P2PPP/R1BQKBNR w KQkq - 0 5",
+    "bestMoveUci": "a1b1",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "Na3",
+      "e5",
+      "d3",
+      "Bxa3",
+      "bxa3",
+      "d5",
+      "e3",
+      "c5",
+      "Rb1"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  },
+  {
+    "id": "opening-100",
+    "fen": "rnbqkbnr/pppppp1p/6p1/8/8/N7/PPPPPPPP/R1BQKBNR w KQkq - 0 2",
+    "bestMoveUci": "g2g4",
+    "tags": [
+      "opening",
+      "development"
+    ],
+    "eco": "A00",
+    "movesSan": [
+      "Na3",
+      "g6",
+      "g4"
+    ],
+    "expectedConcepts": [
+      "development",
+      "center"
+    ]
+  }
+]
+

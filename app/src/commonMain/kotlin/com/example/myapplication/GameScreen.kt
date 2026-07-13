@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -76,6 +77,8 @@ import com.example.myapplication.movecoach.MoveCoachUiState
 import com.example.myapplication.movecoach.GameSummaryUiState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.CircularProgressIndicator
+import com.example.myapplication.opening.OpeningExplainerPanel
+import com.example.myapplication.opening.OpeningExplainerUiState
 import game.app.generated.resources.Res
 import game.app.generated.resources.cancel_button
 import game.app.generated.resources.game_end_message_no_winner
@@ -144,12 +147,16 @@ fun GameScreen(
     switchTopPadding: Dp = 8.dp,
     onOpenHistory: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onOpenRules: () -> Unit = {},
 ) {
     val gameState by viewModel.gameState.collectAsState()
     val animState by viewModel.animState.collectAsState()
     val viewState by viewModel.viewState.collectAsState()
     val moveCoachManager = LocalMoveCoachManager.current
     val coachState = moveCoachManager?.coachUiState?.collectAsState()?.value ?: MoveCoachUiState.Hidden
+    val openingExplainerStateHolder = LocalOpeningExplainerStateHolder.current
+    val openingExplainerState = openingExplainerStateHolder?.state?.collectAsState()?.value
+        ?: OpeningExplainerUiState.Hidden
     val scrollState = rememberScrollState()
     // The 3D toggle now lives in SettingsScreen and writes to AppSettings.board3DEnabled. Observe it
     // here (when a settings instance is provided via LocalAppSettings — production always provides
@@ -166,6 +173,10 @@ fun GameScreen(
     var isEntering3D by remember { mutableStateOf(false) }
     var isTearingDown3D by remember { mutableStateOf(false) }
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+
+    LaunchedEffect(gameState.winState, gameState.fullmoveNumber, openingExplainerStateHolder) {
+        openingExplainerStateHolder?.explain(gameState)
+    }
 
     // Bridge the persisted setting → the VM's runtime show3D flag, preserving the exact frame
     // choreography the old inline Switch used (teardown holds the surface for two frames while the
@@ -275,7 +286,6 @@ fun GameScreen(
                         }
                     }
                 }
-
                 // Coach Summary (issue #39 Phase 4 / issue #33)
                 val gameSummaryManager = LocalGameSummaryManager.current
                 if (gameSummaryManager != null) {
@@ -327,6 +337,11 @@ fun GameScreen(
                         }
                     }
                 }
+                Spacer(modifier = Modifier.height(8.dp))
+                OpeningExplainerPanel(
+                    state = openingExplainerState,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                )
             }
         }
 
@@ -512,6 +527,17 @@ fun GameScreen(
                 .offset(y = switchTopPadding)
                 .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
         ) {
+            TextButton(
+                onClick = onOpenRules,
+                modifier = Modifier.testTag("open_rules_button")
+            ) {
+                Text(
+                    text = "Rules",
+                    color = THREE_D_CONTROL_ACCENT_COLOR,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
             // Settings + History entry points (issue #39). The 3D toggle moved to SettingsScreen.
             TextButton(
                 onClick = onOpenSettings,
@@ -859,15 +885,17 @@ fun AnimatedChessPiece(
 fun PopupWindow(onDismiss: (Boolean) -> Unit, content: @Composable () -> Unit) {
     val cornerRoundness = 25.dp
     val contentPadding = 15.dp
+    val scrollState = rememberScrollState()
 
     Dialog(onDismissRequest = { onDismiss(false) }) {
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().heightIn(max = 640.dp),
             shape = RoundedCornerShape(cornerRoundness),
         ) {
             Column(
                 modifier = Modifier
                     .padding(contentPadding)
+                    .verticalScroll(scrollState)
                     .wrapContentHeight(Alignment.CenterVertically),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {

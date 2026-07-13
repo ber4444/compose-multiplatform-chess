@@ -11,7 +11,13 @@ import com.example.ondeviceai.cactus.CactusTextGenerator
  */
 fun initializeCactus(context: Context) {
     CactusContextInitializer.initialize(context)
+    cactusInitialized = true
 }
+
+@Volatile
+private var cactusInitialized = false
+
+internal fun isCactusInitialized(): Boolean = cactusInitialized
 
 /**
  * Android default factory. Uses Cactus (llama.cpp) with a pre-packaged small

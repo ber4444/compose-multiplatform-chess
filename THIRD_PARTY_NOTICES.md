@@ -65,3 +65,30 @@ fetches Filament xcframeworks with `tools/fetch_filament_ios.sh`. Android uses F
 (above). Filament is licensed under Apache-2.0.
 
 - https://github.com/google/filament
+
+## Lichess Chess Openings
+
+The opening explainer corpus includes the checked-in `a.tsv` through `e.tsv` files from
+`lichess-org/chess-openings`. The collection is released under the CC0 Public Domain Dedication.
+
+- https://github.com/lichess-org/chess-openings
+- https://creativecommons.org/publicdomain/zero/1.0/
+
+## all-MiniLM-L6-v2
+
+The opening explainer Docker image downloads the pinned `sentence-transformers/all-MiniLM-L6-v2`
+ONNX model and vocabulary during the image build. The model is licensed under Apache-2.0.
+
+- https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+- https://www.apache.org/licenses/LICENSE-2.0
+
+## Wikibooks Chess rules corpus
+
+The offline rules Q&A corpus in `onDeviceAi/src/commonMain/resources/rulesCorpus/` contains
+project-authored, condensed adaptations of the Wikibooks **Chess/Rules** material. Wikibooks text
+is available under Creative Commons Attribution-ShareAlike 4.0 and the GNU Free Documentation
+License; the adapted corpus is distributed under CC BY-SA 4.0.
+
+- https://en.wikibooks.org/wiki/Chess/Rules
+- https://en.wikibooks.org/wiki/Wikibooks:Copyrights
+- https://creativecommons.org/licenses/by-sa/4.0/

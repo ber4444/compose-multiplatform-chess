@@ -7,6 +7,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.compose.ExperimentalComposeLibrary
 import org.jetbrains.kotlin.gradle.tasks.Kotlin2JsCompile
 import java.io.File
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -102,6 +103,7 @@ kotlin {
 
         commonMain.dependencies {
             api(project(":chess-core"))
+            implementation(project(":coachApi"))
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.material3)
@@ -114,11 +116,15 @@ kotlin {
             implementation(libs.multiplatform.settings)
             implementation(libs.multiplatform.settings.coroutines)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.ktor.client.core)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.serialization.json)
         }
 
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
+            implementation(libs.ktor.client.mock)
         }
 
         val wasmJsTest by getting {
@@ -134,6 +140,10 @@ kotlin {
             implementation(libs.androidx.core.ktx)
             implementation(libs.androidx.lifecycle.runtime.compose)
             implementation(libs.sceneview)
+        }
+
+        jvmCommonMain.dependencies {
+            implementation(libs.ktor.client.cio)
         }
 
         val androidDeviceTest by getting {
@@ -168,6 +178,7 @@ kotlin {
             dependsOn(commonMain.get())
             dependencies {
                 // Removed materia from iosMain
+                implementation(libs.ktor.client.darwin)
             }
         }
         val iosArm64Main by getting { dependsOn(iosMain) }
@@ -179,6 +190,50 @@ kotlin {
                 implementation(compose.uiTest)
             }
         }
+
+        wasmJsMain.dependencies {
+            implementation(libs.ktor.client.js)
+        }
+    }
+}
+
+val openingExplainerBaseUrl = providers.provider {
+    System.getenv("CHESS_COACH_BASE_URL")?.takeIf { it.isNotBlank() } ?: run {
+        val propertiesFile = rootProject.file("local.properties")
+        if (!propertiesFile.exists()) return@run ""
+        Properties().apply { propertiesFile.inputStream().use(::load) }
+            .getProperty("coach.baseUrl")
+            .orEmpty()
+    }
+}
+val openingExplainerConfigDir = layout.buildDirectory.dir("generated/openingExplainer/commonMain/kotlin")
+val generateOpeningExplainerConfig by tasks.registering {
+    inputs.property("baseUrl", openingExplainerBaseUrl)
+    outputs.dir(openingExplainerConfigDir)
+    doLast {
+        val packageDir = openingExplainerConfigDir.get().dir("com/example/myapplication/opening").asFile
+        packageDir.mkdirs()
+        val escaped = openingExplainerBaseUrl.get()
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\$", "\\\$")
+            .replace("\r", "\\r")
+            .replace("\n", "\\n")
+        packageDir.resolve("OpeningExplainerBuildConfig.kt").writeText(
+            """
+            package com.example.myapplication.opening
+
+            internal const val OPENING_EXPLAINER_BASE_URL: String = "$escaped"
+            """.trimIndent() + "\n",
+        )
+    }
+}
+kotlin.sourceSets.named("commonMain") {
+    kotlin.srcDir(openingExplainerConfigDir)
+}
+tasks.configureEach {
+    if (name.startsWith("compile")) {
+        dependsOn(generateOpeningExplainerConfig)
     }
 }
 

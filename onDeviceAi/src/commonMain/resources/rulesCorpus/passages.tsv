@@ -1,0 +1,31 @@
+id	title	text
+board-goal	Goal of the game	Chess is won by checkmating the opposing king: the king is attacked and has no legal escape. Capturing the king is not a legal move.
+initial-position	Starting position	Each side starts with eight pawns, two rooks, two knights, two bishops, one queen, and one king. White moves first.
+turn-order	Taking turns	White and Black alternate one move at a time. A player may not pass a turn.
+king-movement	King movement	A king moves one square in any direction, but it may not move onto a square attacked by an opposing piece.
+queen-movement	Queen movement	A queen moves any number of unobstructed squares along a rank, file, or diagonal.
+rook-movement	Rook movement	A rook moves any number of unobstructed squares along a rank or file.
+bishop-movement	Bishop movement	A bishop moves any number of unobstructed squares diagonally and remains on the same color of square.
+knight-movement	Knight movement	A knight moves in an L shape: two squares in one orthogonal direction and one perpendicular square. It may jump over pieces.
+pawn-movement	Pawn movement	A pawn moves one square straight forward into an empty square. From its starting rank it may move two empty squares; pawns capture one square diagonally forward.
+capturing	Capturing a piece	A move captures an opposing piece by legally moving onto its occupied square. A player may not capture a friendly piece.
+king-in-check	Responding to check	A player whose king is in check must make a legal move that removes every attack on the king. A player may not leave or move their own king in check.
+checkmate	Checkmate	Checkmate occurs when a king is attacked and the player has no legal move that removes the attack. The attacking player wins immediately.
+stalemate	Stalemate	Stalemate is a draw when the player to move is not in check but has no legal move.
+castling-requirements	Castling requirements	Castling moves the king two squares toward a rook and places that rook beside the king. The king and that rook must not have moved, and the squares between them must be empty.
+castling-check	Castling and attacked squares	Castling is illegal while the king is in check, through a square attacked by an opponent, or onto an attacked square. An attacked rook square does not by itself prevent castling.
+en-passant	En passant	After an opposing pawn advances two squares from its starting rank and lands beside your pawn, your pawn may capture it as though it moved only one square. This option exists only on the immediately following move.
+promotion	Pawn promotion	A pawn reaching the farthest rank must be replaced on that move by a queen, rook, bishop, or knight of the same color. The choice is not limited by pieces previously captured.
+draw-agreement	Draw by agreement	Players may agree to a draw during a game under the competition procedure. A draw offer cannot be withdrawn once made and remains valid until accepted, rejected, or followed by a move.
+draw-repetition	Threefold repetition	A player may claim a draw when the same position is about to appear three times or has just appeared for the third time, with the same player to move and the same possible moves.
+draw-fifty-move	Fifty-move rule	A player may claim a draw when each player has completed fifty moves without any pawn move or capture. The claim follows the competition procedure.
+draw-dead-position	Dead position and insufficient material	The game is drawn when no possible legal sequence can lead to checkmate. Common insufficient-material examples include king against king and king plus a lone bishop or knight against king.
+draw-seventy-five-move	Seventy-five-move automatic draw	The game is automatically drawn after each player completes seventy-five moves without a pawn move or capture, unless the last move checkmates.
+draw-fivefold	Fivefold repetition automatic draw	The game is automatically drawn when the same position occurs at least five times with the same player to move and the same possible moves.
+touch-move	Touch-move rule	In over-the-board competition, deliberately touching one of your pieces requires moving it if it has a legal move. Deliberately touching an opposing piece requires capturing it if legally possible.
+adjust-piece	Adjusting a piece	A player who clearly announces an intention to adjust a piece, commonly by saying j'adoube, may center it on its square without invoking touch-move.
+chess-clock	Using a chess clock	A player presses their own clock after making a move, which starts the opponent's clock. A move is normally completed when the clock is pressed.
+illegal-move	Illegal moves	An illegal move must be corrected according to the competition rules. Tournament penalties depend on the event format and the number of completed illegal moves.
+resignation	Resignation	A player may resign, immediately giving the opponent the win, unless the position is one in which the opponent cannot possibly checkmate by any legal sequence.
+recording-moves	Recording moves	In events requiring score sheets, players record their own and the opponent's moves in algebraic notation as prescribed by the competition rules.
+draw-claim-clock	Making a draw claim	A player claiming a draw under the fifty-move or threefold-repetition rule should follow the event procedure, which can include writing the intended move and stopping the clock before calling the arbiter.

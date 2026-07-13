@@ -24,6 +24,7 @@ fun ChessApp(
     switchTopPadding: Dp = 8.dp,
     onOpenHistory: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onOpenRules: () -> Unit = {},
 ) {
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -44,6 +45,7 @@ fun ChessApp(
                 switchTopPadding = switchTopPadding,
                 onOpenHistory = onOpenHistory,
                 onOpenSettings = onOpenSettings,
+                onOpenRules = onOpenRules,
             )
         }
     }

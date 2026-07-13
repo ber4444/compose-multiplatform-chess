@@ -2,9 +2,106 @@ package com.example.ondeviceai
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class AiRoutePolicyDeciderTest {
+
+    @Test
+    fun `rules qa policy is local only and free`() {
+        val policy = AiRoutePolicies.rulesQaOffline
+
+        assertEquals(PrivacyClass.LOCAL_ONLY, policy.privacyClass)
+        assertTrue(policy.requireOffline)
+        assertFalse(policy.allowCloud)
+        assertEquals(0.0, policy.costBudget.maxUsdCents)
+    }
+
+    @Test
+    fun `rules qa can never route to cloud`() {
+        val contexts = listOf(
+            context(isDeviceModelAvailable = false, isNetworkAvailable = true),
+            context(isDeviceModelAvailable = false, isNetworkAvailable = false),
+            context(isDeviceModelAvailable = true, isNetworkAvailable = true),
+            context(
+                isDeviceModelAvailable = false,
+                isNetworkAvailable = true,
+                thermalState = ThermalState.CRITICAL,
+            ),
+        )
+
+        contexts.forEach { snapshot ->
+            assertFalse(
+                AiRoutePolicyDecider.decide(AiRoutePolicies.rulesQaOffline, snapshot) is
+                    AiRoutePolicyDecider.Decision.RunCloud,
+            )
+        }
+    }
+
+    private fun context(
+        isDeviceModelAvailable: Boolean,
+        isNetworkAvailable: Boolean,
+        thermalState: ThermalState = ThermalState.NOMINAL,
+    ) = AiContextSnapshot(
+        isDeviceModelAvailable = isDeviceModelAvailable,
+        isNetworkAvailable = isNetworkAvailable,
+        isAppForegrounded = true,
+        userSetting = AiUserSetting.ALLOW_CLOUD,
+        thermalState = thermalState,
+    )
+
+    @Test
+    fun `opening explainer policy is public cloud-capable and budgeted`() {
+        assertEquals(PrivacyClass.PUBLIC_OR_SYNTHETIC, AiRoutePolicies.openingExplainer.privacyClass)
+        assertEquals(true, AiRoutePolicies.openingExplainer.allowCloud)
+        assertEquals(false, AiRoutePolicies.openingExplainer.requireOffline)
+        assertEquals(2500, AiRoutePolicies.openingExplainer.latencyBudget.firstTokenMs)
+        assertEquals(8000, AiRoutePolicies.openingExplainer.latencyBudget.completeMs)
+        assertEquals(0.2, AiRoutePolicies.openingExplainer.costBudget.maxUsdCents)
+    }
+
+    @Test
+    fun `move coach can never route to cloud across runtime contexts`() {
+        val contexts = buildList {
+            for (hasModel in listOf(false, true)) {
+                for (hasNetwork in listOf(false, true)) {
+                    for (setting in AiUserSetting.entries) {
+                        for (thermal in ThermalState.entries) {
+                            add(
+                                AiContextSnapshot(
+                                    isDeviceModelAvailable = hasModel,
+                                    isNetworkAvailable = hasNetwork,
+                                    isAppForegrounded = true,
+                                    userSetting = setting,
+                                    thermalState = thermal,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        contexts.forEach { context ->
+            val decision = AiRoutePolicyDecider.decide(AiRoutePolicies.moveCoachOffline, context)
+            kotlin.test.assertNotEquals(AiRoutePolicyDecider.Decision.RunCloud, decision)
+        }
+    }
+
+    @Test
+    fun `opening explainer without a local model routes to cloud when configured`() {
+        val decision = AiRoutePolicyDecider.decide(
+            AiRoutePolicies.openingExplainer,
+            AiContextSnapshot(
+                isDeviceModelAvailable = false,
+                isNetworkAvailable = true,
+                userSetting = AiUserSetting.ALLOW_CLOUD,
+            ),
+        )
+
+        assertEquals(AiRoutePolicyDecider.Decision.RunCloud, decision)
+    }
 
     private val moveCoachContext = AiContextSnapshot(
         isDeviceModelAvailable = true,

@@ -15,9 +15,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,7 +36,16 @@ import com.example.myapplication.share.PgnSharer
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.example.myapplication.movecoach.MoveCoachManager
 import com.example.myapplication.movecoach.GameSummaryManager
+import com.example.myapplication.opening.OpeningExplainerStateHolder
+import com.example.myapplication.opening.createOpeningExplainer
 import androidx.compose.runtime.staticCompositionLocalOf
+import com.example.myapplication.rules.RulesQaScreen
+import com.example.myapplication.rules.RulesQaStateHolder
+import com.example.ondeviceai.AiContextSnapshot
+import com.example.ondeviceai.AiUserSetting
+import com.example.ondeviceai.DefaultRulesQaOrchestrator
+import com.example.ondeviceai.createBundledRuleLookupTool
+import com.example.ondeviceai.defaultRulesQaAnswerer
 
 /**
  * Top-level navigation host. Owns the single source of truth for the current screen, applies the
@@ -44,10 +55,11 @@ import androidx.compose.runtime.staticCompositionLocalOf
  * Replaces the per-platform `MyApplicationTheme { ChessApp(...) }` duplication. New screens
  * (History, Settings) are added here as the lifecycle/persistence work lands.
  */
-enum class Screen { GAME, HISTORY, SETTINGS }
+enum class Screen { GAME, HISTORY, SETTINGS, RULES }
 
 val LocalMoveCoachManager = staticCompositionLocalOf<MoveCoachManager?> { null }
 val LocalGameSummaryManager = staticCompositionLocalOf<GameSummaryManager?> { null }
+val LocalOpeningExplainerStateHolder = staticCompositionLocalOf<OpeningExplainerStateHolder?> { null }
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -61,10 +73,29 @@ fun AppRoot(
     gameSummaryManager: GameSummaryManager? = null,
     switchTopPadding: Dp = 8.dp,
 ) {
+    val openingExplainerStateHolder = remember { OpeningExplainerStateHolder(createOpeningExplainer()) }
+    val rulesQaStateHolder = remember {
+        val answerer = defaultRulesQaAnswerer(createBundledRuleLookupTool())
+        RulesQaStateHolder(
+            answerer?.let {
+                DefaultRulesQaOrchestrator(it) {
+                    AiContextSnapshot(
+                        isDeviceModelAvailable = true,
+                        isAppForegrounded = true,
+                        userSetting = AiUserSetting.OFFLINE_ONLY,
+                    )
+                }
+            },
+        )
+    }
+    DisposableEffect(openingExplainerStateHolder) {
+        onDispose { openingExplainerStateHolder.close() }
+    }
     CompositionLocalProvider(
         LocalAppSettings provides settings,
         LocalMoveCoachManager provides moveCoachManager,
-        LocalGameSummaryManager provides gameSummaryManager
+        LocalGameSummaryManager provides gameSummaryManager,
+        LocalOpeningExplainerStateHolder provides openingExplainerStateHolder,
     ) {
         MyApplicationTheme(darkTheme = isSystemInDarkTheme()) {
             var screen by rememberSaveable { mutableStateOf(Screen.GAME) }
@@ -89,6 +120,7 @@ fun AppRoot(
                     switchTopPadding = switchTopPadding,
                     onOpenHistory = { screen = Screen.HISTORY },
                     onOpenSettings = { screen = Screen.SETTINGS },
+                    onOpenRules = { screen = Screen.RULES },
                 )
                 Screen.HISTORY -> if (gameHistory != null) {
                     GameHistoryScreen(
@@ -104,6 +136,10 @@ fun AppRoot(
                 Screen.SETTINGS -> SettingsScreen(
                     onBack = { screen = Screen.GAME },
                     board3D = board3D,
+                )
+                Screen.RULES -> RulesQaScreen(
+                    stateHolder = rulesQaStateHolder,
+                    onBack = { screen = Screen.GAME },
                 )
             }
         }
