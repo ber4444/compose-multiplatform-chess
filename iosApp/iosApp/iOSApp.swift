@@ -22,11 +22,13 @@ struct iOSApp: App {
         // generated `*Kt` class — hence the `FoundationModelsBridgeRegistryKt.` /
         // `FoundationModelsBridgeKt.` prefixes (the swift_name annotations keep
         // the call shape unchanged otherwise).
-        FoundationModelsBridgeRegistryKt.registerFoundationModelsProvider(provider: {
-            FoundationModelsBridgeKt.createFoundationModelsTextGenerator(
-                bridge: FoundationMoveCoachBridge()
-            )
-        })
+        if !Self.isRunningTests {
+            FoundationModelsBridgeRegistryKt.registerFoundationModelsProvider(provider: {
+                FoundationModelsBridgeKt.createFoundationModelsTextGenerator(
+                    bridge: FoundationMoveCoachBridge()
+                )
+            })
+        }
     }
 
     var body: some Scene {
