@@ -8,6 +8,7 @@
 | deterministic-fallback | 100 | 0.0% | 0.0% | 100.0% | 0.0% | automated |
 | local-template | 100 | 0.0% | 0.0% | 0.0% | 0.0% | automated |
 | deployed-cloud | — | — | — | — | — | optional (COACH_DEPLOYED_URL not set) |
+| local-llm-compose | — | — | — | — | — | optional (COACH_LLM_API_KEY or token prices not set) |
 | cactus-android | — | — | — | — | — | manual (hardware numbers not collected) |
 | foundation-models-ios | — | — | — | — | — | manual (hardware numbers not collected) |
 

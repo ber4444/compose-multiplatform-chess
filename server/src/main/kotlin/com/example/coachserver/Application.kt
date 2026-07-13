@@ -122,31 +122,44 @@ fun defaultDependencies(environment: Map<String, String>): ServerDependencies {
         vocabPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_VOCAB")),
     )
     val template = TemplateComposer()
-    val composer = environment["COACH_LLM_API_KEY"]?.takeIf(String::isNotBlank)?.let { apiKey ->
-        val inputPrice = environment["COACH_LLM_INPUT_USD_PER_MILLION"]?.toDoubleOrNull()
-        val outputPrice = environment["COACH_LLM_OUTPUT_USD_PER_MILLION"]?.toDoubleOrNull()
-        if (inputPrice == null || outputPrice == null || inputPrice < 0.0 || outputPrice < 0.0) {
-            return@let template
-        }
-        LlmComposer(
-            client = OpenAiCompatibleLlmClient(
-                apiKey = apiKey,
-                endpoint = URI(environment["COACH_LLM_API_URL"] ?: "https://api.openai.com/v1/chat/completions"),
-                model = environment["COACH_LLM_MODEL"] ?: "gpt-4.1-mini",
-                httpClient = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofMillis(PROVIDER_TIMEOUT_MS))
-                    .build(),
-                requestTimeout = Duration.ofMillis(PROVIDER_TIMEOUT_MS),
-            ),
-            fallback = template,
-            budget = ProviderCostBudget(
-                maxUsdCents = 0.2,
-                inputUsdPerMillionTokens = inputPrice,
-                outputUsdPerMillionTokens = outputPrice,
-            ),
-        )
-    } ?: template
+    val composer = selectComposer(environment, template)
     return ServerDependencies(embedder, PostgresPassageRepository(dataSource), composer)
+}
+
+/**
+ * Selects the LLM text composer from environment variables. Returns the deterministic
+ * [TemplateComposer] (the `fallback`) when `COACH_LLM_API_KEY` is absent or when the token prices
+ * needed to enforce the cost budget are missing/negative. Otherwise constructs an [LlmComposer]
+ * wrapping an OpenAI-compatible HTTP client (base URL, model, key from env — provider-shaped, not
+ * z.ai-shaped). Exposed for unit testing the env-gating without a database.
+ */
+fun selectComposer(
+    environment: Map<String, String>,
+    fallback: TemplateComposer,
+): TextComposer {
+    val apiKey = environment["COACH_LLM_API_KEY"]?.takeIf(String::isNotBlank) ?: return fallback
+    val inputPrice = environment["COACH_LLM_INPUT_USD_PER_MILLION"]?.toDoubleOrNull()
+    val outputPrice = environment["COACH_LLM_OUTPUT_USD_PER_MILLION"]?.toDoubleOrNull()
+    if (inputPrice == null || outputPrice == null || inputPrice < 0.0 || outputPrice < 0.0) {
+        return fallback
+    }
+    return LlmComposer(
+        client = OpenAiCompatibleLlmClient(
+            apiKey = apiKey,
+            endpoint = URI(environment["COACH_LLM_API_URL"] ?: "https://api.openai.com/v1/chat/completions"),
+            model = environment["COACH_LLM_MODEL"] ?: "gpt-4.1-mini",
+            httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofMillis(PROVIDER_TIMEOUT_MS))
+                .build(),
+            requestTimeout = Duration.ofMillis(PROVIDER_TIMEOUT_MS),
+        ),
+        fallback = fallback,
+        budget = ProviderCostBudget(
+            maxUsdCents = 0.2,
+            inputUsdPerMillionTokens = inputPrice,
+            outputUsdPerMillionTokens = outputPrice,
+        ),
+    )
 }
 
 private fun requireEnvironment(environment: Map<String, String>, name: String): String =

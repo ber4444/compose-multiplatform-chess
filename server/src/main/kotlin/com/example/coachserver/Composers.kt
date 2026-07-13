@@ -144,6 +144,16 @@ object OpeningExplanationValidator {
     }
 }
 
+/**
+ * Pluggable HTTP transport for [OpenAiCompatibleLlmClient]. Takes the serialized JSON request body
+ * and returns the response body string. Throws on network/transport failure (the composer catches
+ * and falls back). In production this is backed by [java.net.http.HttpClient]; in tests a lambda
+ * fake acts as the "engine" — no mocking library needed.
+ */
+fun interface LlmHttpTransport {
+    fun send(requestBody: String): String
+}
+
 class OpenAiCompatibleLlmClient(
     private val apiKey: String,
     private val endpoint: URI,
@@ -151,6 +161,7 @@ class OpenAiCompatibleLlmClient(
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val requestTimeout: java.time.Duration = java.time.Duration.ofSeconds(5),
+    private val transport: LlmHttpTransport? = null,
 ) : LlmClient {
     override fun generate(systemPrompt: String, userPrompt: String, maxOutputTokens: Int): String? {
         val payload = ChatRequest(
@@ -159,19 +170,25 @@ class OpenAiCompatibleLlmClient(
             temperature = 0.2,
             maxTokens = maxOutputTokens,
         )
-        val request = HttpRequest.newBuilder(endpoint)
-            .timeout(requestTimeout)
-            .header("Authorization", "Bearer $apiKey")
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(json.encodeToString(payload)))
-            .build()
-        val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-        if (response.statusCode() !in 200..299) return null
-        return json.decodeFromString<ChatResponse>(response.body()).choices.firstOrNull()?.message?.content
+        val body = json.encodeToString(payload)
+        val responseBody = if (transport != null) {
+            transport.send(body)
+        } else {
+            val request = HttpRequest.newBuilder(endpoint)
+                .timeout(requestTimeout)
+                .header("Authorization", "Bearer $apiKey")
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build()
+            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            if (response.statusCode() !in 200..299) return null
+            response.body()
+        }
+        return json.decodeFromString<ChatResponse>(responseBody).choices.firstOrNull()?.message?.content
     }
 
     @Serializable
-    private data class ChatRequest(
+    data class ChatRequest(
         val model: String,
         val messages: List<ChatMessage>,
         val temperature: Double,
@@ -179,11 +196,29 @@ class OpenAiCompatibleLlmClient(
     )
 
     @Serializable
-    private data class ChatMessage(val role: String, val content: String)
+    data class ChatMessage(val role: String, val content: String)
 
     @Serializable
-    private data class ChatResponse(val choices: List<Choice> = emptyList())
+    data class ChatResponse(val choices: List<Choice> = emptyList())
 
     @Serializable
-    private data class Choice(val message: ChatMessage)
+    data class Choice(val message: ChatMessage)
+
+    companion object {
+        /**
+         * Builds an [OpenAiCompatibleLlmClient] whose HTTP layer is a pluggable transport, bypassing
+         * the real [java.net.http.HttpClient]. Use in tests to inject a fake HTTP "engine" without a
+         * mocking library: the lambda receives the serialized request body and returns the response
+         * body (or throws).
+         */
+        fun forTesting(
+            model: String = "test-model",
+            transport: LlmHttpTransport,
+        ): OpenAiCompatibleLlmClient = OpenAiCompatibleLlmClient(
+            apiKey = "test-key",
+            endpoint = URI("https://test.local/chat/completions"),
+            model = model,
+            transport = transport,
+        )
+    }
 }

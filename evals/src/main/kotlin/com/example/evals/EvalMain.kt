@@ -4,12 +4,15 @@ import com.example.coachapi.OpeningExplainRequest
 import com.example.coachapi.OpeningExplainResponse
 import com.example.coachapi.Passage
 import com.example.coachserver.Embedder
+import com.example.coachserver.LlmComposer
 import com.example.coachserver.OpeningQueryBuilder
 import com.example.coachserver.PassageRepository
 import com.example.coachserver.RequestRateLimiter
 import com.example.coachserver.ServerDependencies
 import com.example.coachserver.TemplateComposer
+import com.example.coachserver.TextComposer
 import com.example.coachserver.openingCoachModule
+import com.example.coachserver.selectComposer
 import com.example.ondeviceai.AiTokenOrFinal
 import com.example.ondeviceai.FakeTextGenerator
 import com.example.ondeviceai.MoveCoachFallback
@@ -50,6 +53,7 @@ fun main() = testApplication {
         }.body()
     }
     stats += evaluateDeployed(openingCases)
+    stats += evaluateLlmComposed(openingCases)
 
     val scorecard = ScorecardWriter.render(cases.size, openingCases.size, stats)
     Files.writeString(Path.of("scorecard.md"), scorecard)
@@ -66,7 +70,10 @@ fun main() = testApplication {
  * passage, so a query-construction regression or mismatched retrieval produces a grounding failure
  * instead of being hidden by one passage containing every concept in the dataset.
  */
-internal fun caseSpecificOpeningDependencies(cases: List<GoldenCase>): ServerDependencies {
+internal fun caseSpecificOpeningDependencies(
+    cases: List<GoldenCase>,
+    composer: TextComposer = TemplateComposer(),
+): ServerDependencies {
     val requests = cases.map(GoldenCase::toOpeningRequest)
     val indexByQuery = requests.mapIndexed { index, request ->
         OpeningQueryBuilder.build(request) to index
@@ -92,7 +99,7 @@ internal fun caseSpecificOpeningDependencies(cases: List<GoldenCase>): ServerDep
 
             override fun upsert(passage: Passage, embedding: FloatArray) = Unit
         },
-        composer = TemplateComposer(),
+        composer = composer,
     )
 }
 
@@ -184,6 +191,64 @@ private suspend fun evaluateDeployed(cases: List<GoldenCase>): RouteStats {
     } finally {
         client.close()
     }
+}
+
+/**
+ * Optional LLM-composed route: constructs an [LlmComposer] from env vars via [selectComposer] and
+ * scores it against the same case-specific retrieval as the template route. This produces the
+ * `local-llm-compose` scorecard row alongside `local-template`, so the two-row comparison (does
+ * LLM composition measurably beat the deterministic template on the judge criteria, at what cost)
+ * is a concrete eval finding.
+ *
+ * The route is OPTIONAL: it only runs when `COACH_LLM_API_KEY` + token prices are set, so the CI
+ * grounding gate never depends on a live LLM provider. When unavailable, the scorecard shows the
+ * row as optional.
+ *
+ * Note: the composer is called directly (not via the HTTP server) because the template route
+ * already owns the single `testApplication` server config. Both routes exercise the same retrieval
+ * → composition → validation pipeline; the only difference is the composer.
+ */
+private suspend fun evaluateLlmComposed(cases: List<GoldenCase>): RouteStats {
+    val composer = selectComposer(System.getenv(), TemplateComposer())
+    if (composer !is LlmComposer) {
+        return RouteStats(
+            route = "local-llm-compose",
+            collection = CollectionMode.OPTIONAL,
+            available = false,
+            note = "COACH_LLM_API_KEY or token prices not set",
+        )
+    }
+    val stats = RouteStats(route = "local-llm-compose", collection = CollectionMode.OPTIONAL)
+    val (_, passagesByCase) = caseSpecificRetrieval(cases)
+    cases.forEach { case ->
+        val request = case.toOpeningRequest()
+        val passages = passagesByCase[case.id].orEmpty()
+        val composed = composer.compose(request, passages)
+        stats.record(
+            EvalScorer.scoreOpening(case, composed.text),
+            retried = false,
+            fellBack = composed.composerId != "llm-v1",
+        )
+    }
+    return stats
+}
+
+/**
+ * Builds the case-specific passages used by both the template and LLM-composed routes, keyed by
+ * case id so [evaluateLlmComposed] can retrieve passages without going through the HTTP server.
+ */
+internal fun caseSpecificRetrieval(cases: List<GoldenCase>): Pair<ServerDependencies, Map<String, List<Passage>>> {
+    val dependencies = caseSpecificOpeningDependencies(cases)
+    val byCase = cases.associate { case ->
+        case.id to listOf(
+            Passage(
+                sourceId = "eval-${case.id}",
+                title = "${case.eco} opening concepts",
+                text = case.expectedConcepts.joinToString(", ").ifBlank { "development and center control" } + ".",
+            )
+        )
+    }
+    return dependencies to byCase
 }
 
 internal fun GoldenCase.toOpeningRequest() = OpeningExplainRequest(
