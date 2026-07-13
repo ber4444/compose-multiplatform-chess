@@ -14,6 +14,7 @@ import com.example.myapplication.movecoach.MoveCoachUiState
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
+import com.example.ondeviceai.DefaultGameSummaryOrchestrator
 import com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.persistence.AppSettings
@@ -73,6 +74,9 @@ fun MainViewController(
             engineDifficultyName = appSettings.engineDifficulty.value.name
         )
     }
+    val gameSummaryManager = remember {
+        com.example.myapplication.movecoach.GameSummaryManager()
+    }
     DisposableEffect(Unit) {
         viewModel.attachEngine(engine)
 
@@ -98,16 +102,24 @@ fun MainViewController(
                     // We only reach this branch after the probe confirmed the
                     // Foundation Models generator reports Available, so reporting
                     // true here is consistent with reality.
+                    val contextProvider: suspend () -> com.example.ondeviceai.AiContextSnapshot = {
+                        com.example.ondeviceai.AiContextSnapshot(
+                            isDeviceModelAvailable = true,
+                            isAppForegrounded = true,
+                            userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
+                        )
+                    }
+                    val factory = defaultOnDeviceTextGeneratorFactory()
                     moveCoachManager.attachCoachOrchestrator(
                         DefaultAiCoachOrchestrator(
-                            factory = defaultOnDeviceTextGeneratorFactory(),
-                            contextProvider = {
-                                com.example.ondeviceai.AiContextSnapshot(
-                                    isDeviceModelAvailable = true,
-                                    isAppForegrounded = true,
-                                    userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
-                                )
-                            },
+                            factory = factory,
+                            contextProvider = contextProvider,
+                        )
+                    )
+                    gameSummaryManager.attachOrchestrator(
+                        DefaultGameSummaryOrchestrator(
+                            factory = factory,
+                            contextProvider = contextProvider,
                         )
                     )
                 }
@@ -115,6 +127,7 @@ fun MainViewController(
                     val reason = availabilityToHint(availability)
                     Logger.w("MainViewController") { "Foundation Models unavailable: $reason" }
                     moveCoachManager.setCoachModelState(MoveCoachUiState.Unavailable(reason = reason))
+                    gameSummaryManager.attachOrchestrator(null)
                 }
             }
         }
@@ -125,6 +138,7 @@ fun MainViewController(
         onDispose {
             scope.cancel()
             moveCoachManager.close()
+            gameSummaryManager.close()
             viewModel.close() // also closes the attached engine and cancels coach job
         }
     }
@@ -136,6 +150,7 @@ fun MainViewController(
             gameHistory = gameHistory,
             pgnSharer = pgnSharer,
             moveCoachManager = moveCoachManager,
+            gameSummaryManager = gameSummaryManager,
             switchTopPadding = (-16).dp
         )
     }

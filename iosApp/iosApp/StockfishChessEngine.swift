@@ -11,8 +11,8 @@ private let sharedEvalMoveTimeMs = 2_000
 // loading NNUE before the engine acknowledges `readyok`. The previous 30s timeout produced intermittent
 // "Move was nil!" failures on the first Swift test (the engine wasn't ready when the search began).
 private let sharedReadyTimeout: TimeInterval = 90
-private let sharedBestMoveResponseTimeout: TimeInterval = 20
-private let sharedEvalResponseTimeout: TimeInterval = 8
+private let sharedBestMoveResponseTimeout: TimeInterval = 30
+private let sharedEvalResponseTimeout: TimeInterval = 20
 private let sharedStopGraceTimeout: TimeInterval = 5
 
 func waitForSearchCompletion(

@@ -5,6 +5,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withTimeoutOrNull
+import com.example.ondeviceai.bench.BenchProbe
+import com.example.ondeviceai.bench.NoOpBenchProbe
 
 sealed interface MoveCoachEvent {
     data class Streaming(val partialText: String) : MoveCoachEvent
@@ -16,6 +18,7 @@ class DefaultAiCoachOrchestrator(
     private val contextProvider: suspend () -> AiContextSnapshot = DefaultContextProvider,
     private val clock: () -> Long = ::defaultNowMs,
     private val logger: Logger = Logger.withTag("AiCoach"),
+    private val benchProbe: BenchProbe = NoOpBenchProbe,
 ) : AiCoachOrchestrator {
 
     override fun explainMoveStreaming(request: MoveCoachRequest): Flow<MoveCoachEvent> = flow {
@@ -104,9 +107,13 @@ class DefaultAiCoachOrchestrator(
         var firstTokenMs: Long? = null
         var finalMetrics: AiInferenceMetrics? = null
 
+        benchProbe.onGenerateStart()
         val completed = withTimeoutOrNull(request.policy.latencyBudget.completeMs) {
             generator.generate(prompt).collect { piece ->
-                if (firstTokenMs == null) firstTokenMs = clock() - startMs
+                if (firstTokenMs == null) {
+                    firstTokenMs = clock() - startMs
+                    benchProbe.onFirstToken()
+                }
                 when (piece) {
                     is AiTokenOrFinal.Token -> collected.append(piece.text)
                     is AiTokenOrFinal.Final -> {
@@ -125,6 +132,7 @@ class DefaultAiCoachOrchestrator(
             tokenCount = countTokens(rawText),
             route = AiRoute.OnDevice,
         )
+        benchProbe.onGenerateComplete(metrics.tokenCount)
         return GenerationOutcome(
             rawText = rawText,
             metrics = metrics,
@@ -148,12 +156,15 @@ class DefaultAiCoachOrchestrator(
         )
     )
 
-    private fun fallback(request: MoveCoachRequest, reason: String): MoveCoachEvent = complete(
-        MoveCoachResult.FellBack(
-            text = MoveCoachFallback.build(request),
-            reason = reason,
+    private fun fallback(request: MoveCoachRequest, reason: String): MoveCoachEvent {
+        benchProbe.onFallback(reason)
+        return complete(
+            MoveCoachResult.FellBack(
+                text = MoveCoachFallback.build(request),
+                reason = reason,
+            )
         )
-    )
+    }
 
     private fun complete(result: MoveCoachResult): MoveCoachEvent =
         MoveCoachEvent.Complete(result)

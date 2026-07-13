@@ -33,6 +33,7 @@ import com.example.myapplication.persistence.LocalAppSettings
 import com.example.myapplication.share.PgnSharer
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.example.myapplication.movecoach.MoveCoachManager
+import com.example.myapplication.movecoach.GameSummaryManager
 import androidx.compose.runtime.staticCompositionLocalOf
 
 /**
@@ -46,6 +47,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 enum class Screen { GAME, HISTORY, SETTINGS }
 
 val LocalMoveCoachManager = staticCompositionLocalOf<MoveCoachManager?> { null }
+val LocalGameSummaryManager = staticCompositionLocalOf<GameSummaryManager?> { null }
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -56,11 +58,13 @@ fun AppRoot(
     gameHistory: GameHistoryRepository? = null,
     pgnSharer: PgnSharer? = null,
     moveCoachManager: MoveCoachManager? = null,
+    gameSummaryManager: GameSummaryManager? = null,
     switchTopPadding: Dp = 8.dp,
 ) {
     CompositionLocalProvider(
         LocalAppSettings provides settings,
-        LocalMoveCoachManager provides moveCoachManager
+        LocalMoveCoachManager provides moveCoachManager,
+        LocalGameSummaryManager provides gameSummaryManager
     ) {
         MyApplicationTheme(darkTheme = isSystemInDarkTheme()) {
             var screen by rememberSaveable { mutableStateOf(Screen.GAME) }

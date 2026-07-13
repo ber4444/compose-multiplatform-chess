@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
+import com.example.ondeviceai.DefaultGameSummaryOrchestrator
 import com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory
 import com.example.ondeviceai.initializeCactus
 import com.example.myapplication.persistence.AppSettings
@@ -20,8 +21,10 @@ import com.example.myapplication.persistence.createSettings
 import com.example.myapplication.share.androidPgnSharer
 import android.content.pm.ApplicationInfo
 import com.example.myapplication.movecoach.MoveCoachManager
+import com.example.myapplication.movecoach.GameSummaryManager
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
+import com.example.myapplication.bench.runAndroidBench
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -35,6 +38,15 @@ class MainActivity : ComponentActivity() {
         val isDebug = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         if (!isDebug) {
             Logger.setMinSeverity(Severity.Assert)
+        }
+
+        if (isDebug && intent.hasExtra("bench_iterations")) {
+            val iterations = intent.getIntExtra("bench_iterations", 1)
+            CoroutineScope(Dispatchers.IO).launch {
+                runAndroidBench(this@MainActivity, iterations)
+                finish()
+            }
+            return
         }
 
         enableEdgeToEdge(
@@ -57,6 +69,7 @@ class MainActivity : ComponentActivity() {
                 gameHistory = holder.gameHistory,
                 pgnSharer = pgnSharer,
                 moveCoachManager = holder.moveCoachManager,
+                gameSummaryManager = holder.gameSummaryManager,
             )
         }
     }
@@ -87,6 +100,7 @@ class MainActivity : ComponentActivity() {
     private fun attachMoveCoach(isDebug: Boolean) {
         if (!isDebug) {
             holder.moveCoachManager.attachCoachOrchestrator(null)
+            holder.gameSummaryManager.attachOrchestrator(null)
             return
         }
 
@@ -111,16 +125,25 @@ class MainActivity : ComponentActivity() {
                 )
             )
 
+            val contextProvider: suspend () -> com.example.ondeviceai.AiContextSnapshot = {
+                com.example.ondeviceai.AiContextSnapshot(
+                    isDeviceModelAvailable = true,
+                    isAppForegrounded = holder.isForeground,
+                    userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
+                )
+            }
+
             holder.moveCoachManager.attachCoachOrchestrator(
                 DefaultAiCoachOrchestrator(
                     factory = factory,
-                    contextProvider = {
-                        com.example.ondeviceai.AiContextSnapshot(
-                            isDeviceModelAvailable = true,
-                            isAppForegrounded = holder.isForeground,
-                            userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
-                        )
-                    },
+                    contextProvider = contextProvider,
+                )
+            )
+
+            holder.gameSummaryManager.attachOrchestrator(
+                DefaultGameSummaryOrchestrator(
+                    factory = factory,
+                    contextProvider = contextProvider,
                 )
             )
         }
@@ -167,6 +190,8 @@ class AndroidGameViewModel : ViewModel() {
         engineDifficultyName = appSettings.engineDifficulty.value.name
     )
 
+    val gameSummaryManager = GameSummaryManager()
+
     // Phase 3: saved-games history lives on the same Settings backing store, owned by the holder so
     // it survives config changes (and is observed by the History screen across recompositions).
     val gameHistory = GameHistoryRepository(settings)
@@ -182,6 +207,7 @@ class AndroidGameViewModel : ViewModel() {
     override fun onCleared() {
         super.onCleared()
         moveCoachManager.close()
+        gameSummaryManager.close()
         gameViewModel.close()
     }
 }
