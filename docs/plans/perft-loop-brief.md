@@ -10,7 +10,7 @@
 Run:
 
 ```
-./gradlew :app:desktopTest --tests "*Perft*"
+./gradlew :chess-core:desktopTest --tests "*Perft*"
 ```
 
 If green, **stop — you are done**. The canonical gate (`PerftTest` / `PerftCanonicalGateTest`) and
