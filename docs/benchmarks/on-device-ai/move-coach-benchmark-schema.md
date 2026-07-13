@@ -1,8 +1,6 @@
 # On-device AI move coach — benchmark schema and thresholds
 
-Status: **schema only — no measured values yet.** Per plan §9, measured values land
-after M6 (AI Edge Portal for Android + Instruments for iOS) and are a hard gate before
-the coach is enabled outside debug builds.
+Status: **schema only — no measured values yet.** Measured values are gathered using the automated on-device benchmark harness (`docs/benchmark-harness.md`) and are a hard gate before the coach is enabled outside debug builds.
 
 ## Required table schema
 
@@ -40,7 +38,7 @@ before any release-ship.
 
 ## Files
 
-- `android-ai-edge-portal-summary.md` — summarized AI Edge Portal export (TBD)
-- `android-ai-edge-portal-raw-export.csv` — verbatim AI Edge Portal export, if preview terms permit
+- `android-ai-edge-portal-summary.md` — historical AI Edge Portal export (superseded by automated harness)
+- `android-ai-edge-portal-raw-export.csv` — historical raw export
 - `ios-foundation-models-instruments-summary.md` — summarized Instruments trace
 - `android-delivery-decision.md` — output of the §6.1.1 model-delivery spike
