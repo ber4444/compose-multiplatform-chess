@@ -7,8 +7,8 @@ plugins {
 val ktorVersion = "3.4.3"
 
 dependencies {
-    implementation(project(":coachApi"))
-    implementation(project(":onDeviceAi"))
+    implementation(project(":coachapi"))
+    implementation(project(":ondeviceai"))
     implementation(project(":server"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)

@@ -116,7 +116,7 @@ kotlin {
         val iosSimulatorArm64Main by getting { dependsOn(iosMain) }
 
         commonMain.dependencies {
-            api(project(":coachApi"))
+            api(project(":coachapi"))
             implementation(libs.kermit)
             implementation(libs.kotlinx.coroutines.core)
         }
@@ -166,7 +166,7 @@ tasks.matching { it.name.endsWith("sourcesJar") || it.name.endsWith("SourcesJar"
 // ── Publish to GitHub Packages ────────────────────────────────────────────────
 // `io.github.ber4444:onDeviceAi:<version>`. The on-device AI orchestration (move coach, rules Q&A,
 // opening explainer, route policy) shared between the chess app and the React Native port. Depends on
-// `io.github.ber4444:coachApi` via `api(project(":coachApi"))` — coachApi types leak into the public
+// `io.github.ber4444:coachApi` via `api(project(":coachapi"))` — coachApi types leak into the public
 // signatures of OpeningExplainer.kt, so both artifacts are published together under one
 // `on-device-ai-v*` tag. Mirrors :chess-core's publish block.
 val onDeviceAiVersion: String =

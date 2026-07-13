@@ -1,6 +1,6 @@
 name: Publish onDeviceAi + coachApi
 
-# Publishes io.github.ber4444:onDeviceAi:<version> and io.github.ber4444:coachApi:<version> to
+# Publishes io.github.ber4444:ondeviceai:<version> and io.github.ber4444:coachapi:<version> to
 # GitHub Packages. Both are published together because :onDeviceAi has `api(project(":coachApi"))`
 # and OpeningExplainer.kt leaks coachApi types into onDeviceAi's public signatures — consumers of
 # :onDeviceAi need :coachApi transitively, so the two artifacts must move in lockstep.
@@ -64,7 +64,7 @@ jobs:
       - name: Publish coachApi then onDeviceAi
         # Order matters conceptually (onDeviceAi's metadata references coachApi), though Gradle
         # resolves the project dep within the same build regardless. Both use the same version.
-        run: ./gradlew :coachApi:publishAllPublicationsToGitHubPackagesRepository :onDeviceAi:publishAllPublicationsToGitHubPackagesRepository
+        run: ./gradlew :coachapi:publishAllPublicationsToGitHubPackagesRepository :ondeviceai:publishAllPublicationsToGitHubPackagesRepository
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -73,8 +73,8 @@ jobs:
 
       - name: Summary
         run: |
-          echo "### Published \`io.github.ber4444:onDeviceAi:${{ steps.ver.outputs.version }}\` + \`io.github.ber4444:coachApi:${{ steps.ver.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Published \`io.github.ber4444:ondeviceai:${{ steps.ver.outputs.version }}\` + \`io.github.ber4444:coachapi:${{ steps.ver.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Consumers add the GitHub Packages Maven repo and depend on" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`io.github.ber4444:onDeviceAi:${{ steps.ver.outputs.version }}\` — coachApi comes transitively via \`api()\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "\`io.github.ber4444:ondeviceai:${{ steps.ver.outputs.version }}\` — coachApi comes transitively via \`api()\`." >> "$GITHUB_STEP_SUMMARY"
           echo "Auth: PAT with \`read:packages\`." >> "$GITHUB_STEP_SUMMARY"

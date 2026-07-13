@@ -53,7 +53,7 @@ kotlin {
 
 // ── Publish to GitHub Packages ────────────────────────────────────────────────
 // `io.github.ber4444:coachApi:<version>`. Published alongside :onDeviceAi (which has
-// `api(project(":coachApi"))` and leaks coachApi types — OpeningExplainRequest/Response — into
+// `api(project(":coachapi"))` and leaks coachApi types — OpeningExplainRequest/Response — into
 // onDeviceAi's public signatures, so consumers of :onDeviceAi need :coachApi transitively).
 // Tag-driven via the shared `on-device-ai-v*` workflow (a single tag publishes both artifacts);
 // also overridable via the COACH_API_VERSION env var / gradle property. Mirrors :chess-core's publish
