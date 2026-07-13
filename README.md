@@ -104,11 +104,13 @@ graph TD
 - **Full Chess Rules:** The application covers all standard chess rules and includes an explicit draw-by-agreement flow where the Stockfish engine evaluates whether to accept or decline draw offers.
 - **Game Lifecycle & Persistence:** The in-progress game is auto-saved on every move and restored on next launch (board, turn, move list). On game end, the user can **Save game** (to a persisted Game History) and **Share PGN** (platform share sheet / file dialog / download). PGN export is full Standard Algebraic Notation with the Seven Tag Roster; paste a saved PGN into lichess.org "Import game" to validate. A **History** screen lists saved games with a detail view and delete.
 - **Engine Difficulty:** A persisted Easy / Medium / Hard / Max setting (in **Settings**) weakens or strengthens Stockfish play via the UCI `Skill Level` option and a per-move think-time budget. Applies to the Stockfish engine on every platform.
-- **Settings & Navigation:** A minimal multiplatform navigation host (`AppRoot`) switches between the game, **History**, and **Settings** screens, with a persisted 3D-board toggle (default on) and the engine-difficulty selector in Settings.
+- **Settings & Navigation:** A minimal multiplatform navigation host (`AppRoot`) switches between the game, **History**, **Settings**, and **Rules** screens, with a persisted 3D-board toggle (default on) and the engine-difficulty selector in Settings.
 - **On-device AI Move Coach:** A debug-gated (`ApplicationInfo.FLAG_DEBUGGABLE`) Compose panel (`MoveCoachPanel`) that surfaces a natural-language explanation of Black's move after it animates. Wired by `GameViewModel.triggerCoach(...)` — cancellable, never blocks the move, skipped if the move ends the game. Backed by a shared KMP module `:onDeviceAi` holding the routing policy (`AiRoutePolicies.moveCoachOffline`), prompt builder, and deterministic fallback in `commonMain`; platform runtimes are injected at the entry points. See [On-Device AI Architecture](docs/on-device-ai-architecture.md) for details on the prompt and routing policy.
   - **Android backend:** **Cactus (`com.cactuscompute:cactus:1.4.1-beta`)** — llama.cpp CPU runtime. The `gemma3-270m` model (~200 MB GGUF) is downloaded from Hugging Face by Cactus on first launch into `filesDir` (debug APK ~258 MB; no model bundled in the APK). `AndroidManifest.xml` declares `INTERNET` so Cactus can fetch the model. Cold start ~1–2 s. Replaced the earlier LiteRT-LM path (7–9 s cold init, streaming crash, no resolvable Maven coordinate) and the ML Kit Prompt API path (narrow AICore device support); `MoveCoachModelAsset.kt` and `AndroidCoachWiring` were removed in the migration. See `docs/benchmarks/on-device-ai/android-delivery-decision.md`.
   - **iOS backend:** **Foundation Models** (Apple Intelligence) via `FoundationMoveCoachBridge` registered into `FoundationModelsBridgeRegistry` from `iOSApp.swift`. Falls back to rule-based text when Apple Intelligence is unavailable. iOS has **not** been migrated to Cactus yet — it stays on Foundation Models, though the `:onDeviceAi` KMP module makes that swap feasible later.
   - **Desktop / Wasm:** No local model — deterministic fallback only.
+- **Opening Explainer (cloud route):** The one AI feature that is *allowed* to leave the device. When a game ends, a post-game panel (`OpeningExplainerPanel`) fetches a short, grounded explanation of the opening from a small Ktor + Postgres + pgvector service (`:server`). It is the only policy with `allowCloud = true` (`AiRoutePolicies.openingExplainer`, `PUBLIC_OR_SYNTHETIC`, 0.2¢ ceiling). The cloud client is injected from `:app`; if the base URL is unset, the network is down, or the service returns non-2xx, the panel shows a deterministic offline-guidance message instead. The move coach's `LOCAL_ONLY` policy can never reach this route — an exhaustive 60-context decider test proves it. See [Opening explainer service](#opening-explainer-service) below for deployment.
+- **Rules Q&A (on-device):** A `LOCAL_ONLY` feature distinct from both the move coach (no retrieval) and the opening explainer (cloud retrieval). A **Rules** screen lets the player ask a natural-language chess-rules question; retrieval and generation stay entirely on-device. The corpus is a bundled 30-passage FIDE/Wikibooks adaptation (`onDeviceAi/src/commonMain/resources/rulesCorpus/passages.tsv`) looked up via BM25 (`BundledRuleLookupTool`). iOS uses a native Foundation Models `Tool` conformance with `NLEmbedding` query-time ranking; Android uses structured-output prompting (the model emits a `{"tool":"lookup_rule","query":"…"}` envelope, Kotlin does the real lookup, then a second generation turn cites the passage). An answer that doesn't cite a retrieved passage ID is rejected and falls back to a static rules summary. See `docs/benchmarks/on-device-ai/rules-qa-retrieval-decision.md` for why BM25 was chosen over a bundled embedding model.
 - **3D Board View:** The app features a playable 3D board with shared camera, tap-to-move, ray picking, and move animation logic. Desktop, iOS, and web share `FilamentEncodedChessRenderer` for FEN-to-scene, camera, selection, and transition state; their platform peers only own the Filament surface. Android uses Filament through SceneView (the visual reference); iOS uses **Metal-native Filament** through a Swift/Obj-C++ `CAMetalLayer` bridge; desktop uses **native C++ Filament** with a headless swap chain and RGBA readback into Compose; web uses **Filament (Wasm)** loading the same `chess.glb` Android uses. See `docs/plans/web-graphics-spike-result.md` and `docs/plans/ios-filament-spike-result.md` for the spike verdicts.
 - **Stockfish Engine Integrations:**
   - **Android:** Pinned to Stockfish 17, as the Stockfish 18 binary exceeds GitHub's 100 MB file limit.
@@ -126,6 +128,10 @@ graph TD
 - `app/src/wasmJsMain` web launcher
 - `app/src/iosMain` shared iOS implementation
 - `iosApp/` Xcode project and Swift adapter
+- `coachApi/src/commonMain` serialization-only wire models shared by the app and the opening-explainer service
+- `server/` JVM Ktor opening-explainer service (Postgres + pgvector retrieval, ONNX MiniLM embeddings, `:server:seed` corpus loader)
+- `evals/` rule-based eval harness and golden-set scorecard for all AI coach routes
+- `onDeviceAi/src/commonMain/resources/rulesCorpus/` the bundled offline FIDE/Wikibooks rules corpus (30 passages, BM25-lookupable)
 
 Third-party asset and dependency notices live in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
@@ -156,36 +162,162 @@ To measure performance metrics of the on-device AI integration (init times, toke
 - `./gradlew :app:iosSimulatorArm64Test` runs iOS Compose UI tests
 - `./gradlew :app:desktopTest --tests "*board3d*"` runs the 3D desktop tests (DesktopRendererSmokeTest writes `build/chess3d-*.png` to eyeball the render)
 - `./gradlew :chess-core:publishToMavenLocal` publishes `io.github.ber4444:chess-core` to the local Maven cache (for local cross-repo iteration)
+- `./gradlew :coachApi:build` builds and tests the serialization-only wire-model module
+- `./gradlew :server:test` runs the opening-explainer service tests (Testcontainers Postgres; skips without Docker)
+- `./gradlew :server:seed` seeds the opening corpus into a Postgres database (needs `DATABASE_URL` + embedding model paths)
+- `./gradlew :evals:run` runs the rule-based eval harness and regenerates `evals/scorecard.md` (fails on grounding regression)
 - `tools/ios_3d_screenshot.sh` captures the real iOS 3D board from a booted simulator
 
 ### Opening explainer service
 
-The service contract is [server/openapi.yaml](server/openapi.yaml). Runtime configuration is read
-only from environment variables:
+The opening explainer is the one AI feature allowed to leave the device. A finished game sends the
+opening moves (FEN + first 20 SAN plies + ECO) to a small cloud service, which retrieves relevant
+opening passages from a vector corpus and composes a 2–3 sentence explanation. The app never sends
+anything that identifies a user — only public/synthetic chess position data.
 
-- `DATABASE_URL` — Postgres with pgvector enabled
-- `COACH_EMBEDDING_MODEL` and `COACH_EMBEDDING_VOCAB` — local MiniLM ONNX assets
-- optional `COACH_LLM_API_KEY`, `COACH_LLM_API_URL`, and `COACH_LLM_MODEL`; paid composition is
-  enabled only when `COACH_LLM_INPUT_USD_PER_MILLION` and
-  `COACH_LLM_OUTPUT_USD_PER_MILLION` are also set so the 0.2-cent request ceiling can be checked
-- optional comma-separated `COACH_ALLOWED_ORIGINS` hostnames for the Wasm app (for example,
-  `chess.example.com`; schemes are added by the server)
+The service contract is [server/openapi.yaml](server/openapi.yaml) — the source of truth for the two
+endpoints (`POST /v1/openings/explain` and `GET /health`). A swagger-request-validator contract test
+in `:server:test` validates real responses against it.
 
-On Fly.io, the runtime detects `FLY_APP_NAME` and uses Fly Proxy's `Fly-Client-IP` header for the
-bounded, expiring in-process request limiter. Outside Fly, the direct peer address is used.
+**Architecture** — two endpoints, one Postgres, no queues or caching tiers:
+
+- **Retrieval** — `all-MiniLM-L6-v2` (ONNX Runtime, 384-dim) embeds the query (ECO name + opening
+  moves); `ORDER BY embedding <=> $1 LIMIT 4` pulls the four closest passages from a `passages`
+  table with a pgvector `vector(384)` column. The embedder is behind an `Embedder` interface with a
+  deterministic fake, so `:server:test` never downloads a model.
+- **Composition** — `TemplateComposer` (default, deterministic, zero model cost) stitches the
+  retrieved passages into grounded sentences. `LlmComposer` calls an OpenAI-compatible provider API
+  only when `COACH_LLM_API_KEY` is set; it validates the LLM output with the same grounding rules as
+  the on-device coach (forbidden phrases, max length, citation + token overlap) and falls back to
+  `TemplateComposer` if validation fails — unvalidated prose is never returned.
+- **Corpus** — `server/corpus/` holds the five ECO openings TSVs from `lichess-org/chess-openings`
+  (CC0) plus curated concept notes. The `:server:seed` task (`SeedMain`) chunks, embeds, and upserts
+  them into Postgres.
+
+**Runtime configuration** is read only from environment variables (no secrets are committed):
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | yes | Postgres connection string (Fly Postgres, Neon, etc.) with pgvector enabled |
+| `COACH_EMBEDDING_MODEL` | yes | Path to the MiniLM ONNX model (baked into the Docker image at `/opt/models/model.onnx`) |
+| `COACH_EMBEDDING_VOCAB` | yes | Path to the MiniLM vocab.txt (baked into the Docker image at `/opt/models/vocab.txt`) |
+| `PORT` | no (default 8080) | HTTP listen port |
+| `COACH_LLM_API_KEY` | no | Enables the paid LLM composer when set (with the two price vars below) |
+| `COACH_LLM_API_URL` | no | OpenAI-compatible chat completions endpoint |
+| `COACH_LLM_MODEL` | no | Model name (default `gpt-4.1-mini`) |
+| `COACH_LLM_INPUT_USD_PER_MILLION` | no | Input token price — required to enforce the 0.2¢ ceiling |
+| `COACH_LLM_OUTPUT_USD_PER_MILLION` | no | Output token price — required to enforce the 0.2¢ ceiling |
+| `COACH_ALLOWED_ORIGINS` | no | Comma-separated hostnames for CORS (e.g. `chess.example.com`; schemes added by server) |
+
+On Fly.io the runtime detects `FLY_APP_NAME` and uses Fly Proxy's `Fly-Client-IP` header for the
+bounded, expiring in-process request limiter (30 req/min per client). Outside Fly, the direct peer
+address is used.
+
+**App-side wiring** — the cloud client is injected from `:app` (`KtorOpeningExplainerClient`), never
+hardcoded to prod. The base URL comes from build config, resolved in this precedence:
+
+1. `CHESS_COACH_BASE_URL` environment variable (CI / deploy builds)
+2. `coach.baseUrl` key in `local.properties` (local development)
+3. empty string (default — the client is `null`, so the explainer shows offline guidance)
+
+The `generateOpeningExplainerConfig` Gradle task generates an `internal const val
+OPENING_EXPLAINER_BASE_URL` from whichever source is set. When the URL is empty, offline, or the
+service returns non-2xx, `DefaultOpeningExplainer` produces a deterministic fallback — surfaced as a
+normal product state in the panel.
+
+#### Deploying to Fly.io
+
+The service is packaged as a multi-stage Docker image (`server/Dockerfile`): a build stage runs
+`./gradlew :server:installDist`, and the `eclipse-temurin:21-jre-jammy` runtime stage bakes in the
+pinned MiniLM ONNX model + vocab. `server/fly.toml` configures the app
+(`compose-chess-opening-coach`, region `sjc`, `min_machines_running = 0` so cold starts are honest,
+health check `GET /health`).
 
 No production URL or credential is committed. Deployment is intentionally a human step:
 
 ```bash
+# 1. Create the Fly app (does not deploy yet)
 fly launch --no-deploy --config server/fly.toml
-fly secrets set --config server/fly.toml DATABASE_URL=…
+
+# 2. Provision Postgres with pgvector and attach it
+fly pg create --name compose-chess-pg --region sjc --initial-cluster-size 1
+fly pg attach --postgres-app compose-chess-pg --app compose-chess-opening-coach
+# This sets DATABASE_URL as a Fly secret automatically. Verify:
+fly secrets list --app compose-chess-opening-coach
+
+# 3. Enable the pgvector extension (needed before the schema applies on startup)
+fly ssh console --app compose-chess-opening-coach --command \
+  'psql "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS vector;"'
+# Alternatively, the app's applySchema() runs "CREATE EXTENSION IF NOT EXISTS vector" on boot,
+# so the first deploy will create it if the connecting role has permission.
+
+# 4. Deploy the service (the schema is applied idempotently on startup)
 fly deploy --config server/fly.toml
-DATABASE_URL=… COACH_EMBEDDING_MODEL=… COACH_EMBEDDING_VOCAB=… ./gradlew :server:seed
-curl https://<fly-app>.fly.dev/health
+
+# 5. Seed the opening corpus into the live database.
+#    The MiniLM model/vocab paths are the Docker image defaults; set them on the seed run.
+fly ssh console --app compose-chess-opening-coach --command \
+  'DATABASE_URL="$DATABASE_URL" COACH_EMBEDDING_MODEL=/opt/models/model.onnx COACH_EMBEDDING_VOCAB=/opt/models/vocab.txt /opt/coach-server/bin/server-seed'
+# Or, run the seed task locally against the prod DB (requires DATABASE_URL from fly secrets):
+#   DATABASE_URL=… COACH_EMBEDDING_MODEL=model.onnx COACH_EMBEDDING_VOCAB=vocab.txt ./gradlew :server:seed
+
+# 6. Verify the service is live
+curl https://compose-chess-opening-coach.fly.dev/health
+# → ok
+
+# 7. Point the app at it (local dev via local.properties, or CI/deploy via env var):
+echo "coach.baseUrl=https://compose-chess-opening-coach.fly.dev" >> local.properties
+# or: export CHESS_COACH_BASE_URL=https://compose-chess-opening-coach.fly.dev
+
+# 8. (Optional) Enable the paid LLM composer for richer prose:
+fly secrets set --app compose-chess-opening-coach \
+  COACH_LLM_API_KEY=… \
+  COACH_LLM_API_URL=https://api.openai.com/v1/chat/completions \
+  COACH_LLM_MODEL=gpt-4.1-mini \
+  COACH_LLM_INPUT_USD_PER_MILLION=0.40 \
+  COACH_LLM_OUTPUT_USD_PER_MILLION=1.60
 ```
 
-After deployment, replace `<fly-app>` with the assigned app name and record the verified base URL
-here. Do not put database URLs or provider keys in this file or any `.env` file.
+> **Note on `bin/server-seed`:** the `:server:seed` Gradle task runs `SeedMain`, whose `mainClass` is
+> `com.example.coachserver.SeedMain`. Inside the Docker image, the `installDist` distribution
+> generates a `bin/server` script (the app) but **not** a separate `bin/server-seed`. To seed inside
+> Fly, either run the seed JVM directly via `fly ssh console` with the right `mainClass`, or run
+> `./gradlew :server:seed` locally with the prod `DATABASE_URL`. The command above uses the
+> `installDist` runtime classpath; adjust the invocation to match your distribution layout. Do not
+> put database URLs or provider keys in this README or any `.env` file.
+
+After deployment, record the verified base URL here once you've confirmed `/health` responds:
+
+<!-- TODO(owner): replace with the live URL after first deploy, e.g.
+`coach.baseUrl=https://compose-chess-opening-coach.fly.dev`
+-->
+
+### AI coach eval harness
+
+The `:evals` module is a rule-based regression gate that scores every available generator against a
+golden set. It has no judge model — v1 is rule-based only.
+
+- **Golden set** — `evals/golden/candidates.json` holds 100 semantically distinct opening positions
+  generated from the checked-in Lichess opening lines. Each case has `fen`, `bestMoveUci`, `tags`,
+  and (for openings) `eco` + `expectedConcepts`. These are *candidates*: the repository owner must
+  hand-check best-move and concept labels before treating the scorecard as article-grade evidence
+  (see `evals/golden/README.md`).
+- **Scorer** — move cases use the production `MoveCoachResponseValidator`; opening cases require all
+  `expectedConcepts` to appear in the output (concept-coverage). Both check the 300-char length bound.
+- **Routes** — `:evals:run` executes every case against `FakeTextGenerator`, the deterministic
+  fallback, `TemplateComposer` via a local in-process server instance, and (when
+  `COACH_DEPLOYED_URL` is set and reachable) the deployed cloud service. It writes
+  `evals/scorecard.md` with grounding-violation, retry, fallback, and length-violation rates per
+  route. On-device numbers (Cactus, Foundation Models) are collected manually on hardware and marked
+  as such in the scorecard.
+- **CI gate** — `.github/workflows/ai-coach-evals.yml` runs `:evals:run` on every PR touching
+  `:onDeviceAi`, `:coachApi`, `:server`, `:evals`, or the opening-explainer app code. A grounding
+  violation in any automated route fails the build.
+
+```bash
+./gradlew :evals:run          # regenerate evals/scorecard.md; fails on grounding regression
+COACH_DEPLOYED_URL=https://… ./gradlew :evals:run   # also score the live deployment
+```
 
 ### Publishing `chess-core`
 
