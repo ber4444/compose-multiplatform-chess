@@ -52,9 +52,21 @@ class AppSettings(private val settings: Settings) {
             ?.let { runCatching { EngineDifficulty.valueOf(it) }.getOrNull() }
             ?: EngineDifficulty.MEDIUM
 
+    private val _aiCoachEnabled: MutableStateFlow<Boolean> =
+        MutableStateFlow(readAiCoachEnabled())
+    val aiCoachEnabled: StateFlow<Boolean> get() = _aiCoachEnabled
+
+    fun setAiCoachEnabled(enabled: Boolean) {
+        settings.putBoolean(KEY_AI_COACH, enabled)
+        _aiCoachEnabled.value = enabled
+    }
+
+    private fun readAiCoachEnabled(): Boolean = settings.getBoolean(KEY_AI_COACH, true)
+
     companion object {
         const val KEY_BOARD_3D = "settings.board_3d_enabled"
         const val KEY_ENGINE_DIFFICULTY = "settings.engine_difficulty"
+        const val KEY_AI_COACH = "settings.ai_coach_enabled"
     }
 }
 

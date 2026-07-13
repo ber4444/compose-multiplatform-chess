@@ -1,6 +1,7 @@
 package com.example.myapplication
 
 import co.touchlab.kermit.Logger
+import com.example.myapplication.GameSnapshotMapper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -351,6 +352,10 @@ class GameViewModel(
             return
         }
 
+        // Snapshot the pre-move state so the coach (if attached) can build a
+        // grounded request from before/after positions (plan §1.2, §8.2).
+        val stateBeforeCoach = _gameState.value
+
         val selectedMove = pickMove(enemyPositions, enemyPieces, allyPositions, allyPieces)
         val newPosition = selectedMove.position
         val movingPiece = allyPieces[selectedMove.pieceIndex]
@@ -367,6 +372,22 @@ class GameViewModel(
             promotion = selectedMove.promotion
         )
         autosave()
+
+        // Plan §8.2: trigger the coach after Stockfish returns Black's move and
+        // before/while the move animation plays. Never blocks move application.
+        // Skip if the move ended the game (checkmate/stalemate/draw).
+        if (turn == Set.BLACK &&
+            _gameState.value.winState == WinState.NONE
+        ) {
+            onMoveCoached?.invoke(
+                stateBeforeCoach,
+                _gameState.value,
+                Set.BLACK,
+                preMovePosition,
+                newPosition,
+                selectedMove.promotion
+            )
+        }
 
         val rookMove = castlingRookMove(movingPiece, preMovePosition, newPosition)
 
@@ -611,4 +632,9 @@ class GameViewModel(
         }
         return updatedState
     }
+
+    private var engineJob: Job? = null
+    var aiCoachEnabled: Boolean = true
+
+    var onMoveCoached: ((stateBefore: GameUiState, stateAfter: GameUiState, movingPieceSide: Set, fromSquare: Pair<Int, Int>, toSquare: Pair<Int, Int>, promotionType: PromotionType?) -> Unit)? = null
 }

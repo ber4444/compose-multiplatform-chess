@@ -3,6 +3,7 @@
 build/*
 app/build/*
 androidApp/build/*
+onDeviceAi/build/*
 chess-core/build/*
 .kotlin/*
 .gradle/*

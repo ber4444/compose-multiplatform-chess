@@ -8,6 +8,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
+import com.example.ondeviceai.DefaultAiCoachOrchestrator
+import com.example.ondeviceai.DefaultGameSummaryOrchestrator
+import com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory
+import com.example.ondeviceai.initializeCactus
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.CurrentGameStore
 import com.example.myapplication.persistence.CurrentGameStoreSupport
@@ -16,8 +20,14 @@ import com.example.myapplication.persistence.asSnapshotSink
 import com.example.myapplication.persistence.createSettings
 import com.example.myapplication.share.androidPgnSharer
 import android.content.pm.ApplicationInfo
+import com.example.myapplication.movecoach.MoveCoachManager
+import com.example.myapplication.movecoach.GameSummaryManager
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
+import com.example.myapplication.bench.runAndroidBench
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val holder: AndroidGameViewModel by viewModels()
@@ -30,12 +40,22 @@ class MainActivity : ComponentActivity() {
             Logger.setMinSeverity(Severity.Assert)
         }
 
+        if (isDebug && intent.hasExtra("bench_iterations")) {
+            val iterations = intent.getIntExtra("bench_iterations", 1)
+            CoroutineScope(Dispatchers.IO).launch {
+                runAndroidBench(this@MainActivity, iterations)
+                finish()
+            }
+            return
+        }
+
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(SYSTEM_BAR_SCRIM),
             navigationBarStyle = SystemBarStyle.dark(SYSTEM_BAR_SCRIM)
         )
 
         holder.attachEngine(createStockfishEngine())
+        attachMoveCoach(isDebug)
 
         val appSettings = AppSettings(createSettings("chess"))
         // PgnSharer needs the host Activity (for ACTION_SEND), so it's built here, not in the holder.
@@ -48,6 +68,8 @@ class MainActivity : ComponentActivity() {
                 board3D = androidx.compose.runtime.remember { com.example.myapplication.board3d.androidBoard3DSupport() },
                 gameHistory = holder.gameHistory,
                 pgnSharer = pgnSharer,
+                moveCoachManager = holder.moveCoachManager,
+                gameSummaryManager = holder.gameSummaryManager,
             )
         }
     }
@@ -68,12 +90,82 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Attach the on-device move coach using Cactus (llama.cpp).
+     * Cactus downloads the model from Hugging Face on first launch (~200 MB for
+     * gemma3-270m) and caches it locally. Subsequent launches use the cached
+     * model (~1-2s init). This replaces the earlier LiteRT-LM path (557 MB,
+     * 7-9s cold start) and ML Kit Prompt API (AICore, narrow device support).
+     */
+    private fun attachMoveCoach(isDebug: Boolean) {
+        if (!isDebug) {
+            holder.moveCoachManager.attachCoachOrchestrator(null)
+            holder.gameSummaryManager.attachOrchestrator(null)
+            return
+        }
+
+        // Initialize Cactus native runtime (required before any CactusLM use)
+        initializeCactus(this)
+
+        holder.moveCoachManager.setCoachModelState(
+            com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
+                message = "Downloading Gemma 270M model (first launch only)…"
+            )
+        )
+
+        CoroutineScope(Dispatchers.IO).launch {
+            val factory = defaultOnDeviceTextGeneratorFactory()
+            val generator = factory.create()
+            // Pre-initialize: download model (first launch) + load into memory
+            runCatching { generator?.warmup() }
+
+            holder.moveCoachManager.setCoachModelState(
+                com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
+                    message = "Starting Gemma engine…"
+                )
+            )
+
+            val contextProvider: suspend () -> com.example.ondeviceai.AiContextSnapshot = {
+                com.example.ondeviceai.AiContextSnapshot(
+                    isDeviceModelAvailable = true,
+                    isAppForegrounded = holder.isForeground,
+                    userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
+                )
+            }
+
+            holder.moveCoachManager.attachCoachOrchestrator(
+                DefaultAiCoachOrchestrator(
+                    factory = factory,
+                    contextProvider = contextProvider,
+                )
+            )
+
+            holder.gameSummaryManager.attachOrchestrator(
+                DefaultGameSummaryOrchestrator(
+                    factory = factory,
+                    contextProvider = contextProvider,
+                )
+            )
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        holder.isForeground = true
+    }
+
+    override fun onStop() {
+        super.onStop()
+        holder.isForeground = false
+    }
+
     private companion object {
         private const val SYSTEM_BAR_SCRIM = 0x66000000
     }
 }
 
 class AndroidGameViewModel : ViewModel() {
+    @Volatile var isForeground: Boolean = true
     // Autosave + resume-later (Phase 2): the store is created once for the holder's lifetime
     // (survives config changes) and seeded into the VM. A saved game is loaded here so the VM
     // starts from the restored state; if the saved game was already over it's cleared and a fresh
@@ -89,7 +181,16 @@ class AndroidGameViewModel : ViewModel() {
         snapshotSink = currentGameStore.asSnapshotSink(),
         initialShow3D = appSettings.board3DEnabled.value,
         initialEngineDifficulty = appSettings.engineDifficulty.value,
+    ).apply {
+        aiCoachEnabled = appSettings.aiCoachEnabled.value
+    }
+
+    val moveCoachManager = MoveCoachManager(
+        gameViewModel = gameViewModel,
+        engineDifficultyName = appSettings.engineDifficulty.value.name
     )
+
+    val gameSummaryManager = GameSummaryManager()
 
     // Phase 3: saved-games history lives on the same Settings backing store, owned by the holder so
     // it survives config changes (and is observed by the History screen across recompositions).
@@ -105,6 +206,8 @@ class AndroidGameViewModel : ViewModel() {
 
     override fun onCleared() {
         super.onCleared()
+        moveCoachManager.close()
+        gameSummaryManager.close()
         gameViewModel.close()
     }
 }
