@@ -57,3 +57,33 @@ gradle.projectsEvaluated {
         }
     }
 }
+
+// Force-upgrade the vulnerable transitive `ws` in the Wasm dependency store. ktor-client-core
+// (pulled into the wasmJs target) declares `"ws": "8.18.3"` as an exact pin; 8.18.3 sits in the
+// vulnerable range for GHSA-96hv-2xvq-fx4p (memory-exhaustion DoS; fixed in 8.21.0). Since ktor
+// pins an exact version (not a range), a plain bump is impossible — a yarn `resolutions` entry is
+// the only way to override it. At wasm browser runtime the app uses the browser's native WebSocket,
+// not `ws`, so real-world impact is ~nil — but `ws` is classified as a runtime dep in the lock.
+//
+// This mirrors the JS `forcedResolutions` hook above, but targets the WASM store
+// (`build/wasm/package.json` via the `wasmRootPackageJson` task). Unlike serialize-javascript (which
+// is JS-only and must NOT be injected into the wasm store — see PR #75's second commit), `ws` IS in
+// the wasm graph, so injecting here is correct AND the committed `kotlin-js-store/wasm/yarn.lock`
+// must be regenerated with `./gradlew kotlinWasmUpgradeYarnLock` to lock ws@8.21.0 and keep
+// `kotlinWasmStoreYarnLock` validating cleanly.
+val forcedWasmResolutions = mapOf("**/ws" to "8.21.0")
+gradle.projectsEvaluated {
+    rootProject.tasks.matching { it.name == "wasmRootPackageJson" }.configureEach {
+        doLast {
+            val pkgFile = rootProject.layout.projectDirectory.file("build/wasm/package.json").asFile
+            if (!pkgFile.exists()) return@doLast
+            val gson = com.google.gson.GsonBuilder().setPrettyPrinting().create()
+            val root = com.google.gson.JsonParser.parseString(pkgFile.readText()).asJsonObject
+            val res = root.getAsJsonObject("resolutions") ?: com.google.gson.JsonObject().also {
+                root.add("resolutions", it)
+            }
+            forcedWasmResolutions.forEach { (k, v) -> if (!res.has(k)) res.addProperty(k, v) }
+            pkgFile.writeText(gson.toJson(root))
+        }
+    }
+}
