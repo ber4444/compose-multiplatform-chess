@@ -18,7 +18,7 @@ dependencies {
     implementation("io.ktor:ktor-client-cio-jvm:$ktorVersion")
     implementation("io.ktor:ktor-client-content-negotiation-jvm:$ktorVersion")
     implementation("com.zaxxer:HikariCP:7.0.2")
-    implementation("org.postgresql:postgresql:42.7.7")
+    implementation("org.postgresql:postgresql:42.7.11")
     implementation("com.pgvector:pgvector:0.1.6")
     implementation("com.microsoft.onnxruntime:onnxruntime:1.22.0")
     implementation(libs.kotlinx.serialization.json)
