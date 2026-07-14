@@ -30,6 +30,23 @@ dependencies {
     testImplementation("org.testcontainers:testcontainers-postgresql:2.0.5")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter:2.0.5")
     testImplementation("com.atlassian.oai:swagger-request-validator-core:2.46.1")
+
+    // Netty: ktor-server-netty-jvm:3.4.3 pulls the full 4.2.x stack at 4.2.12.Final, which sits
+    // inside every vulnerable range for the open Netty advisories (GHSA-c653-97m9-rcg9,
+    // -x4gw-5cx5-pgmh, -3qp7-7mw8-wx86, -rwm7-x88c-3g2p, -f6hv-jmp6-3vwv, -57rv-r2g8-2cj3,
+    // -mj4r-2hfc-f8p6). Importing the BOM as a platform constrains every netty module ktor
+    // transitively pulls to 4.2.15.Final — a patch bump within ktor's own 4.2.x series, so ktor
+    // itself is undisturbed. This is a *runtime* dependency of the deployed server, distinct from
+    // the AGP/UTP build-path Netty that stays pinned to 4.1.x via the buildscript constraints in
+    // settings.gradle.kts / build.gradle.kts (those don't reach project runtimeClasspath configs).
+    implementation(platform("io.netty:netty-bom:4.2.15.Final"))
+    // Jackson: swagger-request-validator-core (test-scoped above) pulls jackson transitively at
+    // 2.19.x / 2.21.1; GHSA-rmj7-2vxq-3g9f and -j3rv-43j4-c7qm are fixed only in 2.21.4. The BOM
+    // aligns the whole family (databind + core + annotations + dataformat-yaml + datatype-jsr310).
+    // TEST-ONLY: jackson never reaches runtimeClasspath (swagger lives under testImplementation),
+    // but a platform import under `implementation` still constrains the test configs' transitive
+    // resolution. `enforcedPlatform` isn't needed — nothing requests a higher jackson.
+    implementation(platform("com.fasterxml.jackson:jackson-bom:2.21.4"))
 }
 
 kotlin {
