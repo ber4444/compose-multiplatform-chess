@@ -49,9 +49,33 @@ jobs:
       if: matrix.language == 'java-kotlin' || matrix.language == 'swift'
       uses: gradle/actions/setup-gradle@v6
 
-    - name: Fetch iOS Filament dependencies
+    - name: Cache iOS Filament payload
       if: matrix.language == 'swift'
+      id: cache_ios_filament
+      uses: actions/cache@v4
+      with:
+        # Includes the fetched xcframeworks/libs/headers and the KTX IBL assets
+        # the fetch script stages into the app bundle. fetch_filament_ios.sh is
+        # idempotent (rsync --delete), so we skip it entirely on a cache hit.
+        path: |
+          iosApp/iosApp/Filament/filament
+          iosApp/iosApp/Resources/papermill_ibl.ktx
+          iosApp/iosApp/Resources/papermill_skybox_blurred.ktx
+        key: filament-ios-v1.72.0-${{ hashFiles('tools/fetch_filament_ios.sh') }}
+
+    - name: Fetch iOS Filament dependencies
+      if: matrix.language == 'swift' && steps.cache_ios_filament.outputs.cache-hit != 'true'
       run: tools/fetch_filament_ios.sh
+
+    - name: Cache SwiftPM packages
+      if: matrix.language == 'swift'
+      uses: actions/cache@v4
+      with:
+        # Caches dependency resolution/clone only (not build artifacts), so the
+        # Swift compiler still runs under CodeQL tracing as required. The clone
+        # dir is pinned below via -clonedSourcePackagesDirPath on every xcodebuild.
+        path: .build/SwiftPM
+        key: swiftpm-${{ runner.os }}-${{ hashFiles('iosApp/iosApp.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
     - name: Ensure test simulator exists
       if: matrix.language == 'swift'
@@ -63,16 +87,27 @@ jobs:
     - name: Pre-build everything (Swift optimization)
       if: matrix.language == 'swift'
       run: |
-        xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug -destination "platform=iOS Simulator,name=iPhone 16,OS=latest,arch=arm64" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+        xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug -destination "platform=iOS Simulator,name=iPhone 16,OS=latest,arch=arm64" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO ONLY_ACTIVE_ARCH=YES DEBUG_INFORMATION_FORMAT=dwarf -clonedSourcePackagesDirPath .build/SwiftPM build
 
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v3
       with:
         languages: ${{ matrix.language }}
         build-mode: ${{ matrix.build-mode }}
+        # Trim vendored Filament/Stockfish payloads, build output, and test
+        # sources from analysis — see .github/codeql-config.yml.
+        config-file: .github/codeql-config.yml
+
+    - name: Cache Filament desktop payload
+      if: matrix.language == 'java-kotlin'
+      id: cache_desktop_filament
+      uses: actions/cache@v4
+      with:
+        path: app/src/desktopMain/filament/filament
+        key: filament-desktop-v1.72.0-${{ runner.os }}-${{ hashFiles('tools/fetch_filament_desktop.sh') }}
 
     - name: Fetch Filament desktop dependencies
-      if: matrix.language == 'java-kotlin'
+      if: matrix.language == 'java-kotlin' && steps.cache_desktop_filament.outputs.cache-hit != 'true'
       run: tools/fetch_filament_desktop.sh
 
     - name: Build Java-Kotlin
@@ -86,7 +121,7 @@ jobs:
     - name: Build Swift (Traced)
       if: matrix.language == 'swift'
       run: |
-        xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug -destination "platform=iOS Simulator,name=iPhone 16,OS=latest,arch=arm64" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+        xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug -destination "platform=iOS Simulator,name=iPhone 16,OS=latest,arch=arm64" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO ONLY_ACTIVE_ARCH=YES DEBUG_INFORMATION_FORMAT=dwarf -clonedSourcePackagesDirPath .build/SwiftPM build
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
