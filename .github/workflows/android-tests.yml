@@ -98,8 +98,11 @@ jobs:
         # :chess-core:check runs the full per-target test matrix including :chess-core:desktopTest,
         # which carries the perft rig (PerftCanonicalGateTest, PerftVsStockfishTest, PerftDeepTest).
         # PerftDeepTest assume-skips without -Dperft.deep=true (intentional — it's nightly-only).
+        # :ondeviceai:check + :coachapi:check cover their js(IR)/wasmJs/desktop/androidHost test
+        # variants — both modules declare js(IR) targets consumed by the React Native port, and without
+        # this their :jsNodeTest runs nowhere in CI (only :chess-core's does, via :chess-core:check).
         # :perft-mcp:test runs the MCP adapter's unit tests (parser, repo-root discovery, tool registration).
-        run: ./gradlew :chess-core:check :perft-mcp:test :androidApp:assembleDebug :app:assembleAndroidDeviceTest :app:check :app:desktopJar :app:packageDistributionForCurrentOS :app:wasmJsBrowserDistribution
+        run: ./gradlew :chess-core:check :ondeviceai:check :coachapi:check :perft-mcp:test :androidApp:assembleDebug :app:assembleAndroidDeviceTest :app:check :app:desktopJar :app:packageDistributionForCurrentOS :app:wasmJsBrowserDistribution
 
       - name: Report perft localizer status
         # Surface whether Oracle 2 (PerftVsStockfishTest) ran or skipped, so a missing stockfish is
@@ -216,11 +219,14 @@ jobs:
         #                             "move perft tests to chess-core" commit; without this target the
         #                             per-commit perft gate would be a silent no-op (a `--tests "*Perft*"`
         #                             filter on :app:desktopTest matches nothing post-move).
+        # :ondeviceai:iosSimulatorArm64Test + :coachapi:iosSimulatorArm64Test cover the two KMP modules
+        # whose iosSimulatorArm64 targets ran nowhere in CI before — both read -PiosSimulatorDeviceId
+        # (ondeviceai explicitly, coachapi via KGP default), so they pick up the same "iPhone 16" as :app.
         # NOTE: linkDebugFrameworkIosArm64 (the iOS *device* framework) was removed — CI tests on the
         # simulator, and the xcode job builds its own framework via embedAndSignAppleFrameworkForXcode,
         # so the device link was ~2.5min of dead weight. (configuration-cache is intentionally NOT
         # enabled — the build's reflection-based task config is incompatible with it; see build.gradle.kts.)
-        run: ./gradlew --parallel :app:iosSimulatorArm64Test :app:desktopTest :chess-core:desktopTest "-PiosSimulatorDeviceId=iPhone 16"
+        run: ./gradlew --parallel :app:iosSimulatorArm64Test :ondeviceai:iosSimulatorArm64Test :coachapi:iosSimulatorArm64Test :app:desktopTest :chess-core:desktopTest "-PiosSimulatorDeviceId=iPhone 16"
 
       - name: Report perft localizer status
         # Surface whether Oracle 2 (PerftVsStockfishTest) ran or skipped, so a missing stockfish is
