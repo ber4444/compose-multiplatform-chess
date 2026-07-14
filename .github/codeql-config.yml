@@ -1,0 +1,60 @@
+# CodeQL analysis configuration.
+#
+# Consumed by `github/codeql-action/init` via the `config-file` input in
+# .github/workflows/codeql.yml. Two layers of trimming:
+#
+#   paths-ignore   — extraction-level: matched files never enter the CodeQL
+#                    database, so they aren't indexed at all (fastest).
+#   query-filters  — result-level: any alert whose source still resolves under
+#                    the same trees is suppressed. Defense-in-depth for paths
+#                    that slip past extraction (e.g. transitively included).
+#
+# Everything excluded here is vendored, generated, or test-only — i.e. code we
+# don't own and whose findings we can't act on. First-party Kotlin/Swift/C++
+# (chess-core, :app, :onDeviceAi, :coachApi, the desktop Filament bridge in
+# app/src/desktopMain/native, and the Swift sources under iosApp/iosApp) stays
+# fully in scope.
+
+paths-ignore:
+  # --- Vendored native/JS payloads (fetched by tools/fetch_filament_*.sh) ---
+  - iosApp/iosApp/Filament/filament
+  - app/src/desktopMain/filament/filament
+  # --- Vendored Stockfish engine binaries + web worker ---
+  - app/src/androidMain/jniLibs
+  - app/src/wasmJsMain/resources/stockfish
+  # --- Build output (every Gradle module + Xcode) ---
+  - '**/build'
+  # --- Test sources: unit + UI, all modules (CodeQL indexes main only) ---
+  - '**/commonTest'
+  - '**/androidHostTest'
+  - '**/androidDeviceTest'
+  - '**/desktopTest'
+  - '**/wasmJsTest'
+  - '**/jsTest'
+  - '**/iosSimulatorArm64Test'
+  - '**/iosArm64Test'
+  - '**/androidTest'
+  - iosApp/iosAppTests
+  - iosApp/iosAppUITests
+
+query-filters:
+  # Suppress alerts originating in the same vendored/generated/test trees, as a
+  # backstop in case anything is pulled in transitively after extraction.
+  - exclude:
+      paths:
+        - iosApp/iosApp/Filament/filament
+        - app/src/desktopMain/filament/filament
+        - app/src/androidMain/jniLibs
+        - app/src/wasmJsMain/resources/stockfish
+        - '**/build'
+        - '**/commonTest'
+        - '**/androidHostTest'
+        - '**/androidDeviceTest'
+        - '**/desktopTest'
+        - '**/wasmJsTest'
+        - '**/jsTest'
+        - '**/iosSimulatorArm64Test'
+        - '**/iosArm64Test'
+        - '**/androidTest'
+        - iosApp/iosAppTests
+        - iosApp/iosAppUITests
