@@ -53,7 +53,13 @@ class MoveCoachManager(
     fun attachCoachOrchestrator(orchestrator: AiCoachOrchestrator?) {
         coachJob?.cancel()
         this.orchestrator = orchestrator
-        _coachUiState.value = if (orchestrator == null) MoveCoachUiState.Hidden else MoveCoachUiState.Hidden
+        if (orchestrator == null) {
+            _coachUiState.value = MoveCoachUiState.Hidden
+        }
+        // When attaching a non-null orchestrator, keep the current UI state (typically
+        // LoadingModel set by the entry point during warmup). The state will be updated
+        // by the first coached move via triggerCoach(). Previously both branches of a
+        // ternary returned Hidden here, which wiped the loading state immediately.
     }
 
     /**
