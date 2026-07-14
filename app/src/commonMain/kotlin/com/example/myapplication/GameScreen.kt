@@ -478,7 +478,12 @@ fun GameScreen(
             // min(width, 0.85 × height) keeps it fully visible on wide/landscape windows (web/desktop)
             // while still using the full width on portrait.
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                val boardMaxSize = minOf(maxWidth, maxHeight * 0.85f)
+                // Shrink the board cap when the coach panel is visible so it has guaranteed
+                // room above the fold (otherwise the panel — which can't use `weight` inside a
+                // scrollable Column — sits below the board + controls and needs scrolling).
+                val coachVisible = coachState !is MoveCoachUiState.Hidden
+                val boardHeightFraction = if (coachVisible) 0.65f else 0.85f
+                val boardMaxSize = minOf(maxWidth, maxHeight * boardHeightFraction)
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
@@ -507,11 +512,14 @@ fun GameScreen(
                         onResetGame = { viewModel.resetGame(show3D = board3DEnabled) }
                     )
 
-                    // Move Coach panel — fills remaining space below the buttons.
-                    if (coachState !is MoveCoachUiState.Hidden) {
+                    // Move Coach panel. Unlike the 3D branch (which overlays a non-scrollable
+                    // Column where `weight` works), this Column is verticalScroll, so `weight`
+                    // is a no-op here — the panel renders at wrap-content with padding, and the
+                    // reduced board cap above guarantees it's visible without scrolling.
+                    if (coachVisible) {
                         MoveCoachPanel(
                             state = coachState,
-                            modifier = Modifier.weight(1f, fill = false)
+                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                         )
                     }
                 }

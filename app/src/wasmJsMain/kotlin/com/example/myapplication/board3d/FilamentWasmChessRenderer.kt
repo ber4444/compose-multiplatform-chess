@@ -27,7 +27,7 @@ class FilamentWasmChessRenderer : Chess3DBoardRenderer {
         if (isFilamentJsLoaded()) return
 
         val script = document.createElement("script") as HTMLScriptElement
-        script.src = "https://unpkg.com/filament@1.72.0/filament.js"
+        script.src = "https://unpkg.com/filament@1.53.4/filament.js"
         document.head!!.appendChild(script)
 
         var attempts = 0
@@ -315,7 +315,7 @@ window.chess3dFilament = {
     // recreate: tear the Engine down here and let the next init() start from a clean slate (it
     // reassigns every field below). Destroying the Engine releases all the GPU resources it owns
     // (scene/view/camera/renderer/swapChain/IBL/skybox/asset/instances/material instances), so the
-    // single Engine-level teardown is the primary cleanup. Verified static API in filament@1.72.0:
+    // single Engine-level teardown is the primary cleanup. Verified static API in filament@1.53.4:
     // Filament.Engine.destroy(engine) (jsbindings.cpp: class_function("destroy", ...) -> Engine::destroy).
     // Wrapped in try/catch so a wrong call can't wedge re-init; state is always reset at the end.
     dispose() {
