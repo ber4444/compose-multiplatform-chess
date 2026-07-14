@@ -42,7 +42,7 @@ If red, do exactly this:
    - **Double-counting risk**: `getAllLegalMoves` appends castling/ep lists separately; a
      `(dest, pieceIndex)` collision would inflate counts.
 
-3. **Fix the implicated rule in `app/src/commonMain/kotlin/com/example/myapplication/Move.kt`**
+3. **Fix the implicated rule in `chess-core/src/commonMain/kotlin/com/example/myapplication/Move.kt`**
    (or `applyMove` / `applyWinConditions` in the same file). Do not edit anything else.
 
 4. **Re-run the success command.** Repeat until green.
@@ -58,11 +58,11 @@ If red, do exactly this:
 - **Never weaken an assertion to make it pass.** If `PerftCanonicalGateTest.start_depth_4` is red,
   the fix is in `Move.kt`, not the assertion.
 
-- **Never edit the platform glue.** The `DO NOT TOUCH` fence in `CLAUDE.md` applies: 3D renderers
-  (`Chess3DBoardRenderer` actuals), the Stockfish bridges (`BaseStockfishEngine` / `StockfishEngine`
-  / `DesktopStockfishEngine` / `WasmStockfishEngine` / Swift `StockfishChessEngine`), and the
-  `jvmCommonMain`/`wasmJsMain`/`iosMain` process boundaries. The perft gate exercises
-  `commonMain` only.
+- **Never edit the platform glue.** The `DO NOT TOUCH` fence in `AGENTS.md` (symlinked as `CLAUDE.md`)
+  applies: 3D renderers (`Chess3DBoardRenderer` actuals), the Stockfish bridges (`BaseStockfishEngine`
+  / `StockfishEngine` / `DesktopStockfishEngine` / `WasmStockfishEngine` / Swift `StockfishChessEngine`),
+  and the `jvmCommonMain`/`wasmJsMain`/`iosMain` process boundaries. The perft gate exercises
+  `chess-core` `commonMain` only.
 
 - **Never optimize the representation "just for perft."** The entire value of this rig is testing
   the *shipped* generator. Don't introduce a bitboard board behind a flag; bound depth instead.
@@ -88,7 +88,7 @@ If red, do exactly this:
 
 | Tier | Class | Depths | When it runs |
 |---|---|---|---|
-| Portable shallow | `PerftTest` (commonTest) | start d3, others d2/d3 | every PR, every target (`:app:check`) |
+| Portable shallow | `PerftTest` (commonTest) | start d3, others d2/d3 | every PR, every target (`:chess-core:check`) |
 | Canonical deep | `PerftCanonicalGateTest` (desktopTest) | start d4, Kiwipete d3, Pos3 d4, Pos4/5/6 d3 | every PR, desktop only |
 | Opt-in deeper | `PerftDeepTest` (desktopTest) | start d5, Kiwipete d4, Pos3 d5, Pos4/5/6 d4 | CI nightly (`perft-nightly` job) via `-Dperft.deep=true` |
 | Stockfish oracle | `PerftVsStockfishTest` (desktopTest) | d3 divide diff | every PR (stockfish installed via apt on Linux, brew on macOS); nightly on Linux |

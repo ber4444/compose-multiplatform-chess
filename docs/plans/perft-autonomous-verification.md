@@ -1,8 +1,8 @@
 # Plan: Perft-based autonomous verification for the chess engine
 
-**Status:** proposed
-**Scope:** `commonMain` game-rules kernel + `commonTest`/`desktopTest` harnesses + an autonomous loop
-**Verified against:** branch `3d`, the move-generation code in `app/src/commonMain/kotlin/com/example/myapplication/`. Line numbers are anchors, not exact offsets.
+**Status:** shipped (PR [#49](https://github.com/ber4444/compose-multiplatform-chess/pull/49), merged to main). This plan is the design record; for the current state, see [`docs/perft.md`](../perft.md).
+**Scope:** `chess-core` `commonMain` game-rules kernel + `commonTest`/`desktopTest` harnesses + an autonomous loop
+**Verified against:** `chess-core/src/commonMain/kotlin/com/example/myapplication/`. Line numbers below are anchors from the original draft, not exact offsets.
 
 ---
 
@@ -58,7 +58,7 @@ So **Step 1 of this plan is an enabling refactor**: extract a pure top-level `ap
 
 **CRITICAL WARNING:** The extracted `applyMove` function must ONLY return the raw board state (pieces, castling rights, en passant target, halfmove clock). All side effects (autosave, SAN generation, draw history) MUST be left behind in `deriveNewGameState`. If an agent attempts to run a perft loop through the full `deriveNewGameState` instead of a pure `applyMove`, it will trigger millions of autosave disk I/O calls and immediately crash or hang.
 
-This is plain game-rules code, **not** platform glue — the `DO NOT TOUCH` fence in `CLAUDE.md` is about the 3D `actual` renderers and the Stockfish bridges, not this. Extracting it improves testability and leaves all UI/animation behavior identical.
+This is plain game-rules code, **not** platform glue — the `DO NOT TOUCH` fence in `AGENTS.md` (symlinked as `CLAUDE.md`) is about the 3D `actual` renderers and the Stockfish bridges, not this. Extracting it improves testability and leaves all UI/animation behavior identical.
 
 Before extracting, **enumerate every `_gameState.value.X` read inside `deriveNewGameState`** (`castlingRights`, `enPassantTarget`, `halfmoveClock`, `turn`, `fullmoveNumber`) and map each to a `state.` field. A single missed read won't fail the existing UI suite — those tests drive one move at a time off the live flow — but it will silently corrupt deep perft counts, the hardest class of bug to localize. Also note the signatures differ: `deriveNewGameState` takes the ally/enemy split as eight explicit parameters, while `applyMove(state, …)` must derive that split from `state.turn`. Pick one home for the split-derivation (either the delegating `deriveNewGameState` computes it and forwards, or `applyMove` does) and keep it the only place that decision lives.
 
@@ -82,7 +82,8 @@ Before extracting, **enumerate every `_gameState.value.X` read inside `deriveNew
 
 ### 4.1 The perft kernel — `commonTest`
 
-New file `app/src/commonTest/kotlin/com/example/myapplication/perft/Perft.kt`.
+New file `chess-core/src/commonTest/kotlin/com/example/myapplication/perft/Perft.kt`
+(originally under `app/src/`; moved to `:chess-core` post-merge — see [`perft-ci-completion.md`](perft-ci-completion.md)).
 
 ```
 fun legalMovesFor(state): List<(pieceIndex, to, promotion?)>
@@ -96,7 +97,7 @@ fun perftDivide(state, depth): Map<String /*uci*/, Long>   // root move -> subtr
 
 ### 4.2 Oracle 1 — canonical static counts (the always-on gate), `commonTest`
 
-New file `app/src/commonTest/.../perft/PerftPositions.kt`: a table of `(name, fen, listOf(expectedDepth1, expectedDepth2, ...))` for the six standard positions in §6.
+New file `chess-core/src/commonTest/.../perft/PerftPositions.kt`: a table of `(name, fen, listOf(expectedDepth1, expectedDepth2, ...))` for the six standard positions in §6.
 
 > **This file is ground truth. The autonomous loop must never edit it.** Put a banner comment at the top: `// CANONICAL PERFT REFERENCE VALUES — DO NOT EDIT. These are arithmetic facts, not test fixtures. If a test fails, the generator is wrong, not these numbers.` (See §7, the integrity guard — the loop's biggest failure mode is "fixing" the test by rewriting the oracle.)
 
@@ -114,7 +115,7 @@ Do **not** build a faster bitboard board "just for perft" — the entire value i
 
 ### 4.3 Oracle 2 — Stockfish `go perft` divide differ (the localizer), `desktopTest`
 
-New files under `app/src/desktopTest/.../perft/`:
+New files under `chess-core/src/desktopTest/.../perft/`:
 
 - `StockfishPerft.kt` — a tiny desktop helper that starts `stockfish`, sends `position fen <fen>` + `go perft <n>`, and parses the `move: count` lines into `Map<String, Long>`. Because `sendCommand` is `protected`, either add a minimal `desktopMain` subclass that exposes a `perft(fen, depth)` method, or spawn the process directly with `ProcessBuilder` in the test helper (test-only, so the latter is fine and avoids touching production engine classes). When parsing, skip the leading blank line and the trailing `Nodes searched: <total>` summary — only `<move>: <count>` lines go into the map. Keep the `<total>`, though: it's a free independent cross-check against your own `perft(state, n)` sum.
 - `PerftVsStockfishTest.kt` — Oracle 2. For a set of positions (the six canonical + random-walked ones), compute `perftDivide(state, n)` and Stockfish's `go perft n`, then **diff the two maps**. On mismatch, emit a localized report: which root move's subtree count differs, by how much, and recurse one ply into *that* move to find the next diverging move. Write the trail to `build/perft-divergence.txt`.
@@ -143,9 +144,9 @@ The loop's job: **drive `getAllLegalMoves` + `applyMove` to perft-correctness, e
 
 **Success criterion (machine-checkable, no LLM judge):**
 ```
-./gradlew :app:desktopTest --tests "*Perft*"
+./gradlew :chess-core:desktopTest --tests "*Perft*"
 ```
-green ⇒ done. (commonTest perft runs under the desktop target too.)
+green ⇒ done. (commonTest perft runs under the desktop target too. Target is `:chess-core:desktopTest` — the perft tests moved to `:chess-core`; a `--tests "*Perft*"` filter on `:app:desktopTest` matches zero tests post-move.)
 
 **Per-iteration localizer:** before each fix attempt the agent runs the canonical gate; on failure it runs the Stockfish divide differ (§4.3) which writes `build/perft-divergence.txt` — a concrete `fen` + diverging move + "app says X, Stockfish says Y". The agent reads that file, forms a hypothesis about the move-generation rule it implicates, fixes `Move.kt` (or the extracted `applyMove`), and re-runs.
 
@@ -153,8 +154,8 @@ green ⇒ done. (commonTest perft runs under the desktop target too.)
 1. **feature-dev / ralph-loop agent** pointed at a one-paragraph brief (below) with the success command and the divergence report as its feedback signal. Best fit: it self-corrects against arithmetic, exactly the pattern the Outcomes evaluator rewards.
 2. **`/loop` self-paced** running the gate + differ each iteration until green, for a lighter-weight, user-visible cadence.
 
-**The loop brief** (save as `docs/plans/perft-loop-brief.md`, fed verbatim to the agent each iteration):
-> Run `./gradlew :app:desktopTest --tests "*Perft*"`. If green, stop — you are done. If red, read `build/perft-divergence.txt` for the exact position (FEN) and move where the app's move generator diverges from Stockfish. Fix the move-generation rule in `app/src/commonMain/.../Move.kt` (or the extracted `applyMove`) that causes it. **Never edit `PerftPositions.kt` or any expected count — those are arithmetic ground truth; a failing test means the generator is wrong, not the number.** Re-run and repeat.
+**The loop brief** (saved as `docs/plans/perft-loop-brief.md`, fed verbatim to the agent each iteration):
+> Run `./gradlew :chess-core:desktopTest --tests "*Perft*"`. If green, stop — you are done. If red, read `build/perft-divergence.txt` for the exact position (FEN) and move where the app's move generator diverges from Stockfish. Fix the move-generation rule in `chess-core/src/commonMain/.../Move.kt` (or the extracted `applyMove`) that causes it. **Never edit `PerftPositions.kt` or any expected count — those are arithmetic ground truth; a failing test means the generator is wrong, not the number.** Re-run and repeat.
 
 ---
 
@@ -189,22 +190,29 @@ Pos6     r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 1
 
 ## 8. Milestones
 
+> All milestones shipped in PR [#49](https://github.com/ber4444/compose-multiplatform-chess/pull/49). The perft tests later moved from `:app` to `:chess-core` (see [`perft-ci-completion.md`](perft-ci-completion.md)); the success command and all paths below reflect that.
+
 - **M0 — Enable.** Extract pure `applyMove` from `deriveNewGameState` (§2); delegate; existing suite green.
 - **M1 — Kernel + canonical gate.** `Perft.kt` (with promotion fan-out) + `PerftPositions.kt` + `PerftTest.kt`. Run it; record the first divergence (there will likely be one — that's the point).
 - **M2 — Stockfish localizer.** `StockfishPerft.kt` + `PerftVsStockfishTest.kt` + random-walk + `build/perft-divergence.txt`.
 - **M3 — Wire the loop.** `perft-loop-brief.md`; point feature-dev / ralph-loop / `/loop` at the success command; let it close divergences to green.
-- **M4 — Broaden.** Add more positions, enable depth-5/6 nightly in CI (`.github/workflows/android-tests.yml`), keep the gate in `./gradlew test`.
+- **M4 — Broaden.** Add more positions, enable depth-5/6 nightly in CI (`.github/workflows/android-tests.yml`), keep the gate in `:chess-core:check`.
 
 ---
 
 ## 9. File manifest
 
+> All paths are under `chess-core/src/` (the perft tests moved out of `:app` post-merge). See [`docs/perft.md`](../perft.md) for the current file map including the `:perft-mcp` module.
+
 | File | Source set | Purpose |
 |------|-----------|---------|
-| `Move.kt` (edit) | commonMain | Extract pure `applyMove`; `deriveNewGameState` delegates |
-| `perft/Perft.kt` | commonTest | Kernel: `legalMovesFor` (promotion fan-out), `perft`, `perftDivide` |
-| `perft/PerftPositions.kt` | commonTest | Canonical FEN + expected counts — **ground truth, do not edit** |
-| `perft/PerftTest.kt` | commonTest | Oracle 1 gate (runs on all targets) |
-| `perft/StockfishPerft.kt` | desktopTest | UCI `go perft` helper |
-| `perft/PerftVsStockfishTest.kt` | desktopTest | Oracle 2: divide diff + random-walk + divergence report |
+| `chess-core/.../Move.kt` (edit) | commonMain | Extract pure `applyMove`; `deriveNewGameState` delegates |
+| `chess-core/.../perft/Perft.kt` | commonTest | Kernel: `legalMovesFor` (promotion fan-out), `perft`, `perftDivide` |
+| `chess-core/.../perft/PerftPositions.kt` | commonTest | Canonical FEN + expected counts — **ground truth, do not edit** |
+| `chess-core/.../perft/PerftTest.kt` | commonTest | Oracle 1 gate (runs on all targets) |
+| `chess-core/.../perft/PerftCanonicalGateTest.kt` | desktopTest | Oracle 1 deeper (desktop only) |
+| `chess-core/.../perft/PerftDeepTest.kt` | desktopTest | Opt-in depth-5/6 (nightly, `-Dperft.deep=true`) |
+| `chess-core/.../perft/StockfishPerft.kt` | desktopTest | UCI `go perft` helper |
+| `chess-core/.../perft/PerftVsStockfishTest.kt` | desktopTest | Oracle 2: divide diff + random-walk + divergence report |
+| `perft-mcp/` | main + test | MCP server adapter (3 tools) — added after the original plan |
 | `docs/plans/perft-loop-brief.md` | — | Verbatim brief for the autonomous loop |
