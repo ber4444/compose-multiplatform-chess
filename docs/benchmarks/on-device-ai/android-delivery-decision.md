@@ -29,7 +29,7 @@ from 651 MB with the bundled LiteRT-LM model).
 | Firebase ML / remote model delivery | low base APK | remote model updates | yes after download | Not pursued — Cactus's HF download already keeps the base APK small. |
 | Hugging Face optimized artifact | varies | model-source dependent | yes after packaging/download | This is what Cactus consumes (GGUF). |
 | PyTorch export pipeline | varies | app-owned conversion | yes after packaging/download | Not pursued — ExecuTorch/ONNX conversion cost was the blocker, not the model source. |
-| no local model | none | none | fallback only | always-supported baseline; **desktop/wasm ship this path.** |
+| no local model | none | none | fallback only | always-supported baseline. **No platform ships this as its default anymore** — desktop + wasm now use LiteRT-LM (see `desktop-wasm-litert-lm.md`); only the JS target stays on it. |
 
 ## Spike output
 

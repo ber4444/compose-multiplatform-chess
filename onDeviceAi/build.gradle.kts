@@ -130,13 +130,27 @@ kotlin {
 
         androidMain.dependencies {
             // Cactus (llama.cpp KMP wrapper) for on-device LLM inference.
-            // Replaces LiteRT-LM (too slow: 557 MB model, 7-9s cold start,
-            // GPU compilation, streaming SIGSEGV at 0.13.1).
-            // Cactus uses llama.cpp CPU kernels (fast for mobile LLM), offers
-            // small pre-packaged models (gemma3-270m ~200 MB, qwen3-0.6 ~400 MB)
-            // with built-in HF download, and handles tokenization + KV cache +
-            // generation internally.
+            // Replaces the earlier bundled LiteRT-LM path (too slow on Android:
+            // 557 MB model, 7-9s cold start, GPU compilation, streaming SIGSEGV
+            // at 0.13.1). Cactus uses llama.cpp CPU kernels (fast for mobile LLM),
+            // offers small pre-packaged models (gemma3-270m ~200 MB, qwen3-0.6
+            // ~400 MB) with built-in HF download, and handles tokenization +
+            // KV cache + generation internally.
             implementation("com.cactuscompute:cactus:1.4.1-beta")
+        }
+
+        val desktopMain by getting {
+            dependencies {
+                // LiteRT-LM Kotlin API (Google AI Edge) for desktop on-device LLM
+                // inference. Native libs are bundled in-jar for linux-x86_64,
+                // linux-aarch64, darwin-aarch64, win-x86_64 (no Intel Mac — those
+                // hosts fall back to UnsupportedTextGenerator). The model
+                // (gemma3-270m .litertlm, ~290 MB) is downloaded from HuggingFace
+                // on first launch by LitertLmModelStore. Gated behind
+                // CHESS_ENABLE_COACH=1 at the desktop entry point. Mirrors how
+                // androidMain depends on Cactus — same OnDeviceTextGenerator seam.
+                implementation("com.google.ai.edge.litertlm:litertlm-jvm:0.14.0")
+            }
         }
 
         val androidDeviceTest by getting {

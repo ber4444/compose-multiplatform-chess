@@ -13,6 +13,14 @@ import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.persistence.asSnapshotSink
 import com.example.myapplication.persistence.createSettings
 import com.example.myapplication.share.wasmPgnSharer
+import com.example.myapplication.movecoach.GameSummaryManager
+import com.example.myapplication.movecoach.MoveCoachManager
+import com.example.myapplication.movecoach.MoveCoachUiState
+import com.example.ondeviceai.AiContextSnapshot
+import com.example.ondeviceai.AiUserSetting
+import com.example.ondeviceai.DefaultAiCoachOrchestrator
+import com.example.ondeviceai.DefaultGameSummaryOrchestrator
+import com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory
 import co.touchlab.kermit.Logger
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -47,8 +55,26 @@ fun main() {
                 engine.close()
             }
         }
+
+        // On-device Move Coach (LiteRT-LM for Web). Gated behind ?coach=1 on the URL
+        // so the default page load isn't forced into a ~347 MB model download — mirrors
+        // Android's FLAG_DEBUGGABLE gate and desktop's CHESS_ENABLE_COACH env var.
+        // Requires WebGPU (Chrome/Edge); on Firefox/Safari the generator's status()
+        // returns Unavailable and the orchestrator falls back to MoveCoachFallback.
+        val moveCoachManager = remember {
+            MoveCoachManager(viewModel, appSettings.engineDifficulty.value.name)
+        }
+        val gameSummaryManager = remember { GameSummaryManager() }
+        LaunchedEffect(Unit) {
+            if (!isCoachEnabled()) return@LaunchedEffect
+            attachMoveCoach(moveCoachManager, gameSummaryManager)
+        }
         DisposableEffect(Unit) {
-            onDispose { viewModel.close() }
+            onDispose {
+                moveCoachManager.close()
+                gameSummaryManager.close()
+                viewModel.close()
+            }
         }
 
         AppRoot(
@@ -57,6 +83,63 @@ fun main() {
             board3D = com.example.myapplication.board3d.wasmBoard3DSupport(viewModel),
             gameHistory = gameHistory,
             pgnSharer = pgnSharer,
+            moveCoachManager = moveCoachManager,
+            gameSummaryManager = gameSummaryManager,
         )
     }
+}
+
+/** `?coach=1` on the page URL opts in to the on-device coach. */
+private fun isCoachEnabled(): Boolean =
+    js("(new URLSearchParams(self.location.search)).get('coach') === '1'")
+
+/**
+ * Attach the on-device Move Coach + Game Summary orchestrators backed by LiteRT-LM
+ * for Web. Mirrors `MainActivity.attachMoveCoach` (Android) and the desktop
+ * `attachMoveCoach`: builds the default factory, warms it up (which probes WebGPU
+ * and, if available, lazily loads the model + CDN module inside the worker), then
+ * attaches the orchestrators over the shared factory.
+ *
+ * On browsers without WebGPU the warmup surfaces an `AiAvailability.Unavailable`
+ * status and the orchestrators route every request to the deterministic
+ * `MoveCoachFallback` — the panel still renders, just with the rule-based text.
+ */
+private suspend fun attachMoveCoach(
+    moveCoachManager: MoveCoachManager,
+    gameSummaryManager: GameSummaryManager,
+) {
+    moveCoachManager.setCoachModelState(
+        MoveCoachUiState.LoadingModel(
+            message = "Loading LiteRT-LM (WebGPU required, model ~2 GB)…"
+        )
+    )
+
+    val factory = defaultOnDeviceTextGeneratorFactory()
+    val generator = factory.create()
+    runCatching { generator?.warmup() }
+        .onFailure { Logger.w("Main") { "LiteRT-LM warmup failed: ${it.message}" } }
+
+    moveCoachManager.setCoachModelState(
+        MoveCoachUiState.LoadingModel(message = "Starting LiteRT-LM engine…")
+    )
+
+    val contextProvider: suspend () -> AiContextSnapshot = {
+        AiContextSnapshot(
+            isDeviceModelAvailable = true,
+            userSetting = AiUserSetting.OFFLINE_ONLY,
+        )
+    }
+
+    moveCoachManager.attachCoachOrchestrator(
+        DefaultAiCoachOrchestrator(
+            factory = factory,
+            contextProvider = contextProvider,
+        )
+    )
+    gameSummaryManager.attachOrchestrator(
+        DefaultGameSummaryOrchestrator(
+            factory = factory,
+            contextProvider = contextProvider,
+        )
+    )
 }
