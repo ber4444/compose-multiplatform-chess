@@ -321,6 +321,16 @@ jobs:
         # xcodebuild's own Run-Script build phase calls `./gradlew :app:embedAndSignAppleFrameworkForXcode`,
         # so the Kotlin ChessApp framework is built as part of this step — no separate Gradle link needed.
         # -derivedDataPath pins the build output so the cache above can reuse it across runs.
+        #
+        # -skip-testing:iosAppUITests: the iosAppUITests bundle still COMPILES here (it's in the
+        # scheme's build targets, so Swift compile errors are still caught), but its single test —
+        # OnDeviceBenchUITests.testColdInitBenchmark, which relaunches the app 20× via XCUIApplication
+        # to collect on-device AI cold-init samples — is not EXECUTED in CI. Per docs/benchmark-harness.md
+        # it's a manual, physical-device-only benchmark ("You must run benchmarks on physical devices,
+        # not emulators/simulators"). On the CI simulator its 20× launch loop intermittently hits
+        # "Failed to get background assertion for target app", flaking ~1-in-N PRs that are otherwise
+        # unrelated to iOS (e.g. server-only dep bumps). Run it locally against a real device instead.
+        # The real Swift unit tests (iosAppTests → StockfishChessEngineTests) still run below.
         run: |
           set -o pipefail
           xcodebuild \
@@ -330,6 +340,7 @@ jobs:
             -destination "platform=iOS Simulator,name=iPhone 16,OS=latest,arch=arm64" \
             -derivedDataPath iosApp/build/DerivedData \
             -parallel-testing-enabled NO \
+            -skip-testing:iosAppUITests \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             test
 

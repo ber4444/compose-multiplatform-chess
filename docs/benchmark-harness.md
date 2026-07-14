@@ -41,6 +41,8 @@ The script will pull the results to `bench/results/android_results.jsonl`.
 
 The XCUITest runner will repeatedly launch the app with the `BENCHMARK_MODE` environment variable, triggering the internal `IosBenchRunner`. Detailed memory and clock metrics can also be observed through Xcode Instruments if configured in the test scheme. The JSONL results will be written to the app's document directory.
 
+> **Not in CI.** The `iosAppUITests` target is compiled in CI (so Swift errors are still caught) but its `testColdInitBenchmark` is skipped via `-skip-testing:iosAppUITests` in `.github/workflows/android-tests.yml`. The 20× `XCUIApplication` launch loop needs a physical device; on the CI simulator it intermittently fails with `Failed to get background assertion for target app`, flaking otherwise-unrelated PRs. Run it by hand against a real device as described above.
+
 ## Generating the Report
 
 A Python script is provided to aggregate the JSONL output into a Markdown table showing p50, p90, and p99 metrics.
