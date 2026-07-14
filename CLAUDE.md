@@ -55,9 +55,9 @@ coachApi commonMain              (serialization-only wire models; published as i
 
 onDeviceAi commonMain            (on-device AI orchestration; published as io.github.ber4444:onDeviceAi)
  ├── androidMain                 (Cactus / llama.cpp)
- ├── desktopMain                 (deterministic fallback)
+ ├── desktopMain                 (LiteRT-LM `litertlm-jvm`; gated by `CHESS_ENABLE_COACH=1`)
  ├── iosMain                     (Foundation Models)
- ├── wasmJsMain                  (deterministic fallback)
+ ├── wasmJsMain                  (LiteRT-LM for Web `@litert-lm/core` via module worker; gated by `?coach=1`; WebGPU-only)
  └── jsMain                      (deterministic fallback — the target the RN port consumes)
 
 :app commonMain
@@ -153,7 +153,9 @@ The app persists three things via `multiplatform-settings` (russhwolf) + `kotlin
 - **On-device AI Move Coach:** A debug-gated (`ApplicationInfo.FLAG_DEBUGGABLE`) Compose panel (`MoveCoachPanel`) that surfaces a natural-language explanation of Black's move after it animates. Wired by `GameViewModel.triggerCoach(...)` — cancellable, never blocks the move, skipped if the move ends the game. Backed by a shared KMP module `:onDeviceAi` holding the routing policy (`AiRoutePolicies.moveCoachOffline`), prompt builder, and deterministic fallback in `commonMain`; platform runtimes are injected at the entry points.
   - **Android backend:** **Cactus (`com.cactuscompute:cactus:1.4.1-beta`)** — llama.cpp CPU runtime. The `gemma3-270m` model (~200 MB GGUF) is downloaded from Hugging Face by Cactus on first launch into `filesDir` (debug APK ~258 MB; no model bundled in the APK). `AndroidManifest.xml` declares `INTERNET` so Cactus can fetch the model. Cold start ~1–2 s. Replaced the earlier LiteRT-LM path (7–9 s cold init, streaming crash, no resolvable Maven coordinate) and the ML Kit Prompt API path (narrow AICore device support); `MoveCoachModelAsset.kt` and `AndroidCoachWiring` were removed in the migration. See `docs/benchmarks/on-device-ai/android-delivery-decision.md`.
   - **iOS backend:** **Foundation Models** (Apple Intelligence) via `FoundationMoveCoachBridge` registered into `FoundationModelsBridgeRegistry` from `iOSApp.swift`. Falls back to rule-based text when Apple Intelligence is unavailable. iOS has **not** been migrated to Cactus yet — it stays on Foundation Models, though the `:onDeviceAi` KMP module makes that swap feasible later.
-  - **Desktop / Wasm:** No local model — deterministic fallback only.
+  - **Desktop backend:** **LiteRT-LM** (`com.google.ai.edge.litertlm:litertlm-jvm`, Google AI Edge) — the Kotlin/JVM API over LiteRT-LM, with native libs bundled inside the jar (linux-x86_64 / linux-aarch64 / darwin-aarch64 / win-x86_64; **no Intel Mac** — those hosts fall back). The Qwen3-0.6B-int4 model (~347 MB `.litertlm`) is downloaded from Hugging Face on first launch by `LitertLmModelStore` and cached under `~/.chess-coach-models/`. Gated behind `CHESS_ENABLE_COACH=1` (env var) in `Main.kt`, mirroring Android's `FLAG_DEBUGGABLE` gate — without it the coach panel stays `Hidden` (the previous default). Implemented by `LitertLmTextGenerator` in `:onDeviceAi` desktopMain, wired via the same `OnDeviceTextGenerator` seam as Cactus/Foundation Models; the entire `DefaultAiCoachOrchestrator` → `MoveCoachManager` pipeline is reused unchanged. (The literal "LiteRT.js"/prebuilt LiteRT C++ SDK are not LLM runtimes — see `docs/benchmarks/on-device-ai/desktop-wasm-litert-lm.md` for why LiteRT-LM was chosen.)
+  - **Wasm backend:** **LiteRT-LM for Web** (`@litert-lm/core`, loaded from the jsdelivr CDN at runtime) running in a **module Web Worker** so inference is off the main thread. The worker script is embedded as a Kotlin string and spawned from a Blob URL (`LitertLmWasmInterop.kt`) — no webpack/resource-packaging changes, mirroring how `FilamentWasmChessRenderer` injects its CDN `<script>`. Uses `gemma-4-E2B-it-web.litertlm` (~2 GB, the only model `@litert-lm/core` officially documents for web), streamed from HF by the LiteRT-LM `Engine.create()` call. Requires **WebGPU** (`navigator.gpu`); on Firefox/Safari `status()` returns `Unavailable` without any network fetch and the orchestrator falls back to `MoveCoachFallback`. Gated behind `?coach=1` on the page URL. Implemented by `LitertLmWasmTextGenerator` in `:onDeviceAi` wasmJsMain.
+  - **JS target** (`js(IR){nodejs()}`): still `UnsupportedTextGenerator` — the React Native port has no WebGPU/workers.
 
 ## Build quirks (don't "clean up")
 
