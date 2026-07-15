@@ -1,13 +1,19 @@
 package com.example.evals
 
+import com.example.coachapi.ChatStreamEvent
 import com.example.coachapi.OpeningExplainRequest
 import com.example.coachapi.OpeningExplainResponse
 import com.example.coachapi.Passage
+import com.example.coachapi.PositionChatRequest
+import com.example.coachserver.ChatServerDependencies
 import com.example.coachserver.Embedder
 import com.example.coachserver.OpeningQueryBuilder
 import com.example.coachserver.PassageRepository
+import com.example.coachserver.PositionChatQueryBuilder
+import com.example.coachserver.PositionChatService
 import com.example.coachserver.RequestRateLimiter
 import com.example.coachserver.ServerDependencies
+import com.example.coachserver.TemplateChatComposer
 import com.example.coachserver.TemplateComposer
 import com.example.coachserver.openingCoachModule
 import com.example.ondeviceai.AiTokenOrFinal
@@ -21,11 +27,14 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.post
+import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.testing.testApplication
+import io.ktor.utils.io.readLine
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
@@ -37,7 +46,14 @@ fun main() = testApplication {
     val cases = GoldenCaseLoader.load(Path.of("golden/candidates.json"))
     val openingCases = cases.filter { it.eco != null }
     val dependencies = caseSpecificOpeningDependencies(openingCases)
-    application { openingCoachModule(dependencies, rateLimiter = RequestRateLimiter { true }) }
+    val chatDependencies = caseSpecificChatDependencies(openingCases)
+    application {
+        openingCoachModule(
+            dependencies = dependencies,
+            chatService = PositionChatService(chatDependencies),
+            rateLimiter = RequestRateLimiter { true },
+        )
+    }
     val localClient = createClient { install(ContentNegotiation) { json() } }
 
     val stats = mutableListOf<RouteStats>()
@@ -49,6 +65,7 @@ fun main() = testApplication {
             setBody(request)
         }.body()
     }
+    stats += evaluateChatRoute("local-template-chat", openingCases.toChatTranscripts(), localClient)
     stats += evaluateDeployed(openingCases)
 
     val scorecard = ScorecardWriter.render(cases.size, openingCases.size, stats)
@@ -93,6 +110,49 @@ internal fun caseSpecificOpeningDependencies(cases: List<GoldenCase>): ServerDep
             override fun upsert(passage: Passage, embedding: FloatArray) = Unit
         },
         composer = TemplateComposer(),
+    )
+}
+
+/**
+ * Deterministic chat-route dependencies. Same per-case retrieval isolation as the opening fake, but
+ * keyed by the chat query builder (position + question) and feeding the deterministic
+ * [TemplateChatComposer] — so the chat route is scored offline without any provider.
+ */
+internal fun caseSpecificChatDependencies(cases: List<GoldenCase>): ChatServerDependencies {
+    val transcripts = cases.toChatTranscripts()
+    // Index every (transcript, turn) request by the chat query the server will build for it, so each
+    // turn of each case retrieves only its own passage — a retrieval regression surfaces as a
+    // grounding failure rather than being masked by a catch-all passage.
+    val indexByQuery = mutableMapOf<String, Int>()
+    val passages = mutableListOf<Passage>()
+    transcripts.forEach { transcript ->
+        transcript.turns.forEachIndexed { turnIndex, turn ->
+            val request = transcript.toRequest(turnIndex)
+            indexByQuery[PositionChatQueryBuilder.build(request)] = passages.size
+            passages.add(
+                Passage(
+                    sourceId = "eval-${transcript.case.id}",
+                    title = "${transcript.case.eco ?: "opening"} concepts",
+                    text = turn.expectedConcepts.joinToString(", ").ifBlank { "development and center control" } + ".",
+                ),
+            )
+        }
+    }
+    return ChatServerDependencies(
+        embedder = Embedder { query ->
+            FloatArray(384).also { embedding ->
+                embedding[0] = (indexByQuery[query]?.plus(1) ?: 0).toFloat()
+            }
+        },
+        passageRepository = object : PassageRepository {
+            override fun retrieve(embedding: FloatArray, limit: Int): List<Passage> {
+                val index = embedding[0].toInt() - 1
+                return passages.getOrNull(index)?.let(::listOf).orEmpty().take(limit)
+            }
+
+            override fun upsert(passage: Passage, embedding: FloatArray) = Unit
+        },
+        streamingChatComposer = TemplateChatComposer(),
     )
 }
 
@@ -147,6 +207,60 @@ private suspend fun evaluateOpeningRoute(
         )
     }
     return stats
+}
+
+/**
+ * Scores the multi-turn chat route. Each scripted transcript is streamed turn-by-turn against the
+ * in-process server; per-turn output is accumulated and scored for grounding (expected concepts
+ * present — the "no drift across turns" check) and length. Falls back / retries are tracked but the
+ * deterministic template composer neither retries nor falls back, so a violation here is a real
+ * regression in the chat grounding path.
+ */
+private suspend fun evaluateChatRoute(
+    name: String,
+    transcripts: List<ChatTranscript>,
+    client: HttpClient,
+): RouteStats {
+    val stats = RouteStats(route = name, collection = CollectionMode.AUTOMATED)
+    transcripts.forEach { transcript ->
+        transcript.turns.forEachIndexed { turnIndex, turn ->
+            val events = streamChat(client, transcript.toRequest(turnIndex))
+            val text = events.accumulateTurnText()
+            stats.record(
+                EvalScorer.scoreChat(turn, text),
+                retried = false,
+                fellBack = events.fellBack(),
+            )
+        }
+    }
+    return stats
+}
+
+/** Streams one chat turn over the in-process server, collecting the SSE [ChatStreamEvent]s. */
+private suspend fun streamChat(client: HttpClient, request: PositionChatRequest): List<ChatStreamEvent> {
+    val events = mutableListOf<ChatStreamEvent>()
+    val json = Json { ignoreUnknownKeys = true }
+    client.preparePost("/v1/positions/chat/stream") {
+        contentType(ContentType.Application.Json)
+        setBody(request)
+    }.execute { response ->
+        if (response.status.value !in 200..299) return@execute
+        val channel = response.bodyAsChannel()
+        while (!channel.isClosedForRead) {
+            val line = channel.readLine() ?: break
+            if (!line.startsWith("data:")) continue
+            val payload = line.removePrefix("data:").trim()
+            if (payload.isEmpty()) continue
+            val event = runCatching { json.decodeFromString(ChatStreamEvent.serializer(), payload) }.getOrNull()
+                ?: continue
+            events.add(event)
+            if (event.type == ChatStreamEvent.TYPE_DONE ||
+                event.type == ChatStreamEvent.TYPE_FALLBACK ||
+                event.type == ChatStreamEvent.TYPE_ERROR
+            ) break
+        }
+    }
+    return events
 }
 
 private suspend fun evaluateDeployed(cases: List<GoldenCase>): RouteStats {
@@ -246,7 +360,7 @@ object ScorecardWriter {
         appendLine("| cactus-android | — | — | — | — | — | manual (hardware numbers not collected) |")
         appendLine("| foundation-models-ios | — | — | — | — | — | manual (hardware numbers not collected) |")
         appendLine()
-        appendLine("The scorer is rule-based: move cases use `MoveCoachResponseValidator`; opening cases require all `expectedConcepts`. No judge model is used.")
+        appendLine("The scorer is rule-based: move cases use `MoveCoachResponseValidator`; opening cases require all `expectedConcepts`; multi-turn chat cases require at least one expected concept per turn (the no-drift check). No judge model is used.")
     }
 
     private fun percent(value: Int, total: Int): String =

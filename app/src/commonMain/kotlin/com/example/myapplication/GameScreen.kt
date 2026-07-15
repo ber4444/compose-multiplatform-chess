@@ -148,6 +148,7 @@ fun GameScreen(
     onOpenHistory: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenRules: () -> Unit = {},
+    onOpenChat: () -> Unit = {},
 ) {
     val gameState by viewModel.gameState.collectAsState()
     val animState by viewModel.animState.collectAsState()
@@ -535,6 +536,17 @@ fun GameScreen(
                 .offset(y = switchTopPadding)
                 .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
         ) {
+            TextButton(
+                onClick = onOpenChat,
+                modifier = Modifier.testTag("open_chat_button")
+            ) {
+                Text(
+                    text = "Chat",
+                    color = THREE_D_CONTROL_ACCENT_COLOR,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
             TextButton(
                 onClick = onOpenRules,
                 modifier = Modifier.testTag("open_rules_button")
