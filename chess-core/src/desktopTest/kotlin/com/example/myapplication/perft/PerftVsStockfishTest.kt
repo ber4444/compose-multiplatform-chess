@@ -6,11 +6,10 @@ import com.example.myapplication.PromotionType
 import com.example.myapplication.Set
 import com.example.myapplication.UciMoveConverter
 import com.example.myapplication.applyMove
-import java.io.File
 import kotlin.random.Random
 import kotlin.test.Test
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.fail
 import org.junit.Assume
 
 /**
@@ -34,10 +33,11 @@ class PerftVsStockfishTest {
                 val state = FenConverter.fenToGameState(position.fen)
                 val depth = canonicalDivideDepth(position)
                 val report = localizeDivergence(state, depth, sf)
-                assertNull(
-                    report,
-                    "Position ${position.name} diverged at depth $depth.\n${report?.render(state, depth)}",
-                )
+                if (report != null) {
+                    val rendered = report.render(state, depth)
+                    report.persist(rendered)
+                    fail("Position ${position.name} diverged at depth $depth.\n$rendered")
+                }
             }
         }
     }
@@ -85,11 +85,11 @@ class PerftVsStockfishTest {
                 // Diff every K accepted steps at a shallow depth that keeps Stockfish fast.
                 if (accepted % DIFF_EVERY_N_ACCEPTED == 0) {
                     val report = localizeDivergence(state, DIFF_DEPTH, sf)
-                    assertNull(
-                        report,
-                        "Walk diverged at step=$step (accepted=$accepted, seed=$seed) at depth $DIFF_DEPTH.\n" +
-                            report?.render(state, DIFF_DEPTH),
-                    )
+                    if (report != null) {
+                        val rendered = report.render(state, DIFF_DEPTH)
+                        report.persist(rendered)
+                        fail("Walk diverged at step=$step (accepted=$accepted, seed=$seed) at depth $DIFF_DEPTH.\n$rendered")
+                    }
                 }
             }
             assertTrue(accepted > 0, "Random walk accepted zero moves (seed=$seed) — generator is broken")
@@ -193,7 +193,7 @@ private data class DivergenceLevel(
 /** A full trail of [DivergenceLevel]s from the original FEN down to the deepest mismatch. */
 private class DivergenceReport(val trail: List<DivergenceLevel>) {
 
-    /** Multi-line, agent-friendly report. Persisted to `build/perft-divergence.txt` on failure. */
+    /** Multi-line, agent-friendly report. Pure — call [persist] to write it to disk. */
     fun render(rootState: GameUiState, rootDepth: Int): String {
         val sb = StringBuilder()
         sb.appendLine("Perft divergence detected at depth $rootDepth:")
@@ -216,14 +216,20 @@ private class DivergenceReport(val trail: List<DivergenceLevel>) {
         sb.appendLine()
         sb.appendLine("Next step: read the deepest [ply N] above — its FEN is the position where the app's")
         sb.appendLine("generator produces a different subtree count than Stockfish for the listed move(s).")
-        sb.appendLine("Inspect the corresponding rule in app/src/commonMain/.../Move.kt or applyMove.")
+        sb.appendLine("Inspect the corresponding rule in chess-core/src/commonMain/.../Move.kt or applyMove.")
+        return sb.toString()
+    }
 
-        // Persist so the autonomous loop can pick it up via the filesystem.
+    /**
+     * Write a [render]ed report to `build/perft-divergence.txt` so the autonomous loop (and the
+     * `read_divergence` MCP tool) can pick it up. Kept separate from [render] so producing the text
+     * has no filesystem side effect. Best-effort: an IO failure here must not mask the divergence.
+     */
+    fun persist(rendered: String) {
         runCatching {
             val out = projectRoot().resolve("build").apply { toFile().mkdirs() }
-            out.resolve("perft-divergence.txt").toFile().writeText(sb.toString())
+            out.resolve("perft-divergence.txt").toFile().writeText(rendered)
         }
-        return sb.toString()
     }
 
     private companion object {

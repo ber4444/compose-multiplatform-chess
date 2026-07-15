@@ -107,7 +107,7 @@ class PerftMcpServer {
                     }
                     putJsonObject("depth") {
                         put("type", "integer")
-                        put("description", "Perft depth (clamped to $MAX_DEPTH_CAP).")
+                        put("description", "Perft depth (clamped to ${StockfishDivider.MAX_DEPTH}).")
                         put("default", 3)
                     }
                 },
@@ -143,8 +143,6 @@ class PerftMcpServer {
         const val TOOL_RUN_GATE = "run_perft_gate"
         const val TOOL_SF_DIVIDE = "stockfish_divide"
         const val TOOL_READ_DIV = "read_divergence"
-
-        const val MAX_DEPTH_CAP = 6
 
         // --- Tool descriptions (embed the hard rules verbatim) -------------------
 
@@ -182,7 +180,7 @@ class PerftMcpServer {
         val SF_DIVIDE_DESCRIPTION = """
             Ask Stockfish for the per-move perft divide breakdown of a FEN: spawns `stockfish`, sends
             `position fen <fen>` + `go perft <depth>`, returns {moves: Map<uci, count>, total, oracleUnavailable}.
-            Depth is clamped to $MAX_DEPTH_CAP; 120s timeout. If no `stockfish` binary is on PATH this
+            Depth is clamped to ${StockfishDivider.MAX_DEPTH}; ${StockfishDivider.DEFAULT_TIMEOUT_MS / 1000}s timeout. If no `stockfish` binary is on PATH this
             returns oracleUnavailable=true rather than throwing — Stockfish is a soft dependency.
 
             Use this to cross-check the app's generator against an independent oracle for an arbitrary
@@ -219,6 +217,11 @@ class PerftMcpServer {
             if (result.oracleUnavailable) {
                 appendLine("Stockfish oracle unavailable (no binary on PATH or failed to launch).")
                 appendLine("Install stockfish (Homebrew: brew install stockfish; apt: sudo apt-get install -y stockfish) and retry.")
+                return@buildString
+            }
+            if (result.timedOut) {
+                appendLine("Stockfish divide did not complete within the timeout (fen=$fen depth=$depth).")
+                appendLine("Partial results were withheld to avoid a false divergence — retry at a lower depth.")
                 return@buildString
             }
             appendLine("Stockfish divide: fen=$fen depth=$depth")

@@ -1,7 +1,8 @@
 package com.example.myapplication.perft.mcp
 
 import java.nio.file.Path
-import kotlin.io.path.pathString
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Result of a `run_perft_gate` tool call.
@@ -34,6 +35,11 @@ object PerftGateRunner {
     private const val GATE_TEST_PATTERN = "*Perft*"
     private const val DEEP_FLAG = "-Dperft.deep=true"
     private const val SUMMARY_TAIL_LINES = 50
+    // Bound the subprocess so a wedged gradle can't hang the MCP tool call (and thus the agent)
+    // indefinitely. The deep tier legitimately runs for minutes, so it gets a wider ceiling.
+    private const val DEFAULT_TIMEOUT_MINUTES = 15L
+    private const val DEEP_TIMEOUT_MINUTES = 45L
+    private const val DRAIN_JOIN_MS = 2_000L
 
     /**
      * @param deep when true, appends [DEEP_FLAG] so [PerftDeepTest] runs (nightly-tier depths; slow).
@@ -47,18 +53,37 @@ object PerftGateRunner {
 
         val builder = ProcessBuilder(command).directory(root.toFile()).redirectErrorStream(true)
         val proc = builder.start()
-        val output = proc.inputStream.bufferedReader().readText()
-        val exitCode = proc.waitFor()
 
-        val tail = output.lineSequence().toList().let { lines ->
-            lines.takeLast(Math.min(SUMMARY_TAIL_LINES, lines.size)).joinToString("\n").trim()
+        // Drain stdout on a daemon thread: this both keeps a chatty gradle from filling the pipe
+        // buffer and wedging, and lets us bound the whole run with waitFor(timeout) instead of
+        // blocking forever inside readText() when the build hangs.
+        val output = AtomicReference("")
+        val drainer = Thread { output.set(proc.inputStream.bufferedReader().readText()) }
+            .apply { isDaemon = true; name = "perft-gate-stdout"; start() }
+
+        val timeoutMinutes = if (deep) DEEP_TIMEOUT_MINUTES else DEFAULT_TIMEOUT_MINUTES
+        if (!proc.waitFor(timeoutMinutes, TimeUnit.MINUTES)) {
+            proc.destroyForcibly()
+            drainer.join(DRAIN_JOIN_MS)
+            return GateResult(
+                passed = false,
+                summary = "perft gate TIMED OUT after ${timeoutMinutes}m and was killed.\n" + tailOf(output.get()),
+                divergenceFileExists = PerftMcpPaths.divergenceExists(root),
+            )
         }
+        drainer.join(DRAIN_JOIN_MS)
         return GateResult(
-            passed = exitCode == 0,
-            summary = tail,
+            passed = proc.exitValue() == 0,
+            summary = tailOf(output.get()),
             divergenceFileExists = PerftMcpPaths.divergenceExists(root),
         )
     }
+
+    /** Last [SUMMARY_TAIL_LINES] lines of [output], trimmed — enough to see which test failed. */
+    private fun tailOf(output: String): String =
+        output.lineSequence().toList().let { lines ->
+            lines.takeLast(minOf(SUMMARY_TAIL_LINES, lines.size)).joinToString("\n").trim()
+        }
 
     /** `./gradlew` on unix, `gradlew.bat` on windows. The MCP host's platform decides. */
     private fun gradleWrapper(): String =
