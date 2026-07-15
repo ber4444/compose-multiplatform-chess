@@ -43,7 +43,14 @@ class StockfishPerft(
             if (remaining <= 0) {
                 throw IllegalStateException("Stockfish perft timed out after ${PERFT_TIMEOUT_MS}ms (fen=$fen, depth=$depth)")
             }
-            val line = readLineWithTimeout(remaining) ?: break
+            val line = readLineWithTimeout(remaining)
+                ?: throw IllegalStateException(
+                    // A healthy `go perft` always ends with a "Nodes searched:" line, which breaks the
+                    // loop explicitly below. A null here means timeout or early process exit — fail
+                    // loudly rather than returning a partial divide that would masquerade as a
+                    // divergence and send the localizer chasing a phantom (fen=$fen, depth=$depth).
+                    "Stockfish perft ended without a 'Nodes searched:' summary (timeout or early exit)"
+                )
             val trimmed = line.trim()
             when {
                 trimmed.startsWith("Nodes searched:") -> {

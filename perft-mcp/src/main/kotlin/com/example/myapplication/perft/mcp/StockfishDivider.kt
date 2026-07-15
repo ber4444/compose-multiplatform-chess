@@ -18,6 +18,13 @@ data class DivideResult(
     val total: Long?,
     /** True iff no launchable `stockfish` binary was found. See class docs. */
     val oracleUnavailable: Boolean,
+    /**
+     * True iff the divide did not finish within [StockfishDivider.timeoutMs] — the deadline elapsed
+     * or the process exited before emitting `Nodes searched:`. Distinct from [oracleUnavailable] so a
+     * slow engine is not mistaken for a missing one; the partial map is withheld ([moves] is empty)
+     * because an incomplete divide looks like — but isn't — a real divergence.
+     */
+    val timedOut: Boolean = false,
 )
 
 /**
@@ -60,8 +67,9 @@ class StockfishDivider(
             val deadline = System.currentTimeMillis() + timeoutMs
             while (true) {
                 val remaining = deadline - System.currentTimeMillis()
-                if (remaining <= 0) return DivideResult(moves, total, oracleUnavailable = false)
-                val line = readLineWithTimeout(remaining) ?: break
+                if (remaining <= 0) return DivideResult(emptyMap(), null, oracleUnavailable = false, timedOut = true)
+                val line = readLineWithTimeout(remaining)
+                    ?: return DivideResult(emptyMap(), null, oracleUnavailable = false, timedOut = true)
                 val trimmed = line.trim()
                 when {
                     trimmed.startsWith("Nodes searched:") -> {
