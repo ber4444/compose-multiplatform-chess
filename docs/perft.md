@@ -121,8 +121,8 @@ a thin stdio MCP server so an agent calls `run_perft_gate` instead of reading pr
 
 | Tool | What it does |
 |------|-------------|
-| `run_perft_gate(deep=false)` | Runs `./gradlew :chess-core:desktopTest --tests "*Perft*"`. Returns `{passed, summary, divergenceFileExists}`. |
-| `stockfish_divide(fen, depth=3)` | Spawns `stockfish`, returns `{moves, total, oracleUnavailable}`. Depth clamped to 6; 120s timeout. Never throws — degrades to structured "unavailable". |
+| `run_perft_gate(deep=false)` | Runs `./gradlew :chess-core:desktopTest --tests "*Perft*"` (bounded at 15 min, 45 min when `deep`, so a wedged build can't hang the agent). Returns `{passed, summary, divergenceFileExists}`. |
+| `stockfish_divide(fen, depth=3)` | Spawns `stockfish`, returns `{moves, total, oracleUnavailable, timedOut}`. Depth clamped to 6; 120s timeout — a timeout sets `timedOut` and withholds the partial map so it can't masquerade as a divergence. Never throws — degrades to structured "unavailable". |
 | `read_divergence()` | Reads `build/perft-divergence.txt`, or a structured "no divergence recorded" message. |
 
 It's an **adapter, not an engine** — no dependency on `:app` or `:chess-core`; it shells out to
@@ -151,6 +151,27 @@ The perft gate runs in CI on every PR and nightly:
 
 See [`docs/plans/perft-ci-completion.md`](plans/perft-ci-completion.md) for the full CI story,
 including the breakage the chess-core move caused and how it was fixed.
+
+## Future work: a broader Oracle 1 corpus
+
+Oracle 1 is deliberately small — six hand-picked positions. The natural extension is to swap those
+constants for a slice of a large, independently-verified perft corpus.
+[The Grand Chess Tree](https://grandchesstree.com/) is a distributed effort that publishes a
+machine-readable results set and a ~28k-position corpus, categorized into exactly the buckets that
+break hand-written generators: **captures, castles, promotions, checkmates**. Ingesting a low-depth
+slice as extra `PerftPositions` entries would widen the always-on net from "a handful of constants"
+to a broad, edge-case-weighted one — and make cheating the oracle even more pointless, since a large
+categorized corpus is far harder to fake than six numbers.
+
+This enriches **Oracle 1 only.** Localization still needs a live divide-capable engine, so Stockfish
+stays as Oracle 2 (the corpus is data, not a `go perft` server). Trust is the one caveat:
+chessprogramming.org's counts are long-standing consensus, so ingest at depths where the corpus
+agrees with known values rather than adopting frontier-depth results wholesale.
+
+> A pure-speed counter like [`perft_cpu_2026`](https://github.com/ankan-ban/perft_cpu_2026) is a
+> *different* tool: per its README it has no divide output, so it can't localize a divergence — it
+> would only make Oracle 1's totals faster, which the bounded-depth gate doesn't need. That's why the
+> rig cross-checks against Stockfish's `go perft` divide rather than a raw perft speed record.
 
 ## File map
 
