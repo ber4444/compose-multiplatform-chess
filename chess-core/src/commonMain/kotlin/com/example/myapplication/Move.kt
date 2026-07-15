@@ -449,12 +449,10 @@ internal fun getCastlingMoves(
                 c !in allyPositions && c !in enemyPositions &&
                 d !in allyPositions && d !in enemyPositions) {
                 
-                // Simulate to check for check on d and c (b doesn't need to be unattacked)
-                val simD = allyPositions.toMutableList().apply { set(kingIndex, d) }
+                // Simulate to check for check on c (b and d don't need to be unattacked)
                 val simC = allyPositions.toMutableList().apply { set(kingIndex, c) }
-                
-                if (!checkCheck(d, enemyPositions, enemyPieces, simD) &&
-                    !checkCheck(c, enemyPositions, enemyPieces, simC)) {
+
+                if (!checkCheck(c, enemyPositions, enemyPieces, simC)) {
                     castlingMoves.add(Pair(c, kingIndex))
                 }
             }
