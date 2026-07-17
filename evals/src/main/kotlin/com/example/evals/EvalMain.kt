@@ -29,32 +29,34 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.testing.testApplication
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.math.roundToInt
 
-fun main() = testApplication {
+fun main() {
     val cases = GoldenCaseLoader.load(Path.of("golden/candidates.json"))
     val openingCases = cases.filter { it.eco != null }
-    val dependencies = caseSpecificOpeningDependencies(openingCases)
-    application { openingCoachModule(dependencies, rateLimiter = RequestRateLimiter { true }) }
-    val localClient = createClient { install(ContentNegotiation) { json() } }
 
-    val stats = mutableListOf<RouteStats>()
-    stats += evaluateFake(cases)
-    stats += evaluateFallback(cases)
-    stats += evaluateOpeningRoute("local-template", openingCases) { request ->
-        localClient.post("/v1/openings/explain") {
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.body()
-    }
-    stats += evaluateDeployed(openingCases)
-    stats += evaluateLlmComposed(openingCases)
+    // Deterministic + local-HTTP routes run inside testApplication (they need the in-process
+    // test server). testApplication wraps its body in runTestWithRealTime, which has a HARD 60s
+    // ceiling that can't be extended — neither passing a CoroutineContext nor an inner withTimeout
+    // overrides it (Ktor's testApplication calls runTestWithRealTime$default with the timeout arg
+    // defaulted). These routes are all fast/deterministic, so the ceiling is fine for them.
+    val deterministicStats = runTestApplicationRoutes(cases, openingCases)
 
+    // The optional LLM-composed route makes real blocking HTTP calls to an external provider
+    // (~1-5s each across ~10 cases, easily > 60s total). It calls composer.compose() directly —
+    // NOT the test server — so it doesn't need testApplication at all. Run it in a plain
+    // runBlocking with no ceiling, then merge its stats into the scorecard.
+    val llmStats = runBlocking { evaluateLlmComposed(openingCases) }
+
+    val stats = deterministicStats + llmStats
     val scorecard = ScorecardWriter.render(cases.size, openingCases.size, stats)
     Files.writeString(Path.of("scorecard.md"), scorecard)
 
@@ -63,6 +65,36 @@ fun main() = testApplication {
     check(regressions.isEmpty()) {
         "Grounding violations detected: ${regressions.joinToString { "${it.route}=${it.groundingViolations}" }}"
     }
+}
+
+/**
+ * Runs the deterministic + local-HTTP eval routes inside [testApplication]. These routes are all
+ * fast (in-process fakes + a local test HTTP server) so they comfortably finish within
+ * testApplication's hardcoded 60s ceiling. Returns their [RouteStats] for merging with the
+ * optional LLM route (which runs outside testApplication — see [main]).
+ */
+private fun runTestApplicationRoutes(
+    cases: List<GoldenCase>,
+    openingCases: List<GoldenCase>,
+): List<RouteStats> {
+    // testApplication returns Unit, so thread the collected stats out via a captured holder.
+    val collected = mutableListOf<RouteStats>()
+    testApplication {
+        val dependencies = caseSpecificOpeningDependencies(openingCases)
+        application { openingCoachModule(dependencies, rateLimiter = RequestRateLimiter { true }) }
+        val localClient = createClient { install(ContentNegotiation) { json() } }
+
+        collected += evaluateFake(cases)
+        collected += evaluateFallback(cases)
+        collected += evaluateOpeningRoute("local-template", openingCases) { request ->
+            localClient.post("/v1/openings/explain") {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }.body()
+        }
+        collected += evaluateDeployed(openingCases)
+    }
+    return collected
 }
 
 /**
@@ -223,7 +255,13 @@ private suspend fun evaluateLlmComposed(cases: List<GoldenCase>): RouteStats {
     cases.forEach { case ->
         val request = case.toOpeningRequest()
         val passages = passagesByCase[case.id].orEmpty()
-        val composed = composer.compose(request, passages)
+        // LlmComposer.compose() does a blocking java.net.http.HttpClient.send() to a real LLM
+        // endpoint (PROVIDER_TIMEOUT_MS per request). This route runs in a plain runBlocking in
+        // main(), NOT inside testApplication — testApplication's body is wrapped in
+        // runTestWithRealTime with a hard 60s ceiling that ~10 sequential network calls blow
+        // past (UncompletedCoroutinesError: After waiting for 1m). Hop to the IO dispatcher so
+        // each blocking call runs off the caller thread.
+        val composed = withContext(Dispatchers.IO) { composer.compose(request, passages) }
         stats.record(
             EvalScorer.scoreOpening(case, composed.text),
             retried = false,

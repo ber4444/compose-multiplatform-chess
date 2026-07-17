@@ -143,6 +143,14 @@ fun selectComposer(
     if (inputPrice == null || outputPrice == null || inputPrice < 0.0 || outputPrice < 0.0) {
         return fallback
     }
+    // Per-run cost cap, in USD cents (0.2 = 0.2 cents = $0.002). The default keeps a stray API
+    // key from spending real money, but it trips partway through a real eval run — at gpt-4.1-mini
+    // prices (~$0.40/$1.60 per 1M tokens) 10 cases land right at the cap, so the tail of cases
+    // fall back to the template and pollute the local-llm-compose row with mixed outputs. Override
+    // via COACH_LLM_MAX_USD_CENTS (e.g. 5 = $0.05) for a clean full run.
+    val maxUsdCents = environment["COACH_LLM_MAX_USD_CENTS"]?.toDoubleOrNull()
+        ?.takeIf { it.isFinite() && it >= 0.0 }
+        ?: DEFAULT_LLM_MAX_USD_CENTS
     return LlmComposer(
         client = OpenAiCompatibleLlmClient(
             apiKey = apiKey,
@@ -155,7 +163,7 @@ fun selectComposer(
         ),
         fallback = fallback,
         budget = ProviderCostBudget(
-            maxUsdCents = 0.2,
+            maxUsdCents = maxUsdCents,
             inputUsdPerMillionTokens = inputPrice,
             outputUsdPerMillionTokens = outputPrice,
         ),
@@ -211,6 +219,9 @@ class FixedWindowRateLimiter(
 
 private const val MAX_REQUEST_BYTES = 16 * 1024L
 private const val PROVIDER_TIMEOUT_MS = 5_000L
+
+/** Default LLM cost cap per run, in USD cents ($0.002). Overridable via COACH_LLM_MAX_USD_CENTS. */
+private const val DEFAULT_LLM_MAX_USD_CENTS = 0.2
 private const val FLY_CLIENT_IP_HEADER = "Fly-Client-IP"
 private const val CLEANUP_INTERVAL = 256
 private val REQUEST_JSON = Json { ignoreUnknownKeys = false }
