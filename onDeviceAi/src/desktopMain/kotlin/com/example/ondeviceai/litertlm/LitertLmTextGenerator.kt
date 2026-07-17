@@ -104,7 +104,16 @@ class LitertLmTextGenerator(
             }
 
             if (output.isNotEmpty()) {
-                emit(AiTokenOrFinal.Token(output.toString()))
+                // Qwen3 (the default .litertlm model) emits <think>…</think>
+                // chain-of-thought blocks before its answer. Strip them so the
+                // Move Coach never shows internal deliberation to the user — and
+                // so downstream validation (MoveCoachResponseValidator) judges
+                // only the delivered answer, not the reasoning. Matches both a
+                // closed <think>…</think> and an unterminated trailing <think>….
+                val cleaned = stripThinkBlocks(output.toString())
+                if (cleaned.isNotEmpty()) {
+                    emit(AiTokenOrFinal.Token(cleaned))
+                }
             }
             // getTokenCount() is @ExperimentalApi in litertlm-jvm and BenchmarkInfo is
             // gated too; we avoid both and derive a rough token count from output length
@@ -174,5 +183,25 @@ class LitertLmTextGenerator(
         const val DEFAULT_CONTEXT_SIZE = 1024
         const val DEFAULT_TOP_K = 40
         const val DEFAULT_TOP_P = 1.0
+
+        // Matches <think>…</think> (case-insensitive, DOTALL so it spans newlines).
+        // LiteRT-LM's Qwen3 model emits chain-of-thought before its answer; the
+        // Move Coach contract wants only the delivered answer, so [generate]
+        // strips these blocks before emitting. The unterminated variant catches
+        // a <think> the model opened but never closed (generation cut off).
+        private val THINK_BLOCK = Regex("(?is)<think>.*?</think>")
+        private val THINK_UNTERMINATED = Regex("(?is)<think>.*")
+
+        /**
+         * Remove `<think>…</think>` chain-of-thought blocks from [text]. Handles
+         * both closed blocks and an unterminated trailing `<think>`. Returns the
+         * cleaned text, trimmed. If no `<think>` is present, returns the text
+         * trimmed. Public on the companion so it can be unit-tested directly.
+         */
+        fun stripThinkBlocks(text: String): String {
+            var cleaned = THINK_BLOCK.replace(text, "")
+            cleaned = THINK_UNTERMINATED.replace(cleaned, "")
+            return cleaned.trim()
+        }
     }
 }
