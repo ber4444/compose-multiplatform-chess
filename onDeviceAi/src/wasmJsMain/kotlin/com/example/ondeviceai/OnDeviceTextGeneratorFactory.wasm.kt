@@ -5,7 +5,8 @@ import com.example.ondeviceai.litertlm.LitertLmWasmTextGenerator
 /**
  * Wasm/JS default factory. Uses LiteRT-LM for Web (`@litert-lm/core`, loaded from
  * the jsdelivr CDN at runtime) running inside a module Web Worker, so inference is
- * off the main thread. The model (Qwen3-0.6B-int4 `.litertlm`, ~347 MB) is streamed
+ * off the main thread. The model (gemma-4-E2B-it-web `.litertlm`, ~2 GB — the only model
+ * `@litert-lm/core` documents for web, larger than the desktop target's Qwen3-0.6B) is streamed
  * from Hugging Face by the LiteRT-LM `Engine.create()` call — no model is bundled
  * into the webpack distribution.
  *

@@ -315,11 +315,15 @@ fly ssh console --app compose-chess-opening-coach --command \
 fly deploy --config server/fly.toml
 
 # 5. Seed the opening corpus into the live database.
-#    The MiniLM model/vocab paths are the Docker image defaults; set them on the seed run.
+#    `installDist` produces a single `bin/server` script (the app); there is no `bin/server-seed`.
+#    So the reliable way to seed the prod DB is the :server:seed Gradle task, run locally against
+#    the prod DATABASE_URL (pull it from `fly secrets`). The MiniLM model/vocab paths are the
+#    Docker image bake-in defaults; point them at your local copies for the seed run:
+DATABASE_URL=… COACH_EMBEDDING_MODEL=model.onnx COACH_EMBEDDING_VOCAB=vocab.txt ./gradlew :server:seed
+#    Alternatively, run the seed JVM inside the Fly container directly (no separate seed script;
+#    invoke SeedMain on the runtime classpath the image ships):
 fly ssh console --app compose-chess-opening-coach --command \
-  'DATABASE_URL="$DATABASE_URL" COACH_EMBEDDING_MODEL=/opt/models/model.onnx COACH_EMBEDDING_VOCAB=/opt/models/vocab.txt /opt/coach-server/bin/server-seed'
-# Or, run the seed task locally against the prod DB (requires DATABASE_URL from fly secrets):
-#   DATABASE_URL=… COACH_EMBEDDING_MODEL=model.onnx COACH_EMBEDDING_VOCAB=vocab.txt ./gradlew :server:seed
+  'DATABASE_URL="$DATABASE_URL" COACH_EMBEDDING_MODEL=/opt/models/model.onnx COACH_EMBEDDING_VOCAB=/opt/models/vocab.txt java -cp "/opt/coach-server/lib/*" com.example.coachserver.SeedMain'
 
 # 6. Verify the service is live
 curl https://compose-chess-opening-coach.fly.dev/health
@@ -338,13 +342,12 @@ fly secrets set --app compose-chess-opening-coach \
   COACH_LLM_OUTPUT_USD_PER_MILLION=1.60
 ```
 
-> **Note on `bin/server-seed`:** the `:server:seed` Gradle task runs `SeedMain`, whose `mainClass` is
-> `com.example.coachserver.SeedMain`. Inside the Docker image, the `installDist` distribution
-> generates a `bin/server` script (the app) but **not** a separate `bin/server-seed`. To seed inside
-> Fly, either run the seed JVM directly via `fly ssh console` with the right `mainClass`, or run
-> `./gradlew :server:seed` locally with the prod `DATABASE_URL`. The command above uses the
-> `installDist` runtime classpath; adjust the invocation to match your distribution layout. Do not
-> put database URLs or provider keys in this README or any `.env` file.
+> **Why no `bin/server-seed`?** The `application` plugin's `installDist` generates one launcher
+> script (`bin/server`, wired to `ApplicationKt` by `server/build.gradle.kts:57`); the seed
+> `JavaExec` task (`mainClass = SeedMain`, `server/build.gradle.kts:68`) is a Gradle-side entry
+> point, not a separate installed binary. That's why the in-Fly path invokes `SeedMain` on the
+> shipped `lib/*` classpath directly, and the local path uses `./gradlew :server:seed`. Do not put
+> database URLs or provider keys in this README or any `.env` file.
 
 After deployment, record the verified base URL here once you've confirmed `/health` responds:
 
