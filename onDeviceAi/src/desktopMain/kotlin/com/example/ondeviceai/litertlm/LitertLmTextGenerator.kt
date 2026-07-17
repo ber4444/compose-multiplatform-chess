@@ -158,7 +158,20 @@ class LitertLmTextGenerator(
     )
 
     companion object {
-        const val DEFAULT_CONTEXT_SIZE = 2048
+        /**
+         * Must be <= the model's KV-cache capacity. The Qwen3-0.6B-int4 model
+         * (`qwen3_0.6b_q4_block32_ekv1280.litertlm`) exposes `max_num_tokens: 1280`
+         * in its metadata — the `ekv1280` in the filename is the extended KV-cache
+         * size. Requesting more (the old default of 2048) compiles fine but the
+         * native runtime traps with SIGTRAP (JVM exit 133) once a generation's
+         * prompt + `<think>` chain-of-thought + output crosses 1280 tokens —
+         * typically on checkmate/mate-in-N cases that trigger long reasoning.
+         * The trap is a C++ CHECK inside litertlm-jvm, so it can't be caught by
+         * Kotlin's `try/catch (Throwable)` and kills the whole driver. 1024
+         * leaves headroom under the 1280 cap while still fitting the Move Coach
+         * prompt + a full paraphrase.
+         */
+        const val DEFAULT_CONTEXT_SIZE = 1024
         const val DEFAULT_TOP_K = 40
         const val DEFAULT_TOP_P = 1.0
     }
