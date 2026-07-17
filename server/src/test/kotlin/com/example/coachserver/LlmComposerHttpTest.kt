@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
  * serialization → HTTP transport → response deserialization → validation → fallback. No mocking
  * library; the lambda IS the fake engine.
  *
- * Covers the four scenarios required by docs/plans/zai-glm-provider-addendum.md M1:
+ * Covers the four scenarios required by docs/plans/llm-composer-provider-infra.md M1:
  *  (a) success — validated LLM prose returns composerId `llm-v1`
  *  (b) validation-failure — ungrounded/forbidden LLM prose falls back to `template-v1`
  *  (c) budget-exceeded — the cost ceiling is enforced before the HTTP call is made
@@ -42,7 +42,7 @@ class LlmComposerHttpTest {
     fun `llm response that passes validation returns the llm-v1 composer`() {
         var sentBody: String? = null
         val client = OpenAiCompatibleLlmClient.forTesting(
-            model = "glm-4.6",
+            model = "gpt-4.1-mini",
             transport = LlmHttpTransport { body ->
                 sentBody = body
                 groundedLlmResponse
@@ -56,7 +56,7 @@ class LlmComposerHttpTest {
         assertTrue(result.text.contains("king pawns contest the center"))
         // The fake engine received a serialized OpenAI-compatible chat request.
         val sent = sentBody!!
-        assertTrue(sent.contains("\"model\":\"glm-4.6\""))
+        assertTrue(sent.contains("\"model\":\"gpt-4.1-mini\""))
         assertTrue(sent.contains("\"max_tokens\""))
         assertTrue(sent.contains("King's Pawn Game"))
     }

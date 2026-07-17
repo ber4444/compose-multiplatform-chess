@@ -131,7 +131,7 @@ fun defaultDependencies(environment: Map<String, String>): ServerDependencies {
  * [TemplateComposer] (the `fallback`) when `COACH_LLM_API_KEY` is absent or when the token prices
  * needed to enforce the cost budget are missing/negative. Otherwise constructs an [LlmComposer]
  * wrapping an OpenAI-compatible HTTP client (base URL, model, key from env — provider-shaped, not
- * z.ai-shaped). Exposed for unit testing the env-gating without a database.
+ * tied to any vendor). Exposed for unit testing the env-gating without a database.
  */
 fun selectComposer(
     environment: Map<String, String>,
