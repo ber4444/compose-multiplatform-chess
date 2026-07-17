@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
  * serialization → HTTP transport → response deserialization → validation → fallback. No mocking
  * library; the lambda IS the fake engine.
  *
- * Covers the four scenarios required by docs/plans/llm-composer-provider-infra.md M1:
+ * Covers four scenarios:
  *  (a) success — validated LLM prose returns composerId `llm-v1`
  *  (b) validation-failure — ungrounded/forbidden LLM prose falls back to `template-v1`
  *  (c) budget-exceeded — the cost ceiling is enforced before the HTTP call is made
