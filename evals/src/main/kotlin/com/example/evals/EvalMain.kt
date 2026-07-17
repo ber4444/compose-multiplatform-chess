@@ -114,7 +114,16 @@ internal fun caseSpecificOpeningDependencies(
         Passage(
             sourceId = "eval-${case.id}",
             title = "${case.eco} opening concepts",
-            text = case.expectedConcepts.joinToString(", ").ifBlank { "development and center control" } + ".",
+            // Prose, not bare tags. OpeningExplanationValidator grounds each output sentence by
+            // requiring >=2 content-word overlaps with the cited passage's text; a passage whose
+            // text is just "development, center." (the old shape) gives the model ~2 tokens of
+            // chess vocabulary to reuse, so even a correct 2-3 sentence explanation fails the
+            // per-sentence overlap check and the LLM route falls back 100% of the time — measuring
+            // the template, not the composer. The backbone below covers the standard opening ideas
+            // (development, central control, king safety) in real sentences, so any fluent
+            // grounded explanation can satisfy the validator. The case-specific concept line is
+            // prepended so retrieval still distinguishes cases by their expectedConcepts.
+            text = openingConceptsPassage(case.expectedConcepts),
         )
     }
     return ServerDependencies(
@@ -133,6 +142,36 @@ internal fun caseSpecificOpeningDependencies(
         },
         composer = composer,
     )
+}
+
+/**
+ * Builds a prose opening-concepts passage for a case. The case-specific [expectedConcepts] line is
+ * prepended (keeps retrieval case-distinguishing), then a common backbone explains the standard
+ * opening ideas in real sentences. See [caseSpecificOpeningDependencies] for why the backbone
+ * exists: OpeningExplanationValidator needs prose-level token overlap per output sentence, and bare
+ * tags can never provide it.
+ */
+private fun openingConceptsPassage(expectedConcepts: List<String>): String {
+    val focus = expectedConcepts.mapNotNull(::describeConcept).joinToString(", ").ifBlank { "developing pieces" }
+    return buildString {
+        append("This opening's key ideas are ")
+        append(focus)
+        append(". ")
+        append("Both sides fight for central squares with their pawns and develop their minor pieces ")
+        append("toward active squares. King safety matters: players castle early to shield the king ")
+        append("and connect the rooks. Piece development, central control, and king safety are the ")
+        append("main themes.")
+    }
+}
+
+/** Maps a golden-case concept tag to the chess phrase used in the passage. Mirrors MoveCoachPromptBuilder. */
+private fun describeConcept(concept: String): String? = when (concept.lowercase().trim()) {
+    "development", "develops" -> "developing the minor pieces"
+    "center", "center-control", "central control" -> "contesting the center"
+    "king safety", "king-safety" -> "improving king safety"
+    "pawn tension", "pawn-tension" -> "creating pawn tension"
+    "opening" -> "solid opening play"
+    else -> concept
 }
 
 private suspend fun evaluateFake(cases: List<GoldenCase>): RouteStats {
