@@ -54,6 +54,52 @@ val generateRulesCorpus by tasks.registering {
     }
 }
 
+val rulesCorpusFile = layout.projectDirectory.file("src/commonMain/resources/rulesCorpus/passages.tsv")
+val generatedRulesCorpusDir = layout.buildDirectory.dir("generated/rulesCorpus/commonMain/kotlin")
+
+val generateRulesCorpus by tasks.registering {
+    inputs.file(rulesCorpusFile)
+    outputs.dir(generatedRulesCorpusDir)
+
+    doLast {
+        val rows = rulesCorpusFile.asFile.readLines()
+            .drop(1)
+            .filter { it.isNotBlank() }
+            .map { line ->
+                val fields = line.split('\t', limit = 3)
+                require(fields.size == 3) { "Invalid rules corpus row: $line" }
+                fields
+            }
+        val output = generatedRulesCorpusDir.get().file(
+            "com/example/ondeviceai/GeneratedRuleCorpus.kt",
+        ).asFile
+        output.parentFile.mkdirs()
+        fun String.quoted(): String = buildString {
+            append('"')
+            this@quoted.forEach { character ->
+                when (character) {
+                    '\\' -> append("\\\\")
+                    '"' -> append("\\\"")
+                    else -> append(character)
+                }
+            }
+            append('"')
+        }
+        output.writeText(buildString {
+            appendLine("package com.example.ondeviceai")
+            appendLine()
+            appendLine("// Generated from src/commonMain/resources/rulesCorpus/passages.tsv.")
+            appendLine("internal val GeneratedRulePassages: List<RulePassage> = listOf(")
+            rows.forEach { (id, title, text) ->
+                appendLine(
+                    "    RulePassage(id = ${id.quoted()}, title = ${title.quoted()}, text = ${text.quoted()}),",
+                )
+            }
+            appendLine(")")
+        })
+    }
+}
+
 kotlin {
     android {
         namespace = "com.example.ondeviceai"
@@ -168,7 +214,6 @@ kotlin {
 tasks.matching { it.name.startsWith("compile") }.configureEach {
     dependsOn(generateRulesCorpus)
 }
-
 // The `*SourcesJar` / `sourcesJar` tasks (added by `maven-publish`) consume the generated rules-corpus
 // source dir without declaring the dependency — Gradle's dependency-validation rejects this as an
 // undeclared-output usage. Make them all explicit so publishToMavenLocal / publishAllPublications works.
