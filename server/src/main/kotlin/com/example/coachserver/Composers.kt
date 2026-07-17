@@ -82,18 +82,39 @@ class LlmComposer(
     private fun userPrompt(request: OpeningExplainRequest, passages: List<Passage>): String = buildString {
         appendLine("ECO: ${request.eco ?: "unknown"}")
         appendLine("Moves: ${request.movesSan.takeLast(12).joinToString(" ")}")
-        appendLine("Retrieved sources:")
+        appendLine("Retrieved sources (cite these by their bracketed id):")
         passages.forEach { appendLine("[${it.sourceId}] ${it.title}: ${it.text}") }
-        append("Explain the opening in 2-3 short sentences using only these sources. Cite an exact [source-id] in every sentence.")
+        appendLine()
+        appendLine("Write EXACTLY 2 or 3 sentences (no more, no less). Total length under 280 characters.")
+        appendLine("Every sentence MUST end with a bracketed source id like [${passages.first().sourceId}].")
+        appendLine("Use ONLY facts from the sources above. Do not invent moves, evaluations, or threats.")
+        appendLine()
+        appendLine("Example of the required format:")
+        appendLine(
+            passages.first().let { p ->
+                val focus = p.text.substringBefore('.').take(60)
+                "This opening emphasizes $focus [${p.sourceId}]. " +
+                    (passages.getOrNull(1)?.let { q ->
+                        val qfocus = q.text.substringBefore('.').take(60)
+                        "It also matters because of $qfocus [${q.sourceId}]."
+                    } ?: "Piece development and king safety round out the plan [${p.sourceId}].")
+            }
+        )
     }
 
     companion object {
         private const val ID = "llm-v1"
         private const val MAX_PROVIDER_INPUT_CHARS = 8_000
-        private const val MAX_OUTPUT_TOKENS = 120
+
+        // 300 chars ~= 75 tokens; cap at 90 to allow headroom without inviting a long paragraph
+        // past OpeningExplanationValidator.MAX_OUTPUT_CHARS (300).
+        private const val MAX_OUTPUT_TOKENS = 90
+
         private const val SYSTEM_PROMPT =
-            "You are a chess opening coach. Use only the supplied passages. " +
-                "Do not mention engine depth, ratings, or unsupported claims."
+            "You are a chess opening coach. You MUST follow the output format exactly: " +
+                "2 or 3 sentences, each ending with a bracketed source id like [source-1], " +
+                "under 280 characters total. Use ONLY the supplied sources; never invent moves, " +
+                "engine evaluations, ratings, or threats. The bracketed id is mandatory in every sentence."
     }
 }
 
