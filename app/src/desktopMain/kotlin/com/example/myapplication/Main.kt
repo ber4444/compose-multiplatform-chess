@@ -21,6 +21,7 @@ import com.example.myapplication.share.desktopPgnSharer
 import com.example.myapplication.movecoach.GameSummaryManager
 import com.example.myapplication.movecoach.MoveCoachManager
 import com.example.myapplication.movecoach.MoveCoachUiState
+import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.AiContextSnapshot
 import com.example.ondeviceai.AiUserSetting
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
@@ -106,16 +107,24 @@ fun main() = application {
  * the same shared factory. The orchestrators are reused unchanged — only the
  * platform generator differs (see `:onDeviceAi` desktopMain).
  *
- * Failures (no native lib on Intel Mac, download error, model corruption) are
- * captured inside the generator's `ensureInitialized` and surface as an
- * `AiAvailability.Error`, after which the orchestrator falls back to the
- * deterministic `MoveCoachFallback` — the panel still renders, just with the
- * rule-based explanation instead of the model's.
+ * Failures (no native lib on Intel Mac, download error, model corruption, or the
+ * litertlm-jvm 0.14.0 coroutines-bridge mismatch) are captured inside the
+ * generator's `ensureInitialized` and surfaced via `status()`. Without the
+ * `status()` check below, an init failure left the panel pinned on
+ * `LoadingModel("Starting LiteRT-LM engine…")` forever — the orchestrators still
+ * attached and would fall back to [com.example.ondeviceai.MoveCoachFallback] on the
+ * first coached move, but the user saw an infinite spinner until then.
+ *
+ * Set `CHESS_COACH_DEBUG=1` to keep the panel showing the outcome (Ready/Error)
+ * after load instead of hiding it; by default a successful load collapses the
+ * panel back to Hidden so it doesn't sit empty until the first coached move.
  */
 private fun attachMoveCoach(
     moveCoachManager: MoveCoachManager,
     gameSummaryManager: GameSummaryManager,
 ) {
+    val debug = System.getenv("CHESS_COACH_DEBUG") == "1"
+
     moveCoachManager.setCoachModelState(
         MoveCoachUiState.LoadingModel(
             message = "Downloading Qwen3 0.6B model (first launch only, ~347 MB)…"
@@ -128,9 +137,34 @@ private fun attachMoveCoach(
         runCatching { generator?.warmup() }
             .onFailure { Logger.w("Main") { "LiteRT-LM warmup failed: ${it.message}" } }
 
-        moveCoachManager.setCoachModelState(
-            MoveCoachUiState.LoadingModel(message = "Starting LiteRT-LM engine…")
-        )
+        // Check the real status after warmup so an init failure surfaces in the panel
+        // (and the log, via LitertLmTextGenerator.ensureInitialized) instead of leaving
+        // an infinite spinner. status() runs ensureInitialized() again — cheap if it
+        // already succeeded, and the only path that surfaces initializationFailed if it
+        // didn't.
+        val status = generator?.status()
+        Logger.i("Main") { "LiteRT-LM status after warmup: $status" }
+        when (status) {
+            is AiAvailability.Error -> {
+                moveCoachManager.setCoachModelState(
+                    MoveCoachUiState.Error("LiteRT-LM failed to load: ${status.message}")
+                )
+                return@launch
+            }
+            AiAvailability.Unavailable, AiAvailability.Busy, null -> {
+                moveCoachManager.setCoachModelState(MoveCoachUiState.Unavailable())
+                return@launch
+            }
+            AiAvailability.Available, is AiAvailability.Downloadable, AiAvailability.Downloading -> {
+                if (debug) {
+                    moveCoachManager.setCoachModelState(
+                        MoveCoachUiState.LoadingModel(message = "LiteRT-LM ready.")
+                    )
+                } else {
+                    moveCoachManager.hideWindow()
+                }
+            }
+        }
 
         val contextProvider: suspend () -> AiContextSnapshot = {
             AiContextSnapshot(

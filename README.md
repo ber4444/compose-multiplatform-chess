@@ -316,8 +316,11 @@ fly deploy --config server/fly.toml
 
 # 5. Seed the opening corpus into the live database.
 #    The MiniLM model/vocab paths are the Docker image defaults; set them on the seed run.
+#    The Docker image's `installDist` layout produces `bin/server` (the app) and `lib/*.jar` —
+#    there is no separate seed launcher, so invoke SeedMain directly against that classpath
+#    (equivalent to `./gradlew :server:seed`, which is a JavaExec on the same SeedMain/mainClass).
 fly ssh console --app compose-chess-opening-coach --command \
-  'DATABASE_URL="$DATABASE_URL" COACH_EMBEDDING_MODEL=/opt/models/model.onnx COACH_EMBEDDING_VOCAB=/opt/models/vocab.txt /opt/coach-server/bin/server-seed'
+  'DATABASE_URL="$DATABASE_URL" COACH_EMBEDDING_MODEL=/opt/models/model.onnx COACH_EMBEDDING_VOCAB=/opt/models/vocab.txt java -cp "/opt/coach-server/lib/*" com.example.coachserver.SeedMain'
 # Or, run the seed task locally against the prod DB (requires DATABASE_URL from fly secrets):
 #   DATABASE_URL=… COACH_EMBEDDING_MODEL=model.onnx COACH_EMBEDDING_VOCAB=vocab.txt ./gradlew :server:seed
 
@@ -338,13 +341,12 @@ fly secrets set --app compose-chess-opening-coach \
   COACH_LLM_OUTPUT_USD_PER_MILLION=1.60
 ```
 
-> **Note on `bin/server-seed`:** the `:server:seed` Gradle task runs `SeedMain`, whose `mainClass` is
-> `com.example.coachserver.SeedMain`. Inside the Docker image, the `installDist` distribution
-> generates a `bin/server` script (the app) but **not** a separate `bin/server-seed`. To seed inside
-> Fly, either run the seed JVM directly via `fly ssh console` with the right `mainClass`, or run
-> `./gradlew :server:seed` locally with the prod `DATABASE_URL`. The command above uses the
-> `installDist` runtime classpath; adjust the invocation to match your distribution layout. Do not
-> put database URLs or provider keys in this README or any `.env` file.
+> **Why the seed is a `java -cp … SeedMain` invocation, not a launcher script:** the `:server:seed`
+> Gradle task is a `JavaExec` on `com.example.coachserver.SeedMain` over the same runtime classpath.
+> The Docker image runs `./gradlew :server:installDist`, which produces only `bin/server` (the app
+> launcher, `mainClass = ApplicationKt`) and `lib/*.jar` — there is no `bin/server-seed`, so the seed
+> is run by pointing `java` at `SeedMain` directly. Do not put database URLs or provider keys in this
+> README or any `.env` file.
 
 After deployment, record the verified base URL here once you've confirmed `/health` responds:
 

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "perft-rig": {
+      "type": "local",
+      "command": ["perft-mcp/build/install/perft-mcp/bin/perft-mcp"],
+      "cwd": ".",
+      "enabled": true
+    }
+  }
+}
