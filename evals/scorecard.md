@@ -1,6 +1,6 @@
 # AI coach eval scorecard
 
-> Candidate dataset: 100 total cases, 100 opening cases. Owner hand-review is still required before article publication.
+> Candidate dataset: 100 opening cases (each carries an `eco` field and `expectedConcepts`). Owner hand-review is still required before article publication.
 
 | Route | Cases | Grounding violation | Retry | Fallback | Length violation | Collection |
 |---|---:|---:|---:|---:|---:|---|
