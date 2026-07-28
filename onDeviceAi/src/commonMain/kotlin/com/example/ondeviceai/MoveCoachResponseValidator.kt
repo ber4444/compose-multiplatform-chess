@@ -30,7 +30,7 @@ object MoveCoachResponseValidator {
     }
 
     fun validate(rawText: String, request: MoveCoachRequest): Result {
-        val text = rawText.trim()
+        val text = normalize(rawText)
         if (text.isEmpty()) return Result.Invalid("empty response")
         if (text.length > MoveCoachPromptBuilder.MAX_OUTPUT_CHARS) {
             return Result.Invalid("response exceeds ${MoveCoachPromptBuilder.MAX_OUTPUT_CHARS} chars")
@@ -59,6 +59,36 @@ object MoveCoachResponseValidator {
         }
         return Result.Valid(text)
     }
+
+    /**
+     * Clean the model's few-shot echo before validating/displaying. Small models often parrot the
+     * prompt's labeled examples ("Good: \"…\"" / "Bad: \"…\"" — see [MoveCoachPromptBuilder]); drop a
+     * leading Good:/Bad: label and unwrap a fully quoted sentence on each line, then rejoin into one
+     * blurb. Plain string ops, no regex, so behavior is identical on every JVM/JS/Wasm/Native/Android
+     * runtime (and can't hit the ICU-vs-JVM regex divergence).
+     */
+    internal fun normalize(rawText: String): String =
+        rawText.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .map { unwrapQuotes(stripFewShotLabel(it)) }
+            .filter { it.isNotEmpty() }
+            .joinToString(" ")
+            .trim()
+
+    private fun stripFewShotLabel(line: String): String {
+        for (label in FEW_SHOT_LABELS) {
+            if (line.regionMatches(0, label, 0, label.length, ignoreCase = true)) {
+                return line.substring(label.length).trim()
+            }
+        }
+        return line
+    }
+
+    private fun unwrapQuotes(s: String): String =
+        if (s.length >= 2 && s.first() == '"' && s.last() == '"') s.substring(1, s.length - 1).trim() else s
+
+    private val FEW_SHOT_LABELS = listOf("Good:", "Bad:")
 
     sealed interface Result {
         data class Valid(val text: String) : Result

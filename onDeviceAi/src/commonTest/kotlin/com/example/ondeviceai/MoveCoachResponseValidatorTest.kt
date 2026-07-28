@@ -105,4 +105,34 @@ class MoveCoachResponseValidatorTest {
         )
         assertIs<MoveCoachResponseValidator.Result.Valid>(v)
     }
+
+    @Test
+    fun `strips echoed Good- prefix and surrounding quotes`() {
+        val v = MoveCoachResponseValidator.validate(
+            "Good: \"Nf3 develops the knight and controls the center.\"",
+            request,
+        )
+        assertIs<MoveCoachResponseValidator.Result.Valid>(v)
+        assertEquals("Nf3 develops the knight and controls the center.", v.text)
+    }
+
+    @Test
+    fun `joins multi-line labeled echo into clean prose`() {
+        val v = MoveCoachResponseValidator.validate(
+            "Good: \"Nf3 develops the knight.\"\nBad: \"It controls the center.\"",
+            request,
+        )
+        assertIs<MoveCoachResponseValidator.Result.Valid>(v)
+        assertEquals("Nf3 develops the knight. It controls the center.", v.text)
+    }
+
+    @Test
+    fun `leaves an unlabeled response unchanged`() {
+        val v = MoveCoachResponseValidator.validate(
+            "Nf3 develops the knight toward the center.",
+            request,
+        )
+        assertIs<MoveCoachResponseValidator.Result.Valid>(v)
+        assertEquals("Nf3 develops the knight toward the center.", v.text)
+    }
 }
