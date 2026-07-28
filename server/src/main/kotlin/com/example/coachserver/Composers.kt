@@ -82,18 +82,39 @@ class LlmComposer(
     private fun userPrompt(request: OpeningExplainRequest, passages: List<Passage>): String = buildString {
         appendLine("ECO: ${request.eco ?: "unknown"}")
         appendLine("Moves: ${request.movesSan.takeLast(12).joinToString(" ")}")
-        appendLine("Retrieved sources:")
+        appendLine("Retrieved sources (cite these by their bracketed id):")
         passages.forEach { appendLine("[${it.sourceId}] ${it.title}: ${it.text}") }
-        append("Explain the opening in 2-3 short sentences using only these sources. Cite an exact [source-id] in every sentence.")
+        appendLine()
+        appendLine("Write EXACTLY 2 or 3 sentences (no more, no less). Total length under 280 characters.")
+        appendLine("Every sentence MUST end with a bracketed source id like [${passages.first().sourceId}].")
+        appendLine("Use ONLY facts from the sources above. Do not invent moves, evaluations, or threats.")
+        appendLine()
+        appendLine("Example of the required format:")
+        appendLine(
+            passages.first().let { p ->
+                val focus = p.text.substringBefore('.').take(60)
+                "This opening emphasizes $focus [${p.sourceId}]. " +
+                    (passages.getOrNull(1)?.let { q ->
+                        val qfocus = q.text.substringBefore('.').take(60)
+                        "It also matters because of $qfocus [${q.sourceId}]."
+                    } ?: "Piece development and king safety round out the plan [${p.sourceId}].")
+            }
+        )
     }
 
     companion object {
         private const val ID = "llm-v1"
         private const val MAX_PROVIDER_INPUT_CHARS = 8_000
-        private const val MAX_OUTPUT_TOKENS = 120
+
+        // 300 chars ~= 75 tokens; cap at 90 to allow headroom without inviting a long paragraph
+        // past OpeningExplanationValidator.MAX_OUTPUT_CHARS (300).
+        private const val MAX_OUTPUT_TOKENS = 90
+
         private const val SYSTEM_PROMPT =
-            "You are a chess opening coach. Use only the supplied passages. " +
-                "Do not mention engine depth, ratings, or unsupported claims."
+            "You are a chess opening coach. You MUST follow the output format exactly: " +
+                "2 or 3 sentences, each ending with a bracketed source id like [source-1], " +
+                "under 280 characters total. Use ONLY the supplied sources; never invent moves, " +
+                "engine evaluations, ratings, or threats. The bracketed id is mandatory in every sentence."
     }
 }
 
@@ -144,6 +165,16 @@ object OpeningExplanationValidator {
     }
 }
 
+/**
+ * Pluggable HTTP transport for [OpenAiCompatibleLlmClient]. Takes the serialized JSON request body
+ * and returns the response body string. Throws on network/transport failure (the composer catches
+ * and falls back). In production this is backed by [java.net.http.HttpClient]; in tests a lambda
+ * fake acts as the "engine" — no mocking library needed.
+ */
+fun interface LlmHttpTransport {
+    fun send(requestBody: String): String
+}
+
 class OpenAiCompatibleLlmClient(
     private val apiKey: String,
     private val endpoint: URI,
@@ -151,6 +182,7 @@ class OpenAiCompatibleLlmClient(
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val requestTimeout: java.time.Duration = java.time.Duration.ofSeconds(5),
+    private val transport: LlmHttpTransport? = null,
 ) : LlmClient {
     override fun generate(systemPrompt: String, userPrompt: String, maxOutputTokens: Int): String? {
         val payload = ChatRequest(
@@ -159,19 +191,25 @@ class OpenAiCompatibleLlmClient(
             temperature = 0.2,
             maxTokens = maxOutputTokens,
         )
-        val request = HttpRequest.newBuilder(endpoint)
-            .timeout(requestTimeout)
-            .header("Authorization", "Bearer $apiKey")
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(json.encodeToString(payload)))
-            .build()
-        val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-        if (response.statusCode() !in 200..299) return null
-        return json.decodeFromString<ChatResponse>(response.body()).choices.firstOrNull()?.message?.content
+        val body = json.encodeToString(payload)
+        val responseBody = if (transport != null) {
+            transport.send(body)
+        } else {
+            val request = HttpRequest.newBuilder(endpoint)
+                .timeout(requestTimeout)
+                .header("Authorization", "Bearer $apiKey")
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build()
+            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            if (response.statusCode() !in 200..299) return null
+            response.body()
+        }
+        return json.decodeFromString<ChatResponse>(responseBody).choices.firstOrNull()?.message?.content
     }
 
     @Serializable
-    private data class ChatRequest(
+    data class ChatRequest(
         val model: String,
         val messages: List<ChatMessage>,
         val temperature: Double,
@@ -179,11 +217,29 @@ class OpenAiCompatibleLlmClient(
     )
 
     @Serializable
-    private data class ChatMessage(val role: String, val content: String)
+    data class ChatMessage(val role: String, val content: String)
 
     @Serializable
-    private data class ChatResponse(val choices: List<Choice> = emptyList())
+    data class ChatResponse(val choices: List<Choice> = emptyList())
 
     @Serializable
-    private data class Choice(val message: ChatMessage)
+    data class Choice(val message: ChatMessage)
+
+    companion object {
+        /**
+         * Builds an [OpenAiCompatibleLlmClient] whose HTTP layer is a pluggable transport, bypassing
+         * the real [java.net.http.HttpClient]. Use in tests to inject a fake HTTP "engine" without a
+         * mocking library: the lambda receives the serialized request body and returns the response
+         * body (or throws).
+         */
+        fun forTesting(
+            model: String = "test-model",
+            transport: LlmHttpTransport,
+        ): OpenAiCompatibleLlmClient = OpenAiCompatibleLlmClient(
+            apiKey = "test-key",
+            endpoint = URI("https://test.local/chat/completions"),
+            model = model,
+            transport = transport,
+        )
+    }
 }

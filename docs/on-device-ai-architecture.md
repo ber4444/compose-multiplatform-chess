@@ -52,7 +52,7 @@ When the model is unavailable (slow device, Apple Intelligence off, validation f
 - "Qh5 delivers checkmate."
 - "O-O castles kingside, tucking the king to safety."
 
-This fallback ensures that devices without a local model (like Desktop and Web) still display a functional coach panel.
+This fallback ensures the panel always shows something useful when no local model is available — on JS (the React Native compile target, which has no WebGPU/workers), on any platform when the on-device runtime is gated off (Desktop `CHESS_ENABLE_COACH=1`, Wasm `?coach=1`), when a model download fails, or when validation rejects the model's output twice. Desktop, Wasm, Android, and iOS all have real on-device runtimes behind the `OnDeviceTextGenerator` seam (LiteRT-LM, Cactus, Foundation Models respectively); the fallback is the last-resort path, not the Desktop/Web default it was before the LiteRT-LM landing.
 
 ## Routing Policy
 

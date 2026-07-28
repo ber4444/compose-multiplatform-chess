@@ -104,7 +104,16 @@ class LitertLmTextGenerator(
             }
 
             if (output.isNotEmpty()) {
-                emit(AiTokenOrFinal.Token(output.toString()))
+                // Qwen3 (the default .litertlm model) emits <think>…</think>
+                // chain-of-thought blocks before its answer. Strip them so the
+                // Move Coach never shows internal deliberation to the user — and
+                // so downstream validation (MoveCoachResponseValidator) judges
+                // only the delivered answer, not the reasoning. Matches both a
+                // closed <think>…</think> and an unterminated trailing <think>….
+                val cleaned = stripThinkBlocks(output.toString())
+                if (cleaned.isNotEmpty()) {
+                    emit(AiTokenOrFinal.Token(cleaned))
+                }
             }
             // getTokenCount() is @ExperimentalApi in litertlm-jvm and BenchmarkInfo is
             // gated too; we avoid both and derive a rough token count from output length
@@ -158,8 +167,41 @@ class LitertLmTextGenerator(
     )
 
     companion object {
-        const val DEFAULT_CONTEXT_SIZE = 2048
+        /**
+         * Must be <= the model's KV-cache capacity. The Qwen3-0.6B-int4 model
+         * (`qwen3_0.6b_q4_block32_ekv1280.litertlm`) exposes `max_num_tokens: 1280`
+         * in its metadata — the `ekv1280` in the filename is the extended KV-cache
+         * size. Requesting more (the old default of 2048) compiles fine but the
+         * native runtime traps with SIGTRAP (JVM exit 133) once a generation's
+         * prompt + `<think>` chain-of-thought + output crosses 1280 tokens —
+         * typically on checkmate/mate-in-N cases that trigger long reasoning.
+         * The trap is a C++ CHECK inside litertlm-jvm, so it can't be caught by
+         * Kotlin's `try/catch (Throwable)` and kills the whole driver. 1024
+         * leaves headroom under the 1280 cap while still fitting the Move Coach
+         * prompt + a full paraphrase.
+         */
+        const val DEFAULT_CONTEXT_SIZE = 1024
         const val DEFAULT_TOP_K = 40
         const val DEFAULT_TOP_P = 1.0
+
+        // Matches <think>…</think> (case-insensitive, DOTALL so it spans newlines).
+        // LiteRT-LM's Qwen3 model emits chain-of-thought before its answer; the
+        // Move Coach contract wants only the delivered answer, so [generate]
+        // strips these blocks before emitting. The unterminated variant catches
+        // a <think> the model opened but never closed (generation cut off).
+        private val THINK_BLOCK = Regex("(?is)<think>.*?</think>")
+        private val THINK_UNTERMINATED = Regex("(?is)<think>.*")
+
+        /**
+         * Remove `<think>…</think>` chain-of-thought blocks from [text]. Handles
+         * both closed blocks and an unterminated trailing `<think>`. Returns the
+         * cleaned text, trimmed. If no `<think>` is present, returns the text
+         * trimmed. Public on the companion so it can be unit-tested directly.
+         */
+        fun stripThinkBlocks(text: String): String {
+            var cleaned = THINK_BLOCK.replace(text, "")
+            cleaned = THINK_UNTERMINATED.replace(cleaned, "")
+            return cleaned.trim()
+        }
     }
 }

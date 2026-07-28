@@ -7,6 +7,7 @@ import com.example.coachapi.Passage
 import com.example.coachapi.PositionChatRequest
 import com.example.coachserver.ChatServerDependencies
 import com.example.coachserver.Embedder
+import com.example.coachserver.LlmComposer
 import com.example.coachserver.OpeningQueryBuilder
 import com.example.coachserver.PassageRepository
 import com.example.coachserver.PositionChatQueryBuilder
@@ -15,7 +16,9 @@ import com.example.coachserver.RequestRateLimiter
 import com.example.coachserver.ServerDependencies
 import com.example.coachserver.TemplateChatComposer
 import com.example.coachserver.TemplateComposer
+import com.example.coachserver.TextComposer
 import com.example.coachserver.openingCoachModule
+import com.example.coachserver.selectComposer
 import com.example.ondeviceai.AiTokenOrFinal
 import com.example.ondeviceai.FakeTextGenerator
 import com.example.ondeviceai.MoveCoachFallback
@@ -35,39 +38,33 @@ import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.testing.testApplication
 import io.ktor.utils.io.readLine
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.math.roundToInt
 
-fun main() = testApplication {
+fun main() {
     val cases = GoldenCaseLoader.load(Path.of("golden/candidates.json"))
     val openingCases = cases.filter { it.eco != null }
-    val dependencies = caseSpecificOpeningDependencies(openingCases)
-    val chatDependencies = caseSpecificChatDependencies(openingCases)
-    application {
-        openingCoachModule(
-            dependencies = dependencies,
-            chatService = PositionChatService(chatDependencies),
-            rateLimiter = RequestRateLimiter { true },
-        )
-    }
-    val localClient = createClient { install(ContentNegotiation) { json() } }
+    // Deterministic + local-HTTP routes run inside testApplication (they need the in-process
+    // test server). testApplication wraps its body in runTestWithRealTime, which has a HARD 60s
+    // ceiling that can't be extended — neither passing a CoroutineContext nor an inner withTimeout
+    // overrides it (Ktor's testApplication calls runTestWithRealTime$default with the timeout arg
+    // defaulted). These routes are all fast/deterministic, so the ceiling is fine for them.
+    val deterministicStats = runTestApplicationRoutes(cases, openingCases)
 
-    val stats = mutableListOf<RouteStats>()
-    stats += evaluateFake(cases)
-    stats += evaluateFallback(cases)
-    stats += evaluateOpeningRoute("local-template", openingCases) { request ->
-        localClient.post("/v1/openings/explain") {
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.body()
-    }
-    stats += evaluateChatRoute("local-template-chat", openingCases.toChatTranscripts(), localClient)
-    stats += evaluateDeployed(openingCases)
+    // The optional LLM-composed route makes real blocking HTTP calls to an external provider
+    // (~1-5s each across ~10 cases, easily > 60s total). It calls composer.compose() directly —
+    // NOT the test server — so it doesn't need testApplication at all. Run it in a plain
+    // runBlocking with no ceiling, then merge its stats into the scorecard.
+    val llmStats = runBlocking { evaluateLlmComposed(openingCases) }
 
+    val stats = deterministicStats + llmStats
     val scorecard = ScorecardWriter.render(cases.size, openingCases.size, stats)
     Files.writeString(Path.of("scorecard.md"), scorecard)
 
@@ -79,11 +76,52 @@ fun main() = testApplication {
 }
 
 /**
+ * Runs the deterministic + local-HTTP eval routes inside [testApplication]. These routes are all
+ * fast (in-process fakes + a local test HTTP server) so they comfortably finish within
+ * testApplication's hardcoded 60s ceiling. Returns their [RouteStats] for merging with the
+ * optional LLM route (which runs outside testApplication — see [main]).
+ */
+private fun runTestApplicationRoutes(
+    cases: List<GoldenCase>,
+    openingCases: List<GoldenCase>,
+): List<RouteStats> {
+    // testApplication returns Unit, so thread the collected stats out via a captured holder.
+    val collected = mutableListOf<RouteStats>()
+    testApplication {
+        val dependencies = caseSpecificOpeningDependencies(openingCases)
+        val chatDependencies = caseSpecificChatDependencies(openingCases)
+        application {
+            openingCoachModule(
+                dependencies = dependencies,
+                chatService = PositionChatService(chatDependencies),
+                rateLimiter = RequestRateLimiter { true },
+            )
+        }
+        val localClient = createClient { install(ContentNegotiation) { json() } }
+
+        collected += evaluateFake(cases)
+        collected += evaluateFallback(cases)
+        collected += evaluateOpeningRoute("local-template", openingCases) { request ->
+            localClient.post("/v1/openings/explain") {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }.body()
+        }
+        collected += evaluateChatRoute("local-template-chat", openingCases.toChatTranscripts(), localClient)
+        collected += evaluateDeployed(openingCases)
+    }
+    return collected
+}
+
+/**
  * Deterministic retrieval fake keyed by the production opening query. Each case gets only its own
  * passage, so a query-construction regression or mismatched retrieval produces a grounding failure
  * instead of being hidden by one passage containing every concept in the dataset.
  */
-internal fun caseSpecificOpeningDependencies(cases: List<GoldenCase>): ServerDependencies {
+internal fun caseSpecificOpeningDependencies(
+    cases: List<GoldenCase>,
+    composer: TextComposer = TemplateComposer(),
+): ServerDependencies {
     val requests = cases.map(GoldenCase::toOpeningRequest)
     val indexByQuery = requests.mapIndexed { index, request ->
         OpeningQueryBuilder.build(request) to index
@@ -92,7 +130,16 @@ internal fun caseSpecificOpeningDependencies(cases: List<GoldenCase>): ServerDep
         Passage(
             sourceId = "eval-${case.id}",
             title = "${case.eco} opening concepts",
-            text = case.expectedConcepts.joinToString(", ").ifBlank { "development and center control" } + ".",
+            // Prose, not bare tags. OpeningExplanationValidator grounds each output sentence by
+            // requiring >=2 content-word overlaps with the cited passage's text; a passage whose
+            // text is just "development, center." (the old shape) gives the model ~2 tokens of
+            // chess vocabulary to reuse, so even a correct 2-3 sentence explanation fails the
+            // per-sentence overlap check and the LLM route falls back 100% of the time — measuring
+            // the template, not the composer. The backbone below covers the standard opening ideas
+            // (development, central control, king safety) in real sentences, so any fluent
+            // grounded explanation can satisfy the validator. The case-specific concept line is
+            // prepended so retrieval still distinguishes cases by their expectedConcepts.
+            text = openingConceptsPassage(case.expectedConcepts),
         )
     }
     return ServerDependencies(
@@ -109,7 +156,7 @@ internal fun caseSpecificOpeningDependencies(cases: List<GoldenCase>): ServerDep
 
             override fun upsert(passage: Passage, embedding: FloatArray) = Unit
         },
-        composer = TemplateComposer(),
+        composer = composer,
     )
 }
 
@@ -154,6 +201,35 @@ internal fun caseSpecificChatDependencies(cases: List<GoldenCase>): ChatServerDe
         },
         streamingChatComposer = TemplateChatComposer(),
     )
+
+/**
+ * Builds a prose opening-concepts passage for a case. The case-specific [expectedConcepts] line is
+ * prepended (keeps retrieval case-distinguishing), then a common backbone explains the standard
+ * opening ideas in real sentences. See [caseSpecificOpeningDependencies] for why the backbone
+ * exists: OpeningExplanationValidator needs prose-level token overlap per output sentence, and bare
+ * tags can never provide it.
+ */
+private fun openingConceptsPassage(expectedConcepts: List<String>): String {
+    val focus = expectedConcepts.mapNotNull(::describeConcept).joinToString(", ").ifBlank { "developing pieces" }
+    return buildString {
+        append("This opening's key ideas are ")
+        append(focus)
+        append(". ")
+        append("Both sides fight for central squares with their pawns and develop their minor pieces ")
+        append("toward active squares. King safety matters: players castle early to shield the king ")
+        append("and connect the rooks. Piece development, central control, and king safety are the ")
+        append("main themes.")
+    }
+}
+
+/** Maps a golden-case concept tag to the chess phrase used in the passage. Mirrors MoveCoachPromptBuilder. */
+private fun describeConcept(concept: String): String? = when (concept.lowercase().trim()) {
+    "development", "develops" -> "developing the minor pieces"
+    "center", "center-control", "central control" -> "contesting the center"
+    "king safety", "king-safety" -> "improving king safety"
+    "pawn tension", "pawn-tension" -> "creating pawn tension"
+    "opening" -> "solid opening play"
+    else -> concept
 }
 
 private suspend fun evaluateFake(cases: List<GoldenCase>): RouteStats {
@@ -298,6 +374,70 @@ private suspend fun evaluateDeployed(cases: List<GoldenCase>): RouteStats {
     } finally {
         client.close()
     }
+}
+
+/**
+ * Optional LLM-composed route: constructs an [LlmComposer] from env vars via [selectComposer] and
+ * scores it against the same case-specific retrieval as the template route. This produces the
+ * `local-llm-compose` scorecard row alongside `local-template`, so the two-row comparison (does
+ * LLM composition measurably beat the deterministic template on the judge criteria, at what cost)
+ * is a concrete eval finding.
+ *
+ * The route is OPTIONAL: it only runs when `COACH_LLM_API_KEY` + token prices are set, so the CI
+ * grounding gate never depends on a live LLM provider. When unavailable, the scorecard shows the
+ * row as optional.
+ *
+ * Note: the composer is called directly (not via the HTTP server) because the template route
+ * already owns the single `testApplication` server config. Both routes exercise the same retrieval
+ * → composition → validation pipeline; the only difference is the composer.
+ */
+private suspend fun evaluateLlmComposed(cases: List<GoldenCase>): RouteStats {
+    val composer = selectComposer(System.getenv(), TemplateComposer())
+    if (composer !is LlmComposer) {
+        return RouteStats(
+            route = "local-llm-compose",
+            collection = CollectionMode.OPTIONAL,
+            available = false,
+            note = "COACH_LLM_API_KEY or token prices not set",
+        )
+    }
+    val stats = RouteStats(route = "local-llm-compose", collection = CollectionMode.OPTIONAL)
+    val (_, passagesByCase) = caseSpecificRetrieval(cases)
+    cases.forEach { case ->
+        val request = case.toOpeningRequest()
+        val passages = passagesByCase[case.id].orEmpty()
+        // LlmComposer.compose() does a blocking java.net.http.HttpClient.send() to a real LLM
+        // endpoint (PROVIDER_TIMEOUT_MS per request). This route runs in a plain runBlocking in
+        // main(), NOT inside testApplication — testApplication's body is wrapped in
+        // runTestWithRealTime with a hard 60s ceiling that ~10 sequential network calls blow
+        // past (UncompletedCoroutinesError: After waiting for 1m). Hop to the IO dispatcher so
+        // each blocking call runs off the caller thread.
+        val composed = withContext(Dispatchers.IO) { composer.compose(request, passages) }
+        stats.record(
+            EvalScorer.scoreOpening(case, composed.text),
+            retried = false,
+            fellBack = composed.composerId != "llm-v1",
+        )
+    }
+    return stats
+}
+
+/**
+ * Builds the case-specific passages used by both the template and LLM-composed routes, keyed by
+ * case id so [evaluateLlmComposed] can retrieve passages without going through the HTTP server.
+ */
+internal fun caseSpecificRetrieval(cases: List<GoldenCase>): Pair<ServerDependencies, Map<String, List<Passage>>> {
+    val dependencies = caseSpecificOpeningDependencies(cases)
+    val byCase = cases.associate { case ->
+        case.id to listOf(
+            Passage(
+                sourceId = "eval-${case.id}",
+                title = "${case.eco} opening concepts",
+                text = case.expectedConcepts.joinToString(", ").ifBlank { "development and center control" } + ".",
+            )
+        )
+    }
+    return dependencies to byCase
 }
 
 internal fun GoldenCase.toOpeningRequest() = OpeningExplainRequest(

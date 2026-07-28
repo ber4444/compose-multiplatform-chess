@@ -169,30 +169,7 @@ fun defaultDependencies(environment: Map<String, String>): ServerDependencies {
         vocabPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_VOCAB")),
     )
     val template = TemplateComposer()
-    val composer = environment["COACH_LLM_API_KEY"]?.takeIf(String::isNotBlank)?.let { apiKey ->
-        val inputPrice = environment["COACH_LLM_INPUT_USD_PER_MILLION"]?.toDoubleOrNull()
-        val outputPrice = environment["COACH_LLM_OUTPUT_USD_PER_MILLION"]?.toDoubleOrNull()
-        if (inputPrice == null || outputPrice == null || inputPrice < 0.0 || outputPrice < 0.0) {
-            return@let template
-        }
-        LlmComposer(
-            client = OpenAiCompatibleLlmClient(
-                apiKey = apiKey,
-                endpoint = URI(environment["COACH_LLM_API_URL"] ?: "https://api.openai.com/v1/chat/completions"),
-                model = environment["COACH_LLM_MODEL"] ?: "gpt-4.1-mini",
-                httpClient = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofMillis(PROVIDER_TIMEOUT_MS))
-                    .build(),
-                requestTimeout = Duration.ofMillis(PROVIDER_TIMEOUT_MS),
-            ),
-            fallback = template,
-            budget = ProviderCostBudget(
-                maxUsdCents = 0.2,
-                inputUsdPerMillionTokens = inputPrice,
-                outputUsdPerMillionTokens = outputPrice,
-            ),
-        )
-    } ?: template
+    val composer = selectComposer(environment, template)
     return ServerDependencies(embedder, PostgresPassageRepository(dataSource), composer)
 }
 
@@ -216,6 +193,9 @@ fun defaultChatDependencies(environment: Map<String, String>): PositionChatServi
         if (inputPrice == null || outputPrice == null || inputPrice < 0.0 || outputPrice < 0.0) {
             return@let template
         }
+        val maxUsdCents = environment["COACH_LLM_MAX_USD_CENTS"]?.toDoubleOrNull()
+            ?.takeIf { it.isFinite() && it >= 0.0 }
+            ?: DEFAULT_LLM_MAX_USD_CENTS
         LlmChatComposer(
             client = OpenAiCompatibleStreamingLlmClient(
                 apiKey = apiKey,
@@ -228,7 +208,7 @@ fun defaultChatDependencies(environment: Map<String, String>): PositionChatServi
             ),
             fallback = template,
             budget = ProviderCostBudget(
-                maxUsdCents = 0.2,
+                maxUsdCents = maxUsdCents,
                 inputUsdPerMillionTokens = inputPrice,
                 outputUsdPerMillionTokens = outputPrice,
             ),
@@ -236,6 +216,52 @@ fun defaultChatDependencies(environment: Map<String, String>): PositionChatServi
     } ?: template
     return PositionChatService(
         ChatServerDependencies(embedder, PostgresPassageRepository(dataSource), composer),
+    )
+}
+
+/**
+ * Selects the LLM text composer from environment variables. Returns the deterministic
+ * [TemplateComposer] (the `fallback`) when `COACH_LLM_API_KEY` is absent or when the token prices
+ * needed to enforce the cost budget are missing/negative. Otherwise constructs an [LlmComposer]
+ * wrapping an OpenAI-compatible HTTP client (base URL, model, key from env — provider-shaped, not
+ * tied to any vendor). Exposed for unit testing the env-gating without a database.
+ */
+fun selectComposer(
+    environment: Map<String, String>,
+    fallback: TemplateComposer,
+): TextComposer {
+    val apiKey = environment["COACH_LLM_API_KEY"]?.takeIf(String::isNotBlank) ?: return fallback
+    val inputPrice = environment["COACH_LLM_INPUT_USD_PER_MILLION"]?.toDoubleOrNull()
+    val outputPrice = environment["COACH_LLM_OUTPUT_USD_PER_MILLION"]?.toDoubleOrNull()
+    if (inputPrice == null || outputPrice == null || inputPrice < 0.0 || outputPrice < 0.0) {
+        return fallback
+    }
+    // Per-run cost cap, in USD cents (0.2 = 0.2 cents = $0.002). The default keeps a stray API
+    // key from spending real money, but it trips partway through a real eval run — at gpt-4.1-mini
+    // prices (~$0.40/$1.60 per 1M tokens) 10 cases land right at the cap, so the tail of cases
+    // fall back to the template and pollute the local-llm-compose row with mixed outputs. Override
+    // via COACH_LLM_MAX_USD_CENTS (e.g. 5 = $0.05) for a clean full run.
+    val maxUsdCents = environment["COACH_LLM_MAX_USD_CENTS"]?.toDoubleOrNull()
+        ?.takeIf { it.isFinite() && it >= 0.0 }
+        ?: DEFAULT_LLM_MAX_USD_CENTS
+    return LlmComposer(
+        client = OpenAiCompatibleLlmClient(
+            apiKey = apiKey,
+            endpoint = URI(environment["COACH_LLM_API_URL"] ?: "https://api.openai.com/v1/chat/completions"),
+            model = environment["COACH_LLM_MODEL"] ?: "gpt-4.1-mini",
+            httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofMillis(PROVIDER_TIMEOUT_MS))
+                .build(),
+            requestTimeout = Duration.ofMillis(PROVIDER_TIMEOUT_MS),
+        ),
+        fallback = fallback,
+        budget = ProviderCostBudget(
+            maxUsdCents = maxUsdCents,
+            inputUsdPerMillionTokens = inputPrice,
+            outputUsdPerMillionTokens = outputPrice,
+        ),
+    )
+}
     )
 }
 
@@ -290,6 +316,9 @@ private const val MAX_REQUEST_BYTES = 16 * 1024L
 private const val PROVIDER_TIMEOUT_MS = 5_000L
 // Chat streams token-by-token, so it gets a longer per-request ceiling than the one-shot explainer.
 private const val CHAT_PROVIDER_TIMEOUT_MS = 30_000L
+
+/** Default LLM cost cap per run, in USD cents ($0.002). Overridable via COACH_LLM_MAX_USD_CENTS. */
+private const val DEFAULT_LLM_MAX_USD_CENTS = 0.2
 private const val FLY_CLIENT_IP_HEADER = "Fly-Client-IP"
 private const val CLEANUP_INTERVAL = 256
 private val REQUEST_JSON = Json { ignoreUnknownKeys = false }
