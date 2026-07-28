@@ -19,6 +19,17 @@ data class MoveCoachRequest(
     val policy: AiRoutePolicy = AiRoutePolicies.moveCoachOffline,
 )
 
+import kotlinx.serialization.Serializable
+
+@Serializable
+@Generable
+data class MoveCoachResponse(
+    @Guide("A short, punchy headline for the move.")
+    val headline: String,
+    @Guide("The full explanation of the move.")
+    val explanation: String
+)
+
 data class MoveCoachExplanation(
     val headline: String,
     val explanation: String,

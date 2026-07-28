@@ -4,6 +4,6 @@ import com.example.ondeviceai.cactus.StructuredOutputRulesQaAnswerer
 
 actual fun defaultRulesQaAnswerer(lookupTool: RuleLookupTool): RulesQaAnswerer? =
     if (isCactusInitialized()) StructuredOutputRulesQaAnswerer(
-        factory = defaultOnDeviceTextGeneratorFactory(),
+        executor = VendorRouteExecutor(),
         lookupTool = lookupTool,
     ) else null

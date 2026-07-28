@@ -5,6 +5,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
+    id("com.google.devtools.ksp") version "2.3.20-1.0.29"
     `maven-publish`
 }
 
@@ -138,6 +139,17 @@ kotlin {
             // ~400 MB) with built-in HF download, and handles tokenization +
             // KV cache + generation internally.
             implementation("com.cactuscompute:cactus:1.4.1-beta")
+            
+            // Phase 2 dependencies
+            implementation("com.google.mlkit:genai-prompt:1.0.0-beta3")
+            implementation("com.google.firebase:firebase-ai-logic")
+            implementation("com.google.firebase:firebase-ai-ondevice:16.0.0-beta03")
+            implementation("com.google.firebase:firebase-appcheck-playintegrity")
+            implementation("com.google.firebase:firebase-appcheck-debug")
+        }
+        
+        dependencies {
+            ksp("com.google.mlkit:genai-schema-compiler:1.0.0-alpha1")
         }
 
         val desktopMain by getting {

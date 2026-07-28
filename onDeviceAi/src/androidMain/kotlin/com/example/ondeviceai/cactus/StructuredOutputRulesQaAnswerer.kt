@@ -10,6 +10,9 @@ import com.example.ondeviceai.RulesQaAnswerer
 import com.example.ondeviceai.RulesQaModelOutput
 import kotlinx.coroutines.CancellationException
 
+import com.example.ondeviceai.VendorRoute
+import com.example.ondeviceai.VendorRouteExecutor
+
 /**
  * Android rules Q&A uses structured-output prompting, not native function calling.
  *
@@ -18,12 +21,12 @@ import kotlinx.coroutines.CancellationException
  * avoids presenting llama.cpp prompt choreography as a tool-calling API.
  */
 class StructuredOutputRulesQaAnswerer(
-    private val factory: OnDeviceTextGeneratorFactory,
+    private val executor: VendorRouteExecutor,
     private val lookupTool: RuleLookupTool,
 ) : RulesQaAnswerer {
 
     override suspend fun answer(question: String): RulesQaModelOutput {
-        val generator = factory.create() ?: return ungrounded("")
+        val generator = executor.execute(VendorRoute.CactusLocal()) ?: return ungrounded("")
         return try {
             if (generator.status() !is AiAvailability.Available) return ungrounded("")
 

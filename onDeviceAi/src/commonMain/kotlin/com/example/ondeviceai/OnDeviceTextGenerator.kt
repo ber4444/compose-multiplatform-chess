@@ -39,9 +39,6 @@ interface OnDeviceTextGenerator {
     suspend fun close()
 }
 
-fun interface OnDeviceTextGeneratorFactory {
-    suspend fun create(): OnDeviceTextGenerator?
-}
 
 object UnsupportedTextGenerator : OnDeviceTextGenerator {
     override suspend fun status(): AiAvailability = AiAvailability.Unavailable
@@ -52,7 +49,6 @@ object UnsupportedTextGenerator : OnDeviceTextGenerator {
     override suspend fun close() = Unit
 }
 
-expect fun defaultOnDeviceTextGeneratorFactory(): OnDeviceTextGeneratorFactory
 
 /** Multiplatform wall-clock ms (no kotlinx-datetime dep — avoids export headaches on iOS). */
 internal expect fun defaultNowMs(): Long

@@ -36,7 +36,7 @@ class DefaultOpeningExplainer(
     override suspend fun explain(request: OpeningExplainRequest): OpeningExplainerResult {
         return when (val decision = AiRoutePolicyDecider.decide(AiRoutePolicies.openingExplainer, contextProvider())) {
             AiRoutePolicyDecider.Decision.RunCloud -> explainInCloud(request)
-            AiRoutePolicyDecider.Decision.RunOnDevice -> fallback(FALLBACK_NO_OPENING_MODEL)
+            is AiRoutePolicyDecider.Decision.Route -> fallback(FALLBACK_NO_OPENING_MODEL)
             is AiRoutePolicyDecider.Decision.FallBack -> fallback(decision.reason)
         }
     }

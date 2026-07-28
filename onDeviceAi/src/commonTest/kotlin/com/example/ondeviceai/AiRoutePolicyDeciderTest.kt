@@ -115,7 +115,7 @@ class AiRoutePolicyDeciderTest {
             AiRoutePolicies.moveCoachOffline,
             moveCoachContext,
         )
-        assertEquals(AiRoutePolicyDecider.Decision.RunOnDevice, decision)
+        assertIs<AiRoutePolicyDecider.Decision.Route>(decision)
     }
 
     @Test
@@ -179,8 +179,7 @@ class AiRoutePolicyDeciderTest {
             isAppForegrounded = true,
             userSetting = AiUserSetting.ALLOW_CLOUD,
         )
-        assertEquals(
-            AiRoutePolicyDecider.Decision.RunOnDevice,
+        assertIs<AiRoutePolicyDecider.Decision.Route>(
             AiRoutePolicyDecider.decide(policy, context),
         )
     }
@@ -259,8 +258,7 @@ class AiRoutePolicyDeciderTest {
             isAppForegrounded = true,
             userSetting = AiUserSetting.ALLOW_CLOUD,
         )
-        assertEquals(
-            AiRoutePolicyDecider.Decision.RunOnDevice,
+        assertIs<AiRoutePolicyDecider.Decision.Route>(
             AiRoutePolicyDecider.decide(policy, context),
         )
     }

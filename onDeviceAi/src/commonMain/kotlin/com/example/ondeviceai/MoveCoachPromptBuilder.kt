@@ -11,7 +11,12 @@ object MoveCoachPromptBuilder {
         appendLine("Good: \"Nf3 develops the knight and controls the central e5/d4 squares.\"")
         appendLine("Good: \"Bb5 pins the knight to the king and prepares to win material on the next move.\"")
         appendLine("Bad: \"This is a good move that improves the position.\"")
-    }
+        appendLine()
+        appendLine("Respond with a valid JSON object matching this schema:")
+        appendLine("{")
+        appendLine("  \"headline\": \"A short, punchy headline for the move.\",")
+        appendLine("  \"explanation\": \"The full explanation of the move.\"")
+        appendLine("}")
 
     fun build(request: MoveCoachRequest): AiGenerationRequest =
         AiGenerationRequest(
@@ -19,18 +24,6 @@ object MoveCoachPromptBuilder {
             userPrompt = userPrompt(request),
             maxOutputTokens = MAX_OUTPUT_TOKENS_STRICT,
             temperature = 0.3,
-        )
-
-    fun buildRetry(request: MoveCoachRequest, previousOutput: String): AiGenerationRequest =
-        AiGenerationRequest(
-            systemPrompt = SYSTEM_PROMPT,
-            userPrompt = buildString {
-                appendLine(userPrompt(request))
-                appendLine()
-                appendLine("Your previous answer was rejected. Reply with exactly 1-2 sentences naming the piece and what it does.")
-            },
-            maxOutputTokens = MAX_OUTPUT_TOKENS_STRICT,
-            temperature = 0.0,
         )
 
     internal fun userPrompt(request: MoveCoachRequest): String = buildString {

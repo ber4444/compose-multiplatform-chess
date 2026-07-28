@@ -14,7 +14,7 @@ sealed interface MoveCoachEvent {
 }
 
 class DefaultAiCoachOrchestrator(
-    private val factory: OnDeviceTextGeneratorFactory,
+    private val executor: VendorRouteExecutor,
     private val contextProvider: suspend () -> AiContextSnapshot = DefaultContextProvider,
     private val clock: () -> Long = ::defaultNowMs,
     private val logger: Logger = Logger.withTag("AiCoach"),
@@ -28,9 +28,7 @@ class DefaultAiCoachOrchestrator(
         }
         val decision = AiRoutePolicyDecider.decide(request.policy, context)
         when (decision) {
-            is AiRoutePolicyDecider.Decision.RunOnDevice -> emit(runOnDevice(request))
-            is AiRoutePolicyDecider.Decision.RunCloud ->
-                emit(fallback(request, AiRoutePolicyDecider.FALLBACK_NO_ROUTE))
+            is AiRoutePolicyDecider.Decision.Route -> emit(runOnDevice(request, decision.route))
             is AiRoutePolicyDecider.Decision.FallBack ->
                 emit(fallback(request, decision.reason))
         }
@@ -44,9 +42,9 @@ class DefaultAiCoachOrchestrator(
         return result
     }
 
-    private suspend fun runOnDevice(request: MoveCoachRequest): MoveCoachEvent {
+    private suspend fun runOnDevice(request: MoveCoachRequest, route: VendorRoute): MoveCoachEvent {
         val start = clock()
-        val generator = runCatching { factory.create() }.getOrElse {
+        val generator = runCatching { executor.execute(route) }.getOrElse {
             return fallback(request, "generator factory failed: ${it.message}")
         } ?: return fallback(request, AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL)
 
@@ -80,19 +78,23 @@ class DefaultAiCoachOrchestrator(
         val outcome = collectGenerate(request, generator, prompt, startMs)
             ?: return fallback(request, AiRoutePolicyDecider.FALLBACK_TIMEOUT)
 
-        return when (outcome.validation) {
-            is MoveCoachResponseValidator.Result.Valid -> success(outcome.validation.text, outcome.metrics)
+        // Parse JSON
+        val parsed = try {
+            val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+            json.decodeFromString<MoveCoachResponse>(outcome.rawText)
+        } catch (e: Exception) {
+            logger.w(e) { "Failed to parse structured output" }
+            return fallback(request, AiRoutePolicyDecider.FALLBACK_VALIDATION)
+        }
+
+        // Validate groundedness after deserialization
+        val validation = MoveCoachResponseValidator.validate(parsed.explanation, request)
+
+        return when (validation) {
+            is MoveCoachResponseValidator.Result.Valid -> success(parsed, outcome.metrics)
             is MoveCoachResponseValidator.Result.Invalid -> {
-                logger.w { "First validation failed: ${outcome.validation.reason}; retrying" }
-                val retryPrompt = MoveCoachPromptBuilder.buildRetry(request, outcome.rawText)
-                val retry = collectGenerate(request, generator, retryPrompt, startMs)
-                    ?: return fallback(request, AiRoutePolicyDecider.FALLBACK_TIMEOUT)
-                when (retry.validation) {
-                    is MoveCoachResponseValidator.Result.Valid ->
-                        success(retry.validation.text, retry.metrics, ExplanationConfidence.MEDIUM)
-                    is MoveCoachResponseValidator.Result.Invalid ->
-                        fallback(request, AiRoutePolicyDecider.FALLBACK_VALIDATION)
-                }
+                logger.w { "Validation failed: ${validation.reason}" }
+                fallback(request, AiRoutePolicyDecider.FALLBACK_VALIDATION)
             }
         }
     }
@@ -136,19 +138,18 @@ class DefaultAiCoachOrchestrator(
         return GenerationOutcome(
             rawText = rawText,
             metrics = metrics,
-            validation = MoveCoachResponseValidator.validate(rawText, request),
         )
     }
 
     private fun success(
-        text: String,
+        response: MoveCoachResponse,
         metrics: AiInferenceMetrics,
         confidence: ExplanationConfidence = ExplanationConfidence.HIGH,
     ): MoveCoachEvent = complete(
         MoveCoachResult.Success(
             MoveCoachExplanation(
-                headline = text.substringBefore('.').trim().ifBlank { text.take(60) },
-                explanation = text,
+                headline = response.headline.trim().ifBlank { response.explanation.take(60) },
+                explanation = response.explanation,
                 confidence = confidence,
                 route = AiRoute.OnDevice,
                 metrics = metrics,
@@ -175,7 +176,6 @@ class DefaultAiCoachOrchestrator(
     private data class GenerationOutcome(
         val rawText: String,
         val metrics: AiInferenceMetrics,
-        val validation: MoveCoachResponseValidator.Result,
     )
 
     private companion object {

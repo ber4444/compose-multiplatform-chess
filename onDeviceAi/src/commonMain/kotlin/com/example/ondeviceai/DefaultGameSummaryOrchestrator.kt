@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withTimeoutOrNull
 
 class DefaultGameSummaryOrchestrator(
-    private val factory: OnDeviceTextGeneratorFactory,
+    private val executor: VendorRouteExecutor,
     private val contextProvider: suspend () -> AiContextSnapshot = DefaultContextProvider,
     private val clock: () -> Long = ::defaultNowMs,
     private val logger: Logger = Logger.withTag("GameSummary"),
@@ -20,9 +20,7 @@ class DefaultGameSummaryOrchestrator(
         }
         val decision = AiRoutePolicyDecider.decide(request.policy, context)
         when (decision) {
-            is AiRoutePolicyDecider.Decision.RunOnDevice -> emit(runOnDevice(request))
-            is AiRoutePolicyDecider.Decision.RunCloud ->
-                emit(fallback(request, AiRoutePolicyDecider.FALLBACK_NO_ROUTE))
+            is AiRoutePolicyDecider.Decision.Route -> emit(runOnDevice(request, decision.route))
             is AiRoutePolicyDecider.Decision.FallBack ->
                 emit(fallback(request, decision.reason))
         }
@@ -36,9 +34,9 @@ class DefaultGameSummaryOrchestrator(
         return result
     }
 
-    private suspend fun runOnDevice(request: GameSummaryRequest): GameSummaryEvent {
+    private suspend fun runOnDevice(request: GameSummaryRequest, route: VendorRoute): GameSummaryEvent {
         val start = clock()
-        val generator = runCatching { factory.create() }.getOrElse {
+        val generator = runCatching { executor.execute(route) }.getOrElse {
             return fallback(request, "generator factory failed: ${it.message}")
         } ?: return fallback(request, AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL)
 

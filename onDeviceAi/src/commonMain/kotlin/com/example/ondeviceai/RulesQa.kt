@@ -67,8 +67,7 @@ class DefaultRulesQaOrchestrator(
         }
 
         return when (val decision = AiRoutePolicyDecider.decide(AiRoutePolicies.rulesQaOffline, context)) {
-            AiRoutePolicyDecider.Decision.RunOnDevice -> runOnDevice(normalizedQuestion)
-            AiRoutePolicyDecider.Decision.RunCloud -> fallback(AiRoutePolicyDecider.FALLBACK_NO_ROUTE)
+            is AiRoutePolicyDecider.Decision.Route -> runOnDevice(normalizedQuestion)
             is AiRoutePolicyDecider.Decision.FallBack -> fallback(decision.reason)
         }
     }
