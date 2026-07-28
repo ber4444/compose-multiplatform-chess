@@ -17,6 +17,22 @@ plugins {
     alias(libs.plugins.kotlinSerialization)
 }
 
+// litertlm-jvm 0.14.0 (pulled into the desktop runtime via :onDeviceAi) is an internally-
+// inconsistent artifact: its bytecode calls `SendChannel.close$default(SendChannel, Throwable,
+// int, Object)` — a static bridge that ONLY exists in kotlinx-coroutines 1.11.0+ — but its POM
+// declares coroutines 1.9.0. Ktor 3.4.3 drags the resolution up to 1.10.2, which *also* lacks
+// the bridge, so without this force `:app:run` hits a NoSuchMethodError inside LiteRT-LM's
+// internal callbackFlow during Engine.initialize() and the model never finishes loading. The
+// error is swallowed by LitertLmTextGenerator.ensureInitialized's catch (Throwable), leaving
+// the coach panel pinned on "Starting LiteRT-LM engine…" forever. Same force as
+// litert-eval/build.gradle.kts; replicated here so :app:run (not just the eval driver) gets it.
+configurations.all {
+    if (name.contains("desktop", true) || name.contains("jvm", true) || name.contains("android", true)) {
+        resolutionStrategy.force("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+        resolutionStrategy.force("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.11.0")
+    }
+}
+
 kotlin {
 
     android {

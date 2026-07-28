@@ -13,6 +13,7 @@ import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.SamplerConfig
+import co.touchlab.kermit.Logger
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -151,6 +152,11 @@ class LitertLmTextGenerator(
             instance.initialize()
             engine = instance
         } catch (t: Throwable) {
+            // Surface the full stack trace so init failures aren't invisible. Previously this
+            // only stashed t.message into `initializationFailed` with no log, which made the
+            // coroutines-bridge NoSuchMethodError (litertlm-jvm 0.14.0 vs coroutines <1.11.0)
+            // present as a silent "stuck on LoadingModel" with no clue in logcat/stderr.
+            Logger.w("LitertLmTextGenerator", t) { "LiteRT-LM init failed: ${t.message}" }
             initializationFailed = t.message ?: t::class.simpleName ?: "LiteRT-LM init failed"
         }
     }

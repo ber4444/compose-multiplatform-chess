@@ -9,9 +9,13 @@ coachApi/build/*
 server/build/*
 evals/build/*
 perft-mcp/build/*
+litert-eval/build/*
 .kotlin/*
 .gradle/*
 .idea/*
+.zcode/
+opencode.json
+.mcp.json
 .superpowers/
 .worktrees/
 local.properties
