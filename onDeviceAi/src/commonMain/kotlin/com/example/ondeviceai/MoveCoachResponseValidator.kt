@@ -39,6 +39,13 @@ object MoveCoachResponseValidator {
         FORBIDDEN_PHRASES.firstOrNull { lower.contains(it) }?.let { phrase ->
             return Result.Invalid("forbidden phrase: $phrase")
         }
+        // Small models copy the prompt's few-shot examples instead of describing the move (observed
+        // on-device: gemma3-270m returned style example #1 plus the old `Bad:` filler, verbatim).
+        // Rejecting here routes the orchestrator to its retry, then to the deterministic fallback —
+        // both of which are actually about *this* move. Never show the user the prompt back.
+        if (isEchoedScaffolding(text)) {
+            return Result.Invalid("echoed a prompt example instead of describing the move")
+        }
         // Grounding check: accept if the response mentions the move (UCI squares,
         // display text) OR contains chess-relevant vocabulary (piece names,
         // tactical terms). This is permissive enough to let natural-language
@@ -88,7 +95,33 @@ object MoveCoachResponseValidator {
     private fun unwrapQuotes(s: String): String =
         if (s.length >= 2 && s.first() == '"' && s.last() == '"') s.substring(1, s.length - 1).trim() else s
 
-    private val FEW_SHOT_LABELS = listOf("Good:", "Bad:")
+    /**
+     * True if [text] reproduces the prompt's scaffolding — a style example or the generic filler
+     * sentence — rather than describing the move. Compared on a letters-and-digits-only fingerprint
+     * so punctuation, casing, and stray quoting don't let a copy slip through, and with `contains`
+     * so a response that pads an echo with a few words is still caught.
+     */
+    private fun isEchoedScaffolding(text: String): Boolean {
+        val fingerprint = fingerprintOf(text)
+        if (fingerprint.isEmpty()) return false
+        return SCAFFOLDING_FINGERPRINTS.any { fingerprint.contains(it) }
+    }
+
+    private fun fingerprintOf(s: String): String =
+        s.lowercase().filter { it.isLetterOrDigit() }
+
+    private val FEW_SHOT_LABELS = listOf(
+        MoveCoachPromptBuilder.EXAMPLE_LABEL,
+        // Retained so responses shaped by the older Good:/Bad: prompt are still cleaned.
+        "Good:",
+        "Bad:",
+    )
+
+    /** Fingerprints of every sentence the prompt shows the model. Derived, never hand-copied. */
+    private val SCAFFOLDING_FINGERPRINTS: List<String> =
+        (MoveCoachPromptBuilder.STYLE_EXAMPLES + MoveCoachPromptBuilder.GENERIC_FILLER)
+            .map { it.lowercase().filter(Char::isLetterOrDigit) }
+            .filter { it.isNotEmpty() }
 
     sealed interface Result {
         data class Valid(val text: String) : Result

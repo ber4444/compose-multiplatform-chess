@@ -2,15 +2,36 @@ package com.example.ondeviceai
 
 object MoveCoachPromptBuilder {
 
+    /**
+     * Style examples — they show the SHAPE of an answer for *other* positions. A 270M-class model
+     * will happily copy them verbatim instead of describing the actual move, so they are exposed
+     * here as the single source of truth and [MoveCoachResponseValidator] rejects any response that
+     * echoes one. The prompt asks; the validator enforces.
+     */
+    internal val STYLE_EXAMPLES: List<String> = listOf(
+        "Nf3 develops the knight and controls the central e5/d4 squares.",
+        "Bb5 pins the knight to the king and prepares to win material on the next move.",
+    )
+
+    /** Label prefixing each example. [MoveCoachResponseValidator] strips it if it gets echoed. */
+    internal const val EXAMPLE_LABEL = "Example:"
+
+    /**
+     * Contentless filler. This was previously prompted as a `Bad: "..."` counter-example — which
+     * backfired: gemma3-270m emitted it verbatim as its answer (observed on-device). A small model
+     * cannot represent "don't say this"; a negative example is just more text to copy. So the
+     * constraint moved out of the prompt and into the validator, which rejects it outright.
+     */
+    internal const val GENERIC_FILLER = "This is a good move that improves the position."
+
     private val SYSTEM_PROMPT: String = buildString {
         appendLine("You are a chess coach explaining a single move to a casual player.")
         appendLine("Say WHY the move is good in 1-2 short sentences.")
-        appendLine("Be specific: mention the piece, the square, and what it does (attacks, defends, controls, develops).")
+        appendLine("Be specific: name the piece and squares from the move you are given, and say what it does (attacks, defends, controls, develops).")
         appendLine("Do not mention openings by name, engine depth, or ratings.")
+        appendLine("The examples below are about DIFFERENT positions. Never repeat them — describe only the move you are given.")
         appendLine()
-        appendLine("Good: \"Nf3 develops the knight and controls the central e5/d4 squares.\"")
-        appendLine("Good: \"Bb5 pins the knight to the king and prepares to win material on the next move.\"")
-        appendLine("Bad: \"This is a good move that improves the position.\"")
+        STYLE_EXAMPLES.forEach { appendLine("$EXAMPLE_LABEL \"$it\"") }
     }
 
     fun build(request: MoveCoachRequest): AiGenerationRequest =
@@ -27,7 +48,8 @@ object MoveCoachPromptBuilder {
             userPrompt = buildString {
                 appendLine(userPrompt(request))
                 appendLine()
-                appendLine("Your previous answer was rejected. Reply with exactly 1-2 sentences naming the piece and what it does.")
+                appendLine("Your previous answer was rejected. Do not copy the example sentences.")
+                appendLine("Reply with exactly 1-2 sentences naming the piece and squares from the move above and what it does.")
             },
             maxOutputTokens = MAX_OUTPUT_TOKENS_STRICT,
             temperature = 0.0,

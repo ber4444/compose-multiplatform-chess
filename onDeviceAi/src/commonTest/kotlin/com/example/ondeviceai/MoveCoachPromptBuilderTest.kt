@@ -37,10 +37,18 @@ class MoveCoachPromptBuilderTest {
     }
 
     @Test
-    fun `system prompt includes a good example`() {
+    fun `system prompt shows labeled style examples and no counter-example`() {
         val built = MoveCoachPromptBuilder.build(request)
-        assertTrue(built.systemPrompt.contains("Good:"))
-        assertTrue(built.systemPrompt.contains("Bad:"))
+        // Positive examples still demonstrate the target shape...
+        MoveCoachPromptBuilder.STYLE_EXAMPLES.forEach {
+            assertTrue(built.systemPrompt.contains(it))
+        }
+        assertTrue(built.systemPrompt.contains(MoveCoachPromptBuilder.EXAMPLE_LABEL))
+        // ...but the `Bad:` counter-example is gone. A small model cannot represent "don't say
+        // this" — gemma3-270m emitted the filler verbatim on-device. That constraint now lives in
+        // MoveCoachResponseValidator, which rejects the filler instead of prompting against it.
+        assertFalse(built.systemPrompt.contains("Bad:"))
+        assertFalse(built.systemPrompt.contains(MoveCoachPromptBuilder.GENERIC_FILLER))
     }
 
     @Test

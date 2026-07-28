@@ -127,6 +127,58 @@ class MoveCoachResponseValidatorTest {
     }
 
     @Test
+    fun `rejects a verbatim echo of a prompt style example`() {
+        val v = MoveCoachResponseValidator.validate(
+            MoveCoachPromptBuilder.STYLE_EXAMPLES.first(),
+            request.copy(bestMoveUci = "b8c6", bestMoveDisplay = "Nc6"),
+        )
+        assertIs<MoveCoachResponseValidator.Result.Invalid>(v)
+        assertTrue(v.reason.startsWith("echoed a prompt example"))
+    }
+
+    @Test
+    fun `rejects the generic filler that used to be prompted as a Bad example`() {
+        val v = MoveCoachResponseValidator.validate(
+            MoveCoachPromptBuilder.GENERIC_FILLER,
+            request,
+        )
+        assertIs<MoveCoachResponseValidator.Result.Invalid>(v)
+        assertTrue(v.reason.startsWith("echoed a prompt example"))
+    }
+
+    @Test
+    fun `rejects the labeled multi-sentence echo observed on-device`() {
+        // Verbatim gemma3-270m output from a Galaxy Z Fold3 run: style example #1 plus the old
+        // `Bad:` filler, both relabeled "Good:" — and neither about the move being explained.
+        val v = MoveCoachResponseValidator.validate(
+            "Good: \"Nf3 develops the knight and controls the central e5/d4 squares.\"\n" +
+                "Good: \"This is a good move that improves the position.\"",
+            request.copy(bestMoveUci = "b8c6", bestMoveDisplay = "Nc6"),
+        )
+        assertIs<MoveCoachResponseValidator.Result.Invalid>(v)
+        assertTrue(v.reason.startsWith("echoed a prompt example"))
+    }
+
+    @Test
+    fun `accepts a genuine move-specific explanation`() {
+        val v = MoveCoachResponseValidator.validate(
+            "Nc6 develops the knight and puts pressure on the d4 square.",
+            request.copy(bestMoveUci = "b8c6", bestMoveDisplay = "Nc6"),
+        )
+        assertIs<MoveCoachResponseValidator.Result.Valid>(v)
+        assertEquals("Nc6 develops the knight and puts pressure on the d4 square.", v.text)
+    }
+
+    @Test
+    fun `prompt no longer teaches the generic filler as a Bad example`() {
+        // The filler must exist only as a validator constraint, never as prompt text for a small
+        // model to copy. Guards the regression that produced the on-device echo.
+        val prompt = MoveCoachPromptBuilder.build(request).systemPrompt
+        assertTrue(!prompt.contains(MoveCoachPromptBuilder.GENERIC_FILLER))
+        assertTrue(!prompt.contains("Bad:"))
+    }
+
+    @Test
     fun `leaves an unlabeled response unchanged`() {
         val v = MoveCoachResponseValidator.validate(
             "Nf3 develops the knight toward the center.",
