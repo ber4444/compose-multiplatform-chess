@@ -213,8 +213,9 @@ To measure performance metrics of the on-device AI integration (init times, toke
 - `CHESS_ENABLE_COACH=1 ./gradlew :app:run` launches the desktop app **with the on-device Move Coach enabled** (downloads the Qwen3-0.6B model, ~347 MB, on first launch; cached at `~/.chess-coach-models/`). Without the env var the coach panel stays hidden — mirrors Android's `FLAG_DEBUGGABLE` gate.
 - `./gradlew :app:wasmJsBrowserDevelopmentRun` starts the web target
 - `./gradlew :app:wasmJsBrowserDevelopmentRun` then open the page with **`?coach=1`** appended to the URL to enable the on-device Move Coach (Chrome/Edge only — requires WebGPU; loads `gemma-4-E2B-it-web.litertlm` ~2 GB from Hugging Face). Without `?coach=1` the coach panel stays hidden.
-- `./gradlew :app:wasmJsBrowserDevelopmentWebpack` builds the web development bundle without starting the dev server
-- `./gradlew :app:connectedAndroidDeviceTest` runs Android UI tests
+- `./gradlew :app:wasmJsBrowserDevelopmentRun` # run web target
+- `./gradlew :app:wasmJsBrowserDevelopmentWebpack` # build web dev bundle without dev server
+- `./gradlew :app:connectedAndroidDeviceTest` # Android UI tests (needs device/emulator)
 - `./gradlew :app:iosSimulatorArm64Test` runs iOS Compose UI tests
 - `./gradlew :app:desktopTest --tests "*board3d*"` runs the 3D desktop tests (DesktopRendererSmokeTest writes `build/chess3d-*.png` to eyeball the render)
 - `./gradlew :chess-core:publishToMavenLocal` publishes `io.github.ber4444:chess-core` to the local Maven cache (for local cross-repo iteration)
