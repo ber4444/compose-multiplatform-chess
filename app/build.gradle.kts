@@ -27,8 +27,10 @@ plugins {
 // the coach panel pinned on "Starting LiteRT-LM engine…" forever. Same force as
 // litert-eval/build.gradle.kts; replicated here so :app:run (not just the eval driver) gets it.
 configurations.all {
-    resolutionStrategy.force("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
-    resolutionStrategy.force("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.11.0")
+    if (name.contains("desktop", true) || name.contains("jvm", true) || name.contains("android", true)) {
+        resolutionStrategy.force("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+        resolutionStrategy.force("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.11.0")
+    }
 }
 
 kotlin {
