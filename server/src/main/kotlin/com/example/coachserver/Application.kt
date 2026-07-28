@@ -262,8 +262,6 @@ fun selectComposer(
         ),
     )
 }
-    )
-}
 
 private fun requireEnvironment(environment: Map<String, String>, name: String): String =
     requireNotNull(environment[name]?.takeIf(String::isNotBlank)) { "$name must be set" }

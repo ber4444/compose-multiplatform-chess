@@ -201,6 +201,7 @@ internal fun caseSpecificChatDependencies(cases: List<GoldenCase>): ChatServerDe
         },
         streamingChatComposer = TemplateChatComposer(),
     )
+}
 
 /**
  * Builds a prose opening-concepts passage for a case. The case-specific [expectedConcepts] line is
