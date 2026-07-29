@@ -124,16 +124,22 @@ class LlmChatComposer(
     private val client: StreamingLlmClient,
     private val fallback: TemplateChatComposer = TemplateChatComposer(),
     private val budget: ProviderCostBudget = ProviderCostBudget(0.2, 0.0, 0.0),
+    // Must cover reasoning tokens, not just the visible answer. Thinking models (the configured
+    // gemini-3.5-flash is one) spend most of the budget before emitting any content: at 160 the
+    // stream ended with finish_reason=length on a truncated, uncited fragment, which the
+    // validator then rejected — surfacing as a fallback bubble with no visible cause. Overridable
+    // via COACH_LLM_CHAT_MAX_OUTPUT_TOKENS (see [selectChatComposer]) for other providers/models.
+    private val maxOutputTokens: Int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) : StreamingChatComposer {
     override fun streamCompose(request: PositionChatRequest, passages: List<Passage>): Flow<ChatChunk> = flow {
         val prompt = userPrompt(request, passages)
-        if (prompt.length > MAX_PROVIDER_INPUT_CHARS || !budget.admits(prompt.length, MAX_OUTPUT_TOKENS)) {
+        if (prompt.length > MAX_PROVIDER_INPUT_CHARS || !budget.admits(prompt.length, maxOutputTokens)) {
             fallback.streamCompose(request, passages).collect { emit(it) }
             return@flow
         }
         val accumulated = StringBuilder()
         try {
-            client.streamGenerate(SYSTEM_PROMPT, prompt, request.history, MAX_OUTPUT_TOKENS).collect { delta ->
+            client.streamGenerate(SYSTEM_PROMPT, prompt, request.history, maxOutputTokens).collect { delta ->
                 if (delta.isNotEmpty()) {
                     accumulated.append(delta)
                     emit(ChatChunk.Token(delta))
@@ -201,11 +207,8 @@ class LlmChatComposer(
     companion object {
         private const val ID = "llm-chat-v1"
         private const val MAX_PROVIDER_INPUT_CHARS = 8_000
-        // Must cover reasoning tokens, not just the visible answer. Thinking models (the configured
-        // gemini-3.5-flash is one) spend most of the budget before emitting any content: at 160 the
-        // stream ended with finish_reason=length on a truncated, uncited fragment, which the
-        // validator then rejected — surfacing as a fallback bubble with no visible cause.
-        private const val MAX_OUTPUT_TOKENS = 2048
+        /** Default output-token budget when `COACH_LLM_CHAT_MAX_OUTPUT_TOKENS` is unset. */
+        const val DEFAULT_MAX_OUTPUT_TOKENS = 2048
         private const val SYSTEM_PROMPT =
             "You are a chess position coach answering the player's question. " +
                 "Use only the supplied passages. Do not mention engine depth, ratings, or unsupported claims."

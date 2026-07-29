@@ -18,14 +18,24 @@ class GameSummaryManager {
     private val logger = Logger.withTag("GameSummaryManager")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private val _uiState = MutableStateFlow<GameSummaryUiState>(GameSummaryUiState.Hidden)
+    private val _uiState = MutableStateFlow<GameSummaryUiState>(GameSummaryUiState.Unavailable)
     val uiState: StateFlow<GameSummaryUiState> = _uiState
 
     private var orchestrator: GameSummaryOrchestrator? = null
     private var generationJob: Job? = null
 
+    /**
+     * Attaches (or clears) the orchestrator. A `null` orchestrator — the release-Android,
+     * coach-disabled-desktop/web, and Foundation-Models-unavailable-iOS cases — moves the UI to
+     * [GameSummaryUiState.Unavailable] so the trigger button doesn't render (pressing it would
+     * otherwise be a silent no-op). Entry points that never call this at all (desktop without
+     * `CHESS_ENABLE_COACH=1`, web without `?coach=1`) leave the manager at its default
+     * [GameSummaryUiState.Unavailable] state, so this is not the only path to that state.
+     */
     fun attachOrchestrator(orchestrator: GameSummaryOrchestrator?) {
         this.orchestrator = orchestrator
+        generationJob?.cancel()
+        _uiState.value = if (orchestrator != null) GameSummaryUiState.Hidden else GameSummaryUiState.Unavailable
     }
 
     fun hide() {

@@ -221,38 +221,62 @@ fun defaultChatDependencies(environment: Map<String, String>): PositionChatServi
         modelPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_MODEL")),
         vocabPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_VOCAB")),
     )
-    val template = TemplateChatComposer()
-    val composer: StreamingChatComposer = environment["COACH_LLM_API_KEY"]?.takeIf(String::isNotBlank)?.let { apiKey ->
-        val inputPrice = environment["COACH_LLM_INPUT_USD_PER_MILLION"]?.toDoubleOrNull()
-        val outputPrice = environment["COACH_LLM_OUTPUT_USD_PER_MILLION"]?.toDoubleOrNull()
-        if (inputPrice == null || outputPrice == null || inputPrice < 0.0 || outputPrice < 0.0) {
-            return@let template
-        }
-        val maxUsdCents = environment["COACH_LLM_MAX_USD_CENTS"]?.toDoubleOrNull()
-            ?.takeIf { it.isFinite() && it >= 0.0 }
-            ?: DEFAULT_LLM_MAX_USD_CENTS
-        LlmChatComposer(
-            client = OpenAiCompatibleStreamingLlmClient(
-                apiKey = apiKey,
-                endpoint = URI(environment["COACH_LLM_API_URL"] ?: "https://api.openai.com/v1/chat/completions"),
-                model = environment["COACH_LLM_MODEL"] ?: "gpt-4.1-mini",
-                httpClient = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofMillis(PROVIDER_TIMEOUT_MS))
-                    .build(),
-                requestTimeout = Duration.ofMillis(CHAT_PROVIDER_TIMEOUT_MS),
-            ),
-            fallback = template,
-            budget = ProviderCostBudget(
-                maxUsdCents = maxUsdCents,
-                inputUsdPerMillionTokens = inputPrice,
-                outputUsdPerMillionTokens = outputPrice,
-            ),
-        )
-    } ?: template
+    val composer = selectChatComposer(environment, TemplateChatComposer())
     return PositionChatService(
         ChatServerDependencies(embedder, PostgresPassageRepository(dataSource), composer),
     )
 }
+
+/**
+ * Selects the streaming chat composer from environment variables, mirroring [selectComposer] for
+ * the opening explainer. Returns [fallback] (the deterministic [TemplateChatComposer]) when
+ * `COACH_LLM_API_KEY` is absent or the token prices needed to enforce the cost budget are
+ * missing/negative. Exposed for unit testing the env-gating without a database.
+ */
+fun selectChatComposer(
+    environment: Map<String, String>,
+    fallback: TemplateChatComposer,
+): StreamingChatComposer {
+    val apiKey = environment["COACH_LLM_API_KEY"]?.takeIf(String::isNotBlank) ?: return fallback
+    val inputPrice = environment["COACH_LLM_INPUT_USD_PER_MILLION"]?.toDoubleOrNull()
+    val outputPrice = environment["COACH_LLM_OUTPUT_USD_PER_MILLION"]?.toDoubleOrNull()
+    if (inputPrice == null || outputPrice == null || inputPrice < 0.0 || outputPrice < 0.0) {
+        return fallback
+    }
+    val maxUsdCents = environment["COACH_LLM_MAX_USD_CENTS"]?.toDoubleOrNull()
+        ?.takeIf { it.isFinite() && it >= 0.0 }
+        ?: DEFAULT_LLM_MAX_USD_CENTS
+    return LlmChatComposer(
+        client = OpenAiCompatibleStreamingLlmClient(
+            apiKey = apiKey,
+            endpoint = URI(environment["COACH_LLM_API_URL"] ?: "https://api.openai.com/v1/chat/completions"),
+            model = environment["COACH_LLM_MODEL"] ?: "gpt-4.1-mini",
+            httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofMillis(PROVIDER_TIMEOUT_MS))
+                .build(),
+            requestTimeout = Duration.ofMillis(CHAT_PROVIDER_TIMEOUT_MS),
+        ),
+        fallback = fallback,
+        budget = ProviderCostBudget(
+            maxUsdCents = maxUsdCents,
+            inputUsdPerMillionTokens = inputPrice,
+            outputUsdPerMillionTokens = outputPrice,
+        ),
+        maxOutputTokens = parseChatMaxOutputTokens(environment),
+    )
+}
+
+/**
+ * Reads `COACH_LLM_CHAT_MAX_OUTPUT_TOKENS`, falling back to [LlmChatComposer.DEFAULT_MAX_OUTPUT_TOKENS]
+ * when unset or not a positive integer. Raise past the default when the configured model needs more
+ * reasoning-token headroom (see the maxOutputTokens comment on [LlmChatComposer]) — but raise
+ * `COACH_LLM_MAX_USD_CENTS` alongside it, or the larger budget will just push every turn over the
+ * cost ceiling into the template fallback. Exposed for unit testing without a database.
+ */
+fun parseChatMaxOutputTokens(environment: Map<String, String>): Int =
+    environment["COACH_LLM_CHAT_MAX_OUTPUT_TOKENS"]?.toIntOrNull()
+        ?.takeIf { it > 0 }
+        ?: LlmChatComposer.DEFAULT_MAX_OUTPUT_TOKENS
 
 /**
  * Selects the LLM text composer from environment variables. Returns the deterministic

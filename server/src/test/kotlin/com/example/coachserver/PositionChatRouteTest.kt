@@ -14,6 +14,8 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -155,6 +157,58 @@ class PositionChatRouteTest {
         // The fallback carries deterministic text + the template composer id.
         assertTrue(events.last().text!!.isNotBlank())
         assertEquals("template-chat-v1", events.last().composerId)
+    }
+
+    /**
+     * The chat output-token budget (`COACH_LLM_CHAT_MAX_OUTPUT_TOKENS`, default
+     * [LlmChatComposer.DEFAULT_MAX_OUTPUT_TOKENS]) was previously hard-coded in [LlmChatComposer];
+     * it is now a constructor parameter threaded through to both the cost-ceiling check and the
+     * provider call. This verifies the parameter actually reaches [StreamingLlmClient.streamGenerate]
+     * (a fake client, no network) rather than silently falling back to the compiled-in constant.
+     */
+    @Test
+    fun `LlmChatComposer forwards a custom maxOutputTokens to the provider call`() = runBlocking {
+        var observedMaxTokens: Int? = null
+        val client = StreamingLlmClient { _, _, _, maxTokens ->
+            observedMaxTokens = maxTokens
+            flow { emit("The center is contested [lichess-c20].") }
+        }
+        val composer = LlmChatComposer(
+            client = client,
+            fallback = TemplateChatComposer(),
+            budget = ProviderCostBudget(maxUsdCents = 5.0, inputUsdPerMillionTokens = 0.0, outputUsdPerMillionTokens = 0.0),
+            maxOutputTokens = 77,
+        )
+        val request = PositionChatRequest(
+            fen = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+            movesSan = listOf("e4", "e5"),
+            eco = "C20",
+            userMessage = "What is this opening?",
+        )
+
+        composer.streamCompose(request, listOf(passage)).toList()
+
+        assertEquals(77, observedMaxTokens)
+    }
+
+    /** [parseChatMaxOutputTokens] is the env-gating logic `selectChatComposer` uses to build the
+     * value above — tested directly since `selectChatComposer` itself needs a live database. */
+    @Test
+    fun `parseChatMaxOutputTokens defaults when the env var is unset`() {
+        assertEquals(LlmChatComposer.DEFAULT_MAX_OUTPUT_TOKENS, parseChatMaxOutputTokens(emptyMap()))
+    }
+
+    @Test
+    fun `parseChatMaxOutputTokens honors a valid positive override`() {
+        val env = mapOf("COACH_LLM_CHAT_MAX_OUTPUT_TOKENS" to "4096")
+        assertEquals(4096, parseChatMaxOutputTokens(env))
+    }
+
+    @Test
+    fun `parseChatMaxOutputTokens defaults on a non-positive or malformed value`() {
+        assertEquals(LlmChatComposer.DEFAULT_MAX_OUTPUT_TOKENS, parseChatMaxOutputTokens(mapOf("COACH_LLM_CHAT_MAX_OUTPUT_TOKENS" to "0")))
+        assertEquals(LlmChatComposer.DEFAULT_MAX_OUTPUT_TOKENS, parseChatMaxOutputTokens(mapOf("COACH_LLM_CHAT_MAX_OUTPUT_TOKENS" to "-5")))
+        assertEquals(LlmChatComposer.DEFAULT_MAX_OUTPUT_TOKENS, parseChatMaxOutputTokens(mapOf("COACH_LLM_CHAT_MAX_OUTPUT_TOKENS" to "not-a-number")))
     }
 
     @Test

@@ -291,9 +291,16 @@ fun GameScreen(
                 val gameSummaryManager = LocalGameSummaryManager.current
                 if (gameSummaryManager != null) {
                     val summaryState by gameSummaryManager.uiState.collectAsState()
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
+                    // Unavailable (no orchestrator attached — release Android, coach-disabled
+                    // desktop/web, or Foundation Models unavailable on iOS) renders nothing: the
+                    // trigger button would otherwise be visible but do nothing when pressed, since
+                    // GameSummaryManager.triggerSummary no-ops without an orchestrator.
+                    if (summaryState !is GameSummaryUiState.Unavailable) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
                     when (summaryState) {
+                        GameSummaryUiState.Unavailable -> Unit
                         is GameSummaryUiState.Hidden -> {
                             Button(
                                 onClick = {
