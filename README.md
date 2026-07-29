@@ -127,6 +127,11 @@ graph TD
   - **Wasm backend:** **LiteRT-LM for Web** (`@litert-lm/core`, loaded from the jsdelivr CDN at runtime) running in a module Web Worker so inference is off the main thread. Uses `gemma-4-E2B-it-web.litertlm` (~2 GB, the only model `@litert-lm/core` officially documents for web). Requires **WebGPU** (Chrome/Edge); on Firefox/Safari the generator reports unavailable and the orchestrator falls back to the deterministic `MoveCoachFallback`. Gated behind `?coach=1` on the page URL.
   - **JS target** (`js(IR){nodejs()}`): still `UnsupportedTextGenerator` — the React Native port has no WebGPU/workers.
 - **Opening Explainer (cloud route):** The one AI feature that is *allowed* to leave the device. When a game ends, a post-game panel (`OpeningExplainerPanel`) fetches a short, grounded explanation of the opening from a small Ktor + Postgres + pgvector service (`:server`). It is the only policy with `allowCloud = true` (`AiRoutePolicies.openingExplainer`, `PUBLIC_OR_SYNTHETIC`, 0.2¢ ceiling). The cloud client is injected from `:app`; if the base URL is unset, the network is down, or the service returns non-2xx, the panel shows a deterministic offline-guidance message instead. The move coach's `LOCAL_ONLY` policy can never reach this route — an exhaustive 60-context decider test proves it. See [Opening explainer service](#opening-explainer-service) below for deployment.
+- **Position Chat (cloud, streaming):** An interactive multi-turn chat about the current board position. A **Chat** button opens `ChatScreen`, where the player can type a question and watch the assistant's reply appear token-by-token. The feature is routed to the cloud (`AiRoutePolicies.positionChat`, `PUBLIC_OR_SYNTHETIC`, `allowCloud = true`) — the move coach stays `LOCAL_ONLY` and never reaches this route. Requests carry only public chess data (FEN, SAN move list, bounded conversation history); no user identifiers or free-form PII are sent.
+  - **Streaming:** `KtorStreamingChatClient` uses `preparePost{}.execute{}` + `bodyAsChannel()` so that cancelling the collecting `Job` closes the TCP connection immediately — no orphaned server-side streams. The server emits genuine SSE (`data: <json>\n\n`), and the client parses each `ChatStreamEvent` (token / done / fallback / error) as it arrives.
+  - **Stop & Retry:** A **Stop** button cancels the in-flight stream mid-token; a **Retry** button re-sends the same turn. `ChatViewModel` manages a single `streamJob` so at most one stream is live at a time.
+  - **Grounding & validation:** The server route (`POST /v1/positions/chat/stream`) retrieves grounding passages from the same pgvector corpus as the opening explainer, builds a citation-pinned prompt, and runs the same forbidden-phrase / citation / token-overlap validator on the *accumulated* text at stream end. A validator veto emits a `fallback` event (the deterministic template answer), so unvalidated prose is never shown to the user.
+  - **Deterministic fallback:** When the cloud is unreachable, the cost ceiling is exceeded, or validation fails, `DefaultPositionChat` falls back to a grounded template answer — the chat surface always shows a response. See [Position Chat service](#position-chat-service) below for the server endpoint and deployment.
 - **Rules Q&A (on-device):** A `LOCAL_ONLY` feature distinct from both the move coach (no retrieval) and the opening explainer (cloud retrieval). A **Rules** screen lets the player ask a natural-language chess-rules question; retrieval and generation stay entirely on-device. The corpus is a bundled 30-passage FIDE/Wikibooks adaptation (`onDeviceAi/src/commonMain/resources/rulesCorpus/passages.tsv`) looked up via BM25 (`BundledRuleLookupTool`). iOS uses a native Foundation Models `Tool` conformance with `NLEmbedding` query-time ranking; Android uses structured-output prompting (the model emits a `{"tool":"lookup_rule","query":"…"}` envelope, Kotlin does the real lookup, then a second generation turn cites the passage). An answer that doesn't cite a retrieved passage ID is rejected and falls back to a static rules summary. See `docs/benchmarks/on-device-ai/rules-qa-retrieval-decision.md` for why BM25 was chosen over a bundled embedding model.
 - **3D Board View:** The app features a playable 3D board with shared camera, tap-to-move, ray picking, and move animation logic. Desktop, iOS, and web share `FilamentEncodedChessRenderer` for FEN-to-scene, camera, selection, and transition state; their platform peers only own the Filament surface. Android uses Filament through SceneView (the visual reference); iOS uses **Metal-native Filament** through a Swift/Obj-C++ `CAMetalLayer` bridge; desktop uses **native C++ Filament** with a headless swap chain and RGBA readback into Compose; web uses **Filament (Wasm)** loading the same `chess.glb` Android uses. See `docs/plans/web-graphics-spike-result.md` and `docs/plans/ios-filament-spike-result.md` for the spike verdicts.
 - **Stockfish Engine Integrations:**
@@ -150,6 +155,8 @@ graph TD
 - `coachApi/src/commonMain` serialization-only wire models — published as `io.github.ber4444:coachApi`
 - `server/` JVM Ktor opening-explainer service (Postgres + pgvector retrieval, ONNX MiniLM embeddings, `:server:seed` corpus loader)
 - `evals/` rule-based eval harness and golden-set scorecard for all AI coach routes
+- `app/src/commonMain/kotlin/.../chat/` `KtorStreamingChatClient`, `ChatViewModel`, `ChatScreen` — the position-chat streaming UI and cloud client
+- `onDeviceAi/src/commonMain/kotlin/.../DefaultPositionChat.kt` position-chat orchestrator (route → stream → forward → fallback)
 - `onDeviceAi/src/commonMain/resources/rulesCorpus/` the bundled offline FIDE/Wikibooks rules corpus (30 passages, BM25-lookupable)
 - `onDeviceAi/src/` published as `io.github.ber4444:onDeviceAi` — the on-device AI orchestration consumed by `:app` and the RN port
 - `perft-mcp/` the [perft MCP server](docs/perft.md#the-mcp-server-perft-mcp) — a thin stdio adapter exposing the rig as agent tools
@@ -222,11 +229,50 @@ To measure performance metrics of the on-device AI integration (init times, toke
 - `./gradlew :coachApi:publishToMavenLocal :onDeviceAi:publishToMavenLocal` publishes both AI artifacts to the local Maven cache (for local cross-repo iteration with the RN port)
 - `./gradlew :server:test` runs the opening-explainer service tests (Testcontainers Postgres; skips without Docker)
 - `./gradlew :server:seed` seeds the opening corpus into a Postgres database (needs `DATABASE_URL` + embedding model paths)
-- `./gradlew :evals:run` runs the rule-based eval harness and regenerates `evals/scorecard.md` (fails on grounding regression)
+- `./gradlew :evals:run` runs the rule-based eval harness and regenerates `evals/scorecard.md` (fails on grounding regression; includes the `local-template-chat` route: 200 scored turns, 100 cases × 2 turns, 0% grounding-drift violations)
 - `./gradlew :chess-core:desktopTest --tests "*Perft*"` runs the [perft gate](docs/perft.md) (canonical counts + Stockfish cross-check)
 - `./gradlew :chess-core:desktopTest --tests "*PerftDeepTest*" -Dperft.deep=true` runs the deep perft tier (nightly-only depths; slow)
 - `./gradlew :perft-mcp:test :perft-mcp:installDist` builds the [perft MCP server](docs/perft.md#the-mcp-server-perft-mcp)
 - `tools/ios_3d_screenshot.sh` captures the real iOS 3D board from a booted simulator
+
+### Position Chat service
+
+The position-chat streaming endpoint is part of the same `:server` Ktor service as the opening
+explainer. It is the interactive counterpart: where the explainer answers *once* at game-end, the
+chat answers *repeatedly* during a game, streaming tokens back as they are generated.
+
+**Endpoint** — `POST /v1/positions/chat/stream` (SSE)
+
+The request body is a `PositionChatRequest` (FEN, SAN move list ≤ 20 plies, bounded conversation
+history ≤ 12 turns, user message ≤ 500 chars). The response is a stream of `data: <json>\n\n`
+SSE records, each a `ChatStreamEvent`:
+
+| `type` | Meaning |
+|---|---|
+| `token` | Append the `text` field to the in-flight reply |
+| `done` | Turn complete and validated; `composerId` identifies the producer (`llm-chat-v1` or `template-chat-v1`) |
+| `fallback` | Validation failed; replace any streamed tokens with the deterministic `text` |
+| `error` | Stream failed before producing any validated text |
+
+**Architecture** — `StreamingChatComposer` → `LlmChatComposer` (provider) → `PositionChatValidator`
+→ SSE. The provider call uses `stream: true`; the parser handles both streamed
+`choices[].delta.content` SSE lines (terminated by `data: [DONE]`) and one-shot
+`choices[].message.content` completions (some providers respond to a `stream: true` request this
+way on cache hits). The validator runs the same grounding rules as the opening explainer on the
+*accumulated* text at stream end; a veto emits a `fallback` event. `TemplateChatComposer` is the
+zero-cost deterministic fallback.
+
+**Runtime configuration** — the chat endpoint shares the database and embedding model with the
+opening explainer. Two additional variables control its LLM budget:
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `COACH_LLM_CHAT_MAX_OUTPUT_TOKENS` | no (default 2048) | Max output tokens for the chat composer. Raise if the model is a thinking model that needs budget for reasoning before emitting content |
+| `COACH_LLM_MAX_USD_CENTS` | no (default 0.2) | Per-call cost ceiling in US cents — shared with the opening explainer; the chat route checks it independently |
+
+The endpoint is already present in the deployed `:server` image; no separate deployment step is
+needed if the server is already running. Re-deploy with `fly deploy . --config server/fly.toml` to
+pick up any chat-related server changes.
 
 ### Opening explainer service
 
