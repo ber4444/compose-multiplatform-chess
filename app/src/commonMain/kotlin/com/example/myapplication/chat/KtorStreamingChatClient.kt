@@ -1,5 +1,6 @@
 package com.example.myapplication.chat
 
+import co.touchlab.kermit.Logger
 import com.example.coachapi.ChatStreamEvent
 import com.example.coachapi.PositionChatRequest
 import com.example.myapplication.opening.OPENING_EXPLAINER_BASE_URL
@@ -21,9 +22,11 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.readLine
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 
 /**
@@ -55,31 +58,59 @@ class KtorStreamingChatClient(
     }
 
     override fun stream(request: PositionChatRequest): Flow<ChatStreamEvent> = channelFlow {
-        // preparePost returns an HttpStatement; execute{} streams the response body. Cancelling this
-        // flow's collector cancels the channelFlow scope, which cancels the execute{} block, which
-        // closes the underlying connection — no orphaned streams (the plan's hard cancellation rule).
-        val statement = httpClient.preparePost(endpoint) {
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }
-        statement.execute { response: HttpResponse ->
-            if (response.status.value !in 200..299) return@execute
-            val channel = response.bodyAsChannel()
-            val sink: SendChannel<ChatStreamEvent> = this@channelFlow
-            while (!channel.isClosedForRead) {
-                val line = channel.readLine() ?: break
-                if (!line.startsWith("data:")) continue
-                val payload = line.removePrefix("data:").trim()
-                if (payload.isEmpty()) continue
-                val event = runCatching { EVENT_JSON.decodeFromString(ChatStreamEvent.serializer(), payload) }
-                    .getOrNull() ?: continue
-                sink.send(event)
-                // A terminal event (done/fallback/error) ends the turn client-side too.
-                if (event.type == ChatStreamEvent.TYPE_DONE ||
-                    event.type == ChatStreamEvent.TYPE_FALLBACK ||
-                    event.type == ChatStreamEvent.TYPE_ERROR
-                ) break
+        val sink: SendChannel<ChatStreamEvent> = this@channelFlow
+        try {
+            // Belt-and-suspenders on top of the HttpClient's own HttpTimeout: Ktor's socket/request
+            // timeouts have historically not reliably bounded a response body read manually via
+            // bodyAsChannel() from inside execute{} on the CIO engine, which can leave this stuck
+            // forever with no exception (the app-side symptom: an indefinite "thinking" spinner with
+            // no error and no retry). This withTimeout is engine-independent — it bounds the whole
+            // call/response/stream regardless of where in Ktor's internals a stall happens.
+            withTimeout(STREAM_TIMEOUT_MS) {
+                logger.i { "position-chat: POST $endpoint" }
+                // preparePost returns an HttpStatement; execute{} streams the response body.
+                // Cancelling this flow's collector cancels the channelFlow scope, which cancels the
+                // execute{} block, which closes the underlying connection — no orphaned streams (the
+                // plan's hard cancellation rule).
+                val statement = httpClient.preparePost(endpoint) {
+                    contentType(ContentType.Application.Json)
+                    setBody(request)
+                }
+                statement.execute { response: HttpResponse ->
+                    logger.i { "position-chat: response status=${response.status.value}" }
+                    if (response.status.value !in 200..299) {
+                        sink.send(errorEvent())
+                        return@execute
+                    }
+                    val channel = response.bodyAsChannel()
+                    while (!channel.isClosedForRead) {
+                        val line = channel.readLine() ?: break
+                        if (!line.startsWith("data:")) continue
+                        val payload = line.removePrefix("data:").trim()
+                        if (payload.isEmpty()) continue
+                        val event = runCatching { EVENT_JSON.decodeFromString(ChatStreamEvent.serializer(), payload) }
+                            .getOrNull() ?: continue
+                        sink.send(event)
+                        // A terminal event (done/fallback/error) ends the turn client-side too.
+                        if (event.type == ChatStreamEvent.TYPE_DONE ||
+                            event.type == ChatStreamEvent.TYPE_FALLBACK ||
+                            event.type == ChatStreamEvent.TYPE_ERROR
+                        ) break
+                    }
+                }
             }
+        } catch (e: TimeoutCancellationException) {
+            // Our own withTimeout firing — a real stall, not a caller-initiated cancellation. Convert
+            // to a terminal event rather than rethrowing so the UI surfaces an error + retry instead
+            // of silently swallowing this as ordinary structured-concurrency cancellation.
+            logger.w { "position-chat: stream timed out after ${STREAM_TIMEOUT_MS}ms" }
+            sink.send(errorEvent())
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Caller-initiated cancellation (Stop button, scope closed) — must propagate, not swallow.
+            throw e
+        } catch (e: Exception) {
+            logger.e(e) { "position-chat: stream failed" }
+            sink.send(errorEvent())
         }
     }
 
@@ -87,9 +118,17 @@ class KtorStreamingChatClient(
         httpClient.close()
     }
 
+    private fun errorEvent() = ChatStreamEvent(type = ChatStreamEvent.TYPE_ERROR)
+
     companion object {
         // Ignore unknown keys so a server-side field addition doesn't break streaming consumption.
         private val EVENT_JSON = Json { ignoreUnknownKeys = true }
+        private val logger = Logger.withTag("PositionChat")
+
+        // Hard ceiling on one full request/stream turn (connect + headers + full SSE stream).
+        // Generous relative to observed server latency (~7-11s including a cold LLM call), bounded
+        // well short of "the user gives up and assumes the app is broken."
+        private const val STREAM_TIMEOUT_MS = 45_000L
     }
 }
 
