@@ -221,16 +221,17 @@ route policy). It is consumed by `:app` for the chess UI and published as
 `io.github.ber4444:onDeviceAi` for the React Native repository. `:coachApi` is its serialization-only
 wire-model dependency, published as `io.github.ber4444:coachApi`.
 
-- **Dependency split (`api` vs `implementation`)**: `:coachApi` is an `api` dependency because
-  `OpeningExplainer.kt` exposes `OpeningExplainRequest`/`OpeningExplainResponse` in public signatures
-  (constructor params, return types, sealed-result properties). `kermit` and `kotlinx-coroutines-core`
-  are `implementation` details. Consumers of `:onDeviceAi` transitively get `:coachApi` on their
-  compile classpath.
-- **Public API surface**: `AiCoachOrchestrator` / `DefaultAiCoachOrchestrator`, `GameSummaryOrchestrator`,
-  `RulesQa` orchestrator + `RulesQaResult`/`RulesQaModelOutput`, `OpeningExplainer` +
-  `OpeningExplainerResult`, `RuleLookupTool` / `BundledRuleLookupTool`, `AiRoutePolicy` /
-  `AiRoutePolicies`, `OnDeviceTextGenerator` / `OnDeviceTextGeneratorFactory`, the `MoveCoach*` /
-  `GameSummary*` model + result sealed types.
+- **Dependency split (`api` vs `implementation`)**: `:coachApi` is an `api` dependency because both
+  cloud orchestrators expose its types in public signatures — `OpeningExplainer.kt`
+  (`OpeningExplainRequest`/`OpeningExplainResponse`) and `PositionChat.kt` (`PositionChatRequest`,
+  `Flow<ChatStreamEvent>`). `kermit` and `kotlinx-coroutines-core` are `implementation` details.
+  Consumers of `:onDeviceAi` transitively get `:coachApi` on their compile classpath.
+- **Public API surface**: `AiCoachOrchestrator` / `DefaultAiCoachOrchestrator`,
+  `GameSummaryOrchestrator` / `DefaultGameSummaryOrchestrator`, `RulesQa` orchestrator +
+  `RulesQaResult`/`RulesQaModelOutput`, `OpeningExplainer` + `OpeningExplainerResult`, `PositionChat` /
+  `DefaultPositionChat` + the `StreamingChatClient` seam `:app` implements, `RuleLookupTool` /
+  `BundledRuleLookupTool`, `AiRoutePolicy` / `AiRoutePolicies`, `OnDeviceTextGenerator` /
+  `OnDeviceTextGeneratorFactory`, the `MoveCoach*` / `GameSummary*` model + result sealed types.
 - **Platform actuals**: `commonMain` declares `expect` factories for the on-device text generator,
   `defaultNowMs()`, and the rules-QA answerer. Each platform provides an `actual`: Android = Cactus
   (llama.cpp), iOS = Foundation Models, desktop = LiteRT-LM (`litertlm-jvm`, gated by
@@ -314,13 +315,18 @@ thinking, and `responseWriteTimeoutSeconds = 60` on the Netty connector — the 
 than both the heartbeat interval and a thinking model's time-to-first-token, and was force-closing
 connections mid-turn.
 
-**Runtime configuration** — the chat endpoint shares the database and embedding model with the
-opening explainer. Two additional variables control its LLM budget:
+**Runtime configuration** — the chat endpoint reads **no environment variables of its own**: it shares
+the database, embedding model, and the whole `COACH_LLM_*` provider/pricing block with the opening
+explainer (see the table in [Opening explainer service](#opening-explainer-service)). Two budget
+numbers are worth knowing because they differ from the explainer's:
 
-| Variable | Required | Purpose |
+| Setting | Where it lives | Value |
 |---|---|---|
-| `COACH_LLM_CHAT_MAX_OUTPUT_TOKENS` | no (default 2048) | Max output tokens for the chat composer. Raise if the model is a thinking model that needs budget for reasoning before emitting content |
-| `COACH_LLM_MAX_USD_CENTS` | no (default 0.2) | Per-call cost ceiling in US cents — shared with the opening explainer; the chat route checks it independently |
+| Chat output-token budget | `LlmChatComposer.MAX_OUTPUT_TOKENS` (hard-coded, not an env var) | 2048 — deliberately large so a *thinking* provider model has room to reason before it emits content; the explainer's `LlmComposer` uses 90 |
+| Per-call cost ceiling | `COACH_LLM_MAX_USD_CENTS` (shared env var, default 0.2) | Checked independently by the chat route against the 2048-token budget *before* calling the provider; over budget streams `TemplateChatComposer` instead |
+
+Because the ceiling is checked against that 2048-token budget, raising the budget in code without
+also raising `COACH_LLM_MAX_USD_CENTS` will silently push every turn onto the template composer.
 
 **App-side wiring** is shared with the opening explainer — same base-URL precedence
 (`CHESS_COACH_BASE_URL` → `coach.baseUrl` → empty) and the same per-platform HTTP engine; see
@@ -373,6 +379,10 @@ in `:server:test` validates real responses against it.
 | `COACH_LLM_OUTPUT_USD_PER_MILLION` | no | Output token price — required to enforce the 0.2¢ ceiling |
 | `COACH_LLM_MAX_USD_CENTS` | no (default 0.2) | Per-call cost ceiling in US cents. Checked against the prices above *before* the request; over budget falls back to the template composer. Raise it if you raise the model's output-token budget |
 | `COACH_ALLOWED_ORIGINS` | no | Comma-separated hostnames for CORS (e.g. `chess.example.com`; schemes added by server) |
+| `COACH_CORPUS_DIR` | no (default `corpus`) | Seed-time only (`SeedMain`): directory holding the corpus TSVs to chunk, embed, and upsert |
+
+All of these are shared with the [position-chat route](#position-chat-service) — there is no
+chat-specific variable.
 
 On Fly.io the runtime detects `FLY_APP_NAME` and uses Fly Proxy's `Fly-Client-IP` header for the
 bounded, expiring in-process request limiter (30 req/min per client). Outside Fly, the direct peer
