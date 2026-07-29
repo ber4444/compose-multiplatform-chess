@@ -26,7 +26,7 @@ data class AiRoutePolicy(
 object AiRoutePolicies {
     val moveCoachOffline = AiRoutePolicy(
         privacyClass = PrivacyClass.LOCAL_ONLY,
-        latencyBudget = LatencyBudget(firstTokenMs = 5000, completeMs = 20000),
+        latencyBudget = LatencyBudget(firstTokenMs = 5000, completeMs = 60000),
         costBudget = CostBudget(maxUsdCents = 0.0),
         allowCloud = false,
         requireOffline = true,
