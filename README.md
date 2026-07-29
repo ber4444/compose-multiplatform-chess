@@ -267,6 +267,7 @@ in `:server:test` validates real responses against it.
 | `COACH_LLM_MODEL` | no | Model name (default `gpt-4.1-mini`) |
 | `COACH_LLM_INPUT_USD_PER_MILLION` | no | Input token price — required to enforce the 0.2¢ ceiling |
 | `COACH_LLM_OUTPUT_USD_PER_MILLION` | no | Output token price — required to enforce the 0.2¢ ceiling |
+| `COACH_LLM_MAX_USD_CENTS` | no (default 0.2) | Per-call cost ceiling in US cents. Checked against the prices above *before* the request; over budget falls back to the template composer. Raise it if you raise the model's output-token budget |
 | `COACH_ALLOWED_ORIGINS` | no | Comma-separated hostnames for CORS (e.g. `chess.example.com`; schemes added by server) |
 
 On Fly.io the runtime detects `FLY_APP_NAME` and uses Fly Proxy's `Fly-Client-IP` header for the
@@ -290,8 +291,9 @@ normal product state in the panel.
 The service is packaged as a multi-stage Docker image (`server/Dockerfile`): a build stage runs
 `./gradlew :server:installDist`, and the `eclipse-temurin:21-jre-jammy` runtime stage bakes in the
 pinned MiniLM ONNX model + vocab. `server/fly.toml` configures the app
-(`compose-chess-opening-coach`, region `sjc`, `min_machines_running = 0` so cold starts are honest,
-health check `GET /health`).
+(`compose-chess-opening-coach`, region `sjc`, `min_machines_running = 1` so an interactive chat turn
+never waits on a machine boot, health check `GET /health`). Its `dockerfile` path is resolved
+relative to `server/`, the directory holding `fly.toml` — not the build context.
 
 No production URL or credential is committed. Deployment is intentionally a human step:
 
