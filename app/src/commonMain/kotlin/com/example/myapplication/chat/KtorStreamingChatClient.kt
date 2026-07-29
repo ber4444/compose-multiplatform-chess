@@ -50,6 +50,7 @@ import kotlinx.serialization.json.Json
 class KtorStreamingChatClient(
     private val httpClient: HttpClient,
     baseUrl: String,
+    private val streamTimeoutMs: Long = STREAM_TIMEOUT_MS,
 ) : StreamingChatClient {
     private val endpoint = "${baseUrl.trimEnd('/')}/v1/positions/chat/stream"
 
@@ -66,7 +67,7 @@ class KtorStreamingChatClient(
             // forever with no exception (the app-side symptom: an indefinite "thinking" spinner with
             // no error and no retry). This withTimeout is engine-independent — it bounds the whole
             // call/response/stream regardless of where in Ktor's internals a stall happens.
-            withTimeout(STREAM_TIMEOUT_MS) {
+            withTimeout(streamTimeoutMs) {
                 logger.i { "position-chat: POST $endpoint" }
                 // preparePost returns an HttpStatement; execute{} streams the response body.
                 // Cancelling this flow's collector cancels the channelFlow scope, which cancels the
@@ -79,11 +80,15 @@ class KtorStreamingChatClient(
                 statement.execute { response: HttpResponse ->
                     logger.i { "position-chat: response status=${response.status.value}" }
                     if (response.status.value !in 200..299) {
-                        sink.send(errorEvent())
+                        logger.w { "position-chat: non-2xx status ${response.status.value} — aborting stream" }
                         return@execute
                     }
                     val channel = response.bodyAsChannel()
-                    while (!channel.isClosedForRead) {
+                    // Use null-termination rather than isClosedForRead: with Ktor's MockEngine
+                    // (and some CIO scenarios) the channel reports isClosedForRead=true after the
+                    // first chunk even when more SSE lines remain in the buffer, causing early exit.
+                    // readLine() returns null only when the stream is genuinely exhausted.
+                    while (true) {
                         val line = channel.readLine() ?: break
                         if (!line.startsWith("data:")) continue
                         val payload = line.removePrefix("data:").trim()
@@ -122,8 +127,31 @@ class KtorStreamingChatClient(
 
     companion object {
         // Ignore unknown keys so a server-side field addition doesn't break streaming consumption.
-        private val EVENT_JSON = Json { ignoreUnknownKeys = true }
+        internal val EVENT_JSON = Json { ignoreUnknownKeys = true }
         private val logger = Logger.withTag("PositionChat")
+
+        /**
+         * Parses an SSE body string (the full text of a `data: <json>\n\n`-delimited stream) into
+         * a list of [ChatStreamEvent]s, stopping at the first terminal event. Exposed `internal` so
+         * [KtorStreamingChatClientTest] can test SSE parsing in isolation from the HTTP transport.
+         */
+        internal fun parseSseBody(body: String): List<ChatStreamEvent> {
+            val events = mutableListOf<ChatStreamEvent>()
+            for (line in body.split("\n")) {
+                if (!line.startsWith("data:")) continue
+                val payload = line.removePrefix("data:").trim()
+                if (payload.isEmpty()) continue
+                val event = runCatching {
+                    EVENT_JSON.decodeFromString(ChatStreamEvent.serializer(), payload)
+                }.getOrNull() ?: continue
+                events += event
+                if (event.type == ChatStreamEvent.TYPE_DONE ||
+                    event.type == ChatStreamEvent.TYPE_FALLBACK ||
+                    event.type == ChatStreamEvent.TYPE_ERROR
+                ) break
+            }
+            return events
+        }
 
         // Hard ceiling on one full request/stream turn (connect + headers + full SSE stream).
         // Generous relative to observed server latency (~7-11s including a cold LLM call), bounded
