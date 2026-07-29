@@ -148,6 +148,12 @@ class LlmChatComposer(
         if (valid != null) {
             emit(ChatChunk.Done(ID))
         } else {
+            // A rejection is otherwise invisible in production — the client just sees a fallback
+            // bubble with no way to tell a provider outage from a validator veto.
+            println(
+                "chat-validation-rejected ids=${passages.map(Passage::sourceId)} " +
+                    "text=${accumulated.toString().take(400)}"
+            )
             emit(ChatChunk.Fallback(fallbackText(request, passages)))
         }
     }.flowOn(Dispatchers.IO)
@@ -158,7 +164,19 @@ class LlmChatComposer(
         appendLine("Retrieved sources:")
         passages.forEach { appendLine("[${it.sourceId}] ${it.title}: ${it.text}") }
         appendLine("Player's Question: ${request.userMessage.trim()}")
-        append("Answer the player's question in 1-3 short sentences using only these sources. You MUST cite an exact [source-id] (e.g. [source-1]) in EVERY single sentence.")
+        append("Answer in 1-2 short sentences using only these sources. ")
+        // The validator requires >= 2 content words shared with the cited passage per sentence, so a
+        // loose paraphrase gets rejected even when it is factually correct. Fewer sentences also
+        // means fewer chances for the model to append an unsupported one.
+        append("Reuse the sources' own wording; do not paraphrase loosely or add facts. ")
+        // Placement matters as much as presence: an id after the closing period lands in the *next*
+        // sentence once the validator splits, leaving the sentence it belongs to uncited.
+        passages.firstOrNull()?.let { example ->
+            append("Put a source id in square brackets INSIDE each sentence, immediately before ")
+            append("its final period, like: White controls the center [${example.sourceId}]. ")
+        }
+        append("Use only these ids: ")
+        append(passages.joinToString(", ") { "[${it.sourceId}]" })
     }
 
     /** Validated deterministic body carried by a [ChatChunk.Fallback] when the stream fails. */
@@ -176,7 +194,11 @@ class LlmChatComposer(
     companion object {
         private const val ID = "llm-chat-v1"
         private const val MAX_PROVIDER_INPUT_CHARS = 8_000
-        private const val MAX_OUTPUT_TOKENS = 160
+        // Must cover reasoning tokens, not just the visible answer. Thinking models (the configured
+        // gemini-3.5-flash is one) spend most of the budget before emitting any content: at 160 the
+        // stream ended with finish_reason=length on a truncated, uncited fragment, which the
+        // validator then rejected — surfacing as a fallback bubble with no visible cause.
+        private const val MAX_OUTPUT_TOKENS = 2048
         private const val SYSTEM_PROMPT =
             "You are a chess position coach answering the player's question. " +
                 "Use only the supplied passages. Do not mention engine depth, ratings, or unsupported claims."
@@ -237,7 +259,17 @@ class OpenAiCompatibleStreamingLlmClient(
         // collecting Job closes the stream via the `use` block (and the request timeout bounds a
         // runaway provider). A `yield()` between lines gives cancellation a suspension checkpoint.
         val response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream())
-        if (response.statusCode() !in 200..299) return@flow
+        if (response.statusCode() !in 200..299) {
+            // Swallowing this silently yields an empty stream, which then fails validation and
+            // surfaces as a generic fallback bubble — indistinguishable from a bad LLM answer.
+            val body = runCatching { response.body().use { it.readBytes().decodeToString() } }
+                .getOrElse { "<unreadable>" }
+            println("llm-provider-error status=${response.statusCode()} model=$model body=${body.take(400)}")
+            return@flow
+        }
+        var deltas = 0
+        // Non-SSE lines are buffered so a one-shot JSON completion can still be recovered below.
+        val unstreamed = StringBuilder()
         response.body().use { input ->
             input.bufferedReader().use { reader ->
                 while (true) {
@@ -246,7 +278,10 @@ class OpenAiCompatibleStreamingLlmClient(
                         if (data == "data: [DONE]") break
                         continue
                     }
-                    if (!data.startsWith("data:")) continue
+                    if (!data.startsWith("data:")) {
+                        unstreamed.append(data)
+                        continue
+                    }
                     val jsonPayload = data.removePrefix("data:").trim()
                     if (jsonPayload.isEmpty() || jsonPayload == "[DONE]") continue
                     val delta = runCatching {
@@ -254,11 +289,21 @@ class OpenAiCompatibleStreamingLlmClient(
                             .choices.firstOrNull()?.delta?.content
                     }.getOrNull()
                     if (!delta.isNullOrEmpty()) {
+                        deltas++
                         emit(delta)
                         yield()
                     }
                 }
             }
+        }
+        // The provider answered a stream request with a whole completion — emit it as one chunk
+        // rather than dropping the reply and surfacing an unexplained fallback.
+        if (deltas == 0 && unstreamed.isNotEmpty()) {
+            val whole = runCatching {
+                json.decodeFromString<StreamChatResponse>(unstreamed.toString())
+                    .choices.firstOrNull()?.let { it.message?.content ?: it.delta.content }
+            }.getOrNull()
+            if (!whole.isNullOrEmpty()) emit(whole)
         }
     }.flowOn(Dispatchers.IO)
 
@@ -276,8 +321,13 @@ class OpenAiCompatibleStreamingLlmClient(
 
     @Serializable
     private data class StreamChatResponse(val choices: List<Choice> = emptyList()) {
+        /**
+         * `delta` is the streaming shape; `message` is the one-shot shape. An OpenAI-compatible
+         * provider may answer a `stream:true` request with a plain JSON completion (Gemini does
+         * this for cache hits), so both have to be understood or the reply is silently dropped.
+         */
         @Serializable
-        data class Choice(val delta: Delta = Delta())
+        data class Choice(val delta: Delta = Delta(), val message: Delta? = null)
     }
 
     @Serializable

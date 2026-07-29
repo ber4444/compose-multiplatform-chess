@@ -125,7 +125,10 @@ class PositionChatRouteTest {
                         streamingChatComposer = LlmChatComposer(
                             client = forbiddenStreamingClient,
                             fallback = TemplateChatComposer(),
-                            budget = ProviderCostBudget(0.2, 1.0, 1.0),
+                            // Cap must admit MAX_OUTPUT_TOKENS at these (deliberately inflated)
+                            // fixture prices, or the budget guard short-circuits to the template
+                            // path and this test never reaches the validation branch it asserts on.
+                            budget = ProviderCostBudget(5.0, 1.0, 1.0),
                         ),
                     ),
                 ),

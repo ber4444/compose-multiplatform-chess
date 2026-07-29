@@ -2,7 +2,9 @@ app = "compose-chess-opening-coach"
 primary_region = "sjc"
 
 [build]
-  dockerfile = "server/Dockerfile"
+  # Resolved relative to this file's directory (server/), not the build context.
+  # The context comes from the `.` in `fly deploy . --config server/fly.toml`.
+  dockerfile = "Dockerfile"
 
 [env]
   PORT = "8080"
