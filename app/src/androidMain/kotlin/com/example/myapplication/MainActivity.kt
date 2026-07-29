@@ -146,6 +146,7 @@ class MainActivity : ComponentActivity() {
                     contextProvider = contextProvider,
                 )
             )
+            holder.moveCoachManager.hideWindow()
         }
     }
 

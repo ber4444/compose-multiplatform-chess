@@ -185,5 +185,6 @@ private fun attachMoveCoach(
                 contextProvider = contextProvider,
             )
         )
+        moveCoachManager.hideWindow()
     }
 }

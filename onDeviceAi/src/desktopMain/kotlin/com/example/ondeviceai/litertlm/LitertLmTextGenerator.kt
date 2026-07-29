@@ -15,6 +15,7 @@ import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.SamplerConfig
 import co.touchlab.kermit.Logger
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -91,10 +92,36 @@ class LitertLmTextGenerator(
         val start = System.currentTimeMillis()
         val output = StringBuilder()
         var firstTokenMs: Long? = null
+        val finished = kotlinx.coroutines.CompletableDeferred<Unit>()
         try {
-            // sendMessageAsync(String) is the cleanest overload — the conversation
-            // already carries the system instruction via ConversationConfig.
-            conversation.sendMessageAsync(request.userPrompt).collect { message ->
+            // litertlm-jvm 0.14.0 is compiled against an older kotlinx-coroutines, causing a
+            // NoSuchMethodError on SendChannel.close$default when using its built-in callbackFlow
+            // sendMessageAsync on Coroutines 1.9.0. We bridge via MessageCallback to compile
+            // our own callbackFlow against 1.9.0.
+            kotlinx.coroutines.flow.callbackFlow {
+                val callback = object : com.google.ai.edge.litertlm.MessageCallback {
+                    override fun onMessage(message: com.google.ai.edge.litertlm.Message) {
+                        trySend(message)
+                    }
+                    override fun onDone() {
+                        finished.complete(Unit)
+                        close()
+                    }
+                    override fun onError(t: Throwable) {
+                        finished.complete(Unit)
+                        close(t)
+                    }
+                }
+                try {
+                    conversation.sendMessageAsync(request.userPrompt, callback)
+                } catch (t: Throwable) {
+                    finished.complete(Unit)
+                    throw t
+                }
+                awaitClose {
+                    conversation.cancelProcess()
+                }
+            }.collect { message ->
                 val text = message.contents.contents
                     .filterIsInstance<Content.Text>()
                     .joinToString("") { it.text }
@@ -133,7 +160,17 @@ class LitertLmTextGenerator(
                 ),
             )
         } finally {
-            conversation.close()
+            withContext(kotlinx.coroutines.NonCancellable) {
+                try {
+                    // Wait for the native engine to actually finish using the conversation object
+                    // before we delete it (to prevent C++ use-after-free or deadlocks).
+                    kotlinx.coroutines.withTimeoutOrNull(5000) {
+                        finished.await()
+                    }
+                } finally {
+                    conversation.close()
+                }
+            }
         }
     }.flowOn(engineDispatcher)
 
@@ -143,6 +180,9 @@ class LitertLmTextGenerator(
     private fun ensureInitialized() {
         if (engine != null || initializationFailed != null) return
         try {
+            if (!LitertLmModelStore.isDownloaded()) {
+                LitertLmModelStore.download()
+            }
             val configured = EngineConfig(
                 modelPath = modelPath,
                 backend = Backend.CPU(),
