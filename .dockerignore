@@ -1,10 +1,24 @@
+# server/Dockerfile does `COPY . .` with the repo root as the build context,
+# so anything not excluded here is shipped into the builder layer.
+
+# VCS and build tooling
 .git
 .gradle
 .kotlin
 **/build
 **/.DS_Store
+
+# Secrets and machine-local config — must never enter the build context
 .env
 .env.*
 local.properties
+
+# Vendored Filament payloads — large, and not needed to build :server
 iosApp/iosApp/Filament/filament
 app/src/desktopMain/filament/filament
+
+# Agent and IDE working directories
+.claude/
+.worktrees/
+.idea/
+.fleet/

@@ -70,14 +70,33 @@ object LitertLmModelStore {
 
         var conn: HttpURLConnection? = null
         try {
-            conn = (URL(modelUrl).openConnection() as HttpURLConnection).apply {
-                instanceFollowRedirects = true
-                connectTimeout = 30_000
-                readTimeout = 60_000
-                // HF serves the CDN URL with a UA check; use a browser-like UA to be safe.
-                setRequestProperty("User-Agent", "compose-multiplatform-chess/1.0 (desktop coach)")
+            var currentUrl = modelUrl
+            var redirects = 0
+            while (true) {
+                conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = false
+                    connectTimeout = 30_000
+                    readTimeout = 60_000
+                    // HF serves the CDN URL with a UA check; use a browser-like UA to be safe.
+                    setRequestProperty("User-Agent", "compose-multiplatform-chess/1.0 (desktop coach)")
+                }
+                val status = conn.responseCode
+                if (status == HttpURLConnection.HTTP_MOVED_TEMP ||
+                    status == HttpURLConnection.HTTP_MOVED_PERM ||
+                    status == HttpURLConnection.HTTP_SEE_OTHER) {
+                    val location = conn.getHeaderField("Location")
+                    conn.disconnect()
+                    currentUrl = location ?: error("Redirect missing Location header")
+                    redirects++
+                    if (redirects > 5) error("Too many redirects")
+                    continue
+                }
+                if (status !in 200..299) {
+                    error("Failed to download model: HTTP $status")
+                }
+                break
             }
-            val total = conn.contentLengthLong.takeIf { it > 0 } ?: -1L
+            val total = conn!!.contentLengthLong.takeIf { it > 0 } ?: -1L
             conn.inputStream.use { input ->
                 tmp.outputStream().use { out ->
                     val buf = ByteArray(64 * 1024)

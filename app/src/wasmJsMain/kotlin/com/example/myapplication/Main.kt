@@ -142,4 +142,5 @@ private suspend fun attachMoveCoach(
             contextProvider = contextProvider,
         )
     )
+    moveCoachManager.hideWindow()
 }
