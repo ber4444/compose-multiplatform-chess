@@ -88,7 +88,7 @@ class KtorStreamingChatClientTest {
     }
 
     @Test
-    fun `non-2xx body (unparseable) yields no events`() {
+    fun `non 2xx body unparseable yields no events`() {
         // Simulates what the server might return in an error body — no `data:` prefix.
         assertEquals(0, KtorStreamingChatClient.parseSseBody("Service Unavailable").size)
     }

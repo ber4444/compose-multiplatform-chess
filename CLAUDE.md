@@ -11,6 +11,11 @@ Compose Multiplatform chess app (Kotlin 2.3.x, Compose Multiplatform 1.10.x) tar
 ```bash
 ./gradlew test                                  # shared unit tests across targets
 ./gradlew :app:desktopTest --tests "com.example.myapplication.MoveTest"   # single test class (fastest iteration)
+./gradlew :chess-core:check :ondeviceai:check :coachapi:check              # core + AI module suites (all targets)
+./gradlew :server:test                          # cloud-AI service tests (Testcontainers Postgres; skips without Docker)
+./gradlew :evals:run                            # AI grounding/length eval gate; rewrites evals/scorecard.md
+./gradlew :chess-core:desktopTest --tests "*Perft*"                        # perft gate (canonical counts + Stockfish cross-check)
+CHESS_ENABLE_COACH=1 ./gradlew :app:run         # desktop app WITH the on-device coach/summary (downloads Qwen3-0.6B)
 ./gradlew :androidApp:assembleDebug :androidApp:installDebug              # build + install Android app
 ./gradlew :app:run                              # launch desktop app (needs system stockfish installed)
 ./gradlew :app:wasmJsBrowserDevelopmentRun      # run web target
@@ -31,20 +36,34 @@ Verifying the iOS Filament/Metal 3D *look* can't be done from a unit test — th
 CI (`.github/workflows/android-tests.yml`) builds every target with:
 
 ```bash
-./gradlew :androidApp:assembleDebug :app:assembleAndroidDeviceTest :app:check :app:desktopJar :app:packageDistributionForCurrentOS :app:wasmJsBrowserDistribution
+./gradlew :chess-core:check :ondeviceai:check :coachapi:check :perft-mcp:test :androidApp:assembleDebug :app:assembleAndroidDeviceTest :app:check :app:desktopJar :app:packageDistributionForCurrentOS :app:wasmJsBrowserDistribution
 ```
 
-then runs `:app:connectedAndroidDeviceTest` on an API 35 emulator. A change isn't done until those build for all three targets. A second job (`apple`) builds iOS/macOS targets and runs simulator tests.
+then runs `:app:connectedAndroidDeviceTest` on an API 35 emulator. A change isn't done until that
+command passes — it covers Android, desktop, and wasm. A second job (`apple`) builds the iOS/macOS
+targets and runs `:app:iosSimulatorArm64Test :ondeviceai:iosSimulatorArm64Test
+:coachapi:iosSimulatorArm64Test :app:desktopTest :chess-core:desktopTest` plus the `iosApp` xcodebuild
+tests; a nightly job runs the deep perft tier. Touching AI code also triggers
+`.github/workflows/ai-coach-evals.yml` (`:evals:run`), which fails on any grounding violation.
 
 ## Module and source-set structure
 
-Three Gradle modules:
+Nine Gradle projects. The five KMP ones carry the app; the rest are JVM-only tooling/services:
+
+> **Gradle path gotcha** — `settings.gradle.kts` includes the two AI modules as **lowercase**
+> `:ondeviceai` / `:coachapi` (with `projectDir` overrides to the camelCase directories). CI uses the
+> lowercase paths; camelCase (`:onDeviceAi:…`) only works via Gradle's case-insensitive name
+> matching. Prefer the lowercase form in scripts and workflows.
 
 - `:chess-core` — the Compose-free, platform-agnostic chess engine core: all game rules, FEN/UCI/SAN/PGN converters, `GameViewModel`, and the pure-Kotlin 3D-board math/scene mapping. Targets: `android`, `jvm("desktop")`, `iosArm64`, `iosSimulatorArm64`, `js(IR)`, `wasmJs`. Published to GitHub Packages as `io.github.ber4444:chess-core` (see `.github/workflows/publish-chess-core.yml`) so the React Native repo `ber4444/react-native-kotlin-multiplatform-chess` can consume it with zero Kotlin duplication. Boundary rules — **no Compose** (no `androidx.compose.*`, no `DrawableResource`, no `@Composable`, no `@Immutable`), **no russhwolf/Settings**, **no `java.lang.Process`**, no platform glue. This is the single source of truth for chess logic.
-- `:app` — KMP library holding all UI, platform glue, and resources. Depends on `:chess-core` via `api(project(":chess-core"))`. Targets: `android` (via `com.android.kotlin.multiplatform.library` plugin), `jvm("desktop")`, `wasmJs`.
+- `:app` — KMP library holding all UI, platform glue, and resources. Depends on `:chess-core` via `api(project(":chess-core"))`. Targets: `android` (via `com.android.kotlin.multiplatform.library` plugin), `jvm("desktop")`, `iosArm64`, `iosSimulatorArm64`, `wasmJs`.
 - `:androidApp` — thin Android application wrapper (manifest, launcher icons) that depends on `:app`.
 - `:onDeviceAi` — on-device AI orchestration (move coach, rules Q&A, opening explainer, route policy). Targets: `android`, `jvm("desktop")`, `iosArm64`, `iosSimulatorArm64`, `js(IR)`, `wasmJs`. Published to GitHub Packages as `io.github.ber4444:onDeviceAi` alongside `:coachApi` (see `.github/workflows/publish-on-device-ai.yml`) so the React Native repo can consume it. Has `api(project(":coachApi"))` — coachApi types leak into `OpeningExplainer.kt`'s public signatures, so both artifacts move in lockstep under one `on-device-ai-v*` tag.
-- `:coachApi` — serialization-only KMP wire models. Published as `io.github.ber4444:coachApi`. Targets mirror `:onDeviceAi`.
+- `:coachApi` — serialization-only KMP wire models (opening-explain request/response, `PositionChatRequest`, `ChatTurn`, `ChatStreamEvent`) shared by `:onDeviceAi`, `:app`, and the JVM `:server`. Published as `io.github.ber4444:coachApi`. Targets mirror `:onDeviceAi`.
+- `:server` — JVM-only Ktor cloud-AI service: `POST /v1/openings/explain` (one-shot) and `POST /v1/positions/chat/stream` (SSE), both over one Postgres+pgvector corpus with ONNX MiniLM embeddings. Deterministic template composers by default; the provider-LLM composers are opt-in via `COACH_LLM_*` env vars and always validated + fallback-guarded. Deployed to Fly.io (see README).
+- `:evals` — JVM-only rule-based eval harness; regenerates `evals/scorecard.md` and fails on grounding regression. Gated in CI by `.github/workflows/ai-coach-evals.yml` on changes to `:onDeviceAi`, `:coachApi`, `:server`, `:evals`, or `app/src/**/{opening,chat}/**`.
+- `:litert-eval` — JVM-only driver that runs the desktop `LitertLmTextGenerator` from the CLI. Depends on `:ondeviceai` + `:coachapi` only, deliberately **not** `:server` (keeps Ktor from pinning this module's coroutines version — see the `force` block in its `build.gradle.kts`).
+- `:perft-mcp` — JVM-only stdio MCP server exposing the perft rig as agent tools. No dependency on `:app`/`:chess-core` (shells out to gradle + stockfish).
 
 `gradle.properties` sets `kotlin.mpp.applyDefaultHierarchyTemplate=false`, so the source-set hierarchy is manual. The KMP module graph is organized as follows:
 
@@ -117,7 +136,7 @@ Stockfish binaries are vendored at `app/src/androidMain/jniLibs/{arm64-v8a,armea
 
 The app persists three things via `multiplatform-settings` (russhwolf) + `kotlinx-serialization`, all constructed over one `createSettings("chess")` backend per entry point:
 
-- **`AppSettings`** (`commonMain/.../persistence/AppSettings.kt`) — typed, observable view over `Settings`. Plain class (mirrors `GameViewModel` — not androidx ViewModel), constructed at the entry point and threaded into `AppRoot` via `LocalAppSettings` (`staticCompositionLocalOf<AppSettings?>`, nullable so `GameScreen` renders in tests without `AppRoot`). Holds `MutableStateFlow`s seeded from settings + write-through setters. Surface: `board3DEnabled` (default true; drives the 3D surface mount/teardown via a `GameScreen` `LaunchedEffect`) and `engineDifficulty` (default `MEDIUM`; bridged to `viewModel.setEngineDifficulty` by an `AppRoot` collector). The persisted theme override was removed — theme always follows system dark mode.
+- **`AppSettings`** (`commonMain/.../persistence/AppSettings.kt`) — typed, observable view over `Settings`. Plain class (mirrors `GameViewModel` — not androidx ViewModel), constructed at the entry point and threaded into `AppRoot` via `LocalAppSettings` (`staticCompositionLocalOf<AppSettings?>`, nullable so `GameScreen` renders in tests without `AppRoot`). Holds `MutableStateFlow`s seeded from settings + write-through setters. Surface: `board3DEnabled` (default true; drives the 3D surface mount/teardown via a `GameScreen` `LaunchedEffect`), `engineDifficulty` (default `MEDIUM`; bridged to `viewModel.setEngineDifficulty` by an `AppRoot` collector), and `aiCoachEnabled` (default true; bridged to `viewModel.aiCoachEnabled` — the user-facing half of the Move Coach gate, on top of the per-platform build gate). The persisted theme override was removed — theme always follows system dark mode. **Note:** the class KDoc still says "3D toggle + engine difficulty" and predates `aiCoachEnabled`.
 - **`CurrentGameStore`** (`commonMain/.../persistence/CurrentGameStore.kt`) — autosave/resume-later. The in-progress game is serialized as a `GameSnapshot` (FEN + small `@Serializable` DTOs for `moveHistory`/`positionHistory`/win/draw fields) under a versioned key `current_game.v1`. Saved on every completed move/draw resolution (explicit `autosave()` calls in `deriveNewGameState`/draw handlers — **not** on transient `selectedSquare` updates); restored at construction via `CurrentGameStoreSupport.loadInitialState` (a finished game starts fresh + clears the stale snapshot). `resetGame()` clears it.
 - **`GameHistoryRepository`** (`commonMain/.../persistence/GameHistory.kt`) — the list of finished games (`SavedGame` DTOs: id/result/players/moveCount/pgn), persisted as one JSON blob under `game_history.v1`, exposed as a `StateFlow<List<SavedGame>>` (newest first, capped at 200). `GameActions` builds the PGN (`PgnSerializer`/`PgnTags`) + `SavedGame` from a `GameUiState` at game end.
 
@@ -127,7 +146,11 @@ The app persists three things via `multiplatform-settings` (russhwolf) + `kotlin
 
 ## Navigation
 
-`AppRoot` (`commonMain/.../AppRoot.kt`) is the single navigation host and the single home for `MyApplicationTheme` (always `darkTheme = isSystemInDarkTheme()` — the per-entry-point theme duplication was removed). It owns a `Screen` enum (`GAME`, `HISTORY`, `SETTINGS`) in `rememberSaveable` state and a multiplatform `BackHandler` (`androidx.compose.ui.backhandler.BackHandler`, CMP 1.10) that pops to `GAME`. `AppRoot` also bridges `AppSettings.engineDifficulty` → `viewModel.setEngineDifficulty` via a `LaunchedEffect` collector. Entry points render `AppRoot(viewModel, settings, board3D, gameHistory, pgnSharer, switchTopPadding)` instead of `ChessApp` directly.
+`AppRoot` (`commonMain/.../AppRoot.kt`) is the single navigation host and the single home for `MyApplicationTheme` (always `darkTheme = isSystemInDarkTheme()` — the per-entry-point theme duplication was removed). It owns a `Screen` enum (`GAME`, `HISTORY`, `SETTINGS`, `RULES`, `CHAT`) in `rememberSaveable` state and a multiplatform `BackHandler` (`androidx.compose.ui.backhandler.BackHandler`, CMP 1.10) that pops to `GAME`. Entry points render `AppRoot(viewModel, settings, board3D, gameHistory, pgnSharer, moveCoachManager, gameSummaryManager, switchTopPadding)` instead of `ChessApp` directly.
+
+`AppRoot` is also the wiring point for the AI surfaces:
+- Two `LaunchedEffect` collectors bridge settings → VM: `AppSettings.engineDifficulty` → `viewModel.setEngineDifficulty`, and `AppSettings.aiCoachEnabled` → `viewModel.aiCoachEnabled`.
+- It `remember`s the cloud/on-device holders it owns — `OpeningExplainerStateHolder(createOpeningExplainer())`, `ChatViewModel(createPositionChat())`, and `RulesQaStateHolder(...)` over `defaultRulesQaAnswerer(createBundledRuleLookupTool())` — and closes the first two in `DisposableEffect`. The move-coach and game-summary managers are *not* created here: entry points own them (they need the platform runtime + lifecycle) and pass them in, then `AppRoot` publishes them via `LocalMoveCoachManager` / `LocalGameSummaryManager` / `LocalOpeningExplainerStateHolder` so `GameScreen` can read them.
 
 ## State and UI
 
@@ -150,7 +173,34 @@ The app persists three things via `multiplatform-settings` (russhwolf) + `kotlin
   - **Web backend:** **Filament (Wasm)**. `FilamentWasmChessRenderer` delegates lifecycle, camera, scene, selection, and animation state to `FilamentEncodedChessRenderer`, then its Wasm peer dynamically loads `filament.js` from `unpkg` and renders through WebGL into an absolutely positioned overlay `<canvas>`. The peer queues encoded scene/camera state until the JS renderer is ready. Filament replaced the previous three.js implementation for better rendering consistency across targets.
   - **iOS backend:** **Metal-native Filament**. `FilamentIosChessRenderer` delegates the same shared encoded renderer lifecycle to `FilamentEncodedChessRenderer`, then hosts a Swift `FilamentChessView` (`CAMetalLayer` + `CADisplayLink`) through `UIKitView(interactive = false)` so Compose `pointerInput` intercepts touches and the shared `OrbitCameraController` / `BoardRayPicker` pipeline drives the camera. Swift/Obj-C++ owns the Filament C++ renderer (`FilamentChessRenderer.mm`), while Kotlin owns FEN-to-scene mapping, move arcs, selection bounce, and camera state. The normal `iosApp` Debug/Release configs link Filament through `iosApp/iosApp/Filament/filament.xcconfig`; run `tools/fetch_filament_ios.sh` after a clean checkout to fetch Filament v1.72.0 xcframeworks and stage the KTX IBL assets. The previous iOS three.js/WKWebView path was removed after issue #54; see `docs/plans/ios-filament-spike-result.md`.
   - **Android backend:** A Filament renderer via **SceneView** (`io.github.sceneview:sceneview`), the Jetpack-Compose-native Filament wrapper (`AndroidSceneViewChessRenderer`). The renderer is a Compose-observable state holder behind `Chess3DBoardRenderer`; `AndroidBoard3DSurface` hosts SceneView with `SurfaceType.Surface`, papermill IBL/skybox KTX assets, and a transparent Compose overlay that receives the shared gestures because SceneView consumes touches. SceneView's model loader loads the `chess.glb` asset and fixed `ModelNode` pools render the board, pieces, and selected-square highlight. This replaced the original hand-written Filament `Engine`/`Renderer`/`SwapChain` + `SurfaceHolder.Callback` plumbing; Materia and a raw NDK Vulkan renderer were evaluated and rejected (see `docs/plans/issue-32-3d-ui-m3-android.md` and `docs/plans/issue-32-3d-ui-unresolved-questions.md`).
-- **On-device AI Move Coach:** A debug-gated (`ApplicationInfo.FLAG_DEBUGGABLE`) Compose panel (`MoveCoachPanel`) that surfaces a natural-language explanation of Black's move after it animates. Wired by `GameViewModel.triggerCoach(...)` — cancellable, never blocks the move, skipped if the move ends the game. Backed by a shared KMP module `:onDeviceAi` holding the routing policy (`AiRoutePolicies.moveCoachOffline`), prompt builder, and deterministic fallback in `commonMain`; platform runtimes are injected at the entry points.
+
+## AI features
+
+**Five** AI surfaces exist. Before changing any of them, know which one you're in — they share the
+`:onDeviceAi` seam but differ in privacy class, runtime, and gating:
+
+| Surface | UI entry | Policy | Orchestrator (`:onDeviceAi`) | `:app` holder |
+|---|---|---|---|---|
+| Move Coach | panel under the board, after Black's move | `moveCoachOffline` (LOCAL_ONLY, 0¢) | `DefaultAiCoachOrchestrator` | `movecoach/MoveCoachManager` |
+| Game Summary | *Get Coach Summary* in the game-over popup | reuses `moveCoachOffline` | `DefaultGameSummaryOrchestrator` | `movecoach/GameSummaryManager` |
+| Rules Q&A | **Rules** screen | `rulesQaOffline` (LOCAL_ONLY, 0¢) | `DefaultRulesQaOrchestrator` + `BundledRuleLookupTool` | `rules/RulesQaStateHolder` |
+| Opening Explainer | post-game panel | `openingExplainer` (PUBLIC_OR_SYNTHETIC, 0.2¢) | `DefaultOpeningExplainer` | `opening/OpeningExplainerStateHolder` |
+| Position Chat | **Chat** screen | `positionChat` (PUBLIC_OR_SYNTHETIC, 0.2¢) | `DefaultPositionChat` | `chat/ChatViewModel` |
+
+Shared plumbing: `AiRoutePolicies` + `AiRoutePolicyDecider` (route selection from an
+`AiContextSnapshot`: model presence, network, user setting, thermal state, foreground),
+`OnDeviceTextGenerator`/`OnDeviceTextGeneratorFactory` (the `expect` seam every local runtime
+implements), `MoveCoachPromptBuilder`/`MoveCoachResponseValidator` (300-char bound, forbidden phrases,
+grounding + one retry), `MoveCoachFallback` (deterministic text). `:coachApi` holds the cloud wire
+models; `:server` holds the two cloud routes; `:evals` gates grounding regressions in CI.
+
+Cloud is reachable by exactly two policies (`openingExplainer`, `positionChat`) and only with
+public/synthetic chess data. The three LOCAL_ONLY policies can never be handed a cloud route —
+`AiRoutePolicyDeciderTest` proves it over a 60-context sweep (2 model × 2 network × 3 user-setting ×
+5 thermal). **Do not add `allowCloud = true` to a LOCAL_ONLY policy or route local prompts through
+`:server`.**
+
+- **On-device AI Move Coach:** A Compose panel (`MoveCoachPanel`) that surfaces a natural-language explanation of Black's move after it animates. Wiring: `GameViewModel` fires its `onMoveCoached` callback after applying the engine's move (skipped when the move ends the game) and exposes an `aiCoachEnabled` flag; `MoveCoachManager` (in `:app`) registers that callback in its `init` and owns the private `triggerCoach(...)` — cancellable, never blocks the move. There is **no** `GameViewModel.triggerCoach`; the VM stays coach-agnostic apart from the callback + flag. Gated twice: the entry point must attach an orchestrator (Android `FLAG_DEBUGGABLE`, desktop `CHESS_ENABLE_COACH=1`, wasm `?coach=1`; iOS attaches when Foundation Models reports available), **and** `AppSettings.aiCoachEnabled` (Settings switch, default on) must be true. Backed by a shared KMP module `:onDeviceAi` holding the routing policy (`AiRoutePolicies.moveCoachOffline`), prompt builder, validator, and deterministic fallback in `commonMain`; platform runtimes are injected at the entry points.
   - **Android backend:** **Cactus (`com.cactuscompute:cactus:1.4.1-beta`)** — llama.cpp CPU runtime. The `gemma3-270m` model (~200 MB GGUF) is downloaded from Hugging Face by Cactus on first launch into `filesDir` (debug APK ~258 MB; no model bundled in the APK). `AndroidManifest.xml` declares `INTERNET` so Cactus can fetch the model. Cold start ~1–2 s. Replaced the earlier LiteRT-LM path (7–9 s cold init, streaming crash, no resolvable Maven coordinate) and the ML Kit Prompt API path (narrow AICore device support); `MoveCoachModelAsset.kt` and `AndroidCoachWiring` were removed in the migration. See `docs/benchmarks/on-device-ai/android-delivery-decision.md`.
   - **iOS backend:** **Foundation Models** (Apple Intelligence) via `FoundationMoveCoachBridge` registered into `FoundationModelsBridgeRegistry` from `iOSApp.swift`. Falls back to rule-based text when Apple Intelligence is unavailable. iOS has **not** been migrated to Cactus yet — it stays on Foundation Models, though the `:onDeviceAi` KMP module makes that swap feasible later.
   - **Desktop backend:** **LiteRT-LM** (`com.google.ai.edge.litertlm:litertlm-jvm`, Google AI Edge) — the Kotlin/JVM API over LiteRT-LM, with native libs bundled inside the jar (linux-x86_64 / linux-aarch64 / darwin-aarch64 / win-x86_64; **no Intel Mac** — those hosts fall back). The Qwen3-0.6B-int4 model (~347 MB `.litertlm`) is downloaded from Hugging Face on first launch by `LitertLmModelStore` and cached under `~/.chess-coach-models/`. Gated behind `CHESS_ENABLE_COACH=1` (env var) in `Main.kt`, mirroring Android's `FLAG_DEBUGGABLE` gate — without it the coach panel stays `Hidden` (the previous default). Implemented by `LitertLmTextGenerator` in `:onDeviceAi` desktopMain, wired via the same `OnDeviceTextGenerator` seam as Cactus/Foundation Models; the entire `DefaultAiCoachOrchestrator` → `MoveCoachManager` pipeline is reused unchanged. (The literal "LiteRT.js"/prebuilt LiteRT C++ SDK are not LLM runtimes — see `docs/benchmarks/on-device-ai/desktop-wasm-litert-lm.md` for why LiteRT-LM was chosen.)
