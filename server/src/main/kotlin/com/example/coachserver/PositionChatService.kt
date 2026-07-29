@@ -139,6 +139,13 @@ class LlmChatComposer(
                     emit(ChatChunk.Token(delta))
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // CancellationException is an Exception subtype, so a bare `catch (_: Exception)` below
+            // would also swallow real cancellation (e.g. the client disconnecting) and then try to
+            // emit fallback chunks into an already-cancelled collector — that second emit throws
+            // again, uncaught, which is what turns an ordinary disconnect into an unclean connection
+            // reset instead of the graceful fallback this composer intends. Must propagate untouched.
+            throw e
         } catch (_: Exception) {
             // Provider failure mid-stream → downgrade to deterministic fallback text.
             fallback.streamCompose(request, passages).collect { emit(it) }

@@ -29,6 +29,10 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import io.ktor.utils.io.readRemaining
 import io.ktor.utils.io.writeStringUtf8
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.io.readByteArray
 import java.net.URI
 import java.net.http.HttpClient
@@ -152,8 +156,27 @@ fun Application.openingCoachModule(
                 val request = REQUEST_JSON.decodeFromString<PositionChatRequest>(bytes.decodeToString())
                 val stream = chatService.chat(request)
                 call.respondBytesWriter(contentType = ContentType.Text.EventStream) {
-                    stream.collect { chunk ->
-                        writeStringUtf8("data: ${REQUEST_JSON.encodeToString(chunk.toEvent())}\n\n")
+                    // Retrieval + a "thinking" LLM model can both run for many seconds before the
+                    // first token is ready, during which this writer sends nothing at all. An
+                    // intermediary (Fly's edge proxy, in production) can treat a fully idle backend
+                    // connection as stalled and sever it — which surfaces to the client as an abrupt
+                    // disconnect instead of the graceful fallback the composer would otherwise send.
+                    // A periodic SSE comment line (`:`-prefixed, spec-defined as ignorable) keeps the
+                    // connection visibly alive without affecting event parsing on either client.
+                    coroutineScope {
+                        val heartbeat = launch {
+                            while (isActive) {
+                                delay(SSE_HEARTBEAT_INTERVAL_MS)
+                                writeStringUtf8(": keep-alive\n\n")
+                            }
+                        }
+                        try {
+                            stream.collect { chunk ->
+                                writeStringUtf8("data: ${REQUEST_JSON.encodeToString(chunk.toEvent())}\n\n")
+                            }
+                        } finally {
+                            heartbeat.cancel()
+                        }
                     }
                 }
             }
@@ -314,6 +337,8 @@ private const val MAX_REQUEST_BYTES = 16 * 1024L
 private const val PROVIDER_TIMEOUT_MS = 5_000L
 // Chat streams token-by-token, so it gets a longer per-request ceiling than the one-shot explainer.
 private const val CHAT_PROVIDER_TIMEOUT_MS = 30_000L
+// Well under any proxy idle-connection timeout we'd plausibly sit behind (Fly's edge included).
+private const val SSE_HEARTBEAT_INTERVAL_MS = 15_000L
 
 /** Default LLM cost cap per run, in USD cents ($0.002). Overridable via COACH_LLM_MAX_USD_CENTS. */
 private const val DEFAULT_LLM_MAX_USD_CENTS = 0.2
