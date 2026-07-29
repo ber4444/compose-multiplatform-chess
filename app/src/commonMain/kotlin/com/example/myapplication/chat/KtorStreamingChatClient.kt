@@ -10,6 +10,7 @@ import com.example.ondeviceai.DefaultPositionChat
 import com.example.ondeviceai.PositionChat
 import com.example.ondeviceai.StreamingChatClient
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
@@ -104,6 +105,14 @@ fun createPositionChat(): PositionChat {
             httpClient = HttpClient(openingExplainerHttpClientEngine()) {
                 install(ContentNegotiation) {
                     json(Json { ignoreUnknownKeys = true })
+                }
+                // Without this, a stalled DNS/connect/TLS handshake or a server that accepts the
+                // connection but never writes hangs the collecting flow forever with no exception —
+                // the UI is stuck on its "thinking" indicator with no way to surface an error or retry.
+                install(HttpTimeout) {
+                    connectTimeoutMillis = 10_000
+                    socketTimeoutMillis = 30_000
+                    requestTimeoutMillis = 60_000
                 }
             },
             baseUrl = it,
