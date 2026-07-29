@@ -10,6 +10,7 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
 import io.ktor.server.application.install
+import io.ktor.server.engine.connector
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
@@ -47,8 +48,19 @@ fun main() {
     val chatService = runCatching { defaultChatDependencies(environment) }.getOrNull()
     embeddedServer(
         factory = Netty,
-        host = "0.0.0.0",
-        port = environment["PORT"]?.toIntOrNull() ?: 8080,
+        configure = {
+            connector {
+                host = "0.0.0.0"
+                port = environment["PORT"]?.toIntOrNull() ?: 8080
+            }
+            // Ktor Netty's default responseWriteTimeoutSeconds (10s) is *shorter* than the SSE
+            // heartbeat interval below and shorter than retrieval + a "thinking" LLM's
+            // time-to-first-token can take. Netty was force-closing the position-chat connection
+            // before either a real token or a heartbeat comment line could be written, which
+            // surfaced as "connection closed before message completed" instead of the graceful
+            // fallback the composer intends. Widen it well past CHAT_PROVIDER_TIMEOUT_MS.
+            responseWriteTimeoutSeconds = 60
+        },
     ) {
         val allowedOrigins = environment["COACH_ALLOWED_ORIGINS"]
             ?.split(',')
