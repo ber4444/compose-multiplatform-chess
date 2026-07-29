@@ -300,8 +300,9 @@ No production URL or credential is committed. Deployment is intentionally a huma
 fly launch --no-deploy --config server/fly.toml
 
 # 2. Provision Postgres with pgvector and attach it
-fly pg create --name compose-chess-pg --region sjc --initial-cluster-size 1
-fly pg attach --postgres-app compose-chess-pg --app compose-chess-opening-coach
+# Note: As of late 2024, Fly defaults to PG 18 which lacks pgvector. We explicitly use PG 16.
+fly pg create --name compose-chess-pg --region sjc --initial-cluster-size 1 --image-ref flyio/postgres-flex:16.3
+fly pg attach compose-chess-pg --app compose-chess-opening-coach
 # This sets DATABASE_URL as a Fly secret automatically. Verify:
 fly secrets list --app compose-chess-opening-coach
 
@@ -312,7 +313,8 @@ fly ssh console --app compose-chess-opening-coach --command \
 # so the first deploy will create it if the connecting role has permission.
 
 # 4. Deploy the service (the schema is applied idempotently on startup)
-fly deploy --config server/fly.toml
+# Note: The `.` is required to set the build context to the repository root so it can find gradlew.
+fly deploy . --config server/fly.toml
 
 # 5. Seed the opening corpus into the live database.
 #    `installDist` produces a single `bin/server` script (the app); there is no `bin/server-seed`.
