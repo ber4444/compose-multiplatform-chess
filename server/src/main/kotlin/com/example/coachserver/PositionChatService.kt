@@ -157,7 +157,8 @@ class LlmChatComposer(
         appendLine("Moves: ${request.movesSan.takeLast(12).joinToString(" ")}")
         appendLine("Retrieved sources:")
         passages.forEach { appendLine("[${it.sourceId}] ${it.title}: ${it.text}") }
-        append("Answer the player's question in 1-3 short sentences using only these sources. Cite an exact [source-id] in every sentence.")
+        appendLine("Player's Question: ${request.userMessage.trim()}")
+        append("Answer the player's question in 1-3 short sentences using only these sources. You MUST cite an exact [source-id] (e.g. [source-1]) in EVERY single sentence.")
     }
 
     /** Validated deterministic body carried by a [ChatChunk.Fallback] when the stream fails. */
@@ -320,8 +321,8 @@ object PositionChatValidator {
         if (forbiddenPhrases.any(lower::contains)) return null
         val byId = passages.associateBy(Passage::sourceId)
         if (byId.isEmpty()) return null
-        val sentences = text.split(Regex("(?<=[.!?])\\s+")).filter(String::isNotBlank)
-        if (sentences.isEmpty() || sentences.size > 3) return null
+        val sentences = text.split(Regex("(?<=[.!?])\\s+(?=[A-Z\"'])")).filter(String::isNotBlank)
+        if (sentences.isEmpty() || sentences.size > 4) return null
         if (sentences.any { sentence ->
                 val cited = citation.findAll(sentence).map { it.groupValues[1] }.toList()
                 if (cited.isEmpty() || cited.any { it !in byId }) return@any true
