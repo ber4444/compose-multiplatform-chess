@@ -321,7 +321,7 @@ object PositionChatValidator {
         if (forbiddenPhrases.any(lower::contains)) return null
         val byId = passages.associateBy(Passage::sourceId)
         if (byId.isEmpty()) return null
-        val sentences = text.split(Regex("(?<=[.!?])\\s+(?=[A-Z\"'])")).filter(String::isNotBlank)
+        val sentences = text.split(Regex("(?<=[^0-9][.!?])\\s+(?=[A-Z\"'])")).filter(String::isNotBlank)
         if (sentences.isEmpty() || sentences.size > 4) return null
         if (sentences.any { sentence ->
                 val cited = citation.findAll(sentence).map { it.groupValues[1] }.toList()

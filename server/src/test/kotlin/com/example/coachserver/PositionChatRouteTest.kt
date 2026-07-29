@@ -234,6 +234,24 @@ class PositionChatRouteTest {
         assertEquals(text, valid)
     }
 
+    /**
+     * Regression: the sentence splitter used to fire on any `.` followed by whitespace, so the
+     * periods in algebraic move numbers broke one cited sentence into several uncited fragments —
+     * blowing the sentence cap and failing the per-sentence citation check. Answers that quote a
+     * move sequence are the common case for this feature, so they must survive validation.
+     */
+    @Test
+    fun `validator accepts prose quoting a pawn move sequence`() {
+        val text = "The king pawn advance 1. e4 e5 3. d4 continues to contest the center [lichess-c20]."
+        assertEquals(text, PositionChatValidator.validate(text, listOf(passage)))
+    }
+
+    @Test
+    fun `validator accepts prose quoting a piece move sequence`() {
+        val text = "The king pawn advance 1. e4 e5 2. Nf3 Nc6 continues to contest the center [lichess-c20]."
+        assertEquals(text, PositionChatValidator.validate(text, listOf(passage)))
+    }
+
     @Test
     fun `validator rejects forbidden engine phrases`() {
         val text = "I think Stockfish probably depth 30 likes the center [lichess-c20]."
