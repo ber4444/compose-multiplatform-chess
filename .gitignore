@@ -56,3 +56,6 @@ litert-eval/build/
 *.patch
 DownloadTest.kt
 .zcode/
+
+# Local LiteRT-LM faithfulness driver output (:litert-eval), scored out-of-band by ferryman
+litert-outputs*.json
