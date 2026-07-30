@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +30,9 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.board3d.Board3DSupport
+import com.example.myapplication.chat.ChatScreen
+import com.example.myapplication.chat.ChatViewModel
+import com.example.myapplication.chat.createPositionChat
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.persistence.LocalAppSettings
@@ -55,7 +59,7 @@ import com.example.ondeviceai.defaultRulesQaAnswerer
  * Replaces the per-platform `MyApplicationTheme { ChessApp(...) }` duplication. New screens
  * (History, Settings) are added here as the lifecycle/persistence work lands.
  */
-enum class Screen { GAME, HISTORY, SETTINGS, RULES }
+enum class Screen { GAME, HISTORY, SETTINGS, RULES, CHAT }
 
 val LocalMoveCoachManager = staticCompositionLocalOf<MoveCoachManager?> { null }
 val LocalGameSummaryManager = staticCompositionLocalOf<GameSummaryManager?> { null }
@@ -74,6 +78,8 @@ fun AppRoot(
     switchTopPadding: Dp = 8.dp,
 ) {
     val openingExplainerStateHolder = remember { OpeningExplainerStateHolder(createOpeningExplainer()) }
+    val chatViewModel = remember { ChatViewModel(createPositionChat()) }
+    val gameState by viewModel.gameState.collectAsState()
     val rulesQaStateHolder = remember {
         val answerer = defaultRulesQaAnswerer(createBundledRuleLookupTool())
         RulesQaStateHolder(
@@ -90,6 +96,9 @@ fun AppRoot(
     }
     DisposableEffect(openingExplainerStateHolder) {
         onDispose { openingExplainerStateHolder.close() }
+    }
+    DisposableEffect(chatViewModel) {
+        onDispose { chatViewModel.close() }
     }
     CompositionLocalProvider(
         LocalAppSettings provides settings,
@@ -121,6 +130,7 @@ fun AppRoot(
                     onOpenHistory = { screen = Screen.HISTORY },
                     onOpenSettings = { screen = Screen.SETTINGS },
                     onOpenRules = { screen = Screen.RULES },
+                    onOpenChat = { screen = Screen.CHAT },
                 )
                 Screen.HISTORY -> if (gameHistory != null) {
                     GameHistoryScreen(
@@ -139,6 +149,11 @@ fun AppRoot(
                 )
                 Screen.RULES -> RulesQaScreen(
                     stateHolder = rulesQaStateHolder,
+                    onBack = { screen = Screen.GAME },
+                )
+                Screen.CHAT -> ChatScreen(
+                    viewModel = chatViewModel,
+                    gameState = gameState,
                     onBack = { screen = Screen.GAME },
                 )
             }

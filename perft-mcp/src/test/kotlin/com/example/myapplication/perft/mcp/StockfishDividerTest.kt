@@ -34,7 +34,7 @@ class StockfishDividerTest {
     }
 
     @Test
-    fun `divide on missing binary returns oracleUnavailable, never throws`() {
+    fun `divide on missing binary returns oracleUnavailable never throws`() {
         // Constructed with a path nothing can launch. The tool contract: return a structured
         // "unavailable" result rather than propagating an exception.
         val divider = StockfishDivider(binaryPath = "/nonexistent/path/stockfish-xyz-nope", timeoutMs = 500L)

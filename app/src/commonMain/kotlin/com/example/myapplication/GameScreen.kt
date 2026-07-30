@@ -148,6 +148,7 @@ fun GameScreen(
     onOpenHistory: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenRules: () -> Unit = {},
+    onOpenChat: () -> Unit = {},
 ) {
     val gameState by viewModel.gameState.collectAsState()
     val animState by viewModel.animState.collectAsState()
@@ -290,9 +291,16 @@ fun GameScreen(
                 val gameSummaryManager = LocalGameSummaryManager.current
                 if (gameSummaryManager != null) {
                     val summaryState by gameSummaryManager.uiState.collectAsState()
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
+                    // Unavailable (no orchestrator attached — release Android, coach-disabled
+                    // desktop/web, or Foundation Models unavailable on iOS) renders nothing: the
+                    // trigger button would otherwise be visible but do nothing when pressed, since
+                    // GameSummaryManager.triggerSummary no-ops without an orchestrator.
+                    if (summaryState !is GameSummaryUiState.Unavailable) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
                     when (summaryState) {
+                        GameSummaryUiState.Unavailable -> Unit
                         is GameSummaryUiState.Hidden -> {
                             Button(
                                 onClick = {
@@ -535,6 +543,17 @@ fun GameScreen(
                 .offset(y = switchTopPadding)
                 .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
         ) {
+            TextButton(
+                onClick = onOpenChat,
+                modifier = Modifier.testTag("open_chat_button")
+            ) {
+                Text(
+                    text = "Chat",
+                    color = THREE_D_CONTROL_ACCENT_COLOR,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
             TextButton(
                 onClick = onOpenRules,
                 modifier = Modifier.testTag("open_rules_button")

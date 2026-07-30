@@ -41,3 +41,8 @@ app/build/desktop-filament-native/
 # Filament cmgen/CLI tools downloaded to bake/blur the KTX environment maps (binaries, not source)
 /filament/
 iosApp/iosApp/Resources/papermill_skybox_blurred.ktx
+
+# Opening-coach server: MiniLM ONNX model + vocab fetched for local runs.
+# server/Dockerfile downloads these at build time from a pinned HF revision.
+server/model/
+server_logs.txt

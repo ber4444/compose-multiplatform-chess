@@ -114,7 +114,11 @@ class StructuredOutputRulesQaAnswerer(
             never invent a rule, and cite an exact passage id in square brackets.
         """
         val LOOKUP_ENVELOPE = Regex(
-            """\s*\{\s*"tool"\s*:\s*"lookup_rule"\s*,\s*"query"\s*:\s*"((?:\\.|[^"\\])*)"\s*}\s*""",
+            // NOTE: the closing brace must be escaped as `\}`. A bare `}` compiles on the JVM
+            // (lenient java.util.regex) but Android's ICU-backed engine rejects it with a
+            // PatternSyntaxException at class-init, crashing the app on device. JVM-only tests
+            // (desktopTest) can't catch this — it is Android-runtime-specific.
+            """\s*\{\s*"tool"\s*:\s*"lookup_rule"\s*,\s*"query"\s*:\s*"((?:\\.|[^"\\])*)"\s*\}\s*""",
         )
     }
 }

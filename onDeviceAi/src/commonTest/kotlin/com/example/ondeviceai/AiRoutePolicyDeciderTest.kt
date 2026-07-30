@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class AiRoutePolicyDeciderTest {
@@ -62,6 +63,18 @@ class AiRoutePolicyDeciderTest {
     }
 
     @Test
+    fun `position chat policy is public cloud-only and budgeted for streaming`() {
+        val policy = AiRoutePolicies.positionChat
+        assertEquals(PrivacyClass.PUBLIC_OR_SYNTHETIC, policy.privacyClass)
+        assertEquals(true, policy.allowCloud)
+        assertEquals(false, policy.requireOffline)
+        // First-token budget matters for the streaming UX; complete budget is generous for a full turn.
+        assertEquals(2500, policy.latencyBudget.firstTokenMs)
+        assertEquals(true, policy.latencyBudget.completeMs >= policy.latencyBudget.firstTokenMs)
+        assertEquals(0.2, policy.costBudget.maxUsdCents)
+    }
+
+    @Test
     fun `move coach can never route to cloud across runtime contexts`() {
         val contexts = buildList {
             for (hasModel in listOf(false, true)) {
@@ -87,6 +100,82 @@ class AiRoutePolicyDeciderTest {
             val decision = AiRoutePolicyDecider.decide(AiRoutePolicies.moveCoachOffline, context)
             kotlin.test.assertNotEquals(AiRoutePolicyDecider.Decision.RunCloud, decision)
         }
+    }
+
+    @Test
+    fun `position chat routes to cloud only under the allowed contexts across the 60-context sweep`() {
+        // The decider grid: 2 (hasModel) × 2 (hasNetwork) × 3 (userSetting) × 5 (thermalState) = 60,
+        // plus the foreground assumption. positionChat is cloud-only: it routes to Cloud exactly when
+        // allowCloud(policy) && hasNetwork && !backgrounded && thermal != CRITICAL && underCostCeiling
+        // AND a local model is NOT present (the decider prefers on-device when one is available).
+        val contexts = buildList {
+            for (hasModel in listOf(false, true)) {
+                for (hasNetwork in listOf(false, true)) {
+                    for (setting in AiUserSetting.entries) {
+                        for (thermal in ThermalState.entries) {
+                            add(
+                                AiContextSnapshot(
+                                    isDeviceModelAvailable = hasModel,
+                                    isNetworkAvailable = hasNetwork,
+                                    isAppForegrounded = true,
+                                    userSetting = setting,
+                                    thermalState = thermal,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        contexts.forEach { context ->
+            val decision = AiRoutePolicyDecider.decide(AiRoutePolicies.positionChat, context)
+            // Mirrors AiRoutePolicyDecider's precedence exactly: under CRITICAL thermal the decider
+            // prefers Cloud (to spare the device) whenever the policy allows it and the network is up,
+            // independent of the user's OFFLINE_ONLY setting; otherwise Cloud is taken only when there
+            // is no local model (chat has none), the user hasn't pinned OFFLINE_ONLY, and the network
+            // is available.
+            val cloudAllowedByPolicy = AiRoutePolicies.positionChat.allowCloud &&
+                !AiRoutePolicies.positionChat.requireOffline &&
+                AiRoutePolicies.positionChat.privacyClass != PrivacyClass.LOCAL_ONLY &&
+                AiRoutePolicies.positionChat.costBudget.maxUsdCents > 0.0
+            val shouldRunCloud = if (context.thermalState == ThermalState.CRITICAL) {
+                cloudAllowedByPolicy && context.isNetworkAvailable
+            } else {
+                !context.isDeviceModelAvailable &&
+                    context.userSetting != AiUserSetting.OFFLINE_ONLY &&
+                    cloudAllowedByPolicy &&
+                    context.isNetworkAvailable
+            }
+            if (shouldRunCloud) {
+                assertEquals(
+                    AiRoutePolicyDecider.Decision.RunCloud,
+                    decision,
+                    "expected Cloud for $context but got $decision",
+                )
+            } else {
+                assertNotEquals(
+                    AiRoutePolicyDecider.Decision.RunCloud,
+                    decision,
+                    "expected non-Cloud for $context but got $decision",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `position chat falls back when the app is backgrounded`() {
+        val decision = AiRoutePolicyDecider.decide(
+            AiRoutePolicies.positionChat,
+            AiContextSnapshot(
+                isDeviceModelAvailable = false,
+                isNetworkAvailable = true,
+                isAppForegrounded = false,
+                userSetting = AiUserSetting.ALLOW_CLOUD,
+            ),
+        )
+        assertIs<AiRoutePolicyDecider.Decision.FallBack>(decision)
+        assertEquals(AiRoutePolicyDecider.FALLBACK_BACKGROUND, decision.reason)
     }
 
     @Test

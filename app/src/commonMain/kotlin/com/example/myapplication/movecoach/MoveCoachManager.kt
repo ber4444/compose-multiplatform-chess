@@ -53,13 +53,13 @@ class MoveCoachManager(
     fun attachCoachOrchestrator(orchestrator: AiCoachOrchestrator?) {
         coachJob?.cancel()
         this.orchestrator = orchestrator
-        if (orchestrator == null) {
-            _coachUiState.value = MoveCoachUiState.Hidden
-        }
-        // When attaching a non-null orchestrator, keep the current UI state (typically
-        // LoadingModel set by the entry point during warmup). The state will be updated
-        // by the first coached move via triggerCoach(). Previously both branches of a
-        // ternary returned Hidden here, which wiped the loading state immediately.
+        // Attaching is the "coach settled" signal: the entry point calls this only after warmup /
+        // availability resolves (Android: model downloaded + loaded; iOS: Foundation Models checked).
+        // Clear the transient LoadingModel placeholder ("Downloading…" / "Starting Gemma engine…") so a
+        // ready coach doesn't sit behind a stale loading message. The panel stays Hidden until the
+        // first coached move drives it via triggerCoach(). (This is safe now that entry points attach
+        // post-warmup — the earlier bug was attaching *during* load, which wiped the loading state.)
+        _coachUiState.value = MoveCoachUiState.Hidden
     }
 
     /**

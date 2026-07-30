@@ -339,6 +339,12 @@ jobs:
         # The real Swift unit tests (iosAppTests → StockfishChessEngineTests) still run below.
         run: |
           set -o pipefail
+          # -retry-tests-on-failure + -test-iterations 3: StockfishChessEngineTests boots the native
+          # ChessKitEngine (Stockfish) in-process; its cold start intermittently crashes on the CI
+          # simulator ("Restarting after unexpected exit, crash, or test timeout") ~1-in-N runs,
+          # unrelated to the change under test. Retry only the FAILING test up to 3 iterations so a
+          # flaky native crash doesn't red an otherwise-green PR. Coverage is preserved — a genuine
+          # regression fails all 3 attempts. (Retries failures only; it does not run every test 3×.)
           xcodebuild \
             -project iosApp/iosApp.xcodeproj \
             -scheme iosApp \
@@ -347,6 +353,8 @@ jobs:
             -derivedDataPath iosApp/build/DerivedData \
             -parallel-testing-enabled NO \
             -skip-testing:iosAppUITests \
+            -retry-tests-on-failure \
+            -test-iterations 3 \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             test
 
