@@ -216,7 +216,7 @@ public/synthetic chess data. The three LOCAL_ONLY policies can never be handed a
   - The client's `withTimeout(45_000)` around the stream is deliberate belt-and-braces on top of `HttpTimeout`: a `bodyAsChannel()` read inside `execute{}` has not reliably honoured CIO's socket timeout, which hung the UI with no error.
   - `ChatViewModel` keeps a single `streamJob` (Stop cancels it, which must close the TCP connection) and sends the last 6 turns; the server independently caps history at 12 turns / 20 plies / 500 chars.
   - Validation is server-side on the *accumulated* text at stream end; a veto emits `fallback` with `TemplateChatComposer`'s grounded text. `DefaultPositionChat`'s own fallback event is a fixed offline sentence and is **not** retrieval-grounded — don't conflate the two layers.
-- `docs/plans/on-device-coach-rag-unification.md` is a **proposal** (unifying the coach and chat on one retrieval-grounded path), not implemented. Don't document or assume it as existing behaviour.
+- `docs/plans/on-device-coach-rag-unification.md` is a **proposal** — grounding the coach, summary, and chat in a persisted per-ply `MoveAssessment` record (cpLoss/motifs) instead of a reference corpus, plus habit aggregation, difficulty-aware advice, and chat re-scoping. **None of it is implemented.** Don't document or assume it as existing behaviour.
 
 ## Build quirks (don't "clean up")
 
