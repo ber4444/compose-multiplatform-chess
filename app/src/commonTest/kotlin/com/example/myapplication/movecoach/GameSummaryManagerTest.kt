@@ -24,7 +24,7 @@ import kotlin.test.assertIs
 class GameSummaryManagerTest {
 
     @Test
-    fun `a fresh manager starts Unavailable, not Hidden`() {
+    fun `a fresh manager starts Unavailable not Hidden`() {
         val manager = GameSummaryManager()
         assertEquals(GameSummaryUiState.Unavailable, manager.uiState.value)
         manager.close()
@@ -39,7 +39,7 @@ class GameSummaryManagerTest {
     }
 
     @Test
-    fun `attaching a real orchestrator moves the manager to the ready (Hidden) state`() {
+    fun `attaching a real orchestrator moves the manager to the ready Hidden state`() {
         val manager = GameSummaryManager()
         manager.attachOrchestrator(fakeOrchestrator())
         assertEquals(GameSummaryUiState.Hidden, manager.uiState.value)
