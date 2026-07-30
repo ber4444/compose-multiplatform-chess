@@ -3,16 +3,16 @@ package com.example.ondeviceai
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import com.google.firebase.Firebase
-import com.google.firebase.vertexai.vertexAI
-import com.google.firebase.vertexai.type.content
+import com.google.firebase.ai.ai
+import com.google.firebase.ai.type.content
+import com.google.firebase.ai.type.generationConfig
 
-import com.google.firebase.vertexai.type.generationConfig
-
-class FirebaseHybridGenerator(private val mode: String) : OnDeviceTextGenerator {
-    private val model = Firebase.vertexAI.generativeModel(
-        modelName = "gemini-1.5-flash",
+class FirebaseCloudGenerator(private val modelName: String = "gemini-2.5-flash-lite") : OnDeviceTextGenerator {
+    private val model = Firebase.ai.generativeModel(
+        modelName = modelName,
         generationConfig = generationConfig {
             responseMimeType = "application/json"
+            responseSchema = MoveCoachResponse_Schema
         }
     )
 
@@ -36,9 +36,9 @@ class FirebaseHybridGenerator(private val mode: String) : OnDeviceTextGenerator 
                     emit(AiTokenOrFinal.Token(chunk))
                 }
             }
-            emit(AiTokenOrFinal.Final(fullText, AiInferenceMetrics(0L, 0L, fullText.length, AiRoute.Cloud)))
+            emit(AiTokenOrFinal.Final(fullText, AiInferenceMetrics(0L, 0L, fullText.length, AiRoute.OnDevice)))
         } catch (e: Exception) {
-            emit(AiTokenOrFinal.Final("{\"error\": \"${e.message}\"}", AiInferenceMetrics(0L, 0L, 0, AiRoute.Cloud)))
+            throw e
         }
     }
 
