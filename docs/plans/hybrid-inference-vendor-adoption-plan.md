@@ -34,3 +34,4 @@ This plan outlines the staged adoption of hybrid (on-device and cloud) inference
 
 ### Phase 8: Documentation (Status: proposed)
 - Finalize article updates once manual measurements are complete.
+- Before wiring quality into routing decisions, see `docs/benchmarks/on-device-ai/move-coach-quality-axes.md` — capability/privacy routing currently has no quality dimension, and the local model's reason-faithfulness and piece-type accuracy both measured below its honesty rate.
