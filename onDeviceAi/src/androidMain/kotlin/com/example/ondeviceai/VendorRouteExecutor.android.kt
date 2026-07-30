@@ -31,7 +31,7 @@ actual class VendorRouteExecutor : AiRouteExecutor {
             if (mlkit.status() is AiAvailability.Available) mlkit
             else getCactus()
         } else {
-            FirebaseHybridGenerator(AiInferenceMode.PREFER_ON_DEVICE)
+            FirebaseCloudGenerator()
         }
     }
 

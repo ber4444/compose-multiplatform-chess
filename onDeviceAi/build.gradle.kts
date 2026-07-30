@@ -155,7 +155,6 @@ kotlin {
             api("com.google.mlkit:genai-schema:1.0.0-alpha1")
             implementation("com.google.mlkit:genai-prompt:1.0.0-beta3")
             implementation("com.google.firebase:firebase-ai")
-            implementation("com.google.firebase:firebase-ai-ondevice:16.0.0-beta03")
             implementation("com.google.firebase:firebase-appcheck-playintegrity")
             implementation("com.google.firebase:firebase-appcheck-debug")
         }
