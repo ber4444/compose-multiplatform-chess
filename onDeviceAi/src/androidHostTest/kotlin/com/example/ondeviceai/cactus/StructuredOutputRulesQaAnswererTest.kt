@@ -2,7 +2,7 @@ package com.example.ondeviceai.cactus
 
 import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.FakeTextGenerator
-import com.example.ondeviceai.FakeTextGeneratorFactory
+import com.example.ondeviceai.FakeVendorRouteExecutor
 import com.example.ondeviceai.RuleLookupTool
 import com.example.ondeviceai.RulePassage
 import kotlinx.coroutines.test.runTest
@@ -38,7 +38,7 @@ class StructuredOutputRulesQaAnswererTest {
         }
 
         val output = StructuredOutputRulesQaAnswerer(
-            factory = FakeTextGeneratorFactory(generator),
+            executor = FakeVendorRouteExecutor(generator),
             lookupTool = lookup,
         ).answer("May I castle through check?")
 
@@ -59,7 +59,7 @@ class StructuredOutputRulesQaAnswererTest {
         )
 
         val output = StructuredOutputRulesQaAnswerer(
-            factory = FakeTextGeneratorFactory(generator),
+            executor = FakeVendorRouteExecutor(generator),
             lookupTool = RuleLookupTool { emptyList() },
         ).answer("May I castle through check?")
 

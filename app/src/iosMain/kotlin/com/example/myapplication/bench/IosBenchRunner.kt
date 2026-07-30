@@ -4,7 +4,8 @@ import com.example.ondeviceai.AiCoachOrchestrator
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
 import com.example.ondeviceai.MoveCoachRequest
 import com.example.ondeviceai.bench.BenchProbe
-import com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory
+import com.example.ondeviceai.VendorRouteExecutor
+import com.example.ondeviceai.AiRoute
 import kotlinx.coroutines.flow.collect
 import platform.Foundation.NSBundle
 import platform.Foundation.NSDocumentDirectory
@@ -64,19 +65,17 @@ suspend fun runIosBench(iterations: Int) {
         }
         
         probe.onInitStart()
-        val factory = defaultOnDeviceTextGeneratorFactory()
-        val generator = factory.create()
+        val executor = VendorRouteExecutor()
+        val generator = executor.execute(com.example.ondeviceai.VendorRoute.AppleFoundationModels())
         generator?.warmup()
         probe.onInitEnd()
         
         val orchestrator = DefaultAiCoachOrchestrator(
-            factory = factory,
+            executor = executor,
             benchProbe = probe
         )
         
         orchestrator.explainMoveStreaming(request).collect()
-        
-        generator?.close()
         
         val peakMem = getMemoryBytes()
         val isWarm = (i > 0)

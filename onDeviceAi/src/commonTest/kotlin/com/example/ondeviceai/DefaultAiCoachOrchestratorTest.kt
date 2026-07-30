@@ -28,13 +28,13 @@ class DefaultAiCoachOrchestratorTest {
             userSetting = AiUserSetting.OFFLINE_ONLY,
         ),
     ) = DefaultAiCoachOrchestrator(
-        factory = FakeTextGeneratorFactory(generator),
+        executor = FakeVendorRouteExecutor(generator),
         contextProvider = { context },
     )
 
     @Test
     fun `success path returns validated explanation`() = runTest {
-        val gen = FakeTextGenerator(response = "Nf3 develops a knight and supports the centre.")
+        val gen = FakeTextGenerator(response = """{"headline": "Develops knight", "explanation": "Nf3 develops a knight and supports the centre."}""")
         val result = orchestrator(gen).explainMove(request)
         assertIs<MoveCoachResult.Success>(result)
         assertEquals(ExplanationConfidence.HIGH, result.explanation.confidence)
@@ -59,28 +59,16 @@ class DefaultAiCoachOrchestratorTest {
         assertEquals(AiRoutePolicyDecider.FALLBACK_QUOTA, result.reason)
     }
 
-    @Test
-    fun `first-validation failure triggers a retry and second pass returns MEDIUM`() = runTest {
-        val gen = FakeTextGenerator()
-        var call = 0
-        gen.generateInterceptor = { _, _ ->
-            call++
-            if (call == 1) "I think Stockfish chose Nf3." else "Nf3 develops a piece."
-        }
-        val result = orchestrator(gen).explainMove(request)
-        assertIs<MoveCoachResult.Success>(result)
-        assertEquals(ExplanationConfidence.MEDIUM, result.explanation.confidence)
-        assertEquals(2, gen.generateCount)
-    }
+
 
     @Test
-    fun `two validation failures fall back`() = runTest {
+    fun `validation failure falls back`() = runTest {
         val gen = FakeTextGenerator()
-        gen.generateInterceptor = { _, _ -> "This move does not mention the move." }
+        gen.generateInterceptor = { _, _ -> """{"headline": "Bad", "explanation": "This move does not mention the move."}""" }
         val result = orchestrator(gen).explainMove(request)
         assertIs<MoveCoachResult.FellBack>(result)
         assertEquals(AiRoutePolicyDecider.FALLBACK_VALIDATION, result.reason)
-        assertEquals(2, gen.generateCount)
+        assertEquals(1, gen.generateCount)
     }
 
     @Test
@@ -94,7 +82,7 @@ class DefaultAiCoachOrchestratorTest {
     @Test
     fun `null factory result falls back`() = runTest {
         val orchestrator = DefaultAiCoachOrchestrator(
-            factory = FakeTextGeneratorFactory(null),
+            executor = FakeVendorRouteExecutor(null),
             contextProvider = {
                 AiContextSnapshot(
                     isDeviceModelAvailable = true,
@@ -110,7 +98,7 @@ class DefaultAiCoachOrchestratorTest {
     @Test
     fun `streaming surfaces complete event with success result`() = runTest {
         val gen = FakeTextGenerator().apply {
-            chunks = listOf("Nf3 ", "develops ", "a knight.")
+            chunks = listOf("""{"headline": "Good", "explanation": "Nf3 """, "develops ", """a knight."}""")
             tokenDelayMs = 1
         }
         val events = orchestrator(gen).explainMoveStreaming(request).toListActual()
@@ -139,7 +127,7 @@ class DefaultAiCoachOrchestratorTest {
 
     @Test
     fun `always closes generator after success`() = runTest {
-        val gen = FakeTextGenerator(response = "Nf3 develops the knight.")
+        val gen = FakeTextGenerator(response = """{"headline": "Good", "explanation": "Nf3 develops the knight."}""")
         orchestrator(gen).explainMove(request)
         assertEquals(1, gen.closeCount)
     }

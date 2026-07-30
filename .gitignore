@@ -50,3 +50,9 @@ litert-eval/build
 stash*.patch
 DownloadTest.kt
 .zcode
+
+# Excluded artifacts
+litert-eval/build/
+*.patch
+DownloadTest.kt
+.zcode/

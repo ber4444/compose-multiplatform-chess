@@ -20,7 +20,8 @@ import com.example.ondeviceai.AiContextSnapshot
 import com.example.ondeviceai.AiUserSetting
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
 import com.example.ondeviceai.DefaultGameSummaryOrchestrator
-import com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory
+import com.example.ondeviceai.VendorRouteExecutor
+import com.example.ondeviceai.AiRoute
 import co.touchlab.kermit.Logger
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -114,8 +115,8 @@ private suspend fun attachMoveCoach(
         )
     )
 
-    val factory = defaultOnDeviceTextGeneratorFactory()
-    val generator = factory.create()
+    val executor = VendorRouteExecutor()
+    val generator = executor.execute(com.example.ondeviceai.VendorRoute.LiteRtLm())
     runCatching { generator?.warmup() }
         .onFailure { Logger.w("Main") { "LiteRT-LM warmup failed: ${it.message}" } }
 
@@ -132,13 +133,13 @@ private suspend fun attachMoveCoach(
 
     moveCoachManager.attachCoachOrchestrator(
         DefaultAiCoachOrchestrator(
-            factory = factory,
+            executor = executor,
             contextProvider = contextProvider,
         )
     )
     gameSummaryManager.attachOrchestrator(
         DefaultGameSummaryOrchestrator(
-            factory = factory,
+            executor = executor,
             contextProvider = contextProvider,
         )
     )

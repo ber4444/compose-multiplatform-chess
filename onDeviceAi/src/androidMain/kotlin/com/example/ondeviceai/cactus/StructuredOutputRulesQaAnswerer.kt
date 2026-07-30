@@ -11,6 +11,7 @@ import kotlinx.coroutines.CancellationException
 
 import com.example.ondeviceai.VendorRoute
 import com.example.ondeviceai.VendorRouteExecutor
+import com.example.ondeviceai.AiRouteExecutor
 
 /**
  * Android rules Q&A uses structured-output prompting, not native function calling.
@@ -20,7 +21,7 @@ import com.example.ondeviceai.VendorRouteExecutor
  * avoids presenting llama.cpp prompt choreography as a tool-calling API.
  */
 class StructuredOutputRulesQaAnswerer(
-    private val executor: VendorRouteExecutor,
+    private val executor: AiRouteExecutor,
     private val lookupTool: RuleLookupTool,
 ) : RulesQaAnswerer {
 

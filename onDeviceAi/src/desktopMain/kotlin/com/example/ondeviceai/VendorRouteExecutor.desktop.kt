@@ -3,8 +3,8 @@ package com.example.ondeviceai
 import com.example.ondeviceai.litertlm.LitertLmModelStore
 import com.example.ondeviceai.litertlm.LitertLmTextGenerator
 
-actual class VendorRouteExecutor {
-    actual suspend fun execute(route: VendorRoute): OnDeviceTextGenerator? {
+actual class VendorRouteExecutor : AiRouteExecutor {
+    actual override suspend fun execute(route: VendorRoute): OnDeviceTextGenerator? {
         return cachedGenerator ?: LitertLmTextGenerator(
             modelPath = LitertLmModelStore.modelFile().absolutePath,
         ).also { cachedGenerator = it }

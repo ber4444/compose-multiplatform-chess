@@ -19,8 +19,8 @@ private var cactusInitialized = false
 
 internal fun isCactusInitialized(): Boolean = cactusInitialized
 
-actual class VendorRouteExecutor {
-    actual suspend fun execute(route: VendorRoute): OnDeviceTextGenerator? {
+actual class VendorRouteExecutor : AiRouteExecutor {
+    actual override suspend fun execute(route: VendorRoute): OnDeviceTextGenerator? {
         return when (route) {
             is VendorRoute.MlKitPrompt -> {
                 val mlkit = MlKitPromptGenerator(route.preference)

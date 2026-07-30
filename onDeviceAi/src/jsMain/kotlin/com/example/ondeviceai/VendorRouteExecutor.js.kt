@@ -1,11 +1,12 @@
 package com.example.ondeviceai
 
-actual class VendorRouteExecutor {
-    actual suspend fun execute(route: VendorRoute): OnDeviceTextGenerator? {
+actual class VendorRouteExecutor : AiRouteExecutor {
+    actual override suspend fun execute(route: VendorRoute): OnDeviceTextGenerator? {
         return UnsupportedTextGenerator
     }
 }
 
 actual fun resolveVendorRoute(policy: AiRoutePolicy, context: AiContextSnapshot): VendorRoute? {
-    return null
+    if (!context.isDeviceModelAvailable) return null
+    return VendorRoute.LiteRtLm()
 }

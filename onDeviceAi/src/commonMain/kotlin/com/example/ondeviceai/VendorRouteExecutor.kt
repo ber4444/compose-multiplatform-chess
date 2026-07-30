@@ -1,5 +1,5 @@
 package com.example.ondeviceai
 
-expect class VendorRouteExecutor() {
-    suspend fun execute(route: VendorRoute): OnDeviceTextGenerator?
+expect class VendorRouteExecutor() : AiRouteExecutor {
+    override suspend fun execute(route: VendorRoute): OnDeviceTextGenerator?
 }

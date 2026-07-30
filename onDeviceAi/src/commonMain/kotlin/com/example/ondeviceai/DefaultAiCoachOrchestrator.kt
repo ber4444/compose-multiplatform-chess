@@ -16,7 +16,7 @@ sealed interface MoveCoachEvent {
 }
 
 class DefaultAiCoachOrchestrator(
-    private val executor: VendorRouteExecutor,
+    private val executor: AiRouteExecutor,
     private val contextProvider: suspend () -> AiContextSnapshot = DefaultContextProvider,
     private val clock: () -> Long = ::defaultNowMs,
     private val logger: Logger = Logger.withTag("AiCoach"),

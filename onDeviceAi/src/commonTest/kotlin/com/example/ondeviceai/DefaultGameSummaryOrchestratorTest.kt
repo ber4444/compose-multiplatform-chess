@@ -22,7 +22,7 @@ class DefaultGameSummaryOrchestratorTest {
             userSetting = AiUserSetting.OFFLINE_ONLY,
         ),
     ) = DefaultGameSummaryOrchestrator(
-        factory = FakeTextGeneratorFactory(generator),
+        executor = FakeVendorRouteExecutor(generator),
         contextProvider = { context },
     )
 
@@ -72,7 +72,7 @@ class DefaultGameSummaryOrchestratorTest {
     @Test
     fun `null factory result falls back`() = runTest {
         val orchestrator = DefaultGameSummaryOrchestrator(
-            factory = FakeTextGeneratorFactory(null),
+            executor = FakeVendorRouteExecutor(null),
             contextProvider = {
                 AiContextSnapshot(
                     isDeviceModelAvailable = true,

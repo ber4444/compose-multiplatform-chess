@@ -1,7 +1,7 @@
 package com.example.ondeviceai
 
-actual class VendorRouteExecutor {
-    actual suspend fun execute(route: VendorRoute): OnDeviceTextGenerator? {
+actual class VendorRouteExecutor : AiRouteExecutor {
+    actual override suspend fun execute(route: VendorRoute): OnDeviceTextGenerator? {
         return FoundationModelsBridgeRegistry.provider?.create()
     }
 }

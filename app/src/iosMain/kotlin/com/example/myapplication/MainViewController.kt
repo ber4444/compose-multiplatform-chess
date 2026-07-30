@@ -15,7 +15,7 @@ import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
 import com.example.ondeviceai.DefaultGameSummaryOrchestrator
-import com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory
+import com.example.ondeviceai.VendorRouteExecutor
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.CurrentGameStore
@@ -109,16 +109,16 @@ fun MainViewController(
                             userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
                         )
                     }
-                    val factory = defaultOnDeviceTextGeneratorFactory()
+                    val executor = VendorRouteExecutor()
                     moveCoachManager.attachCoachOrchestrator(
                         DefaultAiCoachOrchestrator(
-                            factory = factory,
+                            executor = executor,
                             contextProvider = contextProvider,
                         )
                     )
                     gameSummaryManager.attachOrchestrator(
                         DefaultGameSummaryOrchestrator(
-                            factory = factory,
+                            executor = executor,
                             contextProvider = contextProvider,
                         )
                     )
@@ -162,8 +162,8 @@ fun MainViewController(
  * or null if no provider was registered (Swift side didn't initialize).
  */
 private suspend fun probeFoundationModelsAvailability(): AiAvailability {
-    val factory = defaultOnDeviceTextGeneratorFactory()
-    val generator = runCatching { factory.create() }.getOrElse {
+    val executor = VendorRouteExecutor()
+    val generator = runCatching { executor.execute(com.example.ondeviceai.VendorRoute.AppleFoundationModels()) }.getOrElse {
         return AiAvailability.Error("generator factory failed: ${it.message}")
     } ?: return AiAvailability.Unavailable
     return runCatching { generator.status() }.getOrElse {

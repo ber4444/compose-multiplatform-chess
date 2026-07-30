@@ -2,8 +2,8 @@ package com.example.ondeviceai
 
 import com.example.ondeviceai.litertlm.LitertLmWasmTextGenerator
 
-actual class VendorRouteExecutor {
-    actual suspend fun execute(route: VendorRoute): OnDeviceTextGenerator? {
+actual class VendorRouteExecutor : AiRouteExecutor {
+    actual override suspend fun execute(route: VendorRoute): OnDeviceTextGenerator? {
         return cachedGenerator ?: LitertLmWasmTextGenerator().also { cachedGenerator = it }
     }
 }
