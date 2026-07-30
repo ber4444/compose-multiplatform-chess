@@ -84,6 +84,11 @@ The core↔app boundary is enforced by three seams (don't re-couple them):
   - `GameViewModel` takes a `GameSnapshotSink` (core interface), not the russhwolf `CurrentGameStore`;
     `:app` adapts via `CurrentGameStore.asSnapshotSink()`.
 
+Each publishable module's public API surface is documented via KDoc directly in source
+(`chess-core/src/commonMain`, `onDeviceAi/src/commonMain`, `coachApi/src/commonMain`) rather than
+restated here. Third-party asset and dependency notices live in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ### 3D Rendering Pipeline
 
 ```mermaid
@@ -130,7 +135,17 @@ graph TD
 - **Engine Difficulty:** A persisted Easy / Medium / Hard / Max setting (in **Settings**) weakens or strengthens Stockfish play via the UCI `Skill Level` option and a per-move think-time budget. Applies to the Stockfish engine on every platform.
 - **Settings & Navigation:** A minimal multiplatform navigation host (`AppRoot`) switches between the game, **History**, **Settings**, **Rules**, and **Chat** screens. Settings holds three persisted controls: the 3D-board toggle (default on), the engine-difficulty selector, and the AI Move Coach toggle (default on).
 
-### AI features
+### Board rendering, engines & verification
+
+- **3D Board View:** The app features a playable 3D board with shared camera, tap-to-move, ray picking, and move animation logic. Desktop, iOS, and web share `FilamentEncodedChessRenderer` for FEN-to-scene, camera, selection, and transition state; their platform peers only own the Filament surface. Android uses Filament through SceneView (the visual reference); iOS uses **Metal-native Filament** through a Swift/Obj-C++ `CAMetalLayer` bridge; desktop uses **native C++ Filament** with a headless swap chain and RGBA readback into Compose; web uses **Filament (Wasm)** loading the same `chess.glb` Android uses. See `docs/plans/web-graphics-spike-result.md` and `docs/plans/ios-filament-spike-result.md` for the spike verdicts.
+- **Stockfish Engine Integrations:**
+  - **Android:** Pinned to Stockfish 17, as the Stockfish 18 binary exceeds GitHub's 100 MB file limit.
+  - **Desktop:** Relies on system-installed binaries (e.g., via `apt` or `brew`).
+  - **Web (Wasm):** Uses a lightweight `stockfish-18-lite-single.js` running in a Web Worker.
+  - **iOS:** Wraps `ChessKitEngine` using an async-sync bridge and utilizes NNUE via `EvalFileSmall`.
+- **Perft Verification Rig:** The move generator is proven correct against arithmetic ground truth — [canonical perft counts](https://www.chessprogramming.org/Perft_Results) for six standard positions, plus a Stockfish `go perft` divide-diff cross-check over a seeded random walk of arbitrary midgame/endgame positions. The rig runs in CI on every PR and nightly (deep tier). A pure top-level `applyMove` (extracted from `GameViewModel.deriveNewGameState`) makes the generator testable to perft depth without ViewModel side effects. An optional MCP server (`:perft-mcp`) exposes the rig as tools for agent-driven verification loops. See **[docs/perft.md](docs/perft.md)** for the full walkthrough.
+
+## AI features
 
 There are **five** distinct AI surfaces. They share one seam (`:onDeviceAi` owns the routing policy,
 prompt builders, validators, and deterministic fallbacks; `:app` owns the UI and injects the runtime),
@@ -151,135 +166,34 @@ exhaustive 60-context sweep (2 model × 2 network × 3 user-setting × 5 thermal
 the move coach, and a matching sweep pins the chat route's cloud conditions
 (`AiRoutePolicyDeciderTest`).
 
+**Enabling each feature, per platform** — the on-device features are gated very differently across
+targets; there is no single switch that turns "AI" on or off everywhere:
+
+| Feature | Android | iOS | Desktop | Web |
+|---|---|---|---|---|
+| **Move Coach** | Debug builds only (`ApplicationInfo.FLAG_DEBUGGABLE`) — release builds never attach an orchestrator. Plus the **Enable AI Move Coach** Settings switch (default on) | Automatic, no build flag or debug/release distinction: requires **iOS 26.0+**, a Foundation-Models-eligible device, and Apple Intelligence turned on in Settings (`SystemLanguageModel.default.availability`). Plus the same Settings switch | `CHESS_ENABLE_COACH=1` env var, e.g. `CHESS_ENABLE_COACH=1 ./gradlew :app:run`. Plus the same Settings switch | `?coach=1` on the page URL (Chrome/Edge only — needs WebGPU). Plus the same Settings switch |
+| **Game Summary** | Same debug-build gate as Move Coach (attached in the same call) — **not** affected by the Move Coach Settings switch, since only the automatic per-move trigger reads it | Same iOS 26+/Apple Intelligence gate as Move Coach, same switch-independence | Same `CHESS_ENABLE_COACH=1` gate as Move Coach, same switch-independence | Same `?coach=1` gate as Move Coach, same switch-independence |
+| **Rules Q&A** | Debug builds only — the Android answerer needs Cactus already initialized, and that only happens inside the coach's own debug-only init path. No separate flag, no Settings switch | Same iOS 26+/Apple Intelligence gate as Move Coach. No separate flag, no Settings switch | Never available — `defaultRulesQaAnswerer` returns `null`; the **Rules** screen reports itself unavailable | Never available, same as desktop |
+| **Opening Explainer** | Needs `coach.baseUrl` in `local.properties` or `CHESS_COACH_BASE_URL`, baked into the binary at build time — identical precedence on all four targets (see [App-side wiring](#opening-explainer-service)) | ↑ | ↑ | ↑ |
+| **Position Chat** | Same build-time base-URL config as Opening Explainer | ↑ | ↑ | ↑ |
+
 - **On-device AI Move Coach:** A Compose panel (`MoveCoachPanel`) that surfaces a natural-language explanation of Black's move after it animates. `GameViewModel` exposes an `onMoveCoached` callback (fired after the engine's move is applied, skipped when that move ends the game) plus an `aiCoachEnabled` flag; `MoveCoachManager` in `:app` registers the callback and runs the actual `triggerCoach(...)` — cancellable, never blocks the move. The panel is gated twice: the platform must have attached an orchestrator (Android `ApplicationInfo.FLAG_DEBUGGABLE`, desktop `CHESS_ENABLE_COACH=1`, web `?coach=1`), and the persisted **Enable AI Move Coach** switch in Settings (`AppSettings.aiCoachEnabled`, default on) must be on. Backed by the shared KMP module `:onDeviceAi` holding the routing policy (`AiRoutePolicies.moveCoachOffline`), prompt builder, response validator (300-char bound, forbidden phrases, grounding), and deterministic fallback in `commonMain`; platform runtimes are injected at the entry points. See [On-Device AI Architecture](docs/on-device-ai-architecture.md) for the coach's prompt and routing internals.
   - **Android backend:** **Cactus (`com.cactuscompute:cactus:1.4.1-beta`)** — llama.cpp CPU runtime. The `gemma3-270m` model (~200 MB GGUF) is downloaded from Hugging Face by Cactus on first launch into `filesDir` (debug APK ~258 MB; no model bundled in the APK). `AndroidManifest.xml` declares `INTERNET` so Cactus can fetch the model. Cold start ~1–2 s *(manual hardware measurement: device model, OS build, sample count)*. Replaced the earlier LiteRT-LM path (7–9 s cold init *(manual hardware measurement)*, streaming crash, no resolvable Maven coordinate) and the ML Kit Prompt API path (narrow AICore device support); `MoveCoachModelAsset.kt` and `AndroidCoachWiring` were removed in the migration. See `docs/benchmarks/on-device-ai/android-delivery-decision.md`.
-  - **iOS backend:** **Foundation Models** (Apple Intelligence) via `FoundationMoveCoachBridge` registered into `FoundationModelsBridgeRegistry` from `iOSApp.swift`. Falls back to rule-based text when Apple Intelligence is unavailable. iOS has **not** been migrated to Cactus yet — it stays on Foundation Models, though the `:onDeviceAi` KMP module makes that swap feasible later.
+  - **iOS backend:** **Foundation Models** (Apple Intelligence) via `FoundationMoveCoachBridge` registered into `FoundationModelsBridgeRegistry` from `iOSApp.swift`. Requires **iOS 26.0+** (the app's own deployment target is 16.0, set by ChessKitEngine — every Foundation Models call is individually `@available(iOS 26.0, *)`-gated) plus `SystemLanguageModel.default.availability == .available` (a Foundation-Models-eligible device with Apple Intelligence turned on in Settings). Unlike the other three backends there is **no build flag or debug/release distinction** — `MainViewController` probes availability at launch on every build and falls back to rule-based text when Apple Intelligence is unavailable, whether that's an old OS, an ineligible device, or the feature simply being off. iOS has **not** been migrated to Cactus yet — it stays on Foundation Models, though the `:onDeviceAi` KMP module makes that swap feasible later.
   - **Desktop backend:** **LiteRT-LM** (`com.google.ai.edge.litertlm:litertlm-jvm`, Google AI Edge) — the Kotlin/JVM API over LiteRT-LM, with native libs bundled inside the jar (linux-x86_64 / linux-aarch64 / darwin-aarch64 / win-x86_64; **no Intel Mac** — those hosts fall back). The Qwen3-0.6B-int4 model (~347 MB `.litertlm`) is downloaded from Hugging Face on first launch and cached under `~/.chess-coach-models/`. Gated behind `CHESS_ENABLE_COACH=1` (env var) — without it the coach panel stays hidden (the previous default). Wired and compiling, pending on-device verification. See `docs/benchmarks/on-device-ai/desktop-wasm-litert-lm.md`.
   - **Wasm backend:** **LiteRT-LM for Web** (`@litert-lm/core`, loaded from the jsdelivr CDN at runtime) running in a module Web Worker so inference is off the main thread. Uses `gemma-4-E2B-it-web.litertlm` (~2 GB, the only model `@litert-lm/core` officially documents for web). Requires **WebGPU** (Chrome/Edge); on Firefox/Safari the generator reports unavailable and the orchestrator falls back to the deterministic `MoveCoachFallback`. Gated behind `?coach=1` on the page URL. Wired and compiling, pending on-device verification.
   - **JS target** (`js(IR){nodejs()}`): still `UnsupportedTextGenerator` — the React Native port has no WebGPU/workers.
-- **Game Summary (on-device):** The end-of-game counterpart to the per-move coach: a **Get Coach Summary** button in the game-over popup feeds the finished game's **PGN** to the same on-device generator and renders a short "what happened in this game" paragraph. `GameSummaryManager` (`:app`) owns the UI state; `DefaultGameSummaryOrchestrator` (`:onDeviceAi`) runs route → generate → fallback with a 45 s ceiling for the whole PGN-sized prompt. It reuses `AiRoutePolicies.moveCoachOffline`, so it is `LOCAL_ONLY` and free, and it reuses the *same* `OnDeviceTextGeneratorFactory` the coach warmed up — no second model download. Two deliberate differences from the coach: the summary has **no grounding validator** (any non-blank output is accepted — there is no per-move tag list to check it against), and it is **pull-based** (nothing runs until the button is pressed). The UI state defaults to `Unavailable` (button hidden) until an orchestrator is attached; when no orchestrator is ever attached (release Android, desktop without `CHESS_ENABLE_COACH=1`, web without `?coach=1`) the button never renders, so there is no way to press it and get nothing back. When generation fails or the route falls back it shows a fixed "review the PGN" line.
+- **Game Summary (on-device):** The end-of-game counterpart to the per-move coach: a **Get Coach Summary** button in the game-over popup feeds the finished game's **PGN** to the same on-device generator and renders a short "what happened in this game" paragraph. `GameSummaryManager` (`:app`) owns the UI state; `DefaultGameSummaryOrchestrator` (`:onDeviceAi`) runs route → generate → fallback with a 45 s ceiling for the whole PGN-sized prompt. It reuses `AiRoutePolicies.moveCoachOffline`, so it is `LOCAL_ONLY` and free, and it reuses the *same* `OnDeviceTextGeneratorFactory` the coach warmed up — no second model download. Two deliberate differences from the coach: the summary has **no grounding validator** (any non-blank output is accepted — there is no per-move tag list to check it against), and it is **pull-based** (nothing runs until the button is pressed). It shares the coach's *platform* gate (attached in the same call at every entry point — release Android, desktop without `CHESS_ENABLE_COACH=1`, web without `?coach=1`, or Foundation Models unavailable on iOS all leave it unattached) but **not** the coach's Settings switch: **Enable AI Move Coach** only guards the automatic per-move trigger, so turning it off still leaves the summary button usable. The UI state defaults to `Unavailable` (button hidden) until an orchestrator is attached; when no orchestrator is ever attached the button never renders, so there is no way to press it and get nothing back. When generation fails or the route falls back it shows a fixed "review the PGN" line.
 - **Opening Explainer (cloud route):** When a game ends, a post-game panel (`OpeningExplainerPanel`) fetches a short, grounded explanation of the opening from a small Ktor + Postgres + pgvector service (`:server`). One of the two cloud policies (`AiRoutePolicies.openingExplainer`, `PUBLIC_OR_SYNTHETIC`, 0.2¢ ceiling — the other is Position Chat below); the on-device coach/summary/rules policies can never reach it. The cloud client is injected from `:app`; if the base URL is unset, the network is down, or the service returns non-2xx, the panel shows a deterministic offline-guidance message instead. See [Opening explainer service](#opening-explainer-service) below for deployment.
 - **Position Chat (cloud, streaming):** An interactive multi-turn chat about the current board position. A **Chat** button opens `ChatScreen`, where the player can type a question and watch the assistant's reply appear token-by-token. The feature is routed to the cloud (`AiRoutePolicies.positionChat`, `PUBLIC_OR_SYNTHETIC`, `allowCloud = true`) — the move coach stays `LOCAL_ONLY` and never reaches this route. There is deliberately **no on-device chat implementation**: the on-device generators stay scoped to the coach and summary, and an on-device route decision is treated as "no route". Requests carry only public chess data (FEN, SAN move list, bounded conversation history); no user identifiers or free-form PII are sent.
-  - **Configuration:** Chat shares the explainer's base-URL wiring (`coach.baseUrl` in `local.properties`, or `CHESS_COACH_BASE_URL`). With no URL configured `createPositionChat()` builds a `null` cloud client, so every turn answers with the static offline line below — that, not a network error, is what an unconfigured build looks like.
+  - **Configuration:** Same build-time base-URL config as the Opening Explainer (see [App-side wiring](#opening-explainer-service) below) — with no URL configured, every turn answers with the static offline line, not a network error.
   - **Streaming:** `KtorStreamingChatClient` uses `preparePost{}.execute{}` + `bodyAsChannel()` so that cancelling the collecting `Job` closes the TCP connection immediately — no orphaned server-side streams. The server emits genuine SSE (`data: <json>\n\n`), and the client parses each `ChatStreamEvent` (token / done / fallback / error) as it arrives.
   - **Stop & Retry:** A **Stop** button cancels the in-flight stream mid-token; a **Retry** button re-sends the same turn. `ChatViewModel` manages a single `streamJob` so at most one stream is live at a time.
   - **Conversation window:** `ChatViewModel` sends the last **6** turns (`MAX_HISTORY_TURNS`) plus at most 20 SAN plies; the server independently caps history at 12 turns, the move list at 20, and the user message at 500 chars. The server re-pins retrieval on every turn, so trimming old turns can't let the grounding drift.
   - **Stall protection:** Long time-to-first-token (retrieval plus a "thinking" provider model) is the normal case, so both ends are explicitly tuned for it: the client installs `HttpTimeout` (10 s connect / 30 s socket / 60 s request) *and* an engine-independent 45 s `withTimeout` around the whole turn, because a `bodyAsChannel()` read inside `execute{}` has not reliably honoured CIO's socket timeout. The server writes a periodic `: keep-alive` SSE comment so an idle connection isn't severed by Fly's edge proxy, and raises Netty's `responseWriteTimeoutSeconds` to 60 (its 10 s default is shorter than the heartbeat interval and was force-closing chats before the first token).
   - **Grounding & validation:** The server route (`POST /v1/positions/chat/stream`) retrieves grounding passages from the same pgvector corpus as the opening explainer, builds a citation-pinned prompt, and runs the same forbidden-phrase / citation / token-overlap validator on the *accumulated* text at stream end. A validator veto emits a `fallback` event (`TemplateChatComposer`'s deterministic, passage-grounded answer), so unvalidated prose is never shown to the user.
   - **Two fallback layers:** *Server-side* — a validator veto, a missing provider key, or an over-budget cost estimate substitutes the grounded `TemplateChatComposer` answer, still delivered as SSE. *Client-side* — when there is no cloud client at all or the stream errors mid-flight, `DefaultPositionChat` emits one `fallback` event carrying a fixed offline sentence (generic principles, no retrieval). Either way the chat surface always shows a response. See [Position Chat service](#position-chat-service) below for the server endpoint and deployment.
-- **Rules Q&A (on-device):** A `LOCAL_ONLY` feature distinct from both the move coach (no retrieval) and the opening explainer (cloud retrieval). A **Rules** screen lets the player ask a natural-language chess-rules question; retrieval and generation stay entirely on-device. The corpus is a bundled 30-passage FIDE/Wikibooks adaptation (`onDeviceAi/src/commonMain/resources/rulesCorpus/passages.tsv`) looked up via BM25 (`BundledRuleLookupTool`). iOS uses a native Foundation Models `Tool` conformance with `NLEmbedding` query-time ranking; Android uses structured-output prompting (the model emits a `{"tool":"lookup_rule","query":"…"}` envelope, Kotlin does the real lookup, then a second generation turn cites the passage). An answer that doesn't cite a retrieved passage ID is rejected and falls back to a static rules summary. Availability is narrower than the coach's: only Android and iOS supply a `defaultRulesQaAnswerer`, while desktop, web, and JS return `null` and the screen reports the feature as unavailable. See `docs/benchmarks/on-device-ai/rules-qa-retrieval-decision.md` for why BM25 was chosen over a bundled embedding model.
-
-### Board rendering, engines & verification
-
-- **3D Board View:** The app features a playable 3D board with shared camera, tap-to-move, ray picking, and move animation logic. Desktop, iOS, and web share `FilamentEncodedChessRenderer` for FEN-to-scene, camera, selection, and transition state; their platform peers only own the Filament surface. Android uses Filament through SceneView (the visual reference); iOS uses **Metal-native Filament** through a Swift/Obj-C++ `CAMetalLayer` bridge; desktop uses **native C++ Filament** with a headless swap chain and RGBA readback into Compose; web uses **Filament (Wasm)** loading the same `chess.glb` Android uses. See `docs/plans/web-graphics-spike-result.md` and `docs/plans/ios-filament-spike-result.md` for the spike verdicts.
-- **Stockfish Engine Integrations:**
-  - **Android:** Pinned to Stockfish 17, as the Stockfish 18 binary exceeds GitHub's 100 MB file limit.
-  - **Desktop:** Relies on system-installed binaries (e.g., via `apt` or `brew`).
-  - **Web (Wasm):** Uses a lightweight `stockfish-18-lite-single.js` running in a Web Worker.
-  - **iOS:** Wraps `ChessKitEngine` using an async-sync bridge and utilizes NNUE via `EvalFileSmall`.
-- **Perft Verification Rig:** The move generator is proven correct against arithmetic ground truth — [canonical perft counts](https://www.chessprogramming.org/Perft_Results) for six standard positions, plus a Stockfish `go perft` divide-diff cross-check over a seeded random walk of arbitrary midgame/endgame positions. The rig runs in CI on every PR and nightly (deep tier). A pure top-level `applyMove` (extracted from `GameViewModel.deriveNewGameState`) makes the generator testable to perft depth without ViewModel side effects. An optional MCP server (`:perft-mcp`) exposes the rig as tools for agent-driven verification loops. See **[docs/perft.md](docs/perft.md)** for the full walkthrough.
-
-## Project layout
-
-- `chess-core/src/commonMain` the Compose-free chess engine core (rules, FEN/UCI/SAN/PGN, `GameViewModel`, board3d math) — published as `io.github.ber4444:chess-core`
-- `chess-core/src/commonTest` + `chess-core/src/desktopTest` the [perft verification rig](docs/perft.md) (canonical gate + Stockfish oracle + deep tier)
-- `app/src/commonMain` the Compose UI, persistence, share, and 3D renderer glue (depends on `:chess-core`)
-- `app/src/androidMain` Android-specific shared implementation and Stockfish integration
-- `androidApp/src/main` Android application manifest that depends on the shared KMP module
-- `app/src/desktopMain` desktop launcher
-- `app/src/wasmJsMain` web launcher
-- `app/src/iosMain` shared iOS implementation
-- `iosApp/` Xcode project and Swift adapter
-- `coachApi/src/commonMain` serialization-only wire models — published as `io.github.ber4444:coachApi`
-- `server/` JVM Ktor cloud-AI service — opening explainer + streaming position chat (Postgres + pgvector retrieval, ONNX MiniLM embeddings, `:server:seed` corpus loader)
-- `evals/` rule-based eval harness and golden-set scorecard for all AI coach routes
-- `litert-eval/` JVM driver that exercises the desktop LiteRT-LM coach runtime from the command line
-- `bench/` on-device benchmark runner (`run_android.sh`) and report generator (`report.py`) — see [docs/benchmark-harness.md](docs/benchmark-harness.md)
-- `app/src/commonMain/kotlin/.../movecoach/` `MoveCoachManager` + `MoveCoachPanel` (per-move coach) and `GameSummaryManager` + `GameSummaryUiState` (end-of-game summary)
-- `app/src/commonMain/kotlin/.../opening/` `KtorOpeningExplainerClient`, `OpeningExplainerStateHolder`, `OpeningExplainerPanel` — the cloud opening-explainer surface
-- `app/src/commonMain/kotlin/.../rules/` `RulesQaScreen` + `RulesQaStateHolder` — the on-device rules Q&A surface
-- `app/src/commonMain/kotlin/.../chat/` `KtorStreamingChatClient`, `ChatViewModel`, `ChatScreen` — the position-chat streaming UI and cloud client
-- `onDeviceAi/src/commonMain/kotlin/.../DefaultPositionChat.kt` position-chat orchestrator (route → stream → forward → fallback)
-- `onDeviceAi/src/commonMain/resources/rulesCorpus/` the bundled offline FIDE/Wikibooks rules corpus (30 passages, BM25-lookupable)
-- `onDeviceAi/src/` published as `io.github.ber4444:onDeviceAi` — the on-device AI orchestration consumed by `:app` and the RN port
-- `perft-mcp/` the [perft MCP server](docs/perft.md#the-mcp-server-perft-mcp) — a thin stdio adapter exposing the rig as agent tools
-
-Third-party asset and dependency notices live in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-## `:chess-core` — public API & dependency boundary
-
-`:chess-core` is the platform-agnostic chess engine core. It is consumed by `:app` for the UI/platform glue, and published as `io.github.ber4444:chess-core` for the React Native repository.
-
-- **Dependency split (`api` vs `implementation`)**: `kotlinx-coroutines-core` is an `api` dependency because `StateFlow` is exposed on `GameViewModel`. `kermit` and `kotlinx-serialization-json` are `implementation` details.
-- **Public API surface**: The core intentionally exposes engine entry points (`GameViewModel`, `ChessEngine`), state types (`GameUiState`, `WinState`), the piece model, FEN/PGN converters, the persistence seam (`GameSnapshotSink`), and `board3d` scene types.
-- **Internal implementation**: Raw move-generation rules, draw-condition internals, and 3D math helpers are deliberately marked `internal` and are completely unreachable by consumers. If a symbol isn't listed above, assume it is internal.
-
-## `:onDeviceAi` & `:coachApi` — public API & dependency boundary
-
-`:onDeviceAi` is the on-device AI orchestration module (move coach, rules Q&A, opening explainer,
-route policy). It is consumed by `:app` for the chess UI and published as
-`io.github.ber4444:onDeviceAi` for the React Native repository. `:coachApi` is its serialization-only
-wire-model dependency, published as `io.github.ber4444:coachApi`.
-
-- **Dependency split (`api` vs `implementation`)**: `:coachApi` is an `api` dependency because both
-  cloud orchestrators expose its types in public signatures — `OpeningExplainer.kt`
-  (`OpeningExplainRequest`/`OpeningExplainResponse`) and `PositionChat.kt` (`PositionChatRequest`,
-  `Flow<ChatStreamEvent>`). `kermit` and `kotlinx-coroutines-core` are `implementation` details.
-  Consumers of `:onDeviceAi` transitively get `:coachApi` on their compile classpath.
-- **Public API surface**: `AiCoachOrchestrator` / `DefaultAiCoachOrchestrator`,
-  `GameSummaryOrchestrator` / `DefaultGameSummaryOrchestrator`, `RulesQa` orchestrator +
-  `RulesQaResult`/`RulesQaModelOutput`, `OpeningExplainer` + `OpeningExplainerResult`, `PositionChat` /
-  `DefaultPositionChat` + the `StreamingChatClient` seam `:app` implements, `RuleLookupTool` /
-  `BundledRuleLookupTool`, `AiRoutePolicy` / `AiRoutePolicies`, `OnDeviceTextGenerator` /
-  `OnDeviceTextGeneratorFactory`, the `MoveCoach*` / `GameSummary*` model + result sealed types.
-- **Platform actuals**: `commonMain` declares `expect` factories for the on-device text generator,
-  `defaultNowMs()`, and the rules-QA answerer. Each platform provides an `actual`: Android = Cactus
-  (llama.cpp), iOS = Foundation Models, desktop = LiteRT-LM (`litertlm-jvm`, gated by
-  `CHESS_ENABLE_COACH=1`), wasm = LiteRT-LM for Web (`@litert-lm/core`, gated by `?coach=1`,
-  WebGPU-only), JS = deterministic no-op fallback (`UnsupportedTextGenerator` / `null`). The RN
-  consumer's JS target gets the fallback — no on-device LLM on JS, so the orchestrators degrade to
-  rule-based text.
-- **Publishing**: tag `on-device-ai-v*` triggers `publish-on-device-ai.yml`, which publishes both
-  artifacts at the same version. Both target Android, JVM (desktop), iOS (arm64/simulator), JS (IR),
-  and Wasm.
-
-```bash
-git tag -a on-device-ai-v0.1.0 -m "Publish io.github.ber4444:onDeviceAi:0.1.0 + coachApi"
-git push origin on-device-ai-v0.1.0
-```
-
-## Benchmarking
-
-To measure performance metrics of the on-device AI integration (init times, tokens/sec, memory), the project includes a dedicated benchmarking harness for both Android and iOS targets. 
-- [On-Device Benchmark Harness](docs/benchmark-harness.md) — Execution instructions and architecture details for the harness.
-- [Benchmark Schema](docs/benchmarks/on-device-ai/move-coach-benchmark-schema.md) — The schema and target latency thresholds for the metrics.
-
-## Useful Gradle tasks
-
-- `./gradlew :chess-core:check` runs the chess-core test suite across all targets (desktop + iOS sim + JS)
-- `./gradlew :chess-core:jsNodeTest` runs just the Kotlin/JS tests (the target the React Native port consumes)
-- `./gradlew test` runs shared unit tests
-- `./gradlew :androidApp:assembleDebug :androidApp:installDebug` builds and installs the Android app
-- `./gradlew :app:run` launches the desktop app
-- `CHESS_ENABLE_COACH=1 ./gradlew :app:run` launches the desktop app **with the on-device Move Coach enabled** (downloads the Qwen3-0.6B model, ~347 MB, on first launch; cached at `~/.chess-coach-models/`). Without the env var the coach panel stays hidden — mirrors Android's `FLAG_DEBUGGABLE` gate.
-- `./gradlew :app:wasmJsBrowserDevelopmentRun` starts the web target
-- `./gradlew :app:wasmJsBrowserDevelopmentRun` then open the page with **`?coach=1`** appended to the URL to enable the on-device Move Coach (Chrome/Edge only — requires WebGPU; loads `gemma-4-E2B-it-web.litertlm` ~2 GB from Hugging Face). Without `?coach=1` the coach panel stays hidden.
-- `./gradlew :app:wasmJsBrowserDevelopmentRun` # run web target
-- `./gradlew :app:wasmJsBrowserDevelopmentWebpack` # build web dev bundle without dev server
-- `./gradlew :app:connectedAndroidDeviceTest` # Android UI tests (needs device/emulator)
-- `./gradlew :app:iosSimulatorArm64Test` runs iOS Compose UI tests
-- `./gradlew :app:desktopTest --tests "*board3d*"` runs the 3D desktop tests (DesktopRendererSmokeTest writes `build/chess3d-*.png` to eyeball the render)
-- `./gradlew :chess-core:publishToMavenLocal` publishes `io.github.ber4444:chess-core` to the local Maven cache (for local cross-repo iteration)
-- `./gradlew :coachApi:build` builds and tests the serialization-only wire-model module
-- `./gradlew :coachApi:publishToMavenLocal :onDeviceAi:publishToMavenLocal` publishes both AI artifacts to the local Maven cache (for local cross-repo iteration with the RN port)
-- `./gradlew :server:test` runs the cloud-AI service tests — opening explainer + position chat (Testcontainers Postgres; skips without Docker)
-- `./gradlew :litert-eval:run` runs the desktop LiteRT-LM coach runtime headlessly (prompt/model iteration without launching the app)
-- `./gradlew :server:seed` seeds the opening corpus into a Postgres database (needs `DATABASE_URL` + embedding model paths)
-- `./gradlew :evals:run` runs the rule-based eval harness and regenerates `evals/scorecard.md` (fails on grounding regression; includes the `local-template-chat` route: 200 scored turns, 100 cases × 2 turns, 0% grounding-drift violations)
-- `./gradlew :chess-core:desktopTest --tests "*Perft*"` runs the [perft gate](docs/perft.md) (canonical counts + Stockfish cross-check)
-- `./gradlew :chess-core:desktopTest --tests "*PerftDeepTest*" -Dperft.deep=true` runs the deep perft tier (nightly-only depths; slow)
-- `./gradlew :perft-mcp:test :perft-mcp:installDist` builds the [perft MCP server](docs/perft.md#the-mcp-server-perft-mcp)
-- `tools/ios_3d_screenshot.sh` captures the real iOS 3D board from a booted simulator
+- **Rules Q&A (on-device):** A `LOCAL_ONLY` feature distinct from both the move coach (no retrieval) and the opening explainer (cloud retrieval). A **Rules** screen lets the player ask a natural-language chess-rules question; retrieval and generation stay entirely on-device. The corpus is a bundled 30-passage FIDE/Wikibooks adaptation (`onDeviceAi/src/commonMain/resources/rulesCorpus/passages.tsv`) looked up via BM25 (`BundledRuleLookupTool`). iOS uses a native Foundation Models `Tool` conformance with `NLEmbedding` query-time ranking, gated by the same iOS 26+/Apple Intelligence availability check as the move coach (no separate flag). Android uses structured-output prompting (the model emits a `{"tool":"lookup_rule","query":"…"}` envelope, Kotlin does the real lookup, then a second generation turn cites the passage) — but only in **debug builds**: `defaultRulesQaAnswerer` on Android checks `isCactusInitialized()`, and Cactus is only initialized from the coach's own debug-only init path, so a release build's answerer is always `null` even though nothing here checks `FLAG_DEBUGGABLE` directly. An answer that doesn't cite a retrieved passage ID is rejected and falls back to a static rules summary. There is no Settings switch for this feature (unlike the move coach) — availability is purely platform/build gated: `RulesQaStateHolder` starts in `RulesQaUiState.Unavailable` whenever `defaultRulesQaAnswerer` returns `null` (desktop, web, JS, and Android release builds), and the **Rules** screen reports itself unavailable rather than rendering a dead input box. See `docs/benchmarks/on-device-ai/rules-qa-retrieval-decision.md` for why BM25 was chosen over a bundled embedding model.
 
 ### Position Chat service
 
@@ -501,6 +415,39 @@ golden set. It has no judge model — v1 is rule-based only.
 COACH_DEPLOYED_URL=https://… ./gradlew :evals:run   # also score the live deployment
 ```
 
+## Benchmarking
+
+To measure performance metrics of the on-device AI integration (init times, tokens/sec, memory), the project includes a dedicated benchmarking harness for both Android and iOS targets. 
+- [On-Device Benchmark Harness](docs/benchmark-harness.md) — Execution instructions and architecture details for the harness.
+- [Benchmark Schema](docs/benchmarks/on-device-ai/move-coach-benchmark-schema.md) — The schema and target latency thresholds for the metrics.
+
+## Useful Gradle tasks
+
+- `./gradlew :chess-core:check` runs the chess-core test suite across all targets (desktop + iOS sim + JS)
+- `./gradlew :chess-core:jsNodeTest` runs just the Kotlin/JS tests (the target the React Native port consumes)
+- `./gradlew test` runs shared unit tests
+- `./gradlew :androidApp:assembleDebug :androidApp:installDebug` builds and installs the Android app
+- `./gradlew :app:run` launches the desktop app
+- `CHESS_ENABLE_COACH=1 ./gradlew :app:run` launches the desktop app **with the on-device Move Coach enabled** (downloads the Qwen3-0.6B model, ~347 MB, on first launch; cached at `~/.chess-coach-models/`). Without the env var the coach panel stays hidden — mirrors Android's `FLAG_DEBUGGABLE` gate.
+- `./gradlew :app:wasmJsBrowserDevelopmentRun` starts the web target
+- `./gradlew :app:wasmJsBrowserDevelopmentRun` then open the page with **`?coach=1`** appended to the URL to enable the on-device Move Coach (Chrome/Edge only — requires WebGPU; loads `gemma-4-E2B-it-web.litertlm` ~2 GB from Hugging Face). Without `?coach=1` the coach panel stays hidden.
+- `./gradlew :app:wasmJsBrowserDevelopmentRun` # run web target
+- `./gradlew :app:wasmJsBrowserDevelopmentWebpack` # build web dev bundle without dev server
+- `./gradlew :app:connectedAndroidDeviceTest` # Android UI tests (needs device/emulator)
+- `./gradlew :app:iosSimulatorArm64Test` runs iOS Compose UI tests
+- `./gradlew :app:desktopTest --tests "*board3d*"` runs the 3D desktop tests (DesktopRendererSmokeTest writes `build/chess3d-*.png` to eyeball the render)
+- `./gradlew :chess-core:publishToMavenLocal` publishes `io.github.ber4444:chess-core` to the local Maven cache (for local cross-repo iteration)
+- `./gradlew :coachApi:build` builds and tests the serialization-only wire-model module
+- `./gradlew :coachApi:publishToMavenLocal :onDeviceAi:publishToMavenLocal` publishes both AI artifacts to the local Maven cache (for local cross-repo iteration with the RN port)
+- `./gradlew :server:test` runs the cloud-AI service tests — opening explainer + position chat (Testcontainers Postgres; skips without Docker)
+- `./gradlew :litert-eval:run` runs the desktop LiteRT-LM coach runtime headlessly (prompt/model iteration without launching the app)
+- `./gradlew :server:seed` seeds the opening corpus into a Postgres database (needs `DATABASE_URL` + embedding model paths)
+- `./gradlew :evals:run` runs the rule-based eval harness and regenerates `evals/scorecard.md` (fails on grounding regression; includes the `local-template-chat` route: 200 scored turns, 100 cases × 2 turns, 0% grounding-drift violations)
+- `./gradlew :chess-core:desktopTest --tests "*Perft*"` runs the [perft gate](docs/perft.md) (canonical counts + Stockfish cross-check)
+- `./gradlew :chess-core:desktopTest --tests "*PerftDeepTest*" -Dperft.deep=true` runs the deep perft tier (nightly-only depths; slow)
+- `./gradlew :perft-mcp:test :perft-mcp:installDist` builds the [perft MCP server](docs/perft.md#the-mcp-server-perft-mcp)
+- `tools/ios_3d_screenshot.sh` captures the real iOS 3D board from a booted simulator
+
 ### Publishing `chess-core`
 
 The core is published to GitHub Packages from CI (`.github/workflows/publish-chess-core.yml`), driven
@@ -514,5 +461,15 @@ git push origin chess-core-v0.2.0
 The version is the tag with the `chess-core-v` prefix stripped. Consumers (the RN port, or any other
 Kotlin project) add the GitHub Packages Maven repo (auth: PAT with `read:packages`) and depend on
 `io.github.ber4444:chess-core:<version>`.
+
+### Publishing `onDeviceAi` & `coachApi`
+
+Both artifacts publish together from one tag (`:onDeviceAi` depends on `:coachApi` for wire models),
+via `publish-on-device-ai.yml`:
+
+```bash
+git tag -a on-device-ai-v0.1.0 -m "Publish io.github.ber4444:onDeviceAi:0.1.0 + coachApi"
+git push origin on-device-ai-v0.1.0
+```
 
 [Article with screenshots](https://medium.com/p/f6a983db0e45)
