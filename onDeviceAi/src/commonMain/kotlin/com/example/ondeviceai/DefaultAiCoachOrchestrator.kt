@@ -80,11 +80,12 @@ class DefaultAiCoachOrchestrator(
         val prompt = MoveCoachPromptBuilder.build(request)
         val outcome = collectGenerate(request, generator, prompt, startMs)
             ?: return fallback(request, AiRoutePolicyDecider.FALLBACK_TIMEOUT)
+        benchProbe.onRawOutput(outcome.rawText)
 
         // Parse JSON
         val parsed = try {
             val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
-            json.decodeFromString<MoveCoachResponse>(outcome.rawText)
+            json.decodeFromString<MoveCoachResponse>(stripJsonCodeFence(outcome.rawText))
         } catch (e: Exception) {
             logger.w(e) { "Failed to parse structured output" }
             return fallback(request, AiRoutePolicyDecider.FALLBACK_VALIDATION)
@@ -176,12 +177,31 @@ class DefaultAiCoachOrchestrator(
     private fun countTokens(text: String): Int =
         text.split(Regex("\\s+")).count { it.isNotBlank() }
 
+    /**
+     * Models routinely wrap requested JSON in a markdown code fence (e.g. Foundation Models:
+     * "```json\n{...}\n```") even when told to "output valid JSON" with no further instruction
+     * about markdown. Strip a wrapping fence before parsing; text without one passes through
+     * unchanged. Same category as the LiteRT-LM `<think>` stripping fix — clean a model's habitual
+     * decoration before treating its output as data.
+     */
+    private fun stripJsonCodeFence(text: String): String {
+        val trimmed = text.trim()
+        val match = JSON_FENCE.matchEntire(trimmed) ?: return trimmed
+        return match.groupValues[1].trim()
+    }
+
     private data class GenerationOutcome(
         val rawText: String,
         val metrics: AiInferenceMetrics,
     )
 
     private companion object {
+        // [\s\S]*? (not .*?) so the fence body matches across newlines without RegexOption
+        // .DOT_MATCHES_ALL, which Kotlin/JS doesn't support.
+        val JSON_FENCE = Regex(
+            "^```(?:json)?\\s*\\n?([\\s\\S]*?)\\n?```\\s*$",
+            RegexOption.IGNORE_CASE,
+        )
         val DefaultContextProvider: suspend () -> AiContextSnapshot = {
             AiContextSnapshot(
                 isDeviceModelAvailable = false,

@@ -43,18 +43,20 @@ class MlKitPromptGenerator(private val preference: String) : OnDeviceTextGenerat
         
         val genRequest = generateContentRequest(sysInst, userPart) {}
         
+        // Let a generation failure (e.g. AICore not installed — ErrorCode -101) propagate as a real
+        // exception rather than swallowing it here. DefaultAiCoachOrchestrator.runOnDevice already
+        // wraps generation in a catch (t: Throwable) that reports a clean "generation error: ..."
+        // fallback; emitting the error as a fake successful JSON payload instead made the real cause
+        // invisible — it surfaced downstream as an opaque "model output failed validation" once the
+        // error string failed to parse against the {headline, explanation} schema.
         var fullText = ""
-        try {
-            model.generateContentStream(genRequest).collect { response ->
-                response.candidates.firstOrNull()?.text?.let { chunk ->
-                    fullText += chunk
-                    emit(AiTokenOrFinal.Token(chunk))
-                }
+        model.generateContentStream(genRequest).collect { response ->
+            response.candidates.firstOrNull()?.text?.let { chunk ->
+                fullText += chunk
+                emit(AiTokenOrFinal.Token(chunk))
             }
-            emit(AiTokenOrFinal.Final(fullText, AiInferenceMetrics(0L, 0L, fullText.length, AiRoute.OnDevice)))
-        } catch (e: Exception) {
-            emit(AiTokenOrFinal.Final("{\"error\": \"${e.message}\"}", AiInferenceMetrics(0L, 0L, 0, AiRoute.OnDevice)))
         }
+        emit(AiTokenOrFinal.Final(fullText, AiInferenceMetrics(0L, 0L, fullText.length, AiRoute.OnDevice)))
     }
 
     override suspend fun close() {

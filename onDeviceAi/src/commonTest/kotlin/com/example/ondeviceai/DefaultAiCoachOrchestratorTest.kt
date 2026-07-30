@@ -62,6 +62,22 @@ class DefaultAiCoachOrchestratorTest {
 
 
     @Test
+    fun `success path strips a markdown code fence around the JSON`() = runTest {
+        // Observed on Foundation Models: the model wraps otherwise-valid JSON in a ```json fence
+        // even though the prompt only asks it to "output valid JSON", with no mention of markdown.
+        // Before stripJsonCodeFence this failed structured-output parsing and fell back, discarding
+        // a genuinely good answer.
+        val gen = FakeTextGenerator(
+            response = "```json\n" +
+                """{"headline": "Develops knight", "explanation": "Nf3 develops a knight and supports the centre."}""" +
+                "\n```",
+        )
+        val result = orchestrator(gen).explainMove(request)
+        assertIs<MoveCoachResult.Success>(result)
+        assertEquals("Nf3 develops a knight and supports the centre.", result.explanation.explanation)
+    }
+
+    @Test
     fun `validation failure falls back`() = runTest {
         val gen = FakeTextGenerator()
         gen.generateInterceptor = { _, _ -> """{"headline": "Bad", "explanation": "This move does not mention the move."}""" }

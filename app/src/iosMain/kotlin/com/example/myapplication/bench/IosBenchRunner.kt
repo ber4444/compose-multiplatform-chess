@@ -54,6 +54,7 @@ suspend fun runIosBench(iterations: Int) {
         var completeMs = 0L
         var fallback = false
         var fallbackReason: String? = null
+        var rawOutput: String? = null
         var tokens = 0
 
         val probe = object : BenchProbe {
@@ -63,6 +64,7 @@ suspend fun runIosBench(iterations: Int) {
             override fun onFirstToken() { firstToken = nowEpochMillis() }
             override fun onGenerateComplete(tokenCount: Int) { completeMs = nowEpochMillis(); tokens = tokenCount }
             override fun onFallback(reason: String) { fallback = true; fallbackReason = reason }
+            override fun onRawOutput(text: String) { rawOutput = text }
         }
         
         probe.onInitStart()
@@ -104,12 +106,14 @@ suspend fun runIosBench(iterations: Int) {
             thermalStatusAfter = 0,
             fallbackTriggered = fallback,
             isEmulator = isEmulator,
-            fallbackReason = fallbackReason
+            fallbackReason = fallbackReason,
+            rawOutput = rawOutput
         )
 
-        val reasonJson = result.fallbackReason?.let { "\"" + it.replace("\\", "\\\\").replace("\"", "\\\"") + "\"" } ?: "null"
-        val jsonLine = """{"deviceModel":"${result.deviceModel}","osVersion":"${result.osVersion}","appVersion":"${result.appVersion}","modelIdentifier":"${result.modelIdentifier}","isWarm":${result.isWarm},"timestampMs":${result.timestampMs},"initStartMs":${result.initStartMs},"initEndMs":${result.initEndMs},"generateStartMs":${result.generateStartMs},"firstTokenMs":${result.firstTokenMs},"completeMs":${result.completeMs},"tokenCount":${result.tokenCount},"peakMemoryBytes":${result.peakMemoryBytes},"thermalStatusBefore":${result.thermalStatusBefore},"thermalStatusAfter":${result.thermalStatusAfter},"fallbackTriggered":${result.fallbackTriggered},"isEmulator":${result.isEmulator},"fallbackReason":$reasonJson}"""
-        
+        val reasonJson = jsonStringOrNull(result.fallbackReason)
+        val rawOutputJson = jsonStringOrNull(result.rawOutput)
+        val jsonLine = """{"deviceModel":"${result.deviceModel}","osVersion":"${result.osVersion}","appVersion":"${result.appVersion}","modelIdentifier":"${result.modelIdentifier}","isWarm":${result.isWarm},"timestampMs":${result.timestampMs},"initStartMs":${result.initStartMs},"initEndMs":${result.initEndMs},"generateStartMs":${result.generateStartMs},"firstTokenMs":${result.firstTokenMs},"completeMs":${result.completeMs},"tokenCount":${result.tokenCount},"peakMemoryBytes":${result.peakMemoryBytes},"thermalStatusBefore":${result.thermalStatusBefore},"thermalStatusAfter":${result.thermalStatusAfter},"fallbackTriggered":${result.fallbackTriggered},"isEmulator":${result.isEmulator},"fallbackReason":$reasonJson,"rawOutput":$rawOutputJson}"""
+
         appendToFile(resultsFile, jsonLine + "\n")
     }
 }
@@ -119,6 +123,13 @@ suspend fun runIosBench(iterations: Int) {
 private fun getMemoryBytes(): Long {
     // Memory is tracked via XCTMemoryMetric in XCTest, or we return 0
     return 0L
+}
+
+private fun jsonStringOrNull(s: String?): String {
+    if (s == null) return "null"
+    val escaped = s.replace("\\", "\\\\").replace("\"", "\\\"")
+        .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    return "\"$escaped\""
 }
 
 @OptIn(ExperimentalForeignApi::class)
