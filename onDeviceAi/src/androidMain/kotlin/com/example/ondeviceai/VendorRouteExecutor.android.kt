@@ -20,22 +20,24 @@ private var cactusInitialized = false
 internal fun isCactusInitialized(): Boolean = cactusInitialized
 
 actual class VendorRouteExecutor : AiRouteExecutor {
-    actual override suspend fun execute(route: VendorRoute): OnDeviceTextGenerator? {
-        return when (route) {
-            is VendorRoute.MlKitPrompt -> {
-                val mlkit = MlKitPromptGenerator(route.preference)
-                if (mlkit.status() is AiAvailability.Available) mlkit
-                else getCactus()
-            }
-            is VendorRoute.FirebaseHybrid -> FirebaseHybridGenerator(route.mode)
-            is VendorRoute.CactusLocal -> getCactus()
-            else -> null
+    actual override suspend fun execute(policy: AiRoutePolicy, context: AiContextSnapshot): OnDeviceTextGenerator? {
+        val effectiveOfflineOnly = policy.requireOffline ||
+            policy.privacyClass == PrivacyClass.LOCAL_ONLY ||
+            context.userSetting == AiUserSetting.OFFLINE_ONLY
+
+        return if (effectiveOfflineOnly) {
+            val preference = if (policy.privacyClass == PrivacyClass.LOCAL_ONLY) "FAST" else "FULL"
+            val mlkit = MlKitPromptGenerator(preference)
+            if (mlkit.status() is AiAvailability.Available) mlkit
+            else getCactus()
+        } else {
+            FirebaseHybridGenerator(AiInferenceMode.PREFER_ON_DEVICE)
         }
     }
 
     private fun getCactus(): CactusTextGenerator {
-        if (!isCactusInitialized()) {
-            // Assume context was initialized earlier, otherwise this will throw
+        check(isCactusInitialized()) {
+            "Cactus Native context not initialized in Application/Activity"
         }
         return cachedGenerator ?: CactusTextGenerator().also { cachedGenerator = it }
     }
@@ -43,19 +45,3 @@ actual class VendorRouteExecutor : AiRouteExecutor {
 
 @Volatile
 private var cachedGenerator: CactusTextGenerator? = null
-
-actual fun resolveVendorRoute(policy: AiRoutePolicy, context: AiContextSnapshot): VendorRoute? {
-    if (!context.isDeviceModelAvailable) return null
-
-    val effectiveOfflineOnly = policy.requireOffline ||
-        policy.privacyClass == PrivacyClass.LOCAL_ONLY ||
-        context.userSetting == AiUserSetting.OFFLINE_ONLY
-
-    val preference = if (policy.privacyClass == PrivacyClass.LOCAL_ONLY) "FAST" else "FULL"
-
-    return if (effectiveOfflineOnly) {
-        VendorRoute.MlKitPrompt(preference)
-    } else {
-        VendorRoute.FirebaseHybrid("HYBRID")
-    }
-}

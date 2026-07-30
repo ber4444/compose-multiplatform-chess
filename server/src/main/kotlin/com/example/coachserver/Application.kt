@@ -42,7 +42,15 @@ import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
+import com.google.firebase.FirebaseApp
+import com.google.firebase.appcheck.FirebaseAppCheck
+
 fun main() {
+    runCatching {
+        FirebaseApp.initializeApp()
+    }.onFailure { 
+        System.err.println("FirebaseApp initialization failed (e.g. missing GOOGLE_APPLICATION_CREDENTIALS) — AppCheck will fail: ${it.message}")
+    }
     val environment = System.getenv()
     val dependencies = defaultDependencies(environment)
     val chatService = runCatching { defaultChatDependencies(environment) }.getOrNull()
@@ -114,6 +122,17 @@ fun Application.openingCoachModule(
             call.respondText("ok", ContentType.Text.Plain, HttpStatusCode.OK)
         }
         post("/v1/openings/explain") {
+            val appCheckToken = call.request.headers["X-Firebase-AppCheck"]
+            if (appCheckToken == null) {
+                call.respond(HttpStatusCode.Unauthorized, ApiError("unauthorized", "Missing App Check token"))
+                return@post
+            }
+            try {
+                FirebaseAppCheck.getInstance().verifyToken(appCheckToken)
+            } catch (e: Exception) {
+                call.respond(HttpStatusCode.Unauthorized, ApiError("unauthorized", "Invalid App Check token"))
+                return@post
+            }
             if ((call.request.contentLength() ?: 0L) > MAX_REQUEST_BYTES) {
                 call.respond(HttpStatusCode.PayloadTooLarge, ApiError("request_too_large", "request body is too large"))
                 return@post
@@ -145,6 +164,17 @@ fun Application.openingCoachModule(
         // `fallback` event carrying deterministic text instead of `done`.
         if (chatService != null) {
             post("/v1/positions/chat/stream") {
+                val appCheckToken = call.request.headers["X-Firebase-AppCheck"]
+                if (appCheckToken == null) {
+                    call.respond(HttpStatusCode.Unauthorized, ApiError("unauthorized", "Missing App Check token"))
+                    return@post
+                }
+                try {
+                    FirebaseAppCheck.getInstance().verifyToken(appCheckToken)
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.Unauthorized, ApiError("unauthorized", "Invalid App Check token"))
+                    return@post
+                }
                 if ((call.request.contentLength() ?: 0L) > MAX_REQUEST_BYTES) {
                     call.respond(HttpStatusCode.PayloadTooLarge, ApiError("request_too_large", "request body is too large"))
                     return@post

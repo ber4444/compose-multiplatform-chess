@@ -62,7 +62,7 @@ kotlin {
     android {
         namespace = "com.example.ondeviceai"
         compileSdk = 36
-        minSdk = 26
+        minSdk = 24
 
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
@@ -151,10 +151,10 @@ kotlin {
             }
             
             // Phase 2 dependencies
-            implementation(project.dependencies.platform("com.google.firebase:firebase-bom:33.7.0"))
+            implementation(project.dependencies.platform("com.google.firebase:firebase-bom:34.16.0"))
             api("com.google.mlkit:genai-schema:1.0.0-alpha1")
             implementation("com.google.mlkit:genai-prompt:1.0.0-beta3")
-            implementation("com.google.firebase:firebase-vertexai")
+            implementation("com.google.firebase:firebase-ai")
             implementation("com.google.firebase:firebase-ai-ondevice:16.0.0-beta03")
             implementation("com.google.firebase:firebase-appcheck-playintegrity")
             implementation("com.google.firebase:firebase-appcheck-debug")

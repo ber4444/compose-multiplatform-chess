@@ -22,6 +22,7 @@ dependencies {
     implementation("com.pgvector:pgvector:0.1.6")
     implementation("com.microsoft.onnxruntime:onnxruntime:1.22.0")
     implementation(libs.kotlinx.serialization.json)
+    implementation("com.google.firebase:firebase-admin:9.3.0")
 
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.13.4")
