@@ -323,7 +323,8 @@ pinned MiniLM ONNX model + vocab. `server/fly.toml` configures the app
 never waits on a machine boot, health check `GET /health`). Its `dockerfile` path is resolved
 relative to `server/`, the directory holding `fly.toml` — not the build context.
 
-No production URL or credential is committed. Deployment is intentionally a human step:
+No credential is committed — the base URL below is a public hostname, but every secret
+(`DATABASE_URL`, `COACH_LLM_API_KEY`) stays a Fly secret. Deployment is intentionally a human step:
 
 ```bash
 # 1. Create the Fly app (does not deploy yet)
@@ -382,11 +383,14 @@ fly secrets set --app compose-chess-opening-coach \
 > shipped `lib/*` classpath directly, and the local path uses `./gradlew :server:seed`. Do not put
 > database URLs or provider keys in this README or any `.env` file.
 
-After deployment, record the verified base URL here once you've confirmed `/health` responds:
+The deployed base URL, verified against `GET /health` (returns `ok`):
 
-<!-- TODO(owner): replace with the live URL after first deploy, e.g.
-`coach.baseUrl=https://compose-chess-opening-coach.fly.dev`
--->
+**https://compose-chess-opening-coach.fly.dev**
+
+Point the app at it with `coach.baseUrl=https://compose-chess-opening-coach.fly.dev` in
+`local.properties`, or `CHESS_COACH_BASE_URL` for CI/deploy builds — the precedence is listed under
+[App-side wiring](#opening-explainer-service). Both cloud surfaces (Opening Explainer and Position
+Chat) share this one base URL.
 
 ### AI coach eval harness
 
