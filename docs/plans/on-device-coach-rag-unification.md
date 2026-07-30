@@ -19,6 +19,7 @@
 - [Decision gate](#decision-gate-does-the-model-beat-the-templates-at-all)
 - [Alternatives considered](#alternatives-considered-and-why-this-shape-won)
 - [Adjacent fixes not covered here](#adjacent-fixes-not-covered-here)
+- [Deferred: precedence](#deferred-make-the-localcloud-precedence-structural)
 - [Non-goals](#non-goals)
 
 ---
@@ -384,6 +385,39 @@ Real, small, and tracked nowhere else — they should not be lost with this docu
 - **Retrieval collisions.** Style example #1 is about Nf3, a very common move; the echo detector
   will reject a legitimate Nf3 explanation that matches it. Low harm (falls back to templates), but
   swapping the examples to rarer moves would reduce it.
+
+## Deferred: make the local/cloud precedence structural
+
+Not part of the coaching redesign, but it constrains it, and it should not be lost.
+
+`AiRoutePolicyDecider.decide()` prefers a local route whenever a device model is available — that
+branch is evaluated **before** `RunCloud`, and it consults neither `allowCloud` nor `privacyClass`:
+
+```kotlin
+context.isDeviceModelAvailable -> Decision.RunOnDevice   // main, pre-#106
+vendorRoute != null            -> Decision.Route(...)    // #106, same precedence
+```
+
+This predates PR #106 (which faithfully preserved it). The cloud-only surfaces work today only
+because they report `isDeviceModelAvailable = false` — two boolean literals in
+`KtorStreamingChatClient` and `KtorOpeningExplainerClient`. Those are now commented and pinned by a
+decider test, and a separate fix stops a *cloud-capable vendor* being selected for a policy that
+forbids cloud (`fix/vendor-route-cloud-guard`). Both are hardening; neither changes precedence.
+
+The structural fix is to have `decide()` consult `resolveVendorRoute` **only when the policy permits
+local routing**, so the cloud-only guarantee comes from the type system rather than from two
+literals a future contributor could reasonably "tidy" to `true`. That is deliberately deferred:
+
+- It is a **semantic change to shipped behaviour**, not a bug fix — cloud-preferring policies would
+  stop preferring a local model when one exists.
+- The existing 60-context sweep only asserts that `LOCAL_ONLY` never reaches cloud. It does not pin
+  the device-first ordering in either direction, so it would not catch the change. The sweep needs
+  extending *first*.
+- It interacts with this plan: once coaching is grounded in `MoveAssessment` records rather than a
+  corpus, which surfaces want local-first vs. cloud-first may change. Settling precedence before
+  that is premature.
+
+Do it as its own PR, sweep-extension first.
 
 ## Dependencies
 
