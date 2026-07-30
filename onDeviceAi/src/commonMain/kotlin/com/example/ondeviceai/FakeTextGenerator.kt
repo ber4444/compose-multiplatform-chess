@@ -57,7 +57,3 @@ class FakeTextGenerator(
     }
 }
 
-class FakeTextGeneratorFactory(val generator: OnDeviceTextGenerator?) :
-    OnDeviceTextGeneratorFactory {
-    override suspend fun create(): OnDeviceTextGenerator? = generator
-}

@@ -1,5 +1,6 @@
 package com.example.ondeviceai
 
+import kotlinx.serialization.Serializable
 enum class ExplanationConfidence {
     HIGH,
     MEDIUM,
@@ -19,7 +20,6 @@ data class MoveCoachRequest(
     val policy: AiRoutePolicy = AiRoutePolicies.moveCoachOffline,
 )
 
-import kotlinx.serialization.Serializable
 
 @Serializable
 @Generable

@@ -21,6 +21,7 @@ class DefaultGameSummaryOrchestrator(
         val decision = AiRoutePolicyDecider.decide(request.policy, context)
         when (decision) {
             is AiRoutePolicyDecider.Decision.Route -> emit(runOnDevice(request, decision.route))
+            is AiRoutePolicyDecider.Decision.RunCloud -> emit(complete(GameSummaryResult.Failed("Cloud route not supported in onDeviceAi orchestrator")))
             is AiRoutePolicyDecider.Decision.FallBack ->
                 emit(fallback(request, decision.reason))
         }

@@ -68,6 +68,7 @@ class DefaultRulesQaOrchestrator(
 
         return when (val decision = AiRoutePolicyDecider.decide(AiRoutePolicies.rulesQaOffline, context)) {
             is AiRoutePolicyDecider.Decision.Route -> runOnDevice(normalizedQuestion)
+            is AiRoutePolicyDecider.Decision.RunCloud -> fallback("Cloud route not supported")
             is AiRoutePolicyDecider.Decision.FallBack -> fallback(decision.reason)
         }
     }

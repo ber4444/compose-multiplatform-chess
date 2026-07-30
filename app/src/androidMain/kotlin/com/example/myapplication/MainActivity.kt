@@ -10,7 +10,8 @@ import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
 import com.example.ondeviceai.DefaultGameSummaryOrchestrator
-import com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory
+import com.example.ondeviceai.VendorRouteExecutor
+import com.example.ondeviceai.VendorRoute
 import com.example.ondeviceai.initializeCactus
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.CurrentGameStore
@@ -114,8 +115,8 @@ class MainActivity : ComponentActivity() {
         )
 
         CoroutineScope(Dispatchers.IO).launch {
-            val factory = defaultOnDeviceTextGeneratorFactory()
-            val generator = factory.create()
+            val executor = VendorRouteExecutor()
+            val generator = executor.execute(VendorRoute.CactusLocal())
             // Pre-initialize: download model (first launch) + load into memory
             runCatching { generator?.warmup() }
 
@@ -135,14 +136,14 @@ class MainActivity : ComponentActivity() {
 
             holder.moveCoachManager.attachCoachOrchestrator(
                 DefaultAiCoachOrchestrator(
-                    factory = factory,
+                    executor = executor,
                     contextProvider = contextProvider,
                 )
             )
 
             holder.gameSummaryManager.attachOrchestrator(
                 DefaultGameSummaryOrchestrator(
-                    factory = factory,
+                    executor = executor,
                     contextProvider = contextProvider,
                 )
             )

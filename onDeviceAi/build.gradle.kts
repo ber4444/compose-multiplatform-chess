@@ -1,11 +1,12 @@
 @file:Suppress("UnstableApiUsage")
+@file:OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
 
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
-    id("com.google.devtools.ksp") version "2.3.20-1.0.29"
+    id("com.google.devtools.ksp") version "2.3.10"
     `maven-publish`
 }
 
@@ -60,7 +61,7 @@ kotlin {
     android {
         namespace = "com.example.ondeviceai"
         compileSdk = 36
-        minSdk = 24
+        minSdk = 26
 
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
@@ -121,6 +122,7 @@ kotlin {
             api(project(":coachapi"))
             implementation(libs.kermit)
             implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.kotlinx.serialization.json)
         }
 
         commonMain.get().kotlin.srcDir(generatedRulesCorpusDir)
@@ -148,15 +150,13 @@ kotlin {
             }
             
             // Phase 2 dependencies
+            implementation(project.dependencies.platform("com.google.firebase:firebase-bom:33.7.0"))
+            api("com.google.mlkit:genai-schema:1.0.0-alpha1")
             implementation("com.google.mlkit:genai-prompt:1.0.0-beta3")
-            implementation("com.google.firebase:firebase-ai-logic")
+            implementation("com.google.firebase:firebase-vertexai")
             implementation("com.google.firebase:firebase-ai-ondevice:16.0.0-beta03")
             implementation("com.google.firebase:firebase-appcheck-playintegrity")
             implementation("com.google.firebase:firebase-appcheck-debug")
-        }
-        
-        dependencies {
-            ksp("com.google.mlkit:genai-schema-compiler:1.0.0-alpha1")
         }
 
         val desktopMain by getting {
@@ -191,9 +191,13 @@ tasks.matching { it.name.startsWith("compile") }.configureEach {
 // The `*SourcesJar` / `sourcesJar` tasks (added by `maven-publish`) consume the generated rules-corpus
 // source dir without declaring the dependency — Gradle's dependency-validation rejects this as an
 // undeclared-output usage. Make them all explicit so publishToMavenLocal / publishAllPublications works.
-// Covers: sourcesJar (umbrella), androidSourcesJar, desktopSourcesJar, jsSourcesJar, etc.
-tasks.matching { it.name.endsWith("sourcesJar") || it.name.endsWith("SourcesJar") }.configureEach {
+// Covers: sourcesJar (umbrella), androidSourcesJar, desktopSourcesJar, jsSourcesJar, and ksp tasks.
+tasks.matching { it.name.endsWith("sourcesJar") || it.name.endsWith("SourcesJar") || it.name.startsWith("ksp") }.configureEach {
     dependsOn(generateRulesCorpus)
+}
+
+dependencies {
+    add("kspAndroid", "com.google.mlkit:genai-schema-compiler:1.0.0-alpha1")
 }
 
 // ── Publish to GitHub Packages ────────────────────────────────────────────────

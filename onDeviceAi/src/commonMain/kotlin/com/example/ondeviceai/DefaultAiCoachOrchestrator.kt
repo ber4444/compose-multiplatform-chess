@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withTimeoutOrNull
 import com.example.ondeviceai.bench.BenchProbe
 import com.example.ondeviceai.bench.NoOpBenchProbe
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.decodeFromString
 
 sealed interface MoveCoachEvent {
     data class Streaming(val partialText: String) : MoveCoachEvent
@@ -29,6 +31,7 @@ class DefaultAiCoachOrchestrator(
         val decision = AiRoutePolicyDecider.decide(request.policy, context)
         when (decision) {
             is AiRoutePolicyDecider.Decision.Route -> emit(runOnDevice(request, decision.route))
+            is AiRoutePolicyDecider.Decision.RunCloud -> emit(complete(MoveCoachResult.Failed("Cloud route not supported in onDeviceAi orchestrator")))
             is AiRoutePolicyDecider.Decision.FallBack ->
                 emit(fallback(request, decision.reason))
         }

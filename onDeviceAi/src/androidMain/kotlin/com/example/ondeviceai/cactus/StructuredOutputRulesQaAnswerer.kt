@@ -4,7 +4,6 @@ import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.AiGenerationRequest
 import com.example.ondeviceai.AiTokenOrFinal
 import com.example.ondeviceai.OnDeviceTextGenerator
-import com.example.ondeviceai.OnDeviceTextGeneratorFactory
 import com.example.ondeviceai.RuleLookupTool
 import com.example.ondeviceai.RulesQaAnswerer
 import com.example.ondeviceai.RulesQaModelOutput

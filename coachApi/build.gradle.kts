@@ -14,7 +14,7 @@ kotlin {
     android {
         namespace = "com.example.coachapi"
         compileSdk = 36
-        minSdk = 24
+        minSdk = 26
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
         }

@@ -9,7 +9,8 @@ import com.example.ondeviceai.AiCoachOrchestrator
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
 import com.example.ondeviceai.MoveCoachRequest
 import com.example.ondeviceai.bench.BenchProbe
-import com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory
+import com.example.ondeviceai.VendorRouteExecutor
+import com.example.ondeviceai.VendorRoute
 import kotlinx.coroutines.flow.collect
 import java.io.File
 
@@ -59,13 +60,13 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
         }
         
         probe.onInitStart()
-        val factory = defaultOnDeviceTextGeneratorFactory()
-        val generator = factory.create()
+        val executor = VendorRouteExecutor()
+        val generator = executor.execute(VendorRoute.CactusLocal())
         generator?.warmup()
         probe.onInitEnd()
         
         val orchestrator = DefaultAiCoachOrchestrator(
-            factory = factory,
+            executor = executor,
             benchProbe = probe
         )
         
