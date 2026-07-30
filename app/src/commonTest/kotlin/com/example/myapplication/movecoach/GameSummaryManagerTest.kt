@@ -7,8 +7,7 @@ import com.example.ondeviceai.GameSummaryResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -56,19 +55,16 @@ class GameSummaryManagerTest {
 
     // triggerSummary sets Loading synchronously, then launches on the manager's own
     // (real-dispatcher) scope to collect the orchestrator's flow — so the terminal state lands
-    // asynchronously. Uses runBlocking (real wall-clock time), not runTest: runTest's virtual
-    // clock races the real Dispatchers.Default coroutine and fires withTimeout instantly.
+    // asynchronously.
     @Test
-    fun `triggering a summary with an orchestrator surfaces its result`() = runBlocking {
+    fun `triggering a summary with an orchestrator surfaces its result`() = runTest {
         val manager = GameSummaryManager()
         manager.attachOrchestrator(fakeOrchestrator())
 
         manager.triggerSummary("1. e4 e5")
 
         // The predicate targets Ready specifically since Loading also matches "not Hidden."
-        val result = withTimeout(5_000) {
-            manager.uiState.first { it is GameSummaryUiState.Ready }
-        }
+        val result = manager.uiState.first { it is GameSummaryUiState.Ready }
         assertIs<GameSummaryUiState.Ready>(result)
         manager.close()
     }
