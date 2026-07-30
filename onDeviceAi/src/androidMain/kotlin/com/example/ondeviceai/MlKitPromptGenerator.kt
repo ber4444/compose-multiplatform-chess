@@ -2,6 +2,7 @@ package com.example.ondeviceai
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.ModelPreference
 import com.google.mlkit.genai.prompt.SystemInstruction
@@ -28,9 +29,23 @@ class MlKitPromptGenerator(private val preference: String) : OnDeviceTextGenerat
     private val model = Generation.getClient(genConfig)
 
     override suspend fun status(): AiAvailability {
-        // Checking status properly requires context or context-aware calls in ML Kit, 
-        // but for now we just return Available as network state logic happens in decider.
-        return AiAvailability.Available
+        // VendorRouteExecutor's own fallback is `if (mlkit.status() is Available) mlkit else
+        // getCactus()` — any non-Available result here (including Error) already routes to Cactus.
+        // This used to hardcode Available regardless of real device support, which meant Cactus was
+        // silently unreachable on any device without working AICore: ML Kit would be picked, fail
+        // generation with e.g. ErrorCode -101, and never fall through. checkStatus() itself might
+        // throw rather than cleanly return UNAVAILABLE on such devices — either outcome must still
+        // fall through, so both paths are covered.
+        return try {
+            when (model.checkStatus()) {
+                FeatureStatus.AVAILABLE -> AiAvailability.Available
+                FeatureStatus.DOWNLOADABLE -> AiAvailability.Downloadable()
+                FeatureStatus.DOWNLOADING -> AiAvailability.Downloading
+                else -> AiAvailability.Unavailable
+            }
+        } catch (e: Exception) {
+            AiAvailability.Error(e.message ?: "checkStatus failed")
+        }
     }
 
     override suspend fun warmup() {
