@@ -7,10 +7,7 @@ object AiRoutePolicyDecider {
             return Decision.FallBack(FALLBACK_BACKGROUND)
         }
 
-        val cloudAllowedByPolicy = policy.allowCloud &&
-            !policy.requireOffline &&
-            policy.privacyClass != PrivacyClass.LOCAL_ONLY &&
-            policy.costBudget.maxUsdCents > 0.0
+        val cloudAllowedByPolicy = policy.permitsCloud()
 
         val effectiveOfflineOnly = policy.requireOffline ||
             policy.privacyClass == PrivacyClass.LOCAL_ONLY ||

@@ -189,6 +189,13 @@ fun createPositionChat(): PositionChat {
         client = client,
         contextProvider = {
             AiContextSnapshot(
+                // LOAD-BEARING, do not "fix" to true. `AiRoutePolicyDecider` prefers a local route
+                // whenever a device model is available — that branch is evaluated *before*
+                // `RunCloud` — and `DefaultPositionChat` treats any local decision as "no route"
+                // (there is no on-device chat generator), emitting the offline fallback. Reporting
+                // `true` here would therefore silently stop chat from ever reaching the cloud.
+                // Pinned by `position chat with a cloud-allowed policy reaches cloud` in
+                // `AiRoutePolicyDeciderTest`.
                 isDeviceModelAvailable = false,
                 isNetworkAvailable = client != null,
                 isAppForegrounded = true,
