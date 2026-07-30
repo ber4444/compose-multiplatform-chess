@@ -382,4 +382,49 @@ class AiRoutePolicyDeciderTest {
             AiRoutePolicyDecider.decide(policy, context),
         )
     }
+
+    // --- Cloud-permission predicate + the mechanism the cloud surfaces depend on ---------------
+
+    @Test
+    fun `permitsCloud is false unless every condition holds`() {
+        // allowCloud is not implied by the others: a policy can be non-LOCAL_ONLY and
+        // non-requireOffline yet still forbid cloud. Such a policy must never get a cloud vendor.
+        val cloudCapableButNotAllowed = AiRoutePolicies.positionChat.copy(allowCloud = false)
+        assertFalse(cloudCapableButNotAllowed.permitsCloud())
+
+        assertFalse(AiRoutePolicies.positionChat.copy(requireOffline = true).permitsCloud())
+        assertFalse(
+            AiRoutePolicies.positionChat.copy(privacyClass = PrivacyClass.LOCAL_ONLY).permitsCloud(),
+        )
+        assertFalse(
+            AiRoutePolicies.positionChat.copy(costBudget = CostBudget(maxUsdCents = 0.0))
+                .permitsCloud(),
+        )
+
+        assertTrue(AiRoutePolicies.positionChat.permitsCloud())
+        assertTrue(AiRoutePolicies.openingExplainer.permitsCloud())
+        assertFalse(AiRoutePolicies.moveCoachOffline.permitsCloud())
+        assertFalse(AiRoutePolicies.rulesQaOffline.permitsCloud())
+    }
+
+    @Test
+    fun `position chat with a cloud-allowed policy reaches cloud`() {
+        // Regression guard for the load-bearing `isDeviceModelAvailable = false` in
+        // KtorStreamingChatClient / KtorOpeningExplainerClient. The decider prefers a local route
+        // whenever a device model is reported available, and neither surface has an on-device
+        // implementation — so reporting `true` there silently sends both to the offline fallback.
+        // If someone "tidies" those literals to `true`, this test is what should fail.
+        val cloudOnlySurfaceContext = context(
+            isDeviceModelAvailable = false,
+            isNetworkAvailable = true,
+        )
+        assertEquals(
+            AiRoutePolicyDecider.Decision.RunCloud,
+            AiRoutePolicyDecider.decide(AiRoutePolicies.positionChat, cloudOnlySurfaceContext),
+        )
+        assertEquals(
+            AiRoutePolicyDecider.Decision.RunCloud,
+            AiRoutePolicyDecider.decide(AiRoutePolicies.openingExplainer, cloudOnlySurfaceContext),
+        )
+    }
 }

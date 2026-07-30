@@ -23,6 +23,24 @@ data class AiRoutePolicy(
     val requireOffline: Boolean,
 )
 
+/**
+ * True when this policy may reach a paid/off-device route at all.
+ *
+ * Single source of truth for that question: [AiRoutePolicyDecider] uses it to decide whether
+ * `RunCloud` is even reachable, and platform `resolveVendorRoute` implementations use it before
+ * selecting a **cloud-capable vendor** (e.g. Firebase hybrid inference). Keeping one predicate
+ * means a vendor route cannot disagree with the decider about what the policy permits.
+ *
+ * All four conditions matter — in particular `allowCloud` is *not* implied by the others: a policy
+ * can be non-`LOCAL_ONLY` and non-`requireOffline` yet still have `allowCloud = false`, and such a
+ * policy must never be handed a cloud vendor.
+ */
+internal fun AiRoutePolicy.permitsCloud(): Boolean =
+    allowCloud &&
+        !requireOffline &&
+        privacyClass != PrivacyClass.LOCAL_ONLY &&
+        costBudget.maxUsdCents > 0.0
+
 object AiRoutePolicies {
     val moveCoachOffline = AiRoutePolicy(
         privacyClass = PrivacyClass.LOCAL_ONLY,
