@@ -41,17 +41,6 @@ class MainActivity : ComponentActivity() {
             Logger.setMinSeverity(Severity.Assert)
         }
 
-        val appCheck = com.google.firebase.appcheck.FirebaseAppCheck.getInstance()
-        if (isDebug) {
-            appCheck.installAppCheckProviderFactory(
-                com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory.getInstance()
-            )
-        } else {
-            appCheck.installAppCheckProviderFactory(
-                com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory.getInstance()
-            )
-        }
-
         if (isDebug && intent.hasExtra("bench_iterations")) {
             val iterations = intent.getIntExtra("bench_iterations", 1)
             // Without this, CactusTextGenerator's underlying context is never set up and every

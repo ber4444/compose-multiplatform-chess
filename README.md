@@ -261,7 +261,10 @@ anything that identifies a user — only public/synthetic chess position data.
 
 The service contract is [server/openapi.yaml](server/openapi.yaml) — the source of truth for the two
 endpoints (`POST /v1/openings/explain` and `GET /health`). A swagger-request-validator contract test
-in `:server:test` validates real responses against it.
+in `:server:test` validates real responses against it. While Ktor 3.4.0 added runtime `.describe {}`
+OpenAPI generation, we deliberately retain the hand-written spec; a contract generated from the
+implementation cannot catch server drift because it *is* the server. Contract-first design only has
+teeth when the contract is independent of the implementation.
 
 **Architecture** — two endpoints, one Postgres, no queues or caching tiers:
 
