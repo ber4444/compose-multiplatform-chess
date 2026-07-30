@@ -43,6 +43,10 @@ class MainActivity : ComponentActivity() {
 
         if (isDebug && intent.hasExtra("bench_iterations")) {
             val iterations = intent.getIntExtra("bench_iterations", 1)
+            // Without this, CactusTextGenerator's underlying context is never set up and every
+            // run silently falls back with 0 tokens generated (getCactus()'s own comment warns
+            // "otherwise this will throw" — in practice the caller swallows it into a fallback).
+            initializeCactus(this)
             CoroutineScope(Dispatchers.IO).launch {
                 runAndroidBench(this@MainActivity, iterations)
                 finish()

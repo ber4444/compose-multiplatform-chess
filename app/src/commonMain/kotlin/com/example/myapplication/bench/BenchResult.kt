@@ -18,4 +18,5 @@ data class BenchResult(
     val thermalStatusAfter: Int,
     val fallbackTriggered: Boolean,
     val isEmulator: Boolean,
+    val fallbackReason: String? = null,
 )

@@ -498,8 +498,8 @@ object ScorecardWriter {
                 appendLine("| ${stat.route} | — | — | — | — | — | ${stat.collection.name.lowercase()} (${stat.note}) |")
             }
         }
-        appendLine("| cactus-android | — | — | — | — | — | manual (hardware numbers not collected) |")
-        appendLine("| foundation-models-ios | — | — | — | — | — | manual (hardware numbers not collected) |")
+        appendLine("| cactus-android | — | — | — | — | — | manual (see docs/benchmarks/on-device-ai/move-coach-benchmark-schema.md — first real run 2026-07-29, still 100% fallback, root cause open) |")
+        appendLine("| foundation-models-ios | — | — | — | — | — | manual (see docs/benchmarks/on-device-ai/move-coach-benchmark-schema.md — first real run 2026-07-29 on Simulator, still 100% fallback, root cause open) |")
         appendLine()
         appendLine("The scorer is rule-based: move cases use `MoveCoachResponseValidator`; opening cases require all `expectedConcepts`; multi-turn chat cases require at least one expected concept per turn (the no-drift check). No judge model is used.")
     }
