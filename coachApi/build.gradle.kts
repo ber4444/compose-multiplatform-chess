@@ -31,8 +31,8 @@ kotlin {
 
     js(IR) {
         // nodejs() for headless testing + the importable JS library artifact the React Native port
-        // consumes (mirrors :chess-core's js target). coachApi is serialization-only (4 @Serializable
-        // data classes), so no browser runtime is needed.
+        // consumes (mirrors :chess-core's js target). coachApi is serialization-only (@Serializable
+        // wire models), so no browser runtime is needed.
         nodejs()
         binaries.library()
     }

@@ -50,7 +50,7 @@ class PerftMcpPathsTest {
     }
 
     @Test
-    fun `repoRoot also recognizes settings_gradle (without kts)`() {
+    fun `repoRoot also recognizes settings_gradle without kts`() {
         val dir = Files.createTempDirectory("perft-mcp-test-")
         tmpDirs.add(dir)
         dir.resolve("settings.gradle").writeText("rootProject.name = \"test\"\n")

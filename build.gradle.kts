@@ -25,6 +25,32 @@ plugins {
     alias(libs.plugins.composeCompiler) apply false
 }
 
+// Netty on the *project* side. The buildscript `constraints` above (mirrored in settings.gradle.kts)
+// only govern Gradle's own classpath; AGP additionally injects the Unified Test Platform into
+// internal per-module configurations, and those drag their own Netty in:
+//   com.google.testing.platform:core:0.0.9-alpha04           -> grpc-netty 1.57.2 -> netty 4.1.93
+//   com.android.tools.utp:...-host-emulator-control:32.1.1   -> grpc-netty 1.69.1 -> netty 4.1.110
+// Both sit inside GHSA-558v-64gr-wgg4 (Bzip2Decoder RLE infinite loop), GHSA-jppx-w49h-x2qq
+// (SpdyHttpDecoder ByteBuf leak), GHSA-mvh2-crg5-v77c (SPDY zlib expansion past maxHeaderSize) and
+// GHSA-6jqx-86gh-f27w (unbounded SPDY SETTINGS map) — all fixed in 4.1.136.Final, the current head
+// of the 4.1 series and the same version the buildscript pins use.
+//
+// Deliberately scoped to the 4.1.x series: :server runs ktor's Netty 4.2.x stack (pinned via
+// netty-bom in server/build.gradle.kts), and a blanket `force` would drag that back a minor series.
+// `eachDependency` only rewrites what the UTP/gRPC path requests; a plain constraint wouldn't reach
+// these configurations, which AGP creates outside any dependency block we control. Build/CI-only —
+// UTP ships in neither the app nor the published :chess-core artifact.
+allprojects {
+    configurations.configureEach {
+        resolutionStrategy.eachDependency {
+            if (requested.group == "io.netty" && requested.version?.startsWith("4.1.") == true) {
+                useVersion("4.1.136.Final")
+                because("UTP/grpc-netty pins Netty 4.1.93/4.1.110; 4.1.136.Final is the patched 4.1.x")
+            }
+        }
+    }
+}
+
 // Force-upgrade a vulnerable transitive JS *test* dependency by injecting a yarn `resolutions`
 // entry into the package.json KGP generates (`build/js/package.json`).
 //

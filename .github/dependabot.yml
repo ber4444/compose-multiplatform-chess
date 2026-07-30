@@ -11,12 +11,17 @@
 # opening version-bump PRs for the whole Gradle graph) while the `ignore` conditions still apply
 # to security-update PRs.
 #
-# The current pins (bcprov 1.80.2, netty 4.1.135.Final) already satisfy every open advisory. We
+# The current pins (bcprov 1.80.2, netty 4.1.136.Final) already satisfy every open advisory. We
 # block only the disruptive *series* jumps Dependabot keeps proposing (see closed PR #82):
 #   - Netty 4.1 -> 4.2 would force grpc-netty 1.69.1 (AGP's Unified Test Platform emulator-control
 #     gRPC path) onto a minor series it was not built against.
 #   - bcprov 1.80.2 -> 1.84 desyncs from AGP's still-1.79 bcpkix/bcutil (BouncyCastle version skew).
 # In-series patches (e.g. a future 4.1.x / 1.80.x) are still allowed so genuine fixes get through.
+#
+# NOTE: :server intentionally runs Netty 4.2.x (ktor-server-netty's own series, pinned via
+# `platform("io.netty:netty-bom:...")` in server/build.gradle.kts). The `>= 4.2.0` ignore below is
+# name-scoped, not module-scoped, so it suppresses security PRs for that BOM too — bump the server's
+# netty-bom by hand when a 4.2.x advisory lands (the alert itself still fires either way).
 version: 2
 updates:
   - package-ecosystem: "gradle"
