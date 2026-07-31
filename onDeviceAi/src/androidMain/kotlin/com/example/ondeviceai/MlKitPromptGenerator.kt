@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.flow
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.ModelPreference
+import com.google.mlkit.genai.prompt.ModelReleaseStage
 import com.google.mlkit.genai.prompt.SystemInstruction
 import com.google.mlkit.genai.prompt.TextPart
 import com.google.mlkit.genai.prompt.generateContentRequest
@@ -14,6 +15,7 @@ import com.google.mlkit.genai.prompt.modelConfig
 class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.ModelPreference) : OnDeviceTextGenerator {
     
     private val modelConfig = modelConfig {
+        releaseStage = ModelReleaseStage.PREVIEW
         preference = if (this@MlKitPromptGenerator.routePreference == com.example.ondeviceai.ModelPreference.FAST) {
             com.google.mlkit.genai.prompt.ModelPreference.FAST
         } else {
