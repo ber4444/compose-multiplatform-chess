@@ -163,7 +163,13 @@ fun MainViewController(
  */
 private suspend fun probeFoundationModelsAvailability(): AiAvailability {
     val executor = VendorRouteExecutor()
-    val generator = runCatching { executor.execute(com.example.ondeviceai.VendorRoute.AppleFoundationModels()) }.getOrElse {
+    val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
+    val context = com.example.ondeviceai.AiContextSnapshot(
+        isDeviceModelAvailable = true,
+        isAppForegrounded = true,
+        userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
+    )
+    val generator = runCatching { executor.execute(policy, context) }.getOrElse {
         return AiAvailability.Error("generator factory failed: ${it.message}")
     } ?: return AiAvailability.Unavailable
     return runCatching { generator.status() }.getOrElse {

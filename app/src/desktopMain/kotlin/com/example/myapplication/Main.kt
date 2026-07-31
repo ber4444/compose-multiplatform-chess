@@ -134,7 +134,13 @@ private fun attachMoveCoach(
 
     CoroutineScope(Dispatchers.IO).launch {
         val executor = VendorRouteExecutor()
-        val generator = executor.execute(com.example.ondeviceai.VendorRoute.LiteRtLm())
+        val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
+        val context = com.example.ondeviceai.AiContextSnapshot(
+            isDeviceModelAvailable = true,
+            isAppForegrounded = true,
+            userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
+        )
+        val generator = executor.execute(policy, context)
         runCatching { generator?.warmup() }
             .onFailure { Logger.w("Main") { "LiteRT-LM warmup failed: ${it.message}" } }
 

@@ -69,7 +69,13 @@ suspend fun runIosBench(iterations: Int) {
         
         probe.onInitStart()
         val executor = VendorRouteExecutor()
-        val generator = executor.execute(com.example.ondeviceai.VendorRoute.AppleFoundationModels())
+        val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
+        val context = com.example.ondeviceai.AiContextSnapshot(
+            isDeviceModelAvailable = true,
+            isAppForegrounded = true,
+            userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
+        )
+        val generator = executor.execute(policy, context)
         generator?.warmup()
         probe.onInitEnd()
         
