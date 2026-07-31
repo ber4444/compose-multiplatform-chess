@@ -7,7 +7,6 @@ plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
     alias(libs.plugins.kotlinSerialization)
-    id("com.google.devtools.ksp") version "2.3.10"
     `maven-publish`
 }
 
@@ -62,7 +61,7 @@ kotlin {
     android {
         namespace = "com.example.ondeviceai"
         compileSdk = 36
-        minSdk = 24
+        minSdk = 26
 
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
@@ -134,10 +133,10 @@ kotlin {
         }
 
         androidMain.dependencies {
-            // Cactus (llama.cpp KMP wrapper) for on-device LLM inference.
+            // Cactus for on-device LLM inference.
             // Replaces the earlier bundled LiteRT-LM path (too slow on Android:
             // 557 MB model, 7-9s cold start, GPU compilation, streaming SIGSEGV
-            // at 0.13.1). Cactus uses llama.cpp CPU kernels (fast for mobile LLM),
+            // at 0.13.1). Cactus uses its own hand-written ARM CPU kernels,
             // offers small pre-packaged models (gemma3-270m ~200 MB, qwen3-0.6
             // ~400 MB) with built-in HF download, and handles tokenization +
             // KV cache + generation internally.
@@ -152,10 +151,7 @@ kotlin {
             
             // Phase 2 dependencies
             implementation(project.dependencies.platform("com.google.firebase:firebase-bom:34.16.0"))
-            api("com.google.mlkit:genai-schema:1.0.0-alpha1")
-            implementation("com.google.mlkit:genai-prompt:1.0.0-beta3")
-            implementation("com.google.firebase:firebase-appcheck-playintegrity")
-            implementation("com.google.firebase:firebase-appcheck-debug")
+            implementation(libs.genai.prompt)
         }
 
         val desktopMain by getting {
@@ -190,13 +186,9 @@ tasks.matching { it.name.startsWith("compile") }.configureEach {
 // The `*SourcesJar` / `sourcesJar` tasks (added by `maven-publish`) consume the generated rules-corpus
 // source dir without declaring the dependency — Gradle's dependency-validation rejects this as an
 // undeclared-output usage. Make them all explicit so publishToMavenLocal / publishAllPublications works.
-// Covers: sourcesJar (umbrella), androidSourcesJar, desktopSourcesJar, jsSourcesJar, and ksp tasks.
-tasks.matching { it.name.endsWith("sourcesJar") || it.name.endsWith("SourcesJar") || it.name.startsWith("ksp") }.configureEach {
+// Covers: sourcesJar (umbrella), androidSourcesJar, desktopSourcesJar, and jsSourcesJar.
+tasks.matching { it.name.endsWith("sourcesJar") || it.name.endsWith("SourcesJar") }.configureEach {
     dependsOn(generateRulesCorpus)
-}
-
-dependencies {
-    add("kspAndroid", "com.google.mlkit:genai-schema-compiler:1.0.0-alpha1")
 }
 
 // ── Publish to GitHub Packages ────────────────────────────────────────────────

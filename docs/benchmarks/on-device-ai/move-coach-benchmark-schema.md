@@ -12,7 +12,7 @@ Per plan §9.1. Each row is one Platform × Runtime × Accelerator configuration
 | Platform | Device | SoC | RAM | OS | Runtime | Model | Accelerator | Compile mode | Cold init p50/p90 | First token p50/p90 | Complete p50/p90 | Peak memory MB | Thermal delta | Fallback rate | Notes |
 |---|---|---|---:|---|---|---|---|---|---:|---:|---:|---:|---|---:|---|
 | iOS | iPhone 17 (Simulator, iOS 26.5) | Apple M4 (host) | n/a | iOS 26.5 | Foundation Models | Apple on-device (system) | Neural Engine (via host) | system | ~1 ms (`warmup()` is a no-op by design) | 1864 ms (n=1) | 1865 ms (n=1) | not collected (iOS bench stub returns 0) | not collected | **0% (0/1) — real success** | 30 real tokens, valid coaching answer. This is a **Simulator**, not a physical iPhone |
-| Android | SM-F926U (Galaxy Z Fold3 5G) | Snapdragon 888 | n/a | Android 15 | Cactus (llama.cpp) | gemma3-270m | CPU | JIT | ~700 ms (n=1 cold, model already on disk) | 2715 ms (n=1) | 2716 ms (n=1) | ~603 MB (`Debug.getNativeHeapAllocatedSize` + PSS) | not collected | **0% (0/1) — real success, reached via the real route decision** | 301 real tokens, valid coaching answer. This is the route `resolveVendorRoute`/`VendorRouteExecutor` actually picked once `MlKitPromptGenerator.status()` was fixed — see findings |
+| Android | SM-F926U (Galaxy Z Fold3 5G) | Snapdragon 888 | n/a | Android 15 | Cactus | gemma3-270m | CPU | JIT | ~700 ms (n=1 cold, model already on disk) | 2715 ms (n=1) | 2716 ms (n=1) | ~603 MB (`Debug.getNativeHeapAllocatedSize` + PSS) | not collected | **0% (0/1) — real success, reached via the real route decision** | 301 real tokens, valid coaching answer. This is the route `resolveVendorRoute`/`VendorRouteExecutor` actually picked once `MlKitPromptGenerator.status()` was fixed — see findings |
 | Android | SM-F926U (Galaxy Z Fold3 5G) | Snapdragon 888 | n/a | Android 15 | ML Kit Prompt | Gemini Nano (AICore) | AICore | system | n/a | n/a — fails before first token | n/a | not collected | not collected | 100% (1/1) — **correctly detected as unavailable and skipped**, not attempted-and-failed | Real, accurate result: `checkStatus()` reports this device doesn't have working AICore, so the executor now falls through to Cactus without ever calling `generateContentStream` |
 
 ## First real run: findings (2026-07-29)
@@ -97,7 +97,7 @@ Per plan §9.2. Populated after the variance table is filled.
 
 | Device class | Default route | Disable reason | First-token budget | Complete budget | Notes |
 |---|---|---|---:|---:|---|
-| Android (any with sufficient RAM) | Cactus Gemma (llama.cpp CPU) | p90 > budget or thermal high | TBD | TBD | gemma3-270m HF-downloaded; **confirmed reachable and working** as the fallback route once `MlKitPromptGenerator.status()` was fixed |
+| Android (any with sufficient RAM) | Cactus Gemma | p90 > budget or thermal high | TBD | TBD | gemma3-270m HF-downloaded; **confirmed reachable and working** as the fallback route once `MlKitPromptGenerator.status()` was fixed |
 | Android supported AICore only | ML Kit Prompt | quota/busy/background | TBD | TBD | On unsupported hardware this is now correctly detected as unavailable and skipped (confirmed on Snapdragon 888) rather than attempted-and-failed |
 | iOS Apple Intelligence available | Foundation Models | unavailable/region/guardrail | TBD | TBD | **Confirmed working** on iPhone 17 Simulator / iOS 26.5 / Apple M4 host: ~1.9s end-to-end for a real answer |
 | Unsupported mobile | Deterministic fallback | no local model | 0 | 0 | Always works |

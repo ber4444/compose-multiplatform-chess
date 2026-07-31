@@ -46,16 +46,8 @@ iosApp/iosApp/Resources/papermill_skybox_blurred.ktx
 # server/Dockerfile downloads these at build time from a pinned HF revision.
 server/model/
 server_logs.txt
-litert-eval/build
-stash*.patch
-DownloadTest.kt
-.zcode
-
 # Excluded artifacts
-litert-eval/build/
-*.patch
 DownloadTest.kt
-.zcode/
 
 # Local LiteRT-LM faithfulness driver output (:litert-eval), scored out-of-band by ferryman
 litert-outputs*.json

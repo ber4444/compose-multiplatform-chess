@@ -19,12 +19,12 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
 
 /**
- * Android [OnDeviceTextGenerator] backed by Cactus (llama.cpp KMP wrapper).
+ * Android [OnDeviceTextGenerator] backed by Cactus.
  *
  * Replaces the earlier LiteRT-LM path which was too slow (557 MB model,
  * 7-9s cold start, GPU kernel compilation, streaming SIGSEGV at 0.13.1).
  *
- * Cactus uses llama.cpp's CPU kernels (ARM NEON-optimized, purpose-built for
+ * Cactus uses its own hand-written ARM CPU kernels (ARM NEON-optimized, purpose-built for
  * LLM inference) and offers pre-packaged small models with built-in HF
  * download. The default model [modelSlug] is `gemma3-270m` (~200 MB) which
  * loads in ~1-2s and generates ~15-30 tok/s on a Snapdragon.

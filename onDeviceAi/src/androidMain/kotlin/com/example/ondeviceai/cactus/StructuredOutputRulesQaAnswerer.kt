@@ -21,7 +21,7 @@ import com.example.ondeviceai.AiUserSetting
  *
  * The small Cactus model first emits a strict `lookup_rule` JSON envelope. Kotlin executes the
  * real offline lookup and sends those passages in a second turn. Keeping this distinction explicit
- * avoids presenting llama.cpp prompt choreography as a tool-calling API.
+ * avoids presenting Cactus prompt choreography as a tool-calling API.
  */
 class StructuredOutputRulesQaAnswerer(
     private val executor: AiRouteExecutor,

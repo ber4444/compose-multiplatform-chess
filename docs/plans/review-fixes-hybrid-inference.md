@@ -26,12 +26,12 @@ on Android even if our tests missed it. That vendor-side refusal is gone, so the
 now the *only* thing enforcing the guarantee — and it was weakened in the same PR that
 demonstrated exactly this bug class (P0-4). Defense-in-depth has to be rebuilt in-house.
 
-- [ ] Restore concrete route assertions at all three sites in `AiRoutePolicyDeciderTest`.
-- [ ] For every `LOCAL_ONLY` context, assert the emitted `VendorRoute` is specifically an
+- [x] Restore concrete route assertions at all three sites in `AiRoutePolicyDeciderTest`.
+- [x] For every `LOCAL_ONLY` context, assert the emitted `VendorRoute` is specifically an
       on-device variant — not merely non-null.
-- [ ] Add a negative test: a `LOCAL_ONLY` policy that resolves to any cloud-capable route
+- [x] Add a negative test: a `LOCAL_ONLY` policy that resolves to any cloud-capable route
       must fail loudly.
-- [ ] **Add a runtime guard, not just a CI-time one.** A green test proves the code was
+- [x] **Add a runtime guard, not just a CI-time one.** A green test proves the code was
       right when CI ran; it does not stop a bad build from shipping — which is precisely
       what `ONLY_ON_DEVICE` used to cover. Have `VendorRouteExecutor` assert that a
       `LOCAL_ONLY` policy never receives a cloud-capable generator, throwing in debug and
@@ -48,11 +48,11 @@ sweep red *and* trips the runtime guard. Verify by temporarily introducing the b
 provides, so the Android resolver is untested by the sweep — `desktopTest` proves things
 about the desktop resolver.
 
-- [ ] Make `resolveVendorRoute` a pure function in `commonMain` over `AiRoutePolicy` and
+- [x] Make `resolveVendorRoute` a pure function in `commonMain` over `AiRoutePolicy` and
       `AiContextSnapshot`. No `expect`/`actual`.
-- [ ] Leave only generator *construction* in the platform `actual` — `VendorRouteExecutor`
+- [x] Leave only generator *construction* in the platform `actual` — `VendorRouteExecutor`
       maps an already-decided `VendorRoute` to an SDK object and does nothing else.
-- [ ] Move the ML Kit availability fallback (`if (mlkit.status() is Available) mlkit else
+- [x] Move the ML Kit availability fallback (`if (mlkit.status() is Available) mlkit else
       getCactus()`) out of the executor. Availability is a context input; feed it into
       `AiContextSnapshot` so the decider owns the fallback and the sweep can cover it.
 
@@ -65,8 +65,8 @@ target.
 `AiRoutePolicyDecider` and the Android `resolveVendorRoute`. Two copies that can drift.
 This is the precedence bug tracked on `fix/vendor-route-cloud-guard`.
 
-- [ ] Single definition in `commonMain`. Delete the copy.
-- [ ] Fold `fix/vendor-route-cloud-guard` into this work rather than shipping the hardening
+- [x] Single definition in `commonMain`. Delete the copy.
+- [x] Fold `fix/vendor-route-cloud-guard` into this work rather than shipping the hardening
       separately — #107 defers the structural fix, but P0-1 and P0-2 make it cheap, and the
       deferred state leaves the article's central claim untested.
 
@@ -83,9 +83,9 @@ return when {
 never consulted on the `Route` branch. The Android resolver gates only on
 `isDeviceModelAvailable`.
 
-- [ ] Run all policy gates *before* route resolution, or make resolution take the gate
+- [x] Run all policy gates *before* route resolution, or make resolution take the gate
       results as inputs and return `null` when they forbid the route.
-- [ ] Extend the sweep to assert the emitted route respects network, foreground, thermal,
+- [x] Extend the sweep to assert the emitted route respects network, foreground, thermal,
       and cost-ceiling constraints — not just privacy class.
 
 ### P0-5 Install App Check, don't just declare it
@@ -95,13 +95,13 @@ nothing in the diff initializes a provider and `:server` doesn't verify tokens. 
 now publishes `https://compose-chess-opening-coach.fly.dev` with `min_machines_running = 1`
 — a documented, unauthenticated LLM endpoint.
 
-- [ ] Install the Play Integrity provider on release builds and the debug provider locally.
-- [ ] Verify the token server-side; reject unattested requests.
-- [ ] Document the debug-token allow-listing step in the README so it isn't tribal
+- [x] Install the Play Integrity provider on release builds and the debug provider locally.
+- [x] Verify the token server-side; reject unattested requests.
+- [x] Document the debug-token allow-listing step in the README so it isn't tribal
       knowledge.
-- [ ] Add an iOS App Attest implementation behind an `AttestationProvider` interface —
+- [x] Add an iOS App Attest implementation behind an `AttestationProvider` interface —
       App Check is a Firebase/Android primitive and the clients aren't all Android.
-- [ ] Record the Desktop and Web posture explicitly, even if the answer is "open."
+- [x] Record the Desktop and Web posture explicitly, even if the answer is "open."
 
 **Interim:** if this can't land with the PR, unpublish the URL from the README or put the
 service behind a shared secret until it can.
@@ -112,10 +112,10 @@ As a pure cloud client it bypasses `:server`, and therefore bypasses pgvector re
 the grounding validators, and the cost ceiling. There are now two cloud paths with
 different guarantees.
 
-- [ ] Answer explicitly: which intents use it, and what grounds their output?
-- [ ] Default recommendation — delete it, and make "cloud" always mean `:server`. That
+- [x] Answer explicitly: which intents use it, and what grounds their output?
+- [x] Default recommendation — delete it, and make "cloud" always mean `:server`. That
       keeps one cloud path with one set of guarantees and one enforced ceiling.
-- [ ] If it stays, route it through the same validators and ceiling, and say why a second
+- [x] If it stays, route it through the same validators and ceiling, and say why a second
       path exists.
 
 ---
@@ -127,11 +127,11 @@ different guarantees.
 Strong signal the implementing agent worked from training priors rather than current docs,
 which is exactly what Phase 0 existed to prevent.
 
-- [ ] `firebase-vertexai` is the superseded "Vertex AI in Firebase" artifact; migrate to
+- [x] `firebase-vertexai` is the superseded "Vertex AI in Firebase" artifact; migrate to
       the current Firebase AI Logic artifact.
-- [ ] `firebase-bom:33.7.0` is roughly two years stale. Bump and re-verify.
-- [ ] `gemini-1.5-flash` is a 2024-era model. Select a current one.
-- [ ] Re-verify every alpha/beta pin against live docs: `genai-prompt:1.0.0-beta3`,
+- [x] `firebase-bom:33.7.0` is roughly two years stale. Bump and re-verify.
+- [x] `gemini-1.5-flash` is a 2024-era model. Select a current one.
+- [x] Re-verify every alpha/beta pin against live docs: `genai-prompt:1.0.0-beta3`,
       `genai-schema:1.0.0-alpha1`, `genai-schema-compiler:1.0.0-alpha1`.
 
 ### P1-2 Make structured output real, or drop the claim
@@ -141,12 +141,12 @@ The KSP `genai-schema-compiler` is wired in Gradle, but the runtime path is
 you would not receive ```` ```json ````. The fence-strip is a string-matching hack replacing
 the string-matching retry loop that was deleted.
 
-- [ ] Either make `@Generable` / `@Guide` constrained decoding actually active on the ML Kit
+- [x] Either make `@Generable` / `@Guide` constrained decoding actually active on the ML Kit
       path and delete the fence-strip, or remove the KSP wiring and state plainly that
       parsing is `kotlinx.serialization` over a JSON mime type.
-- [ ] Keep `MoveCoachResponseValidator` running after deserialization either way. Schema
+- [x] Keep `MoveCoachResponseValidator` running after deserialization either way. Schema
       conformance is not grounding.
-- [ ] Keep the fenced-response regression test in `DefaultAiCoachOrchestratorTest` — the
+- [x] Keep the fenced-response regression test in `DefaultAiCoachOrchestratorTest` — the
       Foundation Models and Cactus paths still need it.
 
 ### P1-3 Type the `VendorRoute` payloads
@@ -155,8 +155,8 @@ the string-matching retry loop that was deleted.
 `FirebaseHybrid(mode = "HYBRID")` was never a valid `InferenceMode` value — typed fields
 would have caught that at compile time.
 
-- [ ] Replace `String` fields with enums (`ModelPreference`, model id value class, etc.).
-- [ ] Make the `when` in `VendorRouteExecutor` exhaustive without an `else -> null` arm.
+- [x] Replace `String` fields with enums (`ModelPreference`, model id value class, etc.).
+- [x] Make the `when` in `VendorRouteExecutor` exhaustive without an `else -> null` arm.
 
 ### P1-4 Verify the coroutines pin survived
 
@@ -164,9 +164,9 @@ would have caught that at compile time.
 `resolutionStrategy` block in `androidApp/build.gradle.kts` forcing `concurrent-futures`
 and `error_prone_annotations` — with no coroutines force.
 
-- [ ] Run `./gradlew :app:dependencies` and `:androidApp:dependencies`; confirm 1.11.0 wins.
-- [ ] Re-run the LiteRT-LM init path on Desktop to confirm the crash hasn't returned.
-- [ ] Add a dependency-verification check so a future Firebase/ML Kit bump can't silently
+- [x] Run `./gradlew :app:dependencies` and `:androidApp:dependencies`; confirm 1.11.0 wins.
+- [x] Re-run the LiteRT-LM init path on Desktop to confirm the crash hasn't returned.
+- [x] Add a dependency-verification check so a future Firebase/ML Kit bump can't silently
       undo it.
 
 ### P1-5 Dead code in `getCactus()`
@@ -177,27 +177,27 @@ if (!isCactusInitialized()) {
 }
 ```
 
-- [ ] Either throw a diagnostic error or remove the branch. An empty `if` with a shrug in it
+- [x] Either throw a diagnostic error or remove the branch. An empty `if` with a shrug in it
       is a latent crash with no message.
 
 ### P1-6 `minSdk` 24 → 26 is unremarked
 
-- [ ] Record why (presumably an ML Kit or Firebase floor) and confirm it's intended.
-- [ ] Note the tension: Cactus is justified as the coverage floor for devices without
+- [x] Record why (presumably an ML Kit or Firebase floor) and confirm it's intended.
+- [x] Note the tension: Cactus is justified as the coverage floor for devices without
       Gemini Nano, and this raises that floor.
 
 ---
 
 ## P2 — hygiene and accuracy
 
-- [ ] **Cactus is not a llama.cpp wrapper.** It moved off GGUF to its own `.cact` format
+- [x] **Cactus is not a llama.cpp wrapper.** It moved off GGUF to its own `.cact` format
       with hand-written ARM CPU kernels at v1. Correct this in the #106 PR body, code
       comments, and every doc that repeats it.
-- [ ] **Use Cactus `local` mode only.** Its hybrid tier is paid; the cost ceiling stays in
+- [x] **Use Cactus `local` mode only.** Its hybrid tier is paid; the cost ceiling stays in
       our code.
-- [ ] **Split the PR.** 103 files mixing a 25-file docs purge, `.gitignore` changes, and an
+- [x] **Split the PR.** 103 files mixing a 25-file docs purge, `.gitignore` changes, and an
       architectural refactor is hard to review. At minimum, separate the purge.
-- [ ] **CI is red.** Both #106 and #107 report `mergeable_state: unstable`.
+- [x] **CI is red.** Both #106 and #107 report `mergeable_state: unstable`.
 - [x] **Phase-number collision.** `docs/plans/` now holds two plans with independent
       numbering — Phase 1 is `MoveAssessment` in one and "widen the seam" in the other;
       Phase 6 is optional corpus bundling in one and Ktor 3.5 server work in the other.
@@ -230,6 +230,7 @@ Carried forward from the vendor-adoption plan so nothing is lost.
       consolidates runtimes but reintroduces bundled weights. Record as a tradeoff.
 - [ ] Risk: `.cact` artifacts may need reconversion on a Cactus major bump. Pin the
       converter alongside the runtime.
+- [ ] Verify ML Kit's own route on real AICore hardware (e.g. Pixel 8/9 Pro). Currently only the Cactus fallback has been exercised (on a Fold3), so we don't know if Gemini Nano has its own output quirks similar to Cactus.
 
 **VA Phase 6 — server**
 - [ ] Bump Ktor to 3.5.x; watch for MockEngine timeout regressions from 3.4.3.
@@ -240,6 +241,8 @@ Carried forward from the vendor-adoption plan so nothing is lost.
 - [ ] Keep the hand-written `openapi.yaml` as the client contract. Optionally use
       `.describe {}` for internal endpoints. Do not replace the committed spec with a
       generated one — a spec derived from the routing tree cannot detect server drift.
+- [x] Server-side output sanitization (streaming chat leaks): dynamically strip `<think>`
+      chain-of-thought blocks from the `LlmChatComposer` stream before they reach the validator.
 
 **VA Phase 7 — evals**
 - [ ] Add route-selection assertions distinct from output-quality scoring.

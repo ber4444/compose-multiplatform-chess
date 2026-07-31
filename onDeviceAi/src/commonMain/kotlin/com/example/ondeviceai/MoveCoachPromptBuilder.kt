@@ -48,19 +48,6 @@ object MoveCoachPromptBuilder {
             temperature = 0.3,
         )
 
-    fun buildRetry(request: MoveCoachRequest, previousOutput: String): AiGenerationRequest =
-        AiGenerationRequest(
-            systemPrompt = SYSTEM_PROMPT,
-            userPrompt = buildString {
-                appendLine(userPrompt(request))
-                appendLine()
-                appendLine("Your previous answer was rejected. Do not copy the example sentences.")
-                appendLine("Reply with exactly 1-2 sentences naming the piece and squares from the move above and what it does.")
-                appendLine("Make sure you output valid JSON.")
-            },
-            maxOutputTokens = MAX_OUTPUT_TOKENS_STRICT,
-            temperature = 0.0,
-        )
     internal fun userPrompt(request: MoveCoachRequest): String = buildString {
         appendLine("Move: ${describeMove(request)}")
         appendLine("Engine Difficulty: ${request.engineDifficultyName}")

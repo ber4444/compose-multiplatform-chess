@@ -138,12 +138,70 @@ class LlmChatComposer(
             return@flow
         }
         val accumulated = StringBuilder()
+        var insideThink = false
+        var buffer = StringBuilder()
+        
         try {
             client.streamGenerate(SYSTEM_PROMPT, prompt, request.history, maxOutputTokens).collect { delta ->
                 if (delta.isNotEmpty()) {
-                    accumulated.append(delta)
-                    emit(ChatChunk.Token(delta))
+                    buffer.append(delta)
+                    
+                    // State machine to strip <think>...</think> on the fly
+                    var i = 0
+                    while (i < buffer.length) {
+                        if (!insideThink) {
+                            val thinkIdx = buffer.indexOf("<think>", i, ignoreCase = true)
+                            if (thinkIdx == -1) {
+                                // Check if we might be matching a partial <think>
+                                val partialMatch = buffer.substring(i).let { remaining ->
+                                    val upper = remaining.uppercase()
+                                    "<THINK>".startsWith(upper)
+                                }
+                                if (partialMatch) {
+                                    break // Wait for more tokens
+                                }
+                                // No <think> started, emit everything
+                                val toEmit = buffer.substring(i)
+                                accumulated.append(toEmit)
+                                emit(ChatChunk.Token(toEmit))
+                                i = buffer.length
+                            } else {
+                                // Emit up to <think>
+                                val toEmit = buffer.substring(i, thinkIdx)
+                                if (toEmit.isNotEmpty()) {
+                                    accumulated.append(toEmit)
+                                    emit(ChatChunk.Token(toEmit))
+                                }
+                                insideThink = true
+                                i = thinkIdx + 7
+                            }
+                        } else {
+                            val endIdx = buffer.indexOf("</think>", i, ignoreCase = true)
+                            if (endIdx == -1) {
+                                val partialMatch = buffer.substring(i).let { remaining ->
+                                    val upper = remaining.uppercase()
+                                    "</THINK>".startsWith(upper)
+                                }
+                                if (partialMatch) {
+                                    break // Wait for more tokens
+                                }
+                                // Still inside <think>, consume everything
+                                i = buffer.length
+                            } else {
+                                insideThink = false
+                                i = endIdx + 8
+                            }
+                        }
+                    }
+                    if (i > 0) {
+                        buffer.delete(0, i)
+                    }
                 }
+            }
+            if (!insideThink && buffer.isNotEmpty()) {
+                val toEmit = buffer.toString()
+                accumulated.append(toEmit)
+                emit(ChatChunk.Token(toEmit))
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             // CancellationException is an Exception subtype, so a bare `catch (_: Exception)` below

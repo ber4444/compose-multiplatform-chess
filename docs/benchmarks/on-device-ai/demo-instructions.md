@@ -8,7 +8,7 @@ first move, a "Move Coach" panel appears at the top of the screen.
 What you'll see on each platform:
 
 - **Android (Samsung)** — Cactus (`com.cactuscompute:cactus:1.4.1-beta`), a
-  llama.cpp CPU backend. The `gemma3-270m` model (~200 MB) is **downloaded from
+  Cactus CPU backend. The `gemma3-270m` model (~200 MB) is **downloaded from
   Hugging Face on first launch** — no model is bundled in the APK and no manual
   setup is required. Works on any device with sufficient RAM — **no AICore
   dependency**. Requires the INTERNET permission (declared in `AndroidManifest.xml`)
@@ -59,7 +59,7 @@ Then:
 3. The **Move Coach** panel slides in at the top with the explanation.
 
 First launch triggers Cactus to download `gemma3-270m` (~200 MB) from Hugging
-Face into `filesDir`. Cold start of the llama.cpp runtime is ~1–2 s; the
+Face into `filesDir`. Cold start of the Cactus runtime is ~1–2 s; the
 factory lazily initializes on first `status()` call, so the first coach request
 pays that cost. Subsequent launches reuse the cached model file. If the device
 is offline on first launch (no cached model yet), logcat shows the Cactus
@@ -136,7 +136,7 @@ end-to-end flow.
 - Engine evaluations are not passed to the coach request (hardcoded `null`) —
   the prompt slot exists but the data path isn't filled in. The model still
   produces an explanation from FEN + move + tags.
-- Cactus/llama.cpp cold init is ~1–2 s (down from 7–9 s with LiteRT-LM). The
+- Cactus cold init is ~1–2 s (down from 7–9 s with LiteRT-LM). The
   factory lazily initializes on first `status()` call; `warmup()` is exposed
   but not called opportunistically yet (first coach request pays the cold-init
   cost).

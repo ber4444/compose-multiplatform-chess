@@ -3,7 +3,6 @@ package com.example.ondeviceai
 import kotlinx.serialization.Serializable
 enum class ExplanationConfidence {
     HIGH,
-    MEDIUM,
     LOW,
     FALLBACK,
 }
@@ -22,11 +21,8 @@ data class MoveCoachRequest(
 
 
 @Serializable
-@Generable
 data class MoveCoachResponse(
-    @Guide("A short, punchy headline for the move.")
     val headline: String,
-    @Guide("The full explanation of the move.")
     val explanation: String
 )
 

@@ -96,7 +96,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Attach the on-device move coach using Cactus (llama.cpp).
+     * Attach the on-device move coach using Cactus.
      * Cactus downloads the model from Hugging Face on first launch (~200 MB for
      * gemma3-270m) and caches it locally. Subsequent launches use the cached
      * model (~1-2s init). This replaces the earlier LiteRT-LM path (557 MB,
