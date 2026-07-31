@@ -64,8 +64,14 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
         
         probe.onInitStart()
         val executor = VendorRouteExecutor()
-        val generator = executor.execute(VendorRoute.CactusLocal())
-        generator?.warmup()
+        val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
+        val context = com.example.ondeviceai.AiContextSnapshot(
+            isDeviceModelAvailable = true,
+            isAppForegrounded = true,
+            userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
+        )
+        val generator = executor.execute(policy, context) ?: return
+        generator.warmup()
         probe.onInitEnd()
         
         val orchestrator = DefaultAiCoachOrchestrator(

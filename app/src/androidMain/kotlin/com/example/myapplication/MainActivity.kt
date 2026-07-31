@@ -120,9 +120,17 @@ class MainActivity : ComponentActivity() {
 
         CoroutineScope(Dispatchers.IO).launch {
             val executor = VendorRouteExecutor()
-            val generator = executor.execute(VendorRoute.CactusLocal())
-            // Pre-initialize: download model (first launch) + load into memory
-            runCatching { generator?.warmup() }
+            try {
+                val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
+                val context = com.example.ondeviceai.AiContextSnapshot(
+                    isDeviceModelAvailable = true,
+                    isAppForegrounded = true,
+                    userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
+                )
+                executor.execute(policy, context)?.warmup()
+            } catch (e: Exception) {
+                Logger.e("MainActivity") { "Failed to warmup model: ${e.message}" }
+            }
 
             holder.moveCoachManager.setCoachModelState(
                 com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
