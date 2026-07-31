@@ -194,11 +194,9 @@ Shared plumbing: `AiRoutePolicies` + `AiRoutePolicyDecider` (see [AI routing](#a
 `MoveCoachFallback` (deterministic text). `:coachApi` holds the cloud wire models; `:server` holds
 the two cloud routes; `:evals` gates grounding regressions in CI.
 
-> **No validation retry.** `MoveCoachPromptBuilder.buildRetry` exists but nothing calls it — a
-> response that fails `MoveCoachResponseValidator` goes straight to `MoveCoachFallback`, and
-> `ExplanationConfidence.MEDIUM` (the old second-pass value) is unreachable. The retry was dropped
-> when structured JSON output replaced string-matching; `DefaultAiCoachOrchestratorTest` pins
-> `generateCount == 1`. Restore both together or neither.
+> **No validation retry.** The retry loop and `MoveCoachPromptBuilder.buildRetry` were completely removed; a
+> validation failure emits `MoveCoachFallback` immediately. `DefaultAiCoachOrchestratorTest` pins
+> `generateCount == 1`.
 >
 > **Structured Output.** The project uses `kotlinx.serialization` for structured JSON output parsing, intentionally dropping KSP-based schema generation (`genai-schema-compiler`) and `@Generable`/`@Guide` annotations. Prompts define schemas as plain JSON examples that models output, which are decoded natively.
 
@@ -227,10 +225,7 @@ asserts concrete routes, plus the invariant that a `LOCAL_ONLY` `RunOnDevice` ro
 `isCloudCapable`. **Do not add `allowCloud = true` to a LOCAL_ONLY policy or route local prompts
 through `:server`.**
 
-Two `availableLocalVendors = emptyList()` literals in `KtorStreamingChatClient` and
-`KtorOpeningExplainerClient` are **load-bearing**: the decider prefers a local route whenever one
-exists, and neither cloud surface has an on-device implementation, so probing real vendors there
-would silently divert both away from `:server`. Pinned by a decider test; the comments say so.
+The `allowLocal = false` flag on `openingExplainer` and `positionChat` policies is **load-bearing**: it ensures cloud-first policies never route to an on-device generator even when a capable local model exists. This provides a structural, type-safe guarantee for the cloud route that is checked by `AiRoutePolicyDecider` and pinned by the 60-context invariant test.
 
 - **On-device AI Move Coach:** A Compose panel (`MoveCoachPanel`) that surfaces a natural-language explanation of Black's move after it animates. Wiring: `GameViewModel` fires its `onMoveCoached` callback after applying the engine's move (skipped when the move ends the game) and exposes an `aiCoachEnabled` flag; `MoveCoachManager` (in `:app`) registers that callback in its `init` and owns the private `triggerCoach(...)` — cancellable, never blocks the move. There is **no** `GameViewModel.triggerCoach`; the VM stays coach-agnostic apart from the callback + flag. Gated twice: the entry point must attach an orchestrator (Android `FLAG_DEBUGGABLE`, desktop `CHESS_ENABLE_COACH=1`, wasm `?coach=1`; iOS attaches when Foundation Models reports available), **and** `AppSettings.aiCoachEnabled` (Settings switch, default on) must be true. Backed by a shared KMP module `:onDeviceAi` holding the routing policy (`AiRoutePolicies.moveCoachOffline`), prompt builder, validator, and deterministic fallback in `commonMain`; platform runtimes are injected at the entry points.
   - **Android backend:** **Cactus (`com.cactuscompute:cactus:1.4.1-beta`)** — Cactus runtime. The `gemma3-270m` model (~200 MB .cact) is downloaded from Hugging Face by Cactus on first launch into `filesDir` (debug APK ~258 MB; no model bundled in the APK). `AndroidManifest.xml` declares `INTERNET` so Cactus can fetch the model. Cold start ~1–2 s. Replaced the earlier LiteRT-LM path (7–9 s cold init, streaming crash, no resolvable Maven coordinate) and the ML Kit Prompt API path (narrow AICore device support); `MoveCoachModelAsset.kt` and `AndroidCoachWiring` were removed in the migration. See `docs/benchmarks/on-device-ai/android-delivery-decision.md`.

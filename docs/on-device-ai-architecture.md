@@ -10,9 +10,9 @@ The module owns:
 - **Semantic request/response models**: `MoveCoachRequest` (FEN, best move, tactical tags, evaluation) and `MoveCoachExplanation` (headline, body, confidence, metrics).
 - **Routing policy**: Pure Kotlin logic that decides between on-device inference, cloud inference, or a rule-based fallback based on privacy class, latency budget, thermal state, and user settings.
 - **Prompt builder**: Assembles a grounded prompt from the request's whitelisted chess fields, intentionally preventing user input from entering the system instruction.
-- **Response validator**: Rejects responses that are too long, ungrounded, or contain forbidden phrases, with a retry-then-fallback chain.
+- **Response validator**: Rejects responses that are too long, ungrounded, or contain forbidden phrases, going straight to a deterministic fallback.
 - **Deterministic fallback**: Rule-based explanation built from the same tactical tags, ensuring the panel always shows useful information even when the model is unavailable.
-- **Orchestrator**: Drives the flow (route → generate → validate → retry-or-fallback) as a Kotlin `Flow`.
+- **Orchestrator**: Drives the flow (route → generate → validate → fallback) as a Kotlin `Flow`.
 
 The chess app (outside of `:onDeviceAi`) owns:
 - **Context extraction**: Derives tactical tags (capture, check, castle, promotion, develops, center-control, king-safety, opening) from before/after game states.
@@ -46,17 +46,17 @@ The "Key points" come from deterministic tags derived from the game state: `deve
 
 ## Fallback Logic
 
-When the model is unavailable (slow device, Apple Intelligence off, validation failed twice), the orchestrator produces a deterministic explanation from the tags:
+When the model is unavailable (slow device, Apple Intelligence off, validation failed), the orchestrator produces a deterministic explanation from the tags:
 
 - "Nf3 develops a piece to an active square. It fights for the center."
 - "Qh5 delivers checkmate."
 - "O-O castles kingside, tucking the king to safety."
 
-This fallback ensures the panel always shows something useful when no local model is available — on JS (the React Native compile target, which has no WebGPU/workers), on any platform when the on-device runtime is gated off (Desktop `CHESS_ENABLE_COACH=1`, Wasm `?coach=1`), when a model download fails, or when validation rejects the model's output twice. Desktop, Wasm, Android, and iOS all have real on-device runtimes behind the `OnDeviceTextGenerator` seam (LiteRT-LM, Cactus, Foundation Models respectively); the fallback is the last-resort path, not the Desktop/Web default it was before the LiteRT-LM landing.
+This fallback ensures the panel always shows something useful when no local model is available — on JS (the React Native compile target, which has no WebGPU/workers), on any platform when the on-device runtime is gated off (Desktop `CHESS_ENABLE_COACH=1`, Wasm `?coach=1`), when a model download fails, or when validation rejects the model's output. Desktop, Wasm, Android, and iOS all have real on-device runtimes behind the `OnDeviceTextGenerator` seam (LiteRT-LM, Cactus, Foundation Models respectively); the fallback is the last-resort path, not the Desktop/Web default it was before the LiteRT-LM landing.
 
 ## Routing Policy
 
-The routing policy models three routes: `OnDevice`, `Cloud`, and `Fallback`. The move coach is currently classified `LOCAL_ONLY` — it never uses the cloud.
+The routing policy models three routes: `OnDevice`, `Cloud`, and `Fallback`. The architecture uses single-layer type-enforced routing: the `Decision.RunOnDevice` decision itself carries the selected vendor route, and a route's `isCloudCapable` capability is exposed as context data so `AiRoutePolicyDecider` can check it against the policy before the route is even selected. The move coach is currently classified `LOCAL_ONLY` — it never uses the cloud.
 
 Key routing decisions:
 - **App backgrounded**: Fallback (background inference is blocked on mobile).

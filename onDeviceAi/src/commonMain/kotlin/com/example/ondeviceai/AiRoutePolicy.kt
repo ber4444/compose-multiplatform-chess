@@ -20,6 +20,7 @@ data class AiRoutePolicy(
     val latencyBudget: LatencyBudget,
     val costBudget: CostBudget,
     val allowCloud: Boolean,
+    val allowLocal: Boolean = true,
     val requireOffline: Boolean,
 )
 
@@ -55,6 +56,7 @@ object AiRoutePolicies {
         latencyBudget = LatencyBudget(firstTokenMs = 2500, completeMs = 8000),
         costBudget = CostBudget(maxUsdCents = 0.2),
         allowCloud = true,
+        allowLocal = false,
         requireOffline = false,
     )
 
@@ -71,6 +73,7 @@ object AiRoutePolicies {
         latencyBudget = LatencyBudget(firstTokenMs = 2500, completeMs = 20_000),
         costBudget = CostBudget(maxUsdCents = 0.2),
         allowCloud = true,
+        allowLocal = false,
         requireOffline = false,
     )
 

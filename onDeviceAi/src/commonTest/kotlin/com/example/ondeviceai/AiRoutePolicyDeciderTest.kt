@@ -109,10 +109,10 @@ class AiRoutePolicyDeciderTest {
 
     @Test
     fun `position chat routes to cloud only under the allowed contexts across the 60-context sweep`() {
-        // The decider grid: 2 (hasModel) × 2 (hasNetwork) × 3 (userSetting) × 5 (thermalState) = 60,
-        // plus the foreground assumption. positionChat is cloud-only: it routes to Cloud exactly when
+        // The decider grid: 3 (hasModel) × 2 (hasNetwork) × 3 (userSetting) × 5 (thermalState) = 90,
+        // plus the foreground assumption. positionChat is cloud-only (allowLocal = false): it routes to Cloud exactly when
         // allowCloud(policy) && hasNetwork && !backgrounded && thermal != CRITICAL && underCostCeiling
-        // AND a local model is NOT present (the decider prefers on-device when one is available).
+        // AND the user hasn't pinned OFFLINE_ONLY. Because allowLocal = false, it will route to cloud even if a local model is present.
         val contexts = buildList {
             for (vendors in listOf(emptyList(), listOf(VendorRoute.LiteRtLm()), listOf(VendorRoute.CactusLocal()))) {
                 for (hasNetwork in listOf(false, true)) {
@@ -147,8 +147,7 @@ class AiRoutePolicyDeciderTest {
             val shouldRunCloud = if (context.thermalState == ThermalState.CRITICAL) {
                 cloudAllowedByPolicy && context.isNetworkAvailable
             } else {
-                !context.isDeviceModelAvailable &&
-                    context.userSetting != AiUserSetting.OFFLINE_ONLY &&
+                context.userSetting != AiUserSetting.OFFLINE_ONLY &&
                     cloudAllowedByPolicy &&
                     context.isNetworkAvailable
             }
@@ -184,11 +183,11 @@ class AiRoutePolicyDeciderTest {
     }
 
     @Test
-    fun `opening explainer without a local model routes to cloud when configured`() {
+    fun `opening explainer with a local model routes to cloud when configured because allowLocal is false`() {
         val decision = AiRoutePolicyDecider.decide(
             AiRoutePolicies.openingExplainer,
             AiContextSnapshot(
-                availableLocalVendors = emptyList(),
+                availableLocalVendors = listOf(VendorRoute.LiteRtLm()), // Local model available
                 isNetworkAvailable = true,
                 userSetting = AiUserSetting.ALLOW_CLOUD,
             ),

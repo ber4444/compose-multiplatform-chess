@@ -266,25 +266,25 @@ Carried forward from the vendor-adoption plan so nothing is lost.
 *Routing Modes Are Not a Routing Policy* is blocked. These are content defects, not
 polish.
 
-- [ ] **The two-layer enforcement claim is now false.** The draft says "our policy refuses
+- [x] **The two-layer enforcement claim is now false.** The draft says "our policy refuses
       to emit a cloud route, and the vendor refuses to take one." With
       `firebase-ai-ondevice` removed, there is no vendor-side refusal. Rewrite as
       single-layer, and make the honest case for the removal: the on-device leg duplicated
       ML Kit, the enforcement benefit was Android-only, and a declared-but-unused
       dependency is worse than none. Do not use "it ruins the seam" — platform-specific
       transports inside an `actual` are what the seam is for.
-- [ ] **The pgvector section is invalidated by #107.** The draft defends
+- [x] **The pgvector section is invalidated by #107.** The draft defends
       opening-theory-over-pgvector as the deliberate choice. #107 shows that corpus makes
       "what went wrong in my game" *unrepresentable* under a validator requiring a citation
       plus >=2 shared content words. The surviving claim is narrower: owning the corpus is
       what makes the validator scoreable. The specific corpus does not survive.
-- [ ] **The reason-faithfulness claim is contradicted twice** — by #97's Known-gap 2
+- [x] **The reason-faithfulness claim is contradicted twice** — by #97's Known-gap 2
       (the thinking model leaking reasoning into content) and by
       `move-coach-quality-axes.md` recording reason-faithfulness as an *unchecked* axis.
       The draft's "ensuring the final emitted output strictly adheres to the requested
       format" cannot stand.
-- [ ] **Cactus is not a llama.cpp wrapper** (see P2).
-- [ ] **Gemini Nano reach correction** — over 140 million devices, Nano 4 on the Gemma 4
+- [x] **Cactus is not a llama.cpp wrapper** (see P2).
+- [x] **Gemini Nano reach correction** — over 140 million devices, Nano 4 on the Gemma 4
       architecture. The original "only top-tier flagships" rejection is expired; the
       surviving reason for not making it the cross-platform default is that it's
       Android-only.
