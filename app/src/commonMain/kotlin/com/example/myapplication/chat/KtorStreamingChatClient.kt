@@ -189,13 +189,16 @@ fun createPositionChat(): PositionChat {
         client = client,
         contextProvider = {
             AiContextSnapshot(
-                // LOAD-BEARING, must stay empty. `AiRoutePolicyDecider` prefers a local route
-                // whenever one is available — that branch is evaluated *before* `RunCloud` — and
-                // `DefaultPositionChat` treats any local decision as "no route" (there is no
-                // on-device chat generator), emitting the offline fallback. Probing real vendors
-                // here would therefore silently stop chat from ever reaching the cloud. Pinned by
-                // `position chat with a cloud-allowed policy reaches cloud` in
-                // `AiRoutePolicyDeciderTest`.
+                // Belt-and-braces, not the guarantee. The cloud-only guarantee for this surface
+                // lives on the policy: `AiRoutePolicies.positionChat` sets `allowLocal = false`, so
+                // `AiRoutePolicyDecider` discards every local vendor regardless of what is reported
+                // here. Pinned by `a policy with allowLocal=false never routes on-device even with
+                // vendors available` in `AiRoutePolicyDeciderTest`.
+                //
+                // Kept empty because it is also *true* — there is no on-device chat generator, and
+                // `DefaultPositionChat` treats any local decision as "no route". Probing real
+                // vendors here would cost a real ML Kit availability check per turn to produce a
+                // list the decider is contractually obliged to throw away.
                 availableLocalVendors = emptyList(),
                 isNetworkAvailable = client != null,
                 isAppForegrounded = true,

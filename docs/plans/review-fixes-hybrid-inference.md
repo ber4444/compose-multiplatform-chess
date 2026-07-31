@@ -16,7 +16,7 @@ client with no mode parameter. Items below assume that state.
 
 ### P0-1 Restore the `LOCAL_ONLY` proof
 
-The 60-context sweep no longer proves what the article claims. Three assertions were
+The 90-context sweep (was 60 pre-#106) no longer proves what the article claims. Three assertions were
 weakened from `assertEquals(Decision.RunOnDevice, ...)` to `assertIs<Decision.Route>(...)`,
 which asserts *a* route rather than *which* route. `Route(FirebaseCloud(...))` passes.
 

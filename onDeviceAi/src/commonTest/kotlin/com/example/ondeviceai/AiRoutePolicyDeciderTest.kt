@@ -108,7 +108,7 @@ class AiRoutePolicyDeciderTest {
     }
 
     @Test
-    fun `position chat routes to cloud only under the allowed contexts across the 60-context sweep`() {
+    fun `position chat routes to cloud only under the allowed contexts across the 90-context sweep`() {
         // The decider grid: 3 (hasModel) × 2 (hasNetwork) × 3 (userSetting) × 5 (thermalState) = 90,
         // plus the foreground assumption. positionChat is cloud-only (allowLocal = false): it routes to Cloud exactly when
         // allowCloud(policy) && hasNetwork && !backgrounded && thermal != CRITICAL && underCostCeiling
@@ -541,5 +541,59 @@ class AiRoutePolicyDeciderTest {
         )
         assertIs<AiRoutePolicyDecider.Decision.FallBack>(decision)
         assertEquals(AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL, decision.reason)
+    }
+
+    // --- allowLocal: the cloud-only guarantee, independent of vendor availability ---------------
+
+    /**
+     * The point of `allowLocal = false`. Before it existed, "chat/explainer always reach `:server`"
+     * held only because `KtorStreamingChatClient` and `KtorOpeningExplainerClient` happened to report
+     * an empty vendor list — correct behaviour resting on two literals.
+     *
+     * Every other test in this file passes an empty list for the cloud surfaces, so none of them can
+     * distinguish "the policy forbids local" from "no local vendor was offered". This one supplies a
+     * genuinely available local vendor and asserts the decision is still Cloud.
+     */
+    @Test
+    fun `a policy with allowLocal=false never routes on-device even with vendors available`() {
+        val vendorRichContext = AiContextSnapshot(
+            availableLocalVendors = listOf(VendorRoute.MlKitPrompt(), VendorRoute.CactusLocal()),
+            isNetworkAvailable = true,
+            isAppForegrounded = true,
+            userSetting = AiUserSetting.ALLOW_CLOUD,
+            thermalState = ThermalState.NOMINAL,
+        )
+
+        listOf(AiRoutePolicies.positionChat, AiRoutePolicies.openingExplainer).forEach { policy ->
+            assertFalse(policy.allowLocal, "${policy.privacyClass} cloud surface must forbid local")
+            assertEquals(
+                AiRoutePolicyDecider.Decision.RunCloud,
+                AiRoutePolicyDecider.decide(policy, vendorRichContext),
+                "allowLocal=false must beat an available local vendor",
+            )
+        }
+    }
+
+    /**
+     * The converse, so the flag is pinned in both directions: flipping `allowLocal` back to true is
+     * a behaviour change the suite notices. Without this, deleting the `!policy.allowLocal` branch
+     * in the decider would still pass the test above on any context where no vendor is offered.
+     */
+    @Test
+    fun `the same policy with allowLocal=true does prefer an available local vendor`() {
+        val vendorRichContext = AiContextSnapshot(
+            availableLocalVendors = listOf(VendorRoute.CactusLocal()),
+            isNetworkAvailable = true,
+            isAppForegrounded = true,
+            userSetting = AiUserSetting.ALLOW_CLOUD,
+            thermalState = ThermalState.NOMINAL,
+        )
+
+        val decision = AiRoutePolicyDecider.decide(
+            AiRoutePolicies.positionChat.copy(allowLocal = true),
+            vendorRichContext,
+        )
+        assertIs<AiRoutePolicyDecider.Decision.RunOnDevice>(decision)
+        assertEquals(VendorRoute.CactusLocal(), decision.route)
     }
 }
