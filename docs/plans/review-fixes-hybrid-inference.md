@@ -198,7 +198,7 @@ if (!isCactusInitialized()) {
 - [ ] **Split the PR.** 103 files mixing a 25-file docs purge, `.gitignore` changes, and an
       architectural refactor is hard to review. At minimum, separate the purge.
 - [ ] **CI is red.** Both #106 and #107 report `mergeable_state: unstable`.
-- [ ] **Phase-number collision.** `docs/plans/` now holds two plans with independent
+- [x] **Phase-number collision.** `docs/plans/` now holds two plans with independent
       numbering — Phase 1 is `MoveAssessment` in one and "widen the seam" in the other;
       Phase 6 is optional corpus bundling in one and Ktor 3.5 server work in the other.
       Prefix them `RAG-n` and `VA-n`. A bare "do Phase 6" handed to an agent is a coin flip.
@@ -253,6 +253,7 @@ Carried forward from the vendor-adoption plan so nothing is lost.
       sites.
 - [ ] Cactus **Needle** (26M-param tool-calling, MIT) — no use case today; note it if
       on-device tool calling ever enters scope.
+- [ ] Evaluate ecosystem updates: Kotlin 2.4.0, Compose Multiplatform 1.12.0-beta01, Compose Hot Reload's experimental MCP server, and Ktor Koog plugin for agentic services.
 
 ---
 
