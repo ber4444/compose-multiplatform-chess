@@ -14,7 +14,7 @@ for i in $(seq 1 $ITERATIONS); do
     echo "Iteration $i/$ITERATIONS"
     # Force stop to ensure cold init
     adb shell am force-stop $PACKAGE
-    sleep 2 # let the dust settle
+    sleep 1 # let the dust settle
     
     # Launch with bench extra. Using --ei for int extra.
     # Note: we just do 1 iteration inside the app per launch to make it a true cold init.
