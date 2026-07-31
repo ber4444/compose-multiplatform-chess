@@ -38,6 +38,12 @@ import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.testing.testApplication
 import io.ktor.utils.io.readLine
+import com.example.ondeviceai.AiContextSnapshot
+import com.example.ondeviceai.AiRoutePolicies
+import com.example.ondeviceai.AiRoutePolicyDecider
+import com.example.ondeviceai.AiUserSetting
+import com.example.ondeviceai.ThermalState
+import com.example.ondeviceai.VendorRoute
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.CancellationException
@@ -87,6 +93,7 @@ private fun runTestApplicationRoutes(
 ): List<RouteStats> {
     // testApplication returns Unit, so thread the collected stats out via a captured holder.
     val collected = mutableListOf<RouteStats>()
+    assertRoutingInvariants()
     testApplication {
         val dependencies = caseSpecificOpeningDependencies(openingCases)
         val chatDependencies = caseSpecificChatDependencies(openingCases)
@@ -111,6 +118,39 @@ private fun runTestApplicationRoutes(
         collected += evaluateDeployed(openingCases)
     }
     return collected
+}
+
+/**
+ * Asserts the structural routing invariants claimed in the article draft before output-quality scoring.
+ * Proves that the intent-driven policy strictly routes the local features to the local vendor, and
+ * the cloud features to the cloud, using the runtime decider.
+ */
+private fun assertRoutingInvariants() {
+    val nominalContext = AiContextSnapshot(
+        availableLocalVendors = listOf(VendorRoute.LiteRtLm()), // A local model is available
+        isNetworkAvailable = true,
+        isAppForegrounded = true,
+        userSetting = AiUserSetting.ALLOW_CLOUD,
+        thermalState = ThermalState.NOMINAL,
+    )
+
+    // Move Coach must route to device (LOCAL_ONLY)
+    val coachDecision = AiRoutePolicyDecider.decide(AiRoutePolicies.moveCoachOffline, nominalContext)
+    check(coachDecision is AiRoutePolicyDecider.Decision.RunOnDevice) {
+        "Routing invariant failed: moveCoachOffline did not route to device. Got $coachDecision"
+    }
+
+    // Opening Explainer must route to cloud (allowLocal = false bypasses local model)
+    val explainerDecision = AiRoutePolicyDecider.decide(AiRoutePolicies.openingExplainer, nominalContext)
+    check(explainerDecision is AiRoutePolicyDecider.Decision.RunCloud) {
+        "Routing invariant failed: openingExplainer did not route to cloud. Got $explainerDecision"
+    }
+
+    // Position Chat must route to cloud (allowLocal = false bypasses local model)
+    val chatDecision = AiRoutePolicyDecider.decide(AiRoutePolicies.positionChat, nominalContext)
+    check(chatDecision is AiRoutePolicyDecider.Decision.RunCloud) {
+        "Routing invariant failed: positionChat did not route to cloud. Got $chatDecision"
+    }
 }
 
 /**

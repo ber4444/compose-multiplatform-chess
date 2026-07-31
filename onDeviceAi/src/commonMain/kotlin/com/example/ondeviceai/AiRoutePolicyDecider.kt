@@ -18,8 +18,12 @@ object AiRoutePolicyDecider {
             else Decision.FallBack(FALLBACK_THERMAL)
         }
 
-        val eligibleVendors = context.availableLocalVendors.filter { vendor ->
-            !vendor.isCloudCapable || (cloudAllowedByPolicy && !effectiveOfflineOnly)
+        val eligibleVendors = if (!policy.allowLocal) {
+            emptyList()
+        } else {
+            context.availableLocalVendors.filter { vendor ->
+                !vendor.isCloudCapable || (cloudAllowedByPolicy && !effectiveOfflineOnly)
+            }
         }
 
         return when {

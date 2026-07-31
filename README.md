@@ -163,6 +163,7 @@ Two of the five (Opening Explainer, Position Chat) are cloud routes; they are th
 `allowCloud = true`, and both send public chess data only. The three on-device policies are
 `LOCAL_ONLY` with a 0¢ budget, so `AiRoutePolicyDecider` can never hand them a cloud route.
 
+<a name="ai-routing"></a>
 **How that guarantee is enforced.** `AiRoutePolicyDecider.decide(policy, context)` in `commonMain` is
 the single routing authority, and its decision *carries* the chosen runtime:
 `Decision.RunOnDevice(route: VendorRoute)`. There is no second step in which a route could be picked,

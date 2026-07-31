@@ -160,8 +160,10 @@ kotlin {
                 // inference. Native libs are bundled in-jar for linux-x86_64,
                 // linux-aarch64, darwin-aarch64, win-x86_64 (no Intel Mac — those
                 // hosts fall back to UnsupportedTextGenerator). The model
-                // (gemma3-270m .litertlm, ~290 MB) is downloaded from HuggingFace
-                // on first launch by LitertLmModelStore. Gated behind
+                // (Qwen3-0.6B-int4 .litertlm, ~347 MB) is downloaded from HuggingFace
+                // on first launch by LitertLmModelStore — NOT gemma3-270m, which is
+                // the Android/Cactus model; that HF repo became license-gated (401 on
+                // the weights), see LitertLmModelStore's KDoc. Gated behind
                 // CHESS_ENABLE_COACH=1 at the desktop entry point. Mirrors how
                 // androidMain depends on Cactus — same OnDeviceTextGenerator seam.
                 implementation("com.google.ai.edge.litertlm:litertlm-jvm:0.14.0")

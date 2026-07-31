@@ -410,7 +410,7 @@ literals a future contributor could reasonably "tidy" to `true`. That is deliber
 
 - It is a **semantic change to shipped behaviour**, not a bug fix — cloud-preferring policies would
   stop preferring a local model when one exists.
-- The existing 60-context sweep only asserts that `LOCAL_ONLY` never reaches cloud. It does not pin
+- The existing 90-context sweep only asserts that `LOCAL_ONLY` never reaches cloud. It does not pin
   the device-first ordering in either direction, so it would not catch the change. The sweep needs
   extending *first*.
 - It interacts with this plan: once coaching is grounded in `MoveAssessment` records rather than a
