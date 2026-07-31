@@ -242,19 +242,13 @@ private suspend fun evaluateFake(cases: List<GoldenCase>): RouteStats {
         val request = case.toMoveCoachRequest()
         var text = tokenText(generator.generate(MoveCoachPromptBuilder.build(request)).toList())
         var score = EvalScorer.scoreMove(case, text)
-        var retried = false
         var fellBack = false
-        if (!score.grounded) {
-            retried = true
-            text = tokenText(generator.generate(MoveCoachPromptBuilder.buildRetry(request, text)).toList())
-            score = EvalScorer.scoreMove(case, text)
-        }
         if (!score.grounded) {
             fellBack = true
             text = MoveCoachFallback.build(request)
             score = EvalScorer.scoreMove(case, text)
         }
-        stats.record(score, retried, fellBack)
+        stats.record(score, retried = false, fellBack = fellBack)
         generator.close()
     }
     return stats
