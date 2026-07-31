@@ -31,7 +31,7 @@ private class KotlinFoundationRuleLookupBridge(
 private class FoundationRulesQaAnswerer(
     private val bridge: FoundationRulesQaBridge,
 ) : RulesQaAnswerer {
-    override suspend fun answer(question: String): RulesQaModelOutput {
+    override suspend fun answer(question: String, route: VendorRoute): RulesQaModelOutput {
         val output = bridge.answer(question)
         return RulesQaModelOutput(
             text = output.text,

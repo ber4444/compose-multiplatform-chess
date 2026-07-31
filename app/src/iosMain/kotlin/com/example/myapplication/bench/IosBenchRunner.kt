@@ -71,11 +71,13 @@ suspend fun runIosBench(iterations: Int) {
         val executor = VendorRouteExecutor()
         val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
         val context = com.example.ondeviceai.AiContextSnapshot(
-            isDeviceModelAvailable = true,
+            availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
             isAppForegrounded = true,
             userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
         )
-        val generator = executor.execute(policy, context)
+        val decision = com.example.ondeviceai.AiRoutePolicyDecider.decide(policy, context)
+        val generator = (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
+            ?.let { executor.execute(it.route) }
         generator?.warmup()
         probe.onInitEnd()
         
@@ -85,7 +87,7 @@ suspend fun runIosBench(iterations: Int) {
             // applies, and resolveVendorRoute short-circuits to null before ever checking
             // SystemLanguageModel availability — every prior bench run reported "no local model",
             // not a real Foundation Models availability check. Mirrors AndroidBenchRunner's fix.
-            contextProvider = { com.example.ondeviceai.AiContextSnapshot(isDeviceModelAvailable = true) },
+            contextProvider = { com.example.ondeviceai.AiContextSnapshot(availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors()) },
             benchProbe = probe
         )
         

@@ -23,7 +23,7 @@ class DefaultAiCoachOrchestratorTest {
     private fun orchestrator(
         generator: OnDeviceTextGenerator?,
         context: AiContextSnapshot = AiContextSnapshot(
-            isDeviceModelAvailable = true,
+            availableLocalVendors = listOf(VendorRoute.LiteRtLm()),
             isAppForegrounded = true,
             userSetting = AiUserSetting.OFFLINE_ONLY,
         ),
@@ -101,7 +101,7 @@ class DefaultAiCoachOrchestratorTest {
             executor = FakeVendorRouteExecutor(null),
             contextProvider = {
                 AiContextSnapshot(
-                    isDeviceModelAvailable = true,
+                    availableLocalVendors = listOf(VendorRoute.LiteRtLm()),
                     isAppForegrounded = true,
                 )
             },
@@ -130,7 +130,7 @@ class DefaultAiCoachOrchestratorTest {
         val orchestrator = orchestrator(
             gen,
             context = AiContextSnapshot(
-                isDeviceModelAvailable = true,
+                availableLocalVendors = listOf(VendorRoute.LiteRtLm()),
                 isAppForegrounded = false,
                 userSetting = AiUserSetting.OFFLINE_ONLY,
             ),

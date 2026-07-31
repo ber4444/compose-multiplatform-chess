@@ -30,7 +30,7 @@ class DefaultAiCoachOrchestrator(
         }
         val decision = AiRoutePolicyDecider.decide(request.policy, context)
         when (decision) {
-            is AiRoutePolicyDecider.Decision.RunOnDevice -> emit(runOnDevice(request, context))
+            is AiRoutePolicyDecider.Decision.RunOnDevice -> emit(runOnDevice(request, decision.route))
             is AiRoutePolicyDecider.Decision.RunCloud -> emit(complete(MoveCoachResult.Failed("Cloud route not supported in onDeviceAi orchestrator")))
             is AiRoutePolicyDecider.Decision.FallBack ->
                 emit(fallback(request, decision.reason))
@@ -45,9 +45,9 @@ class DefaultAiCoachOrchestrator(
         return result
     }
 
-    private suspend fun runOnDevice(request: MoveCoachRequest, context: AiContextSnapshot): MoveCoachEvent {
+    private suspend fun runOnDevice(request: MoveCoachRequest, route: VendorRoute): MoveCoachEvent {
         val start = clock()
-        val generator = runCatching { executor.execute(request.policy, context) }.getOrElse {
+        val generator = runCatching { executor.execute(route) }.getOrElse {
             return fallback(request, "generator factory failed: ${it.message}")
         } ?: return fallback(request, AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL)
 
@@ -204,7 +204,7 @@ class DefaultAiCoachOrchestrator(
         )
         val DefaultContextProvider: suspend () -> AiContextSnapshot = {
             AiContextSnapshot(
-                isDeviceModelAvailable = false,
+                availableLocalVendors = emptyList(),
                 isAppForegrounded = true,
                 userSetting = AiUserSetting.OFFLINE_ONLY,
             )

@@ -104,7 +104,7 @@ fun MainViewController(
                     // true here is consistent with reality.
                     val contextProvider: suspend () -> com.example.ondeviceai.AiContextSnapshot = {
                         com.example.ondeviceai.AiContextSnapshot(
-                            isDeviceModelAvailable = true,
+                            availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
                             isAppForegrounded = true,
                             userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
                         )
@@ -165,11 +165,14 @@ private suspend fun probeFoundationModelsAvailability(): AiAvailability {
     val executor = VendorRouteExecutor()
     val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
     val context = com.example.ondeviceai.AiContextSnapshot(
-        isDeviceModelAvailable = true,
+        availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
         isAppForegrounded = true,
         userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
     )
-    val generator = runCatching { executor.execute(policy, context) }.getOrElse {
+    val decision = com.example.ondeviceai.AiRoutePolicyDecider.decide(policy, context)
+    val route = (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
+        ?.route ?: return AiAvailability.Unavailable
+    val generator = runCatching { executor.execute(route) }.getOrElse {
         return AiAvailability.Error("generator factory failed: ${it.message}")
     } ?: return AiAvailability.Unavailable
     return runCatching { generator.status() }.getOrElse {

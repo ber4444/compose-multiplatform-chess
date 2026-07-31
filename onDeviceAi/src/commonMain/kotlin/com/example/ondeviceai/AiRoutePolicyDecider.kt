@@ -18,8 +18,12 @@ object AiRoutePolicyDecider {
             else Decision.FallBack(FALLBACK_THERMAL)
         }
 
+        val eligibleVendors = context.availableLocalVendors.filter { vendor ->
+            !vendor.isCloudCapable || (cloudAllowedByPolicy && !effectiveOfflineOnly)
+        }
+
         return when {
-            context.isDeviceModelAvailable -> Decision.RunOnDevice
+            eligibleVendors.isNotEmpty() -> Decision.RunOnDevice(eligibleVendors.first())
             effectiveOfflineOnly -> Decision.FallBack(FALLBACK_NO_LOCAL_MODEL)
             cloudAllowedByPolicy && context.isNetworkAvailable -> Decision.RunCloud
             cloudAllowedByPolicy -> Decision.FallBack(FALLBACK_NO_NETWORK)
@@ -28,7 +32,7 @@ object AiRoutePolicyDecider {
     }
 
     sealed interface Decision {
-        data object RunOnDevice : Decision
+        data class RunOnDevice(val route: VendorRoute) : Decision
         data object RunCloud : Decision
         data class FallBack(val reason: String) : Decision
     }

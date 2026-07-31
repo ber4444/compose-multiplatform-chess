@@ -20,18 +20,12 @@ private var cactusInitialized = false
 internal fun isCactusInitialized(): Boolean = cactusInitialized
 
 actual class VendorRouteExecutor : AiRouteExecutor {
-    actual override suspend fun execute(policy: AiRoutePolicy, context: AiContextSnapshot): OnDeviceTextGenerator? {
-        val effectiveOfflineOnly = policy.requireOffline ||
-            policy.privacyClass == PrivacyClass.LOCAL_ONLY ||
-            context.userSetting == AiUserSetting.OFFLINE_ONLY
-
-        return if (effectiveOfflineOnly) {
-            val preference = if (policy.privacyClass == PrivacyClass.LOCAL_ONLY) "FAST" else "FULL"
-            val mlkit = MlKitPromptGenerator(preference)
-            if (mlkit.status() is AiAvailability.Available) mlkit
-            else getCactus()
-        } else {
-            FirebaseCloudGenerator()
+    actual override suspend fun execute(route: VendorRoute): OnDeviceTextGenerator? {
+        return when (route) {
+            is VendorRoute.MlKitPrompt -> MlKitPromptGenerator(route.preference)
+            is VendorRoute.AppleFoundationModels -> error("iOS route on Android")
+            is VendorRoute.LiteRtLm -> error("Desktop/Wasm route on Android")
+            is VendorRoute.CactusLocal -> getCactus()
         }
     }
 

@@ -19,7 +19,7 @@ class DefaultPositionChatTest {
     )
 
     private fun cloudContext() = AiContextSnapshot(
-        isDeviceModelAvailable = false,
+        availableLocalVendors = emptyList(),
         isNetworkAvailable = true,
         isAppForegrounded = true,
         userSetting = AiUserSetting.ALLOW_CLOUD,

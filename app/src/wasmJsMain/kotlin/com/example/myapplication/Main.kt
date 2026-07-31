@@ -118,11 +118,13 @@ private suspend fun attachMoveCoach(
     val executor = VendorRouteExecutor()
     val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
     val context = com.example.ondeviceai.AiContextSnapshot(
-        isDeviceModelAvailable = true,
+        availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
         isAppForegrounded = true,
         userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
     )
-    val generator = executor.execute(policy, context)
+    val decision = com.example.ondeviceai.AiRoutePolicyDecider.decide(policy, context)
+    val generator = (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
+        ?.let { executor.execute(it.route) }
     runCatching { generator?.warmup() }
         .onFailure { Logger.w("Main") { "LiteRT-LM warmup failed: ${it.message}" } }
 
@@ -132,7 +134,7 @@ private suspend fun attachMoveCoach(
 
     val contextProvider: suspend () -> AiContextSnapshot = {
         AiContextSnapshot(
-            isDeviceModelAvailable = true,
+            availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
             userSetting = AiUserSetting.OFFLINE_ONLY,
         )
     }

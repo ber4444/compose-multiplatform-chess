@@ -45,7 +45,7 @@ class AiRoutePolicyDeciderTest {
         isNetworkAvailable: Boolean,
         thermalState: ThermalState = ThermalState.NOMINAL,
     ) = AiContextSnapshot(
-        isDeviceModelAvailable = isDeviceModelAvailable,
+        availableLocalVendors = if (isDeviceModelAvailable) listOf(VendorRoute.LiteRtLm()) else emptyList(),
         isNetworkAvailable = isNetworkAvailable,
         isAppForegrounded = true,
         userSetting = AiUserSetting.ALLOW_CLOUD,
@@ -77,13 +77,13 @@ class AiRoutePolicyDeciderTest {
     @Test
     fun `move coach can never route to cloud across runtime contexts`() {
         val contexts = buildList {
-            for (hasModel in listOf(false, true)) {
+            for (vendors in listOf(emptyList(), listOf(VendorRoute.LiteRtLm()), listOf(VendorRoute.CactusLocal()))) {
                 for (hasNetwork in listOf(false, true)) {
                     for (setting in AiUserSetting.entries) {
                         for (thermal in ThermalState.entries) {
                             add(
                                 AiContextSnapshot(
-                                    isDeviceModelAvailable = hasModel,
+                                    availableLocalVendors = vendors,
                                     isNetworkAvailable = hasNetwork,
                                     isAppForegrounded = true,
                                     userSetting = setting,
@@ -99,6 +99,11 @@ class AiRoutePolicyDeciderTest {
         contexts.forEach { context ->
             val decision = AiRoutePolicyDecider.decide(AiRoutePolicies.moveCoachOffline, context)
             kotlin.test.assertNotEquals(AiRoutePolicyDecider.Decision.RunCloud, decision)
+
+            // invariant test for LOCAL_ONLY ensuring !route.isCloudCapable
+            if (decision is AiRoutePolicyDecider.Decision.RunOnDevice) {
+                kotlin.test.assertTrue(!decision.route.isCloudCapable, "LOCAL_ONLY policy should never return a cloud-capable route")
+            }
         }
     }
 
@@ -109,13 +114,13 @@ class AiRoutePolicyDeciderTest {
         // allowCloud(policy) && hasNetwork && !backgrounded && thermal != CRITICAL && underCostCeiling
         // AND a local model is NOT present (the decider prefers on-device when one is available).
         val contexts = buildList {
-            for (hasModel in listOf(false, true)) {
+            for (vendors in listOf(emptyList(), listOf(VendorRoute.LiteRtLm()), listOf(VendorRoute.CactusLocal()))) {
                 for (hasNetwork in listOf(false, true)) {
                     for (setting in AiUserSetting.entries) {
                         for (thermal in ThermalState.entries) {
                             add(
                                 AiContextSnapshot(
-                                    isDeviceModelAvailable = hasModel,
+                                    availableLocalVendors = vendors,
                                     isNetworkAvailable = hasNetwork,
                                     isAppForegrounded = true,
                                     userSetting = setting,
@@ -168,7 +173,7 @@ class AiRoutePolicyDeciderTest {
         val decision = AiRoutePolicyDecider.decide(
             AiRoutePolicies.positionChat,
             AiContextSnapshot(
-                isDeviceModelAvailable = false,
+                availableLocalVendors = emptyList(),
                 isNetworkAvailable = true,
                 isAppForegrounded = false,
                 userSetting = AiUserSetting.ALLOW_CLOUD,
@@ -183,7 +188,7 @@ class AiRoutePolicyDeciderTest {
         val decision = AiRoutePolicyDecider.decide(
             AiRoutePolicies.openingExplainer,
             AiContextSnapshot(
-                isDeviceModelAvailable = false,
+                availableLocalVendors = emptyList(),
                 isNetworkAvailable = true,
                 userSetting = AiUserSetting.ALLOW_CLOUD,
             ),
@@ -193,7 +198,7 @@ class AiRoutePolicyDeciderTest {
     }
 
     private val moveCoachContext = AiContextSnapshot(
-        isDeviceModelAvailable = true,
+        availableLocalVendors = listOf(VendorRoute.LiteRtLm()),
         isAppForegrounded = true,
         userSetting = AiUserSetting.OFFLINE_ONLY,
     )
@@ -204,13 +209,14 @@ class AiRoutePolicyDeciderTest {
             AiRoutePolicies.moveCoachOffline,
             moveCoachContext,
         )
-        assertEquals(AiRoutePolicyDecider.Decision.RunOnDevice, decision)
+        assertIs<AiRoutePolicyDecider.Decision.RunOnDevice>(decision)
+        assertEquals(VendorRoute.LiteRtLm(), decision.route)
     }
 
     @Test
     fun `LOCAL_ONLY without model falls back even when cloud is configured`() {
         val cloudCapable = AiContextSnapshot(
-            isDeviceModelAvailable = false,
+            availableLocalVendors = emptyList(),
             isNetworkAvailable = true,
             isAppForegrounded = true,
             userSetting = AiUserSetting.ALLOW_CLOUD,
@@ -244,7 +250,7 @@ class AiRoutePolicyDeciderTest {
             requireOffline = false,
         )
         val context = AiContextSnapshot(
-            isDeviceModelAvailable = false,
+            availableLocalVendors = emptyList(),
             isNetworkAvailable = true,
             isAppForegrounded = true,
             userSetting = AiUserSetting.ALLOW_CLOUD,
@@ -263,15 +269,14 @@ class AiRoutePolicyDeciderTest {
             requireOffline = false,
         )
         val context = AiContextSnapshot(
-            isDeviceModelAvailable = true,
+            availableLocalVendors = listOf(VendorRoute.LiteRtLm()),
             isNetworkAvailable = true,
             isAppForegrounded = true,
             userSetting = AiUserSetting.ALLOW_CLOUD,
         )
-        assertEquals(
-            AiRoutePolicyDecider.Decision.RunOnDevice,
-            AiRoutePolicyDecider.decide(policy, context),
-        )
+        val decision = AiRoutePolicyDecider.decide(policy, context)
+        assertIs<AiRoutePolicyDecider.Decision.RunOnDevice>(decision)
+        assertEquals(VendorRoute.LiteRtLm(), decision.route)
     }
 
     @Test
@@ -284,7 +289,7 @@ class AiRoutePolicyDeciderTest {
             requireOffline = false,
         )
         val context = AiContextSnapshot(
-            isDeviceModelAvailable = false,
+            availableLocalVendors = emptyList(),
             isNetworkAvailable = true,
             isAppForegrounded = true,
             userSetting = AiUserSetting.OFFLINE_ONLY,
@@ -304,7 +309,7 @@ class AiRoutePolicyDeciderTest {
             requireOffline = false,
         )
         val context = AiContextSnapshot(
-            isDeviceModelAvailable = false,
+            availableLocalVendors = emptyList(),
             isNetworkAvailable = true,
             isAppForegrounded = true,
             userSetting = AiUserSetting.PREFER_LOCAL,
@@ -323,7 +328,7 @@ class AiRoutePolicyDeciderTest {
             requireOffline = false,
         )
         val context = AiContextSnapshot(
-            isDeviceModelAvailable = false,
+            availableLocalVendors = emptyList(),
             isNetworkAvailable = false,
             isAppForegrounded = true,
             userSetting = AiUserSetting.ALLOW_CLOUD,
@@ -343,15 +348,14 @@ class AiRoutePolicyDeciderTest {
             requireOffline = false,
         )
         val context = AiContextSnapshot(
-            isDeviceModelAvailable = true,
+            availableLocalVendors = listOf(VendorRoute.LiteRtLm()),
             isNetworkAvailable = true,
             isAppForegrounded = true,
             userSetting = AiUserSetting.ALLOW_CLOUD,
         )
-        assertEquals(
-            AiRoutePolicyDecider.Decision.RunOnDevice,
-            AiRoutePolicyDecider.decide(policy, context),
-        )
+        val decision = AiRoutePolicyDecider.decide(policy, context)
+        assertIs<AiRoutePolicyDecider.Decision.RunOnDevice>(decision)
+        assertEquals(VendorRoute.LiteRtLm(), decision.route)
     }
 
     @Test
@@ -373,7 +377,7 @@ class AiRoutePolicyDeciderTest {
             requireOffline = false,
         )
         val context = AiContextSnapshot(
-            isDeviceModelAvailable = true,
+            availableLocalVendors = listOf(VendorRoute.LiteRtLm()),
             isNetworkAvailable = true,
             isAppForegrounded = true,
             userSetting = AiUserSetting.ALLOW_CLOUD,
@@ -428,5 +432,115 @@ class AiRoutePolicyDeciderTest {
             AiRoutePolicyDecider.Decision.RunCloud,
             AiRoutePolicyDecider.decide(AiRoutePolicies.openingExplainer, cloudOnlySurfaceContext),
         )
+    }
+
+    // --- Ported VendorRouteResolverTest cases -------------------------------------------------
+    //
+    // These originally fed `VendorRoute.FirebaseCloud` — the one cloud-capable vendor — into
+    // `availableLocalVendors` and asserted the decider refused it for cloud-forbidding policies.
+    // `FirebaseCloud` was deleted with `FirebaseCloudGenerator`: cloud now always means `:server`,
+    // which owns retrieval, the grounding validators, and the cost ceiling. `VendorRoute` is a
+    // sealed interface, so `commonTest` cannot mint a stand-in cloud vendor to keep exercising the
+    // filter branch directly. What replaces it: `no shipped vendor route is cloud-capable` below
+    // pins the reason the filter has nothing to reject, so reintroducing a cloud vendor has to be a
+    // deliberate act that turns this test red first.
+
+    /**
+     * The `isCloudCapable` guard is only meaningful while someone maintains this list. Every
+     * `VendorRoute` variant must appear here — the `when` makes the compiler enforce that, so
+     * adding a variant fails to build until its cloud class is declared.
+     */
+    private val allVendorRoutes: List<VendorRoute> = listOf(
+        VendorRoute.MlKitPrompt(),
+        VendorRoute.CactusLocal(),
+        VendorRoute.AppleFoundationModels(),
+        VendorRoute.LiteRtLm(),
+    )
+
+    @Test
+    fun `no shipped vendor route is cloud-capable`() {
+        // Exhaustive `when` with no `else`: a new VendorRoute variant breaks this test's
+        // compilation, which is the prompt to decide its cloud class deliberately.
+        allVendorRoutes.forEach { route ->
+            val expected = when (route) {
+                is VendorRoute.MlKitPrompt -> false
+                is VendorRoute.CactusLocal -> false
+                is VendorRoute.AppleFoundationModels -> false
+                is VendorRoute.LiteRtLm -> false
+            }
+            assertEquals(expected, route.isCloudCapable, "unexpected cloud class for $route")
+        }
+        assertTrue(
+            allVendorRoutes.none { it.isCloudCapable },
+            "cloud must mean :server — a cloud-capable vendor route bypasses retrieval, the " +
+                "grounding validators, and the cost ceiling. Adding one is a deliberate decision.",
+        )
+    }
+
+    @Test
+    fun `LOCAL_ONLY policies fall back rather than reach cloud when no vendor is available`() {
+        val cloudReachableContext = AiContextSnapshot(
+            availableLocalVendors = emptyList(),
+            isNetworkAvailable = true,
+            isAppForegrounded = true,
+            userSetting = AiUserSetting.ALLOW_CLOUD,
+        )
+
+        listOf(AiRoutePolicies.moveCoachOffline, AiRoutePolicies.rulesQaOffline).forEach { policy ->
+            val decision = AiRoutePolicyDecider.decide(policy, cloudReachableContext)
+            assertIs<AiRoutePolicyDecider.Decision.FallBack>(decision)
+            assertEquals(AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL, decision.reason)
+        }
+    }
+
+    @Test
+    fun `a policy that forbids cloud cannot reach cloud even when not offline-only`() {
+        // allowCloud=false is neither LOCAL_ONLY nor requireOffline, so `effectiveOfflineOnly` is
+        // false — the precedence hole #108 closed. `permitsCloud()` is the predicate that catches it.
+        val noCloud = AiRoutePolicies.positionChat.copy(allowCloud = false)
+        assertFalse(noCloud.permitsCloud())
+
+        val decision = AiRoutePolicyDecider.decide(
+            noCloud,
+            AiContextSnapshot(
+                availableLocalVendors = emptyList(),
+                isNetworkAvailable = true,
+                isAppForegrounded = true,
+                userSetting = AiUserSetting.ALLOW_CLOUD,
+            ),
+        )
+        assertNotEquals(AiRoutePolicyDecider.Decision.RunCloud, decision)
+    }
+
+    @Test
+    fun `a zero-budget policy cannot reach cloud`() {
+        val noBudget = AiRoutePolicies.positionChat.copy(costBudget = CostBudget(maxUsdCents = 0.0))
+        assertFalse(noBudget.permitsCloud())
+
+        val decision = AiRoutePolicyDecider.decide(
+            noBudget,
+            AiContextSnapshot(
+                availableLocalVendors = emptyList(),
+                isNetworkAvailable = true,
+                isAppForegrounded = true,
+                userSetting = AiUserSetting.ALLOW_CLOUD,
+            ),
+        )
+        assertNotEquals(AiRoutePolicyDecider.Decision.RunCloud, decision)
+    }
+
+    @Test
+    fun `user OFFLINE_ONLY overrides a cloud-allowed policy`() {
+        val decision = AiRoutePolicyDecider.decide(
+            AiRoutePolicies.positionChat,
+            AiContextSnapshot(
+                availableLocalVendors = emptyList(),
+                isNetworkAvailable = true,
+                isAppForegrounded = true,
+                userSetting = AiUserSetting.OFFLINE_ONLY,
+            ),
+        )
+        assertIs<AiRoutePolicyDecider.Decision.FallBack>(decision)
+        assertEquals(AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL, decision.reason)
     }
 }

@@ -1,5 +1,5 @@
 package com.example.ondeviceai
 
 interface AiRouteExecutor {
-    suspend fun execute(policy: AiRoutePolicy, context: AiContextSnapshot): OnDeviceTextGenerator?
+    suspend fun execute(route: VendorRoute): OnDeviceTextGenerator?
 }

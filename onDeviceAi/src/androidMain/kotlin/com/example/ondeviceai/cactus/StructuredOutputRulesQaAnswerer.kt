@@ -28,14 +28,8 @@ class StructuredOutputRulesQaAnswerer(
     private val lookupTool: RuleLookupTool,
 ) : RulesQaAnswerer {
 
-    override suspend fun answer(question: String): RulesQaModelOutput {
-        val policy = AiRoutePolicies.rulesQaOffline
-        val context = AiContextSnapshot(
-            isDeviceModelAvailable = true,
-            isAppForegrounded = true,
-            userSetting = AiUserSetting.OFFLINE_ONLY,
-        )
-        val generator = executor.execute(policy, context) ?: return ungrounded("")
+    override suspend fun answer(question: String, route: VendorRoute): RulesQaModelOutput {
+        val generator = executor.execute(route) ?: return ungrounded("")
         return try {
             if (generator.status() !is AiAvailability.Available) return ungrounded("")
 

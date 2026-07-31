@@ -12,13 +12,13 @@ import com.google.mlkit.genai.prompt.generationConfig
 import com.google.mlkit.genai.prompt.modelConfig
 import kotlinx.coroutines.tasks.await
 
-class MlKitPromptGenerator(private val preference: String) : OnDeviceTextGenerator {
+class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.ModelPreference) : OnDeviceTextGenerator {
     
     private val modelConfig = modelConfig {
-        preference = if (this@MlKitPromptGenerator.preference == "FAST") {
-            ModelPreference.FAST
+        preference = if (this@MlKitPromptGenerator.routePreference == com.example.ondeviceai.ModelPreference.FAST) {
+            com.google.mlkit.genai.prompt.ModelPreference.FAST
         } else {
-            ModelPreference.FULL
+            com.google.mlkit.genai.prompt.ModelPreference.FULL
         }
     }
     

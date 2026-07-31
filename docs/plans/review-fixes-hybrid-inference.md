@@ -254,6 +254,7 @@ Carried forward from the vendor-adoption plan so nothing is lost.
 - [ ] Cactus **Needle** (26M-param tool-calling, MIT) — no use case today; note it if
       on-device tool calling ever enters scope.
 - [ ] Evaluate ecosystem updates: Kotlin 2.4.0, Compose Multiplatform 1.12.0-beta01, Compose Hot Reload's experimental MCP server, and Ktor Koog plugin for agentic services.
+- [ ] Check if Part 5 of Google's Android AI blog series (agentic booking assistant, A2UI + ADK) has published.
 
 ---
 

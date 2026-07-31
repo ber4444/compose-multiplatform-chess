@@ -123,11 +123,15 @@ class MainActivity : ComponentActivity() {
             try {
                 val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
                 val context = com.example.ondeviceai.AiContextSnapshot(
-                    isDeviceModelAvailable = true,
+                    availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
                     isAppForegrounded = true,
                     userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
                 )
-                executor.execute(policy, context)?.warmup()
+                // Warm up only the route the decider actually picks; any other decision means
+                // there is nothing local to warm.
+                val decision = com.example.ondeviceai.AiRoutePolicyDecider.decide(policy, context)
+                (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
+                    ?.let { executor.execute(it.route)?.warmup() }
             } catch (e: Exception) {
                 Logger.e("MainActivity") { "Failed to warmup model: ${e.message}" }
             }
@@ -140,7 +144,7 @@ class MainActivity : ComponentActivity() {
 
             val contextProvider: suspend () -> com.example.ondeviceai.AiContextSnapshot = {
                 com.example.ondeviceai.AiContextSnapshot(
-                    isDeviceModelAvailable = true,
+                    availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
                     isAppForegrounded = holder.isForeground,
                     userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
                 )

@@ -9,7 +9,7 @@ data class RulesQaModelOutput(
 )
 
 fun interface RulesQaAnswerer {
-    suspend fun answer(question: String): RulesQaModelOutput
+    suspend fun answer(question: String, route: VendorRoute): RulesQaModelOutput
 }
 
 expect fun defaultRulesQaAnswerer(lookupTool: RuleLookupTool): RulesQaAnswerer?
@@ -67,16 +67,16 @@ class DefaultRulesQaOrchestrator(
         }
 
         return when (val decision = AiRoutePolicyDecider.decide(AiRoutePolicies.rulesQaOffline, context)) {
-            is AiRoutePolicyDecider.Decision.RunOnDevice -> runOnDevice(normalizedQuestion)
+            is AiRoutePolicyDecider.Decision.RunOnDevice -> runOnDevice(normalizedQuestion, decision.route)
             is AiRoutePolicyDecider.Decision.RunCloud -> fallback("Cloud route not supported")
             is AiRoutePolicyDecider.Decision.FallBack -> fallback(decision.reason)
         }
     }
 
-    private suspend fun runOnDevice(question: String): RulesQaResult {
+    private suspend fun runOnDevice(question: String, route: VendorRoute): RulesQaResult {
         val output = try {
             withTimeoutOrNull(AiRoutePolicies.rulesQaOffline.latencyBudget.completeMs) {
-                answerer.answer(question)
+                answerer.answer(question, route)
             } ?: return fallback(AiRoutePolicyDecider.FALLBACK_TIMEOUT)
         } catch (ce: CancellationException) {
             throw ce

@@ -66,11 +66,14 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
         val executor = VendorRouteExecutor()
         val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
         val context = com.example.ondeviceai.AiContextSnapshot(
-            isDeviceModelAvailable = true,
+            availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
             isAppForegrounded = true,
             userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
         )
-        val generator = executor.execute(policy, context) ?: return
+        val decision = com.example.ondeviceai.AiRoutePolicyDecider.decide(policy, context)
+        val route = (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
+            ?.route ?: return
+        val generator = executor.execute(route) ?: return
         generator.warmup()
         probe.onInitEnd()
         
@@ -81,7 +84,7 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
             // Every real entry point overrides this to true (MainActivity/Main.kt/AppRoot); without it
             // here the route decider always short-circuits to "no local model" before ever trying
             // CactusLocal, regardless of whether the generator above actually warmed up.
-            contextProvider = { com.example.ondeviceai.AiContextSnapshot(isDeviceModelAvailable = true) },
+            contextProvider = { com.example.ondeviceai.AiContextSnapshot(availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors()) },
             benchProbe = probe
         )
         

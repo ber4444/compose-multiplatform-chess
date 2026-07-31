@@ -17,7 +17,7 @@ class DefaultGameSummaryOrchestratorTest {
     private fun orchestrator(
         generator: OnDeviceTextGenerator?,
         context: AiContextSnapshot = AiContextSnapshot(
-            isDeviceModelAvailable = true,
+            availableLocalVendors = listOf(VendorRoute.LiteRtLm()),
             isAppForegrounded = true,
             userSetting = AiUserSetting.OFFLINE_ONLY,
         ),
@@ -75,7 +75,7 @@ class DefaultGameSummaryOrchestratorTest {
             executor = FakeVendorRouteExecutor(null),
             contextProvider = {
                 AiContextSnapshot(
-                    isDeviceModelAvailable = true,
+                    availableLocalVendors = listOf(VendorRoute.LiteRtLm()),
                     isAppForegrounded = true,
                 )
             },
@@ -104,7 +104,7 @@ class DefaultGameSummaryOrchestratorTest {
         val orchestrator = orchestrator(
             gen,
             context = AiContextSnapshot(
-                isDeviceModelAvailable = true,
+                availableLocalVendors = listOf(VendorRoute.LiteRtLm()),
                 isAppForegrounded = false,
                 userSetting = AiUserSetting.OFFLINE_ONLY,
             ),

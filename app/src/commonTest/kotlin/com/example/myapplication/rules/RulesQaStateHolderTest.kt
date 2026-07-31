@@ -5,6 +5,7 @@ import com.example.ondeviceai.AiUserSetting
 import com.example.ondeviceai.DefaultRulesQaOrchestrator
 import com.example.ondeviceai.RulesQaAnswerer
 import com.example.ondeviceai.RulesQaModelOutput
+import com.example.ondeviceai.VendorRoute
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelAndJoin
@@ -18,12 +19,12 @@ class RulesQaStateHolderTest {
     fun `ask exposes a cited offline answer`() = runTest {
         val holder = RulesQaStateHolder(
             DefaultRulesQaOrchestrator(
-                answerer = RulesQaAnswerer {
+                answerer = RulesQaAnswerer { _, _ ->
                     RulesQaModelOutput("En passant is immediate [en-passant].", listOf("en-passant"))
                 },
                 contextProvider = {
                     AiContextSnapshot(
-                        isDeviceModelAvailable = true,
+                        availableLocalVendors = listOf(VendorRoute.CactusLocal()),
                         userSetting = AiUserSetting.OFFLINE_ONLY,
                     )
                 },
@@ -50,9 +51,12 @@ class RulesQaStateHolderTest {
         val never = CompletableDeferred<RulesQaModelOutput>()
         val holder = RulesQaStateHolder(
             DefaultRulesQaOrchestrator(
-                answerer = RulesQaAnswerer { started.complete(Unit); never.await() },
+                answerer = RulesQaAnswerer { _, _ -> started.complete(Unit); never.await() },
                 contextProvider = {
-                    AiContextSnapshot(isDeviceModelAvailable = true, userSetting = AiUserSetting.OFFLINE_ONLY)
+                    AiContextSnapshot(
+                        availableLocalVendors = listOf(VendorRoute.CactusLocal()),
+                        userSetting = AiUserSetting.OFFLINE_ONLY,
+                    )
                 },
             ),
         )
