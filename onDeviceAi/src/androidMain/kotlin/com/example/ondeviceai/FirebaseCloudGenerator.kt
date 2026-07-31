@@ -12,7 +12,6 @@ class FirebaseCloudGenerator(private val modelName: String = "gemini-2.5-flash-l
         modelName = modelName,
         generationConfig = generationConfig {
             responseMimeType = "application/json"
-            responseSchema = MoveCoachResponse_Schema
         }
     )
 

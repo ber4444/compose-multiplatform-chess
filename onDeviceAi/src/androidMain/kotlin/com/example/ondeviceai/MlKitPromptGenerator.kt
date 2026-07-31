@@ -24,8 +24,6 @@ class MlKitPromptGenerator(private val preference: String) : OnDeviceTextGenerat
     
     private val genConfig = generationConfig {
         this.modelConfig = this@MlKitPromptGenerator.modelConfig
-        this.responseSchema = MoveCoachResponse_Schema
-        this.responseMimeType = "application/json"
     }
     
     private val model = Generation.getClient(genConfig)

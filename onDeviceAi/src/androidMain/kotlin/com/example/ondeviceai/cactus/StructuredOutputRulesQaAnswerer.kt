@@ -12,6 +12,9 @@ import kotlinx.coroutines.CancellationException
 import com.example.ondeviceai.VendorRoute
 import com.example.ondeviceai.VendorRouteExecutor
 import com.example.ondeviceai.AiRouteExecutor
+import com.example.ondeviceai.AiRoutePolicies
+import com.example.ondeviceai.AiContextSnapshot
+import com.example.ondeviceai.AiUserSetting
 
 /**
  * Android rules Q&A uses structured-output prompting, not native function calling.
@@ -26,7 +29,13 @@ class StructuredOutputRulesQaAnswerer(
 ) : RulesQaAnswerer {
 
     override suspend fun answer(question: String): RulesQaModelOutput {
-        val generator = executor.execute(VendorRoute.CactusLocal()) ?: return ungrounded("")
+        val policy = AiRoutePolicies.rulesQaOffline
+        val context = AiContextSnapshot(
+            isDeviceModelAvailable = true,
+            isAppForegrounded = true,
+            userSetting = AiUserSetting.OFFLINE_ONLY,
+        )
+        val generator = executor.execute(policy, context) ?: return ungrounded("")
         return try {
             if (generator.status() !is AiAvailability.Available) return ungrounded("")
 

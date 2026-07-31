@@ -30,7 +30,7 @@ class DefaultAiCoachOrchestrator(
         }
         val decision = AiRoutePolicyDecider.decide(request.policy, context)
         when (decision) {
-            is AiRoutePolicyDecider.Decision.Route -> emit(runOnDevice(request, decision.route))
+            is AiRoutePolicyDecider.Decision.RunOnDevice -> emit(runOnDevice(request, context))
             is AiRoutePolicyDecider.Decision.RunCloud -> emit(complete(MoveCoachResult.Failed("Cloud route not supported in onDeviceAi orchestrator")))
             is AiRoutePolicyDecider.Decision.FallBack ->
                 emit(fallback(request, decision.reason))
@@ -45,9 +45,9 @@ class DefaultAiCoachOrchestrator(
         return result
     }
 
-    private suspend fun runOnDevice(request: MoveCoachRequest, route: VendorRoute): MoveCoachEvent {
+    private suspend fun runOnDevice(request: MoveCoachRequest, context: AiContextSnapshot): MoveCoachEvent {
         val start = clock()
-        val generator = runCatching { executor.execute(route) }.getOrElse {
+        val generator = runCatching { executor.execute(request.policy, context) }.getOrElse {
             return fallback(request, "generator factory failed: ${it.message}")
         } ?: return fallback(request, AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL)
 
@@ -85,7 +85,7 @@ class DefaultAiCoachOrchestrator(
         // Parse JSON
         val parsed = try {
             val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
-            json.decodeFromString<MoveCoachResponse>(outcome.rawText)
+            json.decodeFromString<MoveCoachResponse>(stripJsonCodeFence(outcome.rawText))
         } catch (e: Exception) {
             logger.w(e) { "Failed to parse structured output" }
             return fallback(request, AiRoutePolicyDecider.FALLBACK_VALIDATION)
@@ -177,12 +177,31 @@ class DefaultAiCoachOrchestrator(
     private fun countTokens(text: String): Int =
         text.split(Regex("\\s+")).count { it.isNotBlank() }
 
+    /**
+     * Models routinely wrap requested JSON in a markdown code fence (e.g. Foundation Models:
+     * "```json\n{...}\n```") even when told to "output valid JSON" with no further instruction
+     * about markdown. Strip a wrapping fence before parsing; text without one passes through
+     * unchanged. Same category as the LiteRT-LM `<think>` stripping fix — clean a model's habitual
+     * decoration before treating its output as data.
+     */
+    private fun stripJsonCodeFence(text: String): String {
+        val trimmed = text.trim()
+        val match = JSON_FENCE.matchEntire(trimmed) ?: return trimmed
+        return match.groupValues[1].trim()
+    }
+
     private data class GenerationOutcome(
         val rawText: String,
         val metrics: AiInferenceMetrics,
     )
 
     private companion object {
+        // [\s\S]*? (not .*?) so the fence body matches across newlines without RegexOption
+        // .DOT_MATCHES_ALL, which Kotlin/JS doesn't support.
+        val JSON_FENCE = Regex(
+            "^```(?:json)?\\s*\\n?([\\s\\S]*?)\\n?```\\s*$",
+            RegexOption.IGNORE_CASE,
+        )
         val DefaultContextProvider: suspend () -> AiContextSnapshot = {
             AiContextSnapshot(
                 isDeviceModelAvailable = false,
