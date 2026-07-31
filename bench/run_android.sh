@@ -6,7 +6,7 @@ PACKAGE="com.example.myapplication"
 ACTIVITY="com.example.myapplication.MainActivity"
 
 # Clear previous results
-adb shell "rm -f /data/data/$PACKAGE/files/bench/results.jsonl" || true
+adb shell "run-as \$PACKAGE rm -f files/bench/results.jsonl" || true
 
 echo "Running $ITERATIONS cold-init iterations on Android..."
 
@@ -26,7 +26,7 @@ for i in $(seq 1 $ITERATIONS); do
     
     for wait in $(seq 1 30); do
         sleep 1
-        lines=$(adb shell "cat /data/data/$PACKAGE/files/bench/results.jsonl 2>/dev/null | wc -l" | tr -d '\r')
+        lines=$(adb shell "run-as \$PACKAGE cat files/bench/results.jsonl 2>/dev/null | wc -l" | tr -d '\r')
         if [ "$lines" -ge "$i" ] 2>/dev/null; then
             break
         fi
@@ -35,5 +35,5 @@ done
 
 echo "Pulling results..."
 mkdir -p bench/results
-adb pull /data/data/$PACKAGE/files/bench/results.jsonl bench/results/android_results.jsonl
+adb shell "run-as \$PACKAGE cat files/bench/results.jsonl" > bench/results/android_results.jsonl
 echo "Done! Results saved to bench/results/android_results.jsonl"
