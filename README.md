@@ -3,7 +3,7 @@
 Compose Multiplatform chess app with full support for all standard chess rules, a 3D view mode, and
 five [AI coaching surfaces](#ai-features) (three on-device, two cloud), targeting:
 
-- Android
+- Android (minSdk 26)
 - Desktop (JVM): Linux and macOS
 - Web (Wasm)
 - iOS
@@ -161,10 +161,26 @@ but they differ in where inference runs, what leaves the device, and how each is
 
 Two of the five (Opening Explainer, Position Chat) are cloud routes; they are the *only* policies with
 `allowCloud = true`, and both send public chess data only. The three on-device policies are
-`LOCAL_ONLY` with a 0¢ budget, so `AiRoutePolicyDecider` can never hand them a cloud route — an
-exhaustive 60-context sweep (2 model × 2 network × 3 user-setting × 5 thermal states) asserts that for
-the move coach, and a matching sweep pins the chat route's cloud conditions
-(`AiRoutePolicyDeciderTest`).
+`LOCAL_ONLY` with a 0¢ budget, so `AiRoutePolicyDecider` can never hand them a cloud route.
+
+**How that guarantee is enforced.** `AiRoutePolicyDecider.decide(policy, context)` in `commonMain` is
+the single routing authority, and its decision *carries* the chosen runtime:
+`Decision.RunOnDevice(route: VendorRoute)`. There is no second step in which a route could be picked,
+so no platform code can reach a different conclusion than the policy allows. The platform `actual`s
+have two narrow jobs and never see an `AiRoutePolicy`:
+
+- `probeAvailableLocalVendors()` reports **what this device can run**, as an ordered
+  `List<VendorRoute>` on `AiContextSnapshot` (Android returns ML Kit *then* Cactus, so the
+  "no AICore on this device" fallback is a list entry rather than a hidden branch).
+- `VendorRouteExecutor.execute(route)` builds **the one generator it is handed** — an exhaustive
+  `when` with no `else`, which throws if it is ever given another platform's route.
+
+Because device capability is an *argument* rather than an `expect val`, every platform's routing is
+asserted from `commonTest` on every target: `AiRoutePolicyDeciderTest` sweeps 3 vendor lists × 2
+network × 3 user-setting × 5 thermal states, asserts the concrete route each context yields, and pins
+the invariant that a `LOCAL_ONLY` policy never produces a route whose `isCloudCapable` is true —
+backed by `AiRoutePolicy.permitsCloud()`, the one predicate that answers "may this policy go
+off-device at all."
 
 **Enabling each feature, per platform** — the on-device features are gated very differently across
 targets; there is no single switch that turns "AI" on or off everywhere:
@@ -178,12 +194,12 @@ targets; there is no single switch that turns "AI" on or off everywhere:
 | **Position Chat** | Same build-time base-URL config as Opening Explainer | ↑ | ↑ | ↑ |
 
 - **On-device AI Move Coach:** A Compose panel (`MoveCoachPanel`) that surfaces a natural-language explanation of Black's move after it animates. `GameViewModel` exposes an `onMoveCoached` callback (fired after the engine's move is applied, skipped when that move ends the game) plus an `aiCoachEnabled` flag; `MoveCoachManager` in `:app` registers the callback and runs the actual `triggerCoach(...)` — cancellable, never blocks the move. The panel is gated twice: the platform must have attached an orchestrator (Android `ApplicationInfo.FLAG_DEBUGGABLE`, desktop `CHESS_ENABLE_COACH=1`, web `?coach=1`), and the persisted **Enable AI Move Coach** switch in Settings (`AppSettings.aiCoachEnabled`, default on) must be on. Backed by the shared KMP module `:onDeviceAi` holding the routing policy (`AiRoutePolicies.moveCoachOffline`), prompt builder, response validator (300-char bound, forbidden phrases, grounding), and deterministic fallback in `commonMain`; platform runtimes are injected at the entry points. See [On-Device AI Architecture](docs/on-device-ai-architecture.md) for the coach's prompt and routing internals.
-  - **Android backend:** **Cactus (`com.cactuscompute:cactus:1.4.1-beta`)** — llama.cpp CPU runtime. The `gemma3-270m` model (~200 MB GGUF) is downloaded from Hugging Face by Cactus on first launch into `filesDir` (debug APK ~258 MB; no model bundled in the APK). `AndroidManifest.xml` declares `INTERNET` so Cactus can fetch the model. Cold start ~1–2 s *(manual hardware measurement: device model, OS build, sample count)*. Replaced the earlier LiteRT-LM path (7–9 s cold init *(manual hardware measurement)*, streaming crash, no resolvable Maven coordinate) and the ML Kit Prompt API path (narrow AICore device support); `MoveCoachModelAsset.kt` and `AndroidCoachWiring` were removed in the migration. See `docs/benchmarks/on-device-ai/android-delivery-decision.md`.
+  - **Android backend:** **Cactus (`com.cactuscompute:cactus:1.4.1-beta`)** — Cactus runtime. The `gemma3-270m` model (~200 MB .cact) is downloaded from Hugging Face by Cactus on first launch into `filesDir` (debug APK ~258 MB; no model bundled in the APK). `AndroidManifest.xml` declares `INTERNET` so Cactus can fetch the model. Cold start ~1–2 s *(manual hardware measurement: device model, OS build, sample count)*. Replaced the earlier LiteRT-LM path (7–9 s cold init *(manual hardware measurement)*, streaming crash, no resolvable Maven coordinate) and the ML Kit Prompt API path (narrow AICore device support); `MoveCoachModelAsset.kt` and `AndroidCoachWiring` were removed in the migration. See `docs/benchmarks/on-device-ai/android-delivery-decision.md`.
   - **iOS backend:** **Foundation Models** (Apple Intelligence) via `FoundationMoveCoachBridge` registered into `FoundationModelsBridgeRegistry` from `iOSApp.swift`. Requires **iOS 26.0+** (the app's own deployment target is 16.0, set by ChessKitEngine — every Foundation Models call is individually `@available(iOS 26.0, *)`-gated) plus `SystemLanguageModel.default.availability == .available` (a Foundation-Models-eligible device with Apple Intelligence turned on in Settings). Unlike the other three backends there is **no build flag or debug/release distinction** — `MainViewController` probes availability at launch on every build and falls back to rule-based text when Apple Intelligence is unavailable, whether that's an old OS, an ineligible device, or the feature simply being off. iOS has **not** been migrated to Cactus yet — it stays on Foundation Models, though the `:onDeviceAi` KMP module makes that swap feasible later.
   - **Desktop backend:** **LiteRT-LM** (`com.google.ai.edge.litertlm:litertlm-jvm`, Google AI Edge) — the Kotlin/JVM API over LiteRT-LM, with native libs bundled inside the jar (linux-x86_64 / linux-aarch64 / darwin-aarch64 / win-x86_64; **no Intel Mac** — those hosts fall back). The Qwen3-0.6B-int4 model (~347 MB `.litertlm`) is downloaded from Hugging Face on first launch and cached under `~/.chess-coach-models/`. Gated behind `CHESS_ENABLE_COACH=1` (env var) — without it the coach panel stays hidden (the previous default). Wired and compiling, pending on-device verification. See `docs/benchmarks/on-device-ai/desktop-wasm-litert-lm.md`.
   - **Wasm backend:** **LiteRT-LM for Web** (`@litert-lm/core`, loaded from the jsdelivr CDN at runtime) running in a module Web Worker so inference is off the main thread. Uses `gemma-4-E2B-it-web.litertlm` (~2 GB, the only model `@litert-lm/core` officially documents for web). Requires **WebGPU** (Chrome/Edge); on Firefox/Safari the generator reports unavailable and the orchestrator falls back to the deterministic `MoveCoachFallback`. Gated behind `?coach=1` on the page URL. Wired and compiling, pending on-device verification.
   - **JS target** (`js(IR){nodejs()}`): still `UnsupportedTextGenerator` — the React Native port has no WebGPU/workers.
-- **Game Summary (on-device):** The end-of-game counterpart to the per-move coach: a **Get Coach Summary** button in the game-over popup feeds the finished game's **PGN** to the same on-device generator and renders a short "what happened in this game" paragraph. `GameSummaryManager` (`:app`) owns the UI state; `DefaultGameSummaryOrchestrator` (`:onDeviceAi`) runs route → generate → fallback with a 45 s ceiling for the whole PGN-sized prompt. It reuses `AiRoutePolicies.moveCoachOffline`, so it is `LOCAL_ONLY` and free, and it reuses the *same* `OnDeviceTextGeneratorFactory` the coach warmed up — no second model download. Two deliberate differences from the coach: the summary has **no grounding validator** (any non-blank output is accepted — there is no per-move tag list to check it against), and it is **pull-based** (nothing runs until the button is pressed). It shares the coach's *platform* gate (attached in the same call at every entry point — release Android, desktop without `CHESS_ENABLE_COACH=1`, web without `?coach=1`, or Foundation Models unavailable on iOS all leave it unattached) but **not** the coach's Settings switch: **Enable AI Move Coach** only guards the automatic per-move trigger, so turning it off still leaves the summary button usable. The UI state defaults to `Unavailable` (button hidden) until an orchestrator is attached; when no orchestrator is ever attached the button never renders, so there is no way to press it and get nothing back. When generation fails or the route falls back it shows a fixed "review the PGN" line.
+- **Game Summary (on-device):** The end-of-game counterpart to the per-move coach: a **Get Coach Summary** button in the game-over popup feeds the finished game's **PGN** to the same on-device generator and renders a short "what happened in this game" paragraph. `GameSummaryManager` (`:app`) owns the UI state; `DefaultGameSummaryOrchestrator` (`:onDeviceAi`) runs route → generate → fallback with a 45 s ceiling for the whole PGN-sized prompt. It reuses `AiRoutePolicies.moveCoachOffline`, so it is `LOCAL_ONLY` and free, and it reuses the *same* `VendorRouteExecutor` the coach warmed up — no second model download. Two deliberate differences from the coach: the summary has **no grounding validator** (any non-blank output is accepted — there is no per-move tag list to check it against), and it is **pull-based** (nothing runs until the button is pressed). It shares the coach's *platform* gate (attached in the same call at every entry point — release Android, desktop without `CHESS_ENABLE_COACH=1`, web without `?coach=1`, or Foundation Models unavailable on iOS all leave it unattached) but **not** the coach's Settings switch: **Enable AI Move Coach** only guards the automatic per-move trigger, so turning it off still leaves the summary button usable. The UI state defaults to `Unavailable` (button hidden) until an orchestrator is attached; when no orchestrator is ever attached the button never renders, so there is no way to press it and get nothing back. When generation fails or the route falls back it shows a fixed "review the PGN" line.
 - **Opening Explainer (cloud route):** When a game ends, a post-game panel (`OpeningExplainerPanel`) fetches a short, grounded explanation of the opening from a small Ktor + Postgres + pgvector service (`:server`). One of the two cloud policies (`AiRoutePolicies.openingExplainer`, `PUBLIC_OR_SYNTHETIC`, 0.2¢ ceiling — the other is Position Chat below); the on-device coach/summary/rules policies can never reach it. The cloud client is injected from `:app`; if the base URL is unset, the network is down, or the service returns non-2xx, the panel shows a deterministic offline-guidance message instead. See [Opening explainer service](#opening-explainer-service) below for deployment.
 - **Position Chat (cloud, streaming):** An interactive multi-turn chat about the current board position. A **Chat** button opens `ChatScreen`, where the player can type a question and watch the assistant's reply appear token-by-token. The feature is routed to the cloud (`AiRoutePolicies.positionChat`, `PUBLIC_OR_SYNTHETIC`, `allowCloud = true`) — the move coach stays `LOCAL_ONLY` and never reaches this route. There is deliberately **no on-device chat implementation**: the on-device generators stay scoped to the coach and summary, and an on-device route decision is treated as "no route". Requests carry only public chess data (FEN, SAN move list, bounded conversation history); no user identifiers or free-form PII are sent.
   - **Configuration:** Same build-time base-URL config as the Opening Explainer (see [App-side wiring](#opening-explainer-service) below) — with no URL configured, every turn answers with the static offline line, not a network error.
@@ -261,7 +277,10 @@ anything that identifies a user — only public/synthetic chess position data.
 
 The service contract is [server/openapi.yaml](server/openapi.yaml) — the source of truth for the two
 endpoints (`POST /v1/openings/explain` and `GET /health`). A swagger-request-validator contract test
-in `:server:test` validates real responses against it.
+in `:server:test` validates real responses against it. While Ktor 3.4.0 added runtime `.describe {}`
+OpenAPI generation, we deliberately retain the hand-written spec; a contract generated from the
+implementation cannot catch server drift because it *is* the server. Contract-first design only has
+teeth when the contract is independent of the implementation.
 
 **Architecture** — two endpoints, one Postgres, no queues or caching tiers:
 
@@ -323,7 +342,8 @@ pinned MiniLM ONNX model + vocab. `server/fly.toml` configures the app
 never waits on a machine boot, health check `GET /health`). Its `dockerfile` path is resolved
 relative to `server/`, the directory holding `fly.toml` — not the build context.
 
-No production URL or credential is committed. Deployment is intentionally a human step:
+No credential is committed — the base URL below is a public hostname, but every secret
+(`DATABASE_URL`, `COACH_LLM_API_KEY`) stays a Fly secret. Deployment is intentionally a human step:
 
 ```bash
 # 1. Create the Fly app (does not deploy yet)
@@ -382,11 +402,16 @@ fly secrets set --app compose-chess-opening-coach \
 > shipped `lib/*` classpath directly, and the local path uses `./gradlew :server:seed`. Do not put
 > database URLs or provider keys in this README or any `.env` file.
 
-After deployment, record the verified base URL here once you've confirmed `/health` responds:
+The deployed base URL, verified against `GET /health` (returns `ok`):
 
-<!-- TODO(owner): replace with the live URL after first deploy, e.g.
-`coach.baseUrl=https://compose-chess-opening-coach.fly.dev`
--->
+**https://compose-chess-opening-coach.fly.dev**
+
+Point the app at it with `coach.baseUrl=https://compose-chess-opening-coach.fly.dev` in
+`local.properties`, or `CHESS_COACH_BASE_URL` for CI/deploy builds — the precedence is listed under
+[App-side wiring](#opening-explainer-service). Both cloud surfaces (Opening Explainer and Position
+Chat) share this one base URL.
+
+> **Security Note:** This endpoint is currently **unauthenticated and open**. Firebase App Check was evaluated but ultimately removed because it is primarily an Android/Firebase primitive, whereas this application supports four client targets (including desktop and web). The Fly app holds only `DATABASE_URL` and `COACH_LLM_API_KEY` as secrets, but abuse of this open endpoint could incur LLM provider costs if not monitored.
 
 ### AI coach eval harness
 

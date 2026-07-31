@@ -86,7 +86,7 @@ fun AppRoot(
             answerer?.let {
                 DefaultRulesQaOrchestrator(it) {
                     AiContextSnapshot(
-                        isDeviceModelAvailable = true,
+                        availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
                         isAppForegrounded = true,
                         userSetting = AiUserSetting.OFFLINE_ONLY,
                     )

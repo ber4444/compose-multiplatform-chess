@@ -2,9 +2,10 @@ package com.example.ondeviceai.cactus
 
 import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.FakeTextGenerator
-import com.example.ondeviceai.FakeTextGeneratorFactory
+import com.example.ondeviceai.FakeVendorRouteExecutor
 import com.example.ondeviceai.RuleLookupTool
 import com.example.ondeviceai.RulePassage
+import com.example.ondeviceai.VendorRoute
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -38,9 +39,9 @@ class StructuredOutputRulesQaAnswererTest {
         }
 
         val output = StructuredOutputRulesQaAnswerer(
-            factory = FakeTextGeneratorFactory(generator),
+            executor = FakeVendorRouteExecutor(generator),
             lookupTool = lookup,
-        ).answer("May I castle through check?")
+        ).answer("May I castle through check?", VendorRoute.CactusLocal())
 
         assertEquals("castle through check", lookupQuery)
         assertEquals(listOf("castling-check"), output.retrievedPassageIds)
@@ -59,9 +60,9 @@ class StructuredOutputRulesQaAnswererTest {
         )
 
         val output = StructuredOutputRulesQaAnswerer(
-            factory = FakeTextGeneratorFactory(generator),
+            executor = FakeVendorRouteExecutor(generator),
             lookupTool = RuleLookupTool { emptyList() },
-        ).answer("May I castle through check?")
+        ).answer("May I castle through check?", VendorRoute.CactusLocal())
 
         assertEquals(emptyList(), output.retrievedPassageIds)
         assertEquals("I think castling is probably allowed.", output.text)

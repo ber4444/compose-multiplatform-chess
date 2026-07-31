@@ -262,25 +262,25 @@ games via the backfill path described above.
 
 ## Phases
 
-**Phase 1 — `MoveAssessment` + subject switch.** Persist per-ply assessments; compute `cpBest`;
+**RAG-1 — `MoveAssessment` + subject switch.** Persist per-ply assessments; compute `cpBest`;
 implement deterministic motif detection; switch the coach subject to the player's moves. No model
 changes. Unblocks everything else. *This is the load-bearing phase.*
 
-**Phase 2 — Evaluative summary.** Rank by `cpLoss`, cp→concept mapping, difficulty concept gate,
+**RAG-2 — Evaluative summary.** Rank by `cpLoss`, cp→concept mapping, difficulty concept gate,
 cite `[move-N]`. Answers "what went wrong with my game" proactively.
 
-**Phase 3 — Grounded per-move line.** Make the per-move line a retrieval turn over assessments +
+**RAG-3 — Grounded per-move line.** Make the per-move line a retrieval turn over assessments +
 tags, reusing the two-turn structured-output pattern proven in `StructuredOutputRulesQaAnswerer`.
 Prompt becomes a *rewrite* instruction, not a *reason about chess* instruction. Validator and
 deterministic floor unchanged.
 
-**Phase 4 — Chat re-scope.** Assessment-record retrieval for game questions; counterfactual support
+**RAG-4 — Chat re-scope.** Assessment-record retrieval for game questions; counterfactual support
 via Stockfish; Hint button split out; deterministic-feature query construction.
 
-**Phase 5 — Habits + practice.** Aggregate assessments across games; backfill from stored PGNs;
+**RAG-5 — Habits + practice.** Aggregate assessments across games; backfill from stored PGNs;
 narrate aggregates; suggest practice positions.
 
-**Phase 6 (optional) — Offline chat.** Swap in a bundled BM25 retriever so chat works offline.
+**RAG-6 (optional) — Offline chat.** Swap in a bundled BM25 retriever so chat works offline.
 `DefaultPositionChat` currently emits `FALLBACK_NO_CHAT_MODEL` for on-device routes, but that is a
 **policy** choice (`AiRoutePolicies.positionChat` is cloud-only), not an architectural limit — the
 server composer already takes passages as a parameter and does not care where they came from.

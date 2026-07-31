@@ -32,6 +32,12 @@ object MoveCoachPromptBuilder {
         appendLine("The examples below are about DIFFERENT positions. Never repeat them — describe only the move you are given.")
         appendLine()
         STYLE_EXAMPLES.forEach { appendLine("$EXAMPLE_LABEL \"$it\"") }
+        appendLine()
+        appendLine("Respond with a valid JSON object matching this schema:")
+        appendLine("{")
+        appendLine("  \"headline\": \"A short, punchy headline for the move.\",")
+        appendLine("  \"explanation\": \"The full explanation of the move.\"")
+        appendLine("}")
     }
 
     fun build(request: MoveCoachRequest): AiGenerationRequest =
@@ -40,19 +46,6 @@ object MoveCoachPromptBuilder {
             userPrompt = userPrompt(request),
             maxOutputTokens = MAX_OUTPUT_TOKENS_STRICT,
             temperature = 0.3,
-        )
-
-    fun buildRetry(request: MoveCoachRequest, previousOutput: String): AiGenerationRequest =
-        AiGenerationRequest(
-            systemPrompt = SYSTEM_PROMPT,
-            userPrompt = buildString {
-                appendLine(userPrompt(request))
-                appendLine()
-                appendLine("Your previous answer was rejected. Do not copy the example sentences.")
-                appendLine("Reply with exactly 1-2 sentences naming the piece and squares from the move above and what it does.")
-            },
-            maxOutputTokens = MAX_OUTPUT_TOKENS_STRICT,
-            temperature = 0.0,
         )
 
     internal fun userPrompt(request: MoveCoachRequest): String = buildString {

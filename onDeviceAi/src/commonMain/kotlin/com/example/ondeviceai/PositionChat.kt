@@ -60,7 +60,7 @@ class DefaultPositionChat(
                 }
             }
             // No on-device chat implementation exists; an on-device decision is treated as no route.
-            AiRoutePolicyDecider.Decision.RunOnDevice -> emit(fallbackEvent(FALLBACK_NO_CHAT_MODEL))
+            is AiRoutePolicyDecider.Decision.RunOnDevice -> emit(fallbackEvent(FALLBACK_NO_CHAT_MODEL))
             is AiRoutePolicyDecider.Decision.FallBack -> emit(fallbackEvent(decision.reason))
         }
     }

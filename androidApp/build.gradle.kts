@@ -18,7 +18,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.myapplication"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = 1
@@ -68,4 +68,14 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4.android)
     androidTestImplementation(libs.androidx.espresso.device)
     androidTestImplementation(libs.androidx.test.ext.junit)
+}
+
+configurations.all {
+    resolutionStrategy {
+        force("androidx.concurrent:concurrent-futures:1.2.0")
+        force("androidx.concurrent:concurrent-futures-ktx:1.2.0")
+        force("com.google.errorprone:error_prone_annotations:2.30.0")
+        force("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+        force("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    }
 }

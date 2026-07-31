@@ -189,7 +189,10 @@ private fun loadCandidates(path: Path): List<CandidateCase> {
 private fun CandidateCase.toMoveCoachRequest() = MoveCoachRequest(
     fenBefore = fen,
     bestMoveUci = bestMoveUci,
-    bestMoveDisplay = bestMoveUci,
+    // SAN, not UCI — describeMove reads the piece from the first letter, and UCI always starts with
+    // a lowercase file, so UCI here described every move as a pawn. The first faithfulness run was
+    // scored on output generated that way, with 4 of 10 cases actually N/N/Q/N moves.
+    bestMoveDisplay = movesSan.lastOrNull() ?: bestMoveUci,
     sideToMove = if (" b " in fen) "Black" else "White",
     evaluationBeforeCp = null,
     evaluationAfterCp = null,

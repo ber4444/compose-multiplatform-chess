@@ -20,7 +20,8 @@ import com.example.ondeviceai.AiContextSnapshot
 import com.example.ondeviceai.AiUserSetting
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
 import com.example.ondeviceai.DefaultGameSummaryOrchestrator
-import com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory
+import com.example.ondeviceai.VendorRouteExecutor
+import com.example.ondeviceai.AiRoute
 import co.touchlab.kermit.Logger
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -114,8 +115,16 @@ private suspend fun attachMoveCoach(
         )
     )
 
-    val factory = defaultOnDeviceTextGeneratorFactory()
-    val generator = factory.create()
+    val executor = VendorRouteExecutor()
+    val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
+    val context = com.example.ondeviceai.AiContextSnapshot(
+        availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
+        isAppForegrounded = true,
+        userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
+    )
+    val decision = com.example.ondeviceai.AiRoutePolicyDecider.decide(policy, context)
+    val generator = (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
+        ?.let { executor.execute(it.route) }
     runCatching { generator?.warmup() }
         .onFailure { Logger.w("Main") { "LiteRT-LM warmup failed: ${it.message}" } }
 
@@ -125,20 +134,20 @@ private suspend fun attachMoveCoach(
 
     val contextProvider: suspend () -> AiContextSnapshot = {
         AiContextSnapshot(
-            isDeviceModelAvailable = true,
+            availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
             userSetting = AiUserSetting.OFFLINE_ONLY,
         )
     }
 
     moveCoachManager.attachCoachOrchestrator(
         DefaultAiCoachOrchestrator(
-            factory = factory,
+            executor = executor,
             contextProvider = contextProvider,
         )
     )
     gameSummaryManager.attachOrchestrator(
         DefaultGameSummaryOrchestrator(
-            factory = factory,
+            executor = executor,
             contextProvider = contextProvider,
         )
     )

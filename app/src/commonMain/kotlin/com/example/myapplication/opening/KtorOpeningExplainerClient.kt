@@ -66,7 +66,11 @@ fun createOpeningExplainer(): OpeningExplainer {
         client = client,
         contextProvider = {
             AiContextSnapshot(
-                isDeviceModelAvailable = false,
+                // LOAD-BEARING, must stay empty — see the identical note in
+                // `KtorStreamingChatClient`. The decider prefers a local route whenever one is
+                // available, and this surface is cloud-only, so probing real vendors here would
+                // silently route it away from `:server` and into the offline fallback.
+                availableLocalVendors = emptyList(),
                 isNetworkAvailable = client != null,
                 isAppForegrounded = true,
                 userSetting = AiUserSetting.ALLOW_CLOUD,

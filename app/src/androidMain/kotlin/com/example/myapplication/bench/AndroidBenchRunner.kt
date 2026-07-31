@@ -9,7 +9,8 @@ import com.example.ondeviceai.AiCoachOrchestrator
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
 import com.example.ondeviceai.MoveCoachRequest
 import com.example.ondeviceai.bench.BenchProbe
-import com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory
+import com.example.ondeviceai.VendorRouteExecutor
+import com.example.ondeviceai.VendorRoute
 import kotlinx.coroutines.flow.collect
 import java.io.File
 
@@ -47,31 +48,49 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
         var firstToken = 0L
         var completeMs = 0L
         var fallback = false
+        var fallbackReason: String? = null
+        var rawOutput: String? = null
         var tokens = 0
-        
+
         val probe = object : BenchProbe {
             override fun onInitStart() { initStart = System.currentTimeMillis() }
             override fun onInitEnd() { initEnd = System.currentTimeMillis() }
             override fun onGenerateStart() { genStart = System.currentTimeMillis() }
             override fun onFirstToken() { firstToken = System.currentTimeMillis() }
             override fun onGenerateComplete(tokenCount: Int) { completeMs = System.currentTimeMillis(); tokens = tokenCount }
-            override fun onFallback(reason: String) { fallback = true }
+            override fun onFallback(reason: String) { fallback = true; fallbackReason = reason }
+            override fun onRawOutput(text: String) { rawOutput = text }
         }
         
         probe.onInitStart()
-        val factory = defaultOnDeviceTextGeneratorFactory()
-        val generator = factory.create()
-        generator?.warmup()
+        val executor = VendorRouteExecutor()
+        val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
+        val context = com.example.ondeviceai.AiContextSnapshot(
+            availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
+            isAppForegrounded = true,
+            userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
+        )
+        val decision = com.example.ondeviceai.AiRoutePolicyDecider.decide(policy, context)
+        val route = (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
+            ?.route ?: return
+        val generator = executor.execute(route) ?: return
+        generator.warmup()
         probe.onInitEnd()
         
         val orchestrator = DefaultAiCoachOrchestrator(
-            factory = factory,
+            executor = executor,
+            // The orchestrator's own built-in default reports isDeviceModelAvailable = false (a
+            // conservative fallback for callers that don't supply one — see its DefaultContextProvider).
+            // Every real entry point overrides this to true (MainActivity/Main.kt/AppRoot); without it
+            // here the route decider always short-circuits to "no local model" before ever trying
+            // CactusLocal, regardless of whether the generator above actually warmed up.
+            contextProvider = { com.example.ondeviceai.AiContextSnapshot(availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors()) },
             benchProbe = probe
         )
         
         orchestrator.explainMoveStreaming(request).collect() // exhaust flow
         
-        generator?.close()
+        generator.close()
         
         val thermalAfter = pm.currentThermalStatus
         val pmi = android.os.Debug.MemoryInfo()
@@ -97,10 +116,21 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
             thermalStatusBefore = thermalBefore,
             thermalStatusAfter = thermalAfter,
             fallbackTriggered = fallback,
-            isEmulator = isEmulator
+            isEmulator = isEmulator,
+            fallbackReason = fallbackReason,
+            rawOutput = rawOutput
         )
-        
-        val jsonLine = """{"deviceModel":"${result.deviceModel}","osVersion":"${result.osVersion}","appVersion":"${result.appVersion}","modelIdentifier":"${result.modelIdentifier}","isWarm":${result.isWarm},"timestampMs":${result.timestampMs},"initStartMs":${result.initStartMs},"initEndMs":${result.initEndMs},"generateStartMs":${result.generateStartMs},"firstTokenMs":${result.firstTokenMs},"completeMs":${result.completeMs},"tokenCount":${result.tokenCount},"peakMemoryBytes":${result.peakMemoryBytes},"thermalStatusBefore":${result.thermalStatusBefore},"thermalStatusAfter":${result.thermalStatusAfter},"fallbackTriggered":${result.fallbackTriggered},"isEmulator":${result.isEmulator}}"""
+
+        val reasonJson = jsonStringOrNull(result.fallbackReason)
+        val rawOutputJson = jsonStringOrNull(result.rawOutput)
+        val jsonLine = """{"deviceModel":"${result.deviceModel}","osVersion":"${result.osVersion}","appVersion":"${result.appVersion}","modelIdentifier":"${result.modelIdentifier}","isWarm":${result.isWarm},"timestampMs":${result.timestampMs},"initStartMs":${result.initStartMs},"initEndMs":${result.initEndMs},"generateStartMs":${result.generateStartMs},"firstTokenMs":${result.firstTokenMs},"completeMs":${result.completeMs},"tokenCount":${result.tokenCount},"peakMemoryBytes":${result.peakMemoryBytes},"thermalStatusBefore":${result.thermalStatusBefore},"thermalStatusAfter":${result.thermalStatusAfter},"fallbackTriggered":${result.fallbackTriggered},"isEmulator":${result.isEmulator},"fallbackReason":$reasonJson,"rawOutput":$rawOutputJson}"""
         resultsFile.appendText(jsonLine + "\n")
     }
+}
+
+private fun jsonStringOrNull(s: String?): String {
+    if (s == null) return "null"
+    val escaped = s.replace("\\", "\\\\").replace("\"", "\\\"")
+        .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    return "\"$escaped\""
 }

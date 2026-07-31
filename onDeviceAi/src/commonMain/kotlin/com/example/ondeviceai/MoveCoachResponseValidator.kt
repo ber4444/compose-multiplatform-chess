@@ -1,5 +1,10 @@
 package com.example.ondeviceai
 
+/**
+ * Gates honesty, echoed scaffolding, length, and grounding — it does not check reason-faithfulness
+ * or piece-type accuracy. See `docs/benchmarks/on-device-ai/move-coach-quality-axes.md` for measured
+ * cases that pass here while failing those two axes.
+ */
 object MoveCoachResponseValidator {
 
     val FORBIDDEN_PHRASES = listOf(

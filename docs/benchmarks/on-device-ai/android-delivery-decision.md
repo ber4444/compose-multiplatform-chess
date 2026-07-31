@@ -1,6 +1,6 @@
 # Android model-delivery decision (§6.1.1 spike)
 
-Status: **Decided — Cactus (llama.cpp) ships.** The §6.1.1 spike evaluated five
+Status: **Decided — Cactus ships.** The §6.1.1 spike evaluated five
 runtimes and selected Cactus (`com.cactuscompute:cactus:1.4.1-beta`) over the
 alternatives listed below. The integration lives in
 `onDeviceAi/src/androidMain/.../cactus/` and is wired directly into the debug
@@ -24,7 +24,7 @@ from 651 MB with the bundled LiteRT-LM model).
 | Delivery path | App size | Update cadence | Offline after setup | Notes |
 |---|---:|---|---|---|
 | AICore/ML Kit system model | low | OS/Play services managed | yes after model availability | Gemini Nano path, not Gemma. Optional higher-tier route only (`MlKitPromptTextGenerator` compiles). |
-| **Cactus (llama.cpp) + HF-downloaded Gemma** | **low base APK** | **model-source managed** | **yes after first-launch download** | **M3 ships this path.** ~200 MB `gemma3-270m` fetched by Cactus into `filesDir`; debug APK ~258 MB. |
+| **Cactus + HF-downloaded Gemma** | **low base APK** | **model-source managed** | **yes after first-launch download** | **M3 ships this path.** ~200 MB `gemma3-270m` fetched by Cactus into `filesDir`; debug APK ~258 MB. |
 | Play Feature / asset delivery | medium base APK | Play-managed | yes after install | Superseded by Cactus's self-managed download for the coach use case. |
 | Firebase ML / remote model delivery | low base APK | remote model updates | yes after download | Not pursued — Cactus's HF download already keeps the base APK small. |
 | Hugging Face optimized artifact | varies | model-source dependent | yes after packaging/download | This is what Cactus consumes (GGUF). |

@@ -10,7 +10,8 @@ import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
 import com.example.ondeviceai.DefaultGameSummaryOrchestrator
-import com.example.ondeviceai.defaultOnDeviceTextGeneratorFactory
+import com.example.ondeviceai.VendorRouteExecutor
+import com.example.ondeviceai.VendorRoute
 import com.example.ondeviceai.initializeCactus
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.CurrentGameStore
@@ -42,6 +43,10 @@ class MainActivity : ComponentActivity() {
 
         if (isDebug && intent.hasExtra("bench_iterations")) {
             val iterations = intent.getIntExtra("bench_iterations", 1)
+            // Without this, CactusTextGenerator's underlying context is never set up and every
+            // run silently falls back with 0 tokens generated (getCactus()'s own comment warns
+            // "otherwise this will throw" — in practice the caller swallows it into a fallback).
+            initializeCactus(this)
             CoroutineScope(Dispatchers.IO).launch {
                 runAndroidBench(this@MainActivity, iterations)
                 finish()
@@ -91,7 +96,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Attach the on-device move coach using Cactus (llama.cpp).
+     * Attach the on-device move coach using Cactus.
      * Cactus downloads the model from Hugging Face on first launch (~200 MB for
      * gemma3-270m) and caches it locally. Subsequent launches use the cached
      * model (~1-2s init). This replaces the earlier LiteRT-LM path (557 MB,
@@ -114,10 +119,22 @@ class MainActivity : ComponentActivity() {
         )
 
         CoroutineScope(Dispatchers.IO).launch {
-            val factory = defaultOnDeviceTextGeneratorFactory()
-            val generator = factory.create()
-            // Pre-initialize: download model (first launch) + load into memory
-            runCatching { generator?.warmup() }
+            val executor = VendorRouteExecutor()
+            try {
+                val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
+                val context = com.example.ondeviceai.AiContextSnapshot(
+                    availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
+                    isAppForegrounded = true,
+                    userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
+                )
+                // Warm up only the route the decider actually picks; any other decision means
+                // there is nothing local to warm.
+                val decision = com.example.ondeviceai.AiRoutePolicyDecider.decide(policy, context)
+                (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
+                    ?.let { executor.execute(it.route)?.warmup() }
+            } catch (e: Exception) {
+                Logger.e("MainActivity") { "Failed to warmup model: ${e.message}" }
+            }
 
             holder.moveCoachManager.setCoachModelState(
                 com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
@@ -127,7 +144,7 @@ class MainActivity : ComponentActivity() {
 
             val contextProvider: suspend () -> com.example.ondeviceai.AiContextSnapshot = {
                 com.example.ondeviceai.AiContextSnapshot(
-                    isDeviceModelAvailable = true,
+                    availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
                     isAppForegrounded = holder.isForeground,
                     userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
                 )
@@ -135,14 +152,14 @@ class MainActivity : ComponentActivity() {
 
             holder.moveCoachManager.attachCoachOrchestrator(
                 DefaultAiCoachOrchestrator(
-                    factory = factory,
+                    executor = executor,
                     contextProvider = contextProvider,
                 )
             )
 
             holder.gameSummaryManager.attachOrchestrator(
                 DefaultGameSummaryOrchestrator(
-                    factory = factory,
+                    executor = executor,
                     contextProvider = contextProvider,
                 )
             )

@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withTimeoutOrNull
 import com.example.ondeviceai.bench.BenchProbe
 import com.example.ondeviceai.bench.NoOpBenchProbe
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.decodeFromString
 
 sealed interface MoveCoachEvent {
     data class Streaming(val partialText: String) : MoveCoachEvent
@@ -14,7 +16,7 @@ sealed interface MoveCoachEvent {
 }
 
 class DefaultAiCoachOrchestrator(
-    private val factory: OnDeviceTextGeneratorFactory,
+    private val executor: AiRouteExecutor,
     private val contextProvider: suspend () -> AiContextSnapshot = DefaultContextProvider,
     private val clock: () -> Long = ::defaultNowMs,
     private val logger: Logger = Logger.withTag("AiCoach"),
@@ -28,9 +30,8 @@ class DefaultAiCoachOrchestrator(
         }
         val decision = AiRoutePolicyDecider.decide(request.policy, context)
         when (decision) {
-            is AiRoutePolicyDecider.Decision.RunOnDevice -> emit(runOnDevice(request))
-            is AiRoutePolicyDecider.Decision.RunCloud ->
-                emit(fallback(request, AiRoutePolicyDecider.FALLBACK_NO_ROUTE))
+            is AiRoutePolicyDecider.Decision.RunOnDevice -> emit(runOnDevice(request, decision.route))
+            is AiRoutePolicyDecider.Decision.RunCloud -> emit(complete(MoveCoachResult.Failed("Cloud route not supported in onDeviceAi orchestrator")))
             is AiRoutePolicyDecider.Decision.FallBack ->
                 emit(fallback(request, decision.reason))
         }
@@ -44,9 +45,9 @@ class DefaultAiCoachOrchestrator(
         return result
     }
 
-    private suspend fun runOnDevice(request: MoveCoachRequest): MoveCoachEvent {
+    private suspend fun runOnDevice(request: MoveCoachRequest, route: VendorRoute): MoveCoachEvent {
         val start = clock()
-        val generator = runCatching { factory.create() }.getOrElse {
+        val generator = runCatching { executor.execute(route) }.getOrElse {
             return fallback(request, "generator factory failed: ${it.message}")
         } ?: return fallback(request, AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL)
 
@@ -79,20 +80,25 @@ class DefaultAiCoachOrchestrator(
         val prompt = MoveCoachPromptBuilder.build(request)
         val outcome = collectGenerate(request, generator, prompt, startMs)
             ?: return fallback(request, AiRoutePolicyDecider.FALLBACK_TIMEOUT)
+        benchProbe.onRawOutput(outcome.rawText)
 
-        return when (outcome.validation) {
-            is MoveCoachResponseValidator.Result.Valid -> success(outcome.validation.text, outcome.metrics)
+        // Parse JSON
+        val parsed = try {
+            val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+            json.decodeFromString<MoveCoachResponse>(stripJsonCodeFence(outcome.rawText))
+        } catch (e: Exception) {
+            logger.w(e) { "Failed to parse structured output" }
+            return fallback(request, AiRoutePolicyDecider.FALLBACK_VALIDATION)
+        }
+
+        // Validate groundedness after deserialization
+        val validation = MoveCoachResponseValidator.validate(parsed.explanation, request)
+
+        return when (validation) {
+            is MoveCoachResponseValidator.Result.Valid -> success(parsed, outcome.metrics)
             is MoveCoachResponseValidator.Result.Invalid -> {
-                logger.w { "First validation failed: ${outcome.validation.reason}; retrying" }
-                val retryPrompt = MoveCoachPromptBuilder.buildRetry(request, outcome.rawText)
-                val retry = collectGenerate(request, generator, retryPrompt, startMs)
-                    ?: return fallback(request, AiRoutePolicyDecider.FALLBACK_TIMEOUT)
-                when (retry.validation) {
-                    is MoveCoachResponseValidator.Result.Valid ->
-                        success(retry.validation.text, retry.metrics, ExplanationConfidence.MEDIUM)
-                    is MoveCoachResponseValidator.Result.Invalid ->
-                        fallback(request, AiRoutePolicyDecider.FALLBACK_VALIDATION)
-                }
+                logger.w { "Validation failed: ${validation.reason}" }
+                fallback(request, AiRoutePolicyDecider.FALLBACK_VALIDATION)
             }
         }
     }
@@ -136,19 +142,18 @@ class DefaultAiCoachOrchestrator(
         return GenerationOutcome(
             rawText = rawText,
             metrics = metrics,
-            validation = MoveCoachResponseValidator.validate(rawText, request),
         )
     }
 
     private fun success(
-        text: String,
+        response: MoveCoachResponse,
         metrics: AiInferenceMetrics,
         confidence: ExplanationConfidence = ExplanationConfidence.HIGH,
     ): MoveCoachEvent = complete(
         MoveCoachResult.Success(
             MoveCoachExplanation(
-                headline = text.substringBefore('.').trim().ifBlank { text.take(60) },
-                explanation = text,
+                headline = response.headline.trim().ifBlank { response.explanation.take(60) },
+                explanation = response.explanation,
                 confidence = confidence,
                 route = AiRoute.OnDevice,
                 metrics = metrics,
@@ -172,16 +177,34 @@ class DefaultAiCoachOrchestrator(
     private fun countTokens(text: String): Int =
         text.split(Regex("\\s+")).count { it.isNotBlank() }
 
+    /**
+     * Models routinely wrap requested JSON in a markdown code fence (e.g. Foundation Models:
+     * "```json\n{...}\n```") even when told to "output valid JSON" with no further instruction
+     * about markdown. Strip a wrapping fence before parsing; text without one passes through
+     * unchanged. Same category as the LiteRT-LM `<think>` stripping fix — clean a model's habitual
+     * decoration before treating its output as data.
+     */
+    private fun stripJsonCodeFence(text: String): String {
+        val trimmed = text.trim()
+        val match = JSON_FENCE.matchEntire(trimmed) ?: return trimmed
+        return match.groupValues[1].trim()
+    }
+
     private data class GenerationOutcome(
         val rawText: String,
         val metrics: AiInferenceMetrics,
-        val validation: MoveCoachResponseValidator.Result,
     )
 
     private companion object {
+        // [\s\S]*? (not .*?) so the fence body matches across newlines without RegexOption
+        // .DOT_MATCHES_ALL, which Kotlin/JS doesn't support.
+        val JSON_FENCE = Regex(
+            "^```(?:json)?\\s*\\n?([\\s\\S]*?)\\n?```\\s*$",
+            RegexOption.IGNORE_CASE,
+        )
         val DefaultContextProvider: suspend () -> AiContextSnapshot = {
             AiContextSnapshot(
-                isDeviceModelAvailable = false,
+                availableLocalVendors = emptyList(),
                 isAppForegrounded = true,
                 userSetting = AiUserSetting.OFFLINE_ONLY,
             )

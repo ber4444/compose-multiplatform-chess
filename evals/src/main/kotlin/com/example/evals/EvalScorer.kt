@@ -48,7 +48,11 @@ object EvalScorer {
 internal fun GoldenCase.toMoveCoachRequest() = MoveCoachRequest(
     fenBefore = fen,
     bestMoveUci = bestMoveUci,
-    bestMoveDisplay = bestMoveUci,
+    // SAN, not UCI. MoveCoachPromptBuilder.describeMove derives the piece name from this string's
+    // first letter, and UCI always starts with a lowercase file letter — so passing UCI labelled
+    // every move "Pawn", including knight/queen moves, and the model faithfully echoed it. Mirrors
+    // production, which uses moveHistory.lastOrNull()?.san (MoveCoachContextExtractor).
+    bestMoveDisplay = movesSan.lastOrNull() ?: bestMoveUci,
     sideToMove = if (" b " in fen) "Black" else "White",
     evaluationBeforeCp = null,
     evaluationAfterCp = null,

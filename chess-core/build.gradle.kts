@@ -32,7 +32,7 @@ kotlin {
     android {
         namespace = "com.example.myapplication.chesscore"
         compileSdk = 36
-        minSdk = 24
+        minSdk = 26
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
         }

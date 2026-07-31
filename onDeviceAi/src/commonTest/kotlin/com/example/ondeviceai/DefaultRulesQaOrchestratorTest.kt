@@ -10,7 +10,7 @@ class DefaultRulesQaOrchestratorTest {
     @Test
     fun `valid locally grounded answer succeeds`() = runTest {
         val orchestrator = DefaultRulesQaOrchestrator(
-            answerer = RulesQaAnswerer {
+            answerer = RulesQaAnswerer { _, _ ->
                 RulesQaModelOutput(
                     text = "A king may not castle through check. [castling-check]",
                     retrievedPassageIds = listOf("castling-check"),
@@ -28,7 +28,7 @@ class DefaultRulesQaOrchestratorTest {
     @Test
     fun `ungrounded answer uses static rules fallback`() = runTest {
         val orchestrator = DefaultRulesQaOrchestrator(
-            answerer = RulesQaAnswerer {
+            answerer = RulesQaAnswerer { _, _ ->
                 RulesQaModelOutput("Yes, whenever you want.", emptyList())
             },
             contextProvider = { localContext() },
@@ -44,11 +44,11 @@ class DefaultRulesQaOrchestratorTest {
     fun `missing local model falls back and never calls answerer`() = runTest {
         var called = false
         val orchestrator = DefaultRulesQaOrchestrator(
-            answerer = RulesQaAnswerer {
+            answerer = RulesQaAnswerer { _, _ ->
                 called = true
                 RulesQaModelOutput("unused", emptyList())
             },
-            contextProvider = { localContext(isDeviceModelAvailable = false) },
+            contextProvider = { localContext(hasModel = false) },
         )
 
         val result = orchestrator.answer("What is stalemate?")
@@ -57,8 +57,8 @@ class DefaultRulesQaOrchestratorTest {
         assertEquals(false, called)
     }
 
-    private fun localContext(isDeviceModelAvailable: Boolean = true) = AiContextSnapshot(
-        isDeviceModelAvailable = isDeviceModelAvailable,
+    private fun localContext(hasModel: Boolean = true) = AiContextSnapshot(
+        availableLocalVendors = if (hasModel) listOf(VendorRoute.LiteRtLm()) else emptyList(),
         isAppForegrounded = true,
         isNetworkAvailable = true,
         userSetting = AiUserSetting.PREFER_LOCAL,

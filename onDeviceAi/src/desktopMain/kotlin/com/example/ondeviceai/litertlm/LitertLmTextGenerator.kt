@@ -29,7 +29,7 @@ import java.util.concurrent.Executors
  * Mirrors [com.example.ondeviceai.cactus.CactusTextGenerator] on Android:
  * same [OnDeviceTextGenerator] contract, same single-thread serialization of
  * native calls, same no-op [close] (keeps the model warm across moves). The
- * only differences are the underlying runtime (LiteRT-LM vs Cactus/llama.cpp)
+ * only differences are the underlying runtime (LiteRT-LM vs Cactus)
  * and that the model is a `.litertlm` file on local disk (downloaded by
  * [LitertLmModelStore]) rather than a Cactus-packaged slug.
  *

@@ -1,6 +1,7 @@
 package com.example.evals
 
 import com.example.ondeviceai.AiTokenOrFinal
+import com.example.ondeviceai.MoveCoachPromptBuilder
 import kotlin.io.path.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -75,5 +76,34 @@ class EvalScorerTest {
 
         assertEquals(listOf("eval-second"), passages.map { it.sourceId })
         assertFalse(EvalScorer.scoreOpening(first, passages.single().text).grounded)
+    }
+
+    /**
+     * Regression: this used to pass `bestMoveUci` as the display string. `describeMove` reads the
+     * piece from the first letter and UCI always starts with a lowercase file, so every prompt said
+     * "Pawn" — a knight move was fed to the model as "Pawn g1→h3" and it echoed that back. Any
+     * piece-accuracy measurement taken that way scores the harness, not the model.
+     */
+    @Test
+    fun `move coach prompt names the real piece for a knight move`() {
+        val knightCase = GoldenCase(
+            id = "knight", fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            bestMoveUci = "g1h3", tags = listOf("opening", "develops"), movesSan = listOf("Nh3"),
+        )
+
+        assertEquals("Nh3", knightCase.toMoveCoachRequest().bestMoveDisplay)
+        val prompt = MoveCoachPromptBuilder.build(knightCase.toMoveCoachRequest()).userPrompt
+        assertTrue("Knight g1→h3" in prompt, "expected 'Knight g1→h3' in prompt, got: $prompt")
+        assertFalse("Pawn" in prompt, "knight move must not be described as a pawn: $prompt")
+    }
+
+    @Test
+    fun `move coach prompt falls back to uci when a case carries no san`() {
+        val noSan = GoldenCase(
+            id = "no-san", fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            bestMoveUci = "e2e4", tags = listOf("opening"),
+        )
+
+        assertEquals("e2e4", noSan.toMoveCoachRequest().bestMoveDisplay)
     }
 }

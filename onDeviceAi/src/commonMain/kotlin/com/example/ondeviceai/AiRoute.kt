@@ -20,20 +20,14 @@ enum class ThermalState {
     UNKNOWN,
 }
 
-data class DeviceProfile(
-    val tier: String,
-    val supportsNpu: Boolean,
-) {
-    companion object {
-        val UNKNOWN = DeviceProfile(tier = "unknown", supportsNpu = false)
-    }
-}
-
 data class AiContextSnapshot(
-    val isDeviceModelAvailable: Boolean,
+    val availableLocalVendors: List<VendorRoute> = emptyList(),
     val isNetworkAvailable: Boolean = false,
     val isAppForegrounded: Boolean = true,
     val userSetting: AiUserSetting = AiUserSetting.OFFLINE_ONLY,
-    val deviceProfile: DeviceProfile = DeviceProfile.UNKNOWN,
     val thermalState: ThermalState = ThermalState.UNKNOWN,
-)
+) {
+    val isDeviceModelAvailable: Boolean get() = availableLocalVendors.isNotEmpty()
+}
+
+expect suspend fun probeAvailableLocalVendors(): List<VendorRoute>

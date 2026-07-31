@@ -242,19 +242,13 @@ private suspend fun evaluateFake(cases: List<GoldenCase>): RouteStats {
         val request = case.toMoveCoachRequest()
         var text = tokenText(generator.generate(MoveCoachPromptBuilder.build(request)).toList())
         var score = EvalScorer.scoreMove(case, text)
-        var retried = false
         var fellBack = false
-        if (!score.grounded) {
-            retried = true
-            text = tokenText(generator.generate(MoveCoachPromptBuilder.buildRetry(request, text)).toList())
-            score = EvalScorer.scoreMove(case, text)
-        }
         if (!score.grounded) {
             fellBack = true
             text = MoveCoachFallback.build(request)
             score = EvalScorer.scoreMove(case, text)
         }
-        stats.record(score, retried, fellBack)
+        stats.record(score, retried = false, fellBack = fellBack)
         generator.close()
     }
     return stats
@@ -498,8 +492,8 @@ object ScorecardWriter {
                 appendLine("| ${stat.route} | — | — | — | — | — | ${stat.collection.name.lowercase()} (${stat.note}) |")
             }
         }
-        appendLine("| cactus-android | — | — | — | — | — | manual (hardware numbers not collected) |")
-        appendLine("| foundation-models-ios | — | — | — | — | — | manual (hardware numbers not collected) |")
+        appendLine("| cactus-android | — | — | — | — | — | manual (see docs/benchmarks/on-device-ai/move-coach-benchmark-schema.md — first real run 2026-07-29, still 100% fallback, root cause open) |")
+        appendLine("| foundation-models-ios | — | — | — | — | — | manual (see docs/benchmarks/on-device-ai/move-coach-benchmark-schema.md — first real run 2026-07-29 on Simulator, still 100% fallback, root cause open) |")
         appendLine()
         appendLine("The scorer is rule-based: move cases use `MoveCoachResponseValidator`; opening cases require all `expectedConcepts`; multi-turn chat cases require at least one expected concept per turn (the no-drift check). No judge model is used.")
     }

@@ -82,7 +82,7 @@ class DefaultOpeningExplainerTest {
     }
 
     private fun cloudContext() = AiContextSnapshot(
-        isDeviceModelAvailable = false,
+        availableLocalVendors = emptyList(),
         isNetworkAvailable = true,
         userSetting = AiUserSetting.ALLOW_CLOUD,
     )

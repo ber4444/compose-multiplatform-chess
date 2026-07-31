@@ -4,26 +4,32 @@ import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.AiGenerationRequest
 import com.example.ondeviceai.AiTokenOrFinal
 import com.example.ondeviceai.OnDeviceTextGenerator
-import com.example.ondeviceai.OnDeviceTextGeneratorFactory
 import com.example.ondeviceai.RuleLookupTool
 import com.example.ondeviceai.RulesQaAnswerer
 import com.example.ondeviceai.RulesQaModelOutput
 import kotlinx.coroutines.CancellationException
+
+import com.example.ondeviceai.VendorRoute
+import com.example.ondeviceai.VendorRouteExecutor
+import com.example.ondeviceai.AiRouteExecutor
+import com.example.ondeviceai.AiRoutePolicies
+import com.example.ondeviceai.AiContextSnapshot
+import com.example.ondeviceai.AiUserSetting
 
 /**
  * Android rules Q&A uses structured-output prompting, not native function calling.
  *
  * The small Cactus model first emits a strict `lookup_rule` JSON envelope. Kotlin executes the
  * real offline lookup and sends those passages in a second turn. Keeping this distinction explicit
- * avoids presenting llama.cpp prompt choreography as a tool-calling API.
+ * avoids presenting Cactus prompt choreography as a tool-calling API.
  */
 class StructuredOutputRulesQaAnswerer(
-    private val factory: OnDeviceTextGeneratorFactory,
+    private val executor: AiRouteExecutor,
     private val lookupTool: RuleLookupTool,
 ) : RulesQaAnswerer {
 
-    override suspend fun answer(question: String): RulesQaModelOutput {
-        val generator = factory.create() ?: return ungrounded("")
+    override suspend fun answer(question: String, route: VendorRoute): RulesQaModelOutput {
+        val generator = executor.execute(route) ?: return ungrounded("")
         return try {
             if (generator.status() !is AiAvailability.Available) return ungrounded("")
 
