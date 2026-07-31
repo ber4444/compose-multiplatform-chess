@@ -2,7 +2,7 @@
 set -e
 
 ITERATIONS=${1:-20}
-PACKAGE="com.example.game"
+PACKAGE="com.example.myapplication"
 ACTIVITY="com.example.myapplication.MainActivity"
 
 # Clear previous results
