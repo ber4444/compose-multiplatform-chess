@@ -10,7 +10,7 @@
 | local-template-chat | 200 | 0.0% | 0.0% | 0.0% | 0.0% | automated |
 | deployed-cloud | — | — | — | — | — | optional (COACH_DEPLOYED_URL not set) |
 | local-llm-compose | — | — | — | — | — | optional (COACH_LLM_API_KEY or token prices not set) |
-| cactus-android | — | — | — | — | — | manual (see docs/benchmarks/on-device-ai/move-coach-benchmark-schema.md — first real run 2026-07-29, still 100% fallback, root cause open) |
+| cactus-android | 5 | 80.0% | 0.0% | 80.0% | 0.0% | manual (Pixel 10 Pro XL, gemma3-270m, 2026-07-31) |
 | foundation-models-ios | — | — | — | — | — | manual (see docs/benchmarks/on-device-ai/move-coach-benchmark-schema.md — first real run 2026-07-29 on Simulator, still 100% fallback, root cause open) |
 
 The scorer is rule-based: move cases use `MoveCoachResponseValidator`; opening cases require all `expectedConcepts`; multi-turn chat cases require at least one expected concept per turn (the no-drift check). No judge model is used.
