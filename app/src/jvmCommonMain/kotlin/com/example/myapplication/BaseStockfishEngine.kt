@@ -8,6 +8,8 @@ import java.io.OutputStreamWriter
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -31,6 +33,37 @@ abstract class BaseStockfishEngine : ChessEngine {
     private var writer: OutputStreamWriter? = null
     private var readerThread: Thread? = null
     private val lineQueue = LinkedBlockingQueue<String>()
+
+    /**
+     * Serializes every command/response exchange with the engine process. **Load-bearing — do not
+     * remove or narrow to a write-only lock.**
+     *
+     * UCI is a stateful conversation over one pipe: a caller sends `position fen …` then `go …`,
+     * then drains [lineQueue] until it sees the reply it wants. Two concurrent callers on one
+     * process corrupt each other three ways:
+     *
+     *  - **Position clobbering.** Both `position fen` commands race; the engine ends up on whichever
+     *    landed last, and the loser's `go` analyses a different board than it asked about. It returns
+     *    a plausible number for the wrong position — no exception, nothing in the log.
+     *  - **Line theft.** [lineQueue] is shared, and the two drain loops accept different lines
+     *    ([waitForBestMove] wants `bestmove`, [waitForEvaluation] wants `info … score`). Interleaved,
+     *    each consumes lines the other needed — an `evaluate` can swallow the `bestmove` a
+     *    [getBestMove] is blocked on, which then times out and silently degrades to the embedded
+     *    CPU fallback.
+     *  - **Protocol violation.** Issuing `go` while a search is running is undefined in UCI; the
+     *    engine expects `stop` first.
+     *
+     * The other two transports already serialize: `UciProtocolClient` (wasm) holds a `Mutex` across
+     * `bestMove`/`evaluate`/`configure`, and the iOS bridge funnels every command through
+     * `SharedStockfishCore.runSearch` under an `NSLock`. This JVM path — Android *and* desktop — was
+     * the only one without the guard.
+     *
+     * Not held by [start] or [shutdown]: both are lifecycle-only, called before the engine is
+     * attached and after it is detached respectively, so no search can be in flight. [shutdown]
+     * racing an in-flight search is a pre-existing, benign case — the search times out and falls
+     * back — and fixing it properly needs `ChessEngine.close()` to become suspending.
+     */
+    private val uciMutex = Mutex()
 
     // Engine difficulty (issue #39 Phase 4). `null` skillLevel = unset; movetime defaults to the
     // classic think budget. configure() sends `setoption name Skill Level value N` once the engine
@@ -114,19 +147,28 @@ abstract class BaseStockfishEngine : ChessEngine {
      * once the engine process is up) or after (sent immediately). The embedded fallback (no process)
      * ignores the skill level but still honors the movetime.
      */
-    override suspend fun configure(difficulty: EngineDifficulty) = withContext(Dispatchers.IO) {
-        skillLevel = difficulty.skillLevel
-        thinkTimeMs = difficulty.thinkTimeMs
-        if (process != null && isReady) sendSkillLevel(difficulty.skillLevel)
+    override suspend fun configure(difficulty: EngineDifficulty) = uciMutex.withLock {
+        withContext(Dispatchers.IO) {
+            skillLevel = difficulty.skillLevel
+            thinkTimeMs = difficulty.thinkTimeMs
+            if (process != null && isReady) sendSkillLevel(difficulty.skillLevel)
+        }
     }
 
     private fun sendSkillLevel(level: Int) {
         sendCommand("setoption name Skill Level value $level")
     }
 
-    override suspend fun getBestMove(fen: String): String? = withContext(Dispatchers.IO) { getBestMove(fen, thinkTimeMs) }
+    override suspend fun getBestMove(fen: String): String? = uciMutex.withLock {
+        withContext(Dispatchers.IO) { searchBestMove(fen, thinkTimeMs) }
+    }
 
-    fun getBestMove(fen: String, thinkTimeMs: Long): String? {
+    /**
+     * Private on purpose: it writes commands and drains [lineQueue] without holding [uciMutex], so
+     * it is only safe from a caller that already holds it. Was public with no callers outside this
+     * file — exposing it would reintroduce the unguarded path the mutex exists to close.
+     */
+    private fun searchBestMove(fen: String, thinkTimeMs: Long): String? {
         if (!isReady || process == null) return getEmbeddedBestMove(fen)
 
         return try {
@@ -174,17 +216,19 @@ abstract class BaseStockfishEngine : ChessEngine {
         }
     }
 
-    override suspend fun evaluate(fen: String): Int? = withContext(Dispatchers.IO) {
-        if (!isReady || process == null) return@withContext null
+    override suspend fun evaluate(fen: String): Int? = uciMutex.withLock {
+        withContext(Dispatchers.IO) {
+            if (!isReady || process == null) return@withContext null
 
-        return@withContext try {
-            sendCommand("position fen $fen")
-            sendCommand("go depth $EVAL_DEPTH")
-            val rawEval = waitForEvaluation(EVAL_TIMEOUT_MS) ?: return@withContext null
-            UciEvaluation.toWhitePerspective(rawEval, UciEvaluation.isWhiteToMove(fen))
-        } catch (e: IOException) {
-            logger.e(e) { "Error evaluating position" }
-            null
+            return@withContext try {
+                sendCommand("position fen $fen")
+                sendCommand("go depth $EVAL_DEPTH")
+                val rawEval = waitForEvaluation(EVAL_TIMEOUT_MS) ?: return@withContext null
+                UciEvaluation.toWhitePerspective(rawEval, UciEvaluation.isWhiteToMove(fen))
+            } catch (e: IOException) {
+                logger.e(e) { "Error evaluating position" }
+                null
+            }
         }
     }
 
