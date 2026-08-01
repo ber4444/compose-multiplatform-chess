@@ -54,9 +54,21 @@ class DeterministicCoachTest {
     }
 
     @Test
-    fun `headline falls back to the move when the motif is unmapped`() {
+    fun `headline finds a recognized motif behind an unmapped one`() {
+        // Order-independence. buildHeadline used to take motifs.first() blindly, so a leading
+        // unmapped entry suppressed the real tactic: every case in the eval golden set is tagged
+        // "opening" first, and every headline came out as the bare move. buildExplanation used
+        // contains() and was never order-dependent, so the two halves disagreed.
         val headline = DeterministicCoach.buildHeadline(
-            record(assessment = assessment(MoveClass.MISTAKE, listOf("some-future-motif"))),
+            record(assessment = assessment(MoveClass.BLUNDER, listOf("opening", "hangs-piece"))),
+        )
+        assertEquals("Blunder — hangs a piece", headline)
+    }
+
+    @Test
+    fun `headline falls back to the move when every motif is unmapped`() {
+        val headline = DeterministicCoach.buildHeadline(
+            record(assessment = assessment(MoveClass.MISTAKE, listOf("opening", "some-future-motif"))),
         )
         assertEquals("Mistake — Nf3", headline)
     }

@@ -6,6 +6,21 @@ import kotlin.math.abs
 
 object DeterministicCoach {
 
+    /** Motifs that have a headline phrase. Order within a move's motif list decides which wins. */
+    private val MOTIF_HEADLINES = mapOf(
+        "checkmate" to "delivers checkmate",
+        "check" to "gives check",
+        "promotion" to "promotes",
+        "castle-kingside" to "castles",
+        "castle-queenside" to "castles",
+        "capture" to "captures material",
+        "hangs-piece" to "hangs a piece",
+        "fork" to "forks",
+        "pin" to "pins",
+        "skewer" to "skewers",
+        "discovered-attack" to "opens a discovered attack",
+    )
+
     private const val MAX_FALLBACK_CHARS = 300
 
     fun buildHeadline(record: MoveRecord): String {
@@ -26,20 +41,12 @@ object DeterministicCoach {
             MoveClass.BOOK -> "Book move"
         }
 
-        val topMotif = assessment.motifs.firstOrNull()
-        val motifText = when (topMotif) {
-            "checkmate" -> "delivers checkmate"
-            "check" -> "gives check"
-            "promotion" -> "promotes"
-            "castle-kingside", "castle-queenside" -> "castles"
-            "capture" -> "captures material"
-            "hangs-piece" -> "hangs a piece"
-            "fork" -> "forks"
-            "pin" -> "pins"
-            "skewer" -> "skewers"
-            "discovered-attack" -> "opens a discovered attack"
-            else -> null
-        }
+        // Scan for the first *recognized* motif rather than taking motifs.first() blindly.
+        // buildExplanation uses contains(), so it was order-independent while this was not: a
+        // leading unmapped entry — "opening" in the golden set, or whichever tactic MotifDetector
+        // happened to append first — silently suppressed the motif and fell through to the bare
+        // move. Every headline in the eval set was "Best move — Nf3" for exactly that reason.
+        val motifText = assessment.motifs.firstNotNullOfOrNull { MOTIF_HEADLINES[it] }
 
         return if (motifText != null) {
             "$className — $motifText"
