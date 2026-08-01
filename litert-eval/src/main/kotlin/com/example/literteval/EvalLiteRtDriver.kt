@@ -2,7 +2,6 @@ package com.example.literteval
 
 import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.AiTokenOrFinal
-import com.example.ondeviceai.MoveCoachFallback
 import com.example.ondeviceai.MoveCoachPromptBuilder
 import com.example.ondeviceai.MoveCoachRequest
 import com.example.ondeviceai.litertlm.LitertLmModelStore
@@ -144,10 +143,11 @@ private suspend fun runOneCase(
 }
 
 private fun fallbackRecord(case: CandidateCase, reason: String): OutputRecord {
-    // The production orchestrator falls back to MoveCoachFallback when the
+    // The production orchestrator falls back to deterministic text when the
     // generator produces nothing. Record that text so the scorer sees what
     // the user would actually see, and mark the route.
-    val fallbackText = MoveCoachFallback.build(case.toMoveCoachRequest())
+    val req = case.toMoveCoachRequest()
+    val fallbackText = "${req.deterministicHeadline} ${req.deterministicExplanation}"
     return OutputRecord(
         id = case.id,
         fen = case.fen,
@@ -187,16 +187,13 @@ private fun loadCandidates(path: Path): List<CandidateCase> {
 }
 
 private fun CandidateCase.toMoveCoachRequest() = MoveCoachRequest(
-    fenBefore = fen,
-    bestMoveUci = bestMoveUci,
+    moveUci = bestMoveUci,
     // SAN, not UCI — describeMove reads the piece from the first letter, and UCI always starts with
     // a lowercase file, so UCI here described every move as a pawn. The first faithfulness run was
     // scored on output generated that way, with 4 of 10 cases actually N/N/Q/N moves.
-    bestMoveDisplay = movesSan.lastOrNull() ?: bestMoveUci,
-    sideToMove = if (" b " in fen) "Black" else "White",
-    evaluationBeforeCp = null,
-    evaluationAfterCp = null,
-    deterministicTags = tags,
+    moveDisplay = movesSan.lastOrNull() ?: bestMoveUci,
+    deterministicHeadline = "You played ${movesSan.lastOrNull() ?: bestMoveUci}.",
+    deterministicExplanation = "This was a good move.",
     engineDifficultyName = "EVAL",
 )
 
