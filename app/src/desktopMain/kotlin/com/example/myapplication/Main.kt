@@ -65,9 +65,12 @@ fun main() = application {
 
     DisposableEffect(Unit) {
         val engine = DesktopStockfishEngine()
+        var backfiller: com.example.myapplication.persistence.GameHistoryBackfiller? = null
         CoroutineScope(Dispatchers.IO).launch {
             if (engine.start()) {
                 viewModel.attachEngine(engine)
+                backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine)
+                backfiller?.start()
             } else {
                 Logger.w("Main") { "Failed to start stockfish." }
             }
@@ -77,6 +80,7 @@ fun main() = application {
         }
         onDispose {
             engine.close()
+            backfiller?.stop()
             moveCoachManager.close()
             gameSummaryManager.close()
             viewModel.close()

@@ -4,7 +4,9 @@ actual suspend fun probeAvailableLocalVendors(): List<VendorRoute> {
     val vendors = mutableListOf<VendorRoute>()
     
     val mlKit = MlKitPromptGenerator(ModelPreference.FAST)
-    if (mlKit.status() is AiAvailability.Available) {
+    val status = mlKit.status()
+    android.util.Log.d("AiRoute", "MLKit status: $status")
+    if (status is AiAvailability.Available) {
         vendors.add(VendorRoute.MlKitPrompt(ModelPreference.FAST))
     }
     

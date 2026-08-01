@@ -178,7 +178,7 @@ final class StockfishChessEngine: NSObject, ChessEngine {
         _ = SharedStockfishCore.shared
     }
 
-    func getBestMove(fen: String, completionHandler: @escaping (String?, Error?) -> Void) {
+    func getBestMove(fen: String, completionHandler: @escaping (BestMoveResult?, Error?) -> Void) {
         let checkClosed = { [weak self] in self?.localQueue.sync { self?.isClosed ?? true } ?? true }
         // The first search after engine init can fail on slow/contended CI runners — the engine's
         // async response pipeline isn't fully primed yet, so the bestmove response is missed and
@@ -199,21 +199,32 @@ final class StockfishChessEngine: NSObject, ChessEngine {
                 checkClosed: checkClosed
             )
         }
-        completionHandler(move, nil)
+        
+        if let uci = move {
+            let rawCp = SharedStockfishCore.shared.stateQueue.sync { SharedStockfishCore.shared.lastRawScoreCp }
+            var evalToWhite: KotlinInt? = nil
+            if let rawCp = rawCp {
+                let whiteToMove = UciEvaluation.shared.isWhiteToMove(fen: fen)
+                evalToWhite = KotlinInt(int: UciEvaluation.shared.toWhitePerspective(scoreCp: rawCp, whiteToMove: whiteToMove))
+            }
+            completionHandler(BestMoveResult(uci: uci, evaluationCp: evalToWhite), nil)
+        } else {
+            completionHandler(nil, nil)
+        }
     }
 
-    func evaluate(fen: String, completionHandler: @escaping (KotlinInt?, Error?) -> Void) {
+    func evaluate(fen: String, thinkTimeMs: KotlinLong?, completionHandler: @escaping (KotlinInt?, Error?) -> Void) {
         let checkClosed = { [weak self] in self?.localQueue.sync { self?.isClosed ?? true } ?? true }
 
         // Like getBestMove, a search on a cold/contended CI pipeline can have its bestmove
         // response missed, so runSearch times out and returns nil (leaving lastRawScoreCp nil).
         // Retry once: the second attempt runs against a warmed-up pipeline and reliably scores.
-        let evalMoveTimeMs = SharedStockfishCore.shared.stateQueue.sync { SharedStockfishCore.shared.evalMoveTimeMs }
+        let evalMoveTimeMs = thinkTimeMs != nil ? Int(truncating: thinkTimeMs!) : SharedStockfishCore.shared.stateQueue.sync { SharedStockfishCore.shared.evalMoveTimeMs }
         func attempt() -> KotlinInt? {
             guard SharedStockfishCore.shared.runSearch(
                 fen: fen,
                 go: .go(movetime: evalMoveTimeMs),
-                timeout: sharedEvalResponseTimeout,
+                timeout: thinkTimeMs != nil ? TimeInterval(evalMoveTimeMs) / 1000.0 + 5.0 : sharedEvalResponseTimeout,
                 checkClosed: checkClosed
             ) != nil else { return nil }
             guard let raw = SharedStockfishCore.shared.stateQueue.sync(execute: {

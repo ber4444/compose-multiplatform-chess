@@ -63,10 +63,22 @@ class AppSettings(private val settings: Settings) {
 
     private fun readAiCoachEnabled(): Boolean = settings.getBoolean(KEY_AI_COACH, true)
 
+    private val _playerSide: MutableStateFlow<String> =
+        MutableStateFlow(readPlayerSide())
+    val playerSide: StateFlow<String> get() = _playerSide
+
+    fun setPlayerSide(side: String) {
+        settings.putString(KEY_PLAYER_SIDE, side)
+        _playerSide.value = side
+    }
+
+    private fun readPlayerSide(): String = settings.getString(KEY_PLAYER_SIDE, "WHITE")
+
     companion object {
         const val KEY_BOARD_3D = "settings.board_3d_enabled"
         const val KEY_ENGINE_DIFFICULTY = "settings.engine_difficulty"
         const val KEY_AI_COACH = "settings.ai_coach_enabled"
+        const val KEY_PLAYER_SIDE = "settings.player_side"
     }
 }
 

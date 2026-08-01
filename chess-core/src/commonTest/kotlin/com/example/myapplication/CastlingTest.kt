@@ -158,7 +158,7 @@ class CastlingTest {
         val blackKingIndex = state.piecesBlack.indexOfFirst { it is King }
         
         val engine = object : ChessEngine { 
-            override suspend fun getBestMove(fen: String) = "e8g8"
+            override suspend fun getBestMove(fen: String) = BestMoveResult("e8g8", null)
             override fun close() {} 
         }
 

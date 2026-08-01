@@ -76,7 +76,7 @@ failure; it's the architecture working as specified, against the wrong substrate
 The coach and rules Q&A share **the same model, the same object**:
 
 ```kotlin
-// onDeviceAi/src/androidMain/.../OnDeviceTextGeneratorFactory.android.kt
+// onDeviceAi/src/androidMain/.../VendorRouteExecutor.android.kt — getCactus()
 cachedGenerator ?: CactusTextGenerator().also { cachedGenerator = it }
 ```
 
@@ -269,10 +269,27 @@ changes. Unblocks everything else. *This is the load-bearing phase.*
 **RAG-2 — Evaluative summary.** Rank by `cpLoss`, cp→concept mapping, difficulty concept gate,
 cite `[move-N]`. Answers "what went wrong with my game" proactively.
 
-**RAG-3 — Grounded per-move line.** Make the per-move line a retrieval turn over assessments +
-tags, reusing the two-turn structured-output pattern proven in `StructuredOutputRulesQaAnswerer`.
-Prompt becomes a *rewrite* instruction, not a *reason about chess* instruction. Validator and
-deterministic floor unchanged.
+**RAG-3 — Grounded per-move line.** Ground the line in assessment records + tags. The prompt becomes
+a *rewrite* instruction, not a *reason about chess* instruction.
+
+**Single turn, prose only, no JSON.** Unlike rules Q&A there is nothing to retrieve — RAG-1 has
+already put the assessment in hand — so a tool-calling turn would be ceremony that costs a
+generation and feeds its own output back into the model's context. The model returns one
+unstructured string; the headline is computed in code from `class` + top motif + SAN, because a
+headline is truth, not fluency.
+
+Consequence for the validator: it stops being "unchanged." Today it is handed `parsed.explanation`
+only while `headline` reaches the UI unchecked; with the field gone it covers 100% of model output.
+The deterministic floor *is* genuinely unchanged. Keep the markdown-fence strip — Foundation Models
+fences unprompted.
+
+> **Correction (2026-07-31 benchmark).** Revision 2 specified "a retrieval turn over assessments +
+> tags, reusing the two-turn structured-output pattern proven in `StructuredOutputRulesQaAnswerer`."
+> Device measurement retired that: gemma3-270m returned the prompt's own JSON schema placeholders as
+> values in **5 of 5 runs across two devices**, including both runs that passed validation. The
+> two-turn pattern is proven for rules Q&A because the model must *choose* what to retrieve there.
+> Here it has no choice to make, and every extra string in context is one more thing a 270M model can
+> copy. See `docs/benchmarks/on-device-ai/move-coach-benchmark-schema.md`.
 
 **RAG-4 — Chat re-scope.** Assessment-record retrieval for game questions; counterfactual support
 via Stockfish; Hint button split out; deterministic-feature query construction.
@@ -386,43 +403,38 @@ Real, small, and tracked nowhere else — they should not be lost with this docu
   will reject a legitimate Nf3 explanation that matches it. Low harm (falls back to templates), but
   swapping the examples to rarer moves would reduce it.
 
-## Deferred: make the local/cloud precedence structural
+## ~~Deferred: make the local/cloud precedence structural~~ — RESOLVED in #110
 
-Not part of the coaching redesign, but it constrains it, and it should not be lost.
+This section described a real hole and is kept for the reasoning, not as open work.
 
-`AiRoutePolicyDecider.decide()` prefers a local route whenever a device model is available — that
-branch is evaluated **before** `RunCloud`, and it consults neither `allowCloud` nor `privacyClass`:
+**The hole.** `decide()` preferred a local route whenever a device model was available, evaluating
+that branch **before** `RunCloud` and consulting neither `allowCloud` nor `privacyClass`. The
+cloud-only surfaces worked only because `KtorStreamingChatClient` and `KtorOpeningExplainerClient`
+happened to report an empty vendor list — correct behaviour resting on two literals a future
+contributor could reasonably have "tidied."
 
-```kotlin
-context.isDeviceModelAvailable -> Decision.RunOnDevice   // main, pre-#106
-vendorRoute != null            -> Decision.Route(...)    // #106, same precedence
-```
+**The fix that shipped.** `AiRoutePolicy` gained an `allowLocal` field, set to `false` on
+`openingExplainer` and `positionChat`; the decider discards every local vendor when it is false. The
+guarantee is now a property of the policy rather than of two call sites. Pinned in both directions —
+`a policy with allowLocal=false never routes on-device even with vendors available` supplies a
+genuinely available local vendor and asserts the decision is still Cloud, and its converse asserts
+that flipping the flag back does prefer local. The two `emptyList()` literals remain as
+belt-and-braces, and their comments now say so.
 
-This predates PR #106 (which faithfully preserved it). The cloud-only surfaces work today only
-because they report `isDeviceModelAvailable = false` — two boolean literals in
-`KtorStreamingChatClient` and `KtorOpeningExplainerClient`. Those are now commented and pinned by a
-decider test, and a separate fix stops a *cloud-capable vendor* being selected for a policy that
-forbids cloud (`fix/vendor-route-cloud-guard`). Both are hardening; neither changes precedence.
-
-The structural fix is to have `decide()` consult `resolveVendorRoute` **only when the policy permits
-local routing**, so the cloud-only guarantee comes from the type system rather than from two
-literals a future contributor could reasonably "tidy" to `true`. That is deliberately deferred:
-
-- It is a **semantic change to shipped behaviour**, not a bug fix — cloud-preferring policies would
-  stop preferring a local model when one exists.
-- The existing 90-context sweep only asserts that `LOCAL_ONLY` never reaches cloud. It does not pin
-  the device-first ordering in either direction, so it would not catch the change. The sweep needs
-  extending *first*.
-- It interacts with this plan: once coaching is grounded in `MoveAssessment` records rather than a
-  corpus, which surfaces want local-first vs. cloud-first may change. Settling precedence before
-  that is premature.
-
-Do it as its own PR, sweep-extension first.
+The three original objections resolved as follows: the sweep was extended first (2→3 vendor
+configurations, 60→90 contexts) exactly as this section demanded; the semantic change turned out to
+be scoped to the two cloud policies rather than global; and the "which surfaces want local-first"
+question is moot, because the flag is per-policy and can be set per surface when RAG lands.
 
 ## Dependencies
 
-- **PR #106 (hybrid inference vendor adoption)** replaces the `OnDeviceTextGeneratorFactory` seam
-  with `VendorRouteExecutor` / `VendorRoute`, and `StructuredOutputRulesQaAnswerer` already takes an
-  `executor` on that branch. The shared-warm-singleton property this plan relies on still holds
-  there (the Android executor keeps its own `cachedGenerator`), but **every factory reference in
-  this document must be re-pointed at the executor seam if #106 lands first.**
+- **PR #106 (hybrid inference vendor adoption) — landed.** `OnDeviceTextGeneratorFactory` is gone;
+  the seam is `VendorRouteExecutor.execute(route)`, fed a route the decider already chose, and
+  `StructuredOutputRulesQaAnswerer` takes an `executor`. Factory references in this document have
+  been re-pointed. The shared-warm-singleton property this plan relies on still holds — the Android
+  executor keeps its own `cachedGenerator`, so the coach, summary and rules Q&A share one warm
+  `CactusTextGenerator`.
+- **PR #110 (routing precedence + benchmarking) — landed.** Adds `allowLocal`, extends the sweep to
+  90 contexts, and populates the first real `cactus-android` scorecard row. That row is what gates
+  RAG-3: see the decision gate above, and the correction note under RAG-3 for what the raw captures
+  changed about the phase's design.

@@ -1,23 +1,78 @@
 package com.example.ondeviceai
 
+import com.example.myapplication.MoveAssessment
+import com.example.myapplication.MoveRecord
+import com.example.myapplication.Set
+
 internal object GameSummaryPromptBuilder {
 
-    // System instruction for the model. We want a short summary of the biggest mistake.
-    private const val SYSTEM_PROMPT = """You are a chess coach. Analyze this PGN and identify the single greatest mistake made by the player. Be concise (2-3 sentences)."""
+    private const val SYSTEM_PROMPT = """You are a chess coach. Analyze the turning points in the game below and write a short, cohesive summary (2-3 sentences) explaining the player's most significant mistakes. Use a helpful, encouraging tone. You MUST cite the specific moves you discuss using the [move-N] format provided in the turning points. Do not invent any new mistakes; stick to the provided turning points."""
+
+    private const val CONGRATS_SYSTEM_PROMPT = """You are a chess coach. The player played a great game with no major mistakes. Write a short, cohesive summary (1-2 sentences) congratulating them on a well-played game."""
 
     fun build(request: GameSummaryRequest): AiGenerationRequest {
-        val userPrompt = """
-            PGN:
-            ${request.pgn}
-            
-            Identify the greatest mistake:
-        """.trimIndent()
+        val turningPoints = extractTurningPoints(request.moveHistory, request.playerSide, request.engineDifficultyName)
+        
+        val systemPrompt = if (turningPoints.isEmpty()) CONGRATS_SYSTEM_PROMPT else SYSTEM_PROMPT
+        
+        val userPromptBuilder = StringBuilder()
+        userPromptBuilder.append("PGN:\n${request.pgn}\n\n")
+        
+        if (turningPoints.isEmpty()) {
+            userPromptBuilder.append("The player played well with no major mistakes. Congratulate them.")
+        } else {
+            userPromptBuilder.append("Turning points in this game:\n")
+            turningPoints.forEach { tp ->
+                userPromptBuilder.append(tp).append("\n")
+            }
+            userPromptBuilder.append("\nSummarize these mistakes:")
+        }
         
         return AiGenerationRequest(
-            systemPrompt = SYSTEM_PROMPT,
-            userPrompt = userPrompt,
-            maxOutputTokens = 150,
-            temperature = 0.2
+            systemPrompt = systemPrompt,
+            userPrompt = userPromptBuilder.toString(),
+            maxOutputTokens = 250,
+            temperature = 0.3
         )
+    }
+
+    private fun extractTurningPoints(moveHistory: List<MoveRecord>, playerSide: Set, difficulty: String): List<String> {
+        val threshold = when (difficulty) {
+            "EASY" -> 300 // BLUNDER only
+            "MEDIUM" -> 100 // MISTAKE and BLUNDER
+            "HARD", "MAX" -> 50 // INACCURACY and worse
+            else -> 100
+        }
+
+        val playerMoves = moveHistory.mapIndexedNotNull { index, moveRecord ->
+            val isPlayerMove = if (playerSide == Set.WHITE) index % 2 == 0 else index % 2 != 0
+            val assessment = moveRecord.assessment
+            if (isPlayerMove && assessment != null && assessment.cpLoss > threshold) {
+                // Return a Pair of ply number (index + 1) and the move record
+                Pair(index + 1, moveRecord)
+            } else null
+        }
+
+        // Rank by cpLoss descending, take top 3
+        val topMistakes = playerMoves.sortedByDescending { it.second.assessment!!.cpLoss }.take(3)
+
+        return topMistakes.sortedBy { it.first }.map { (ply, record) ->
+            val assessment = record.assessment!!
+            val intuition = mapToIntuition(assessment)
+            "[move-$ply]: You played ${record.san}. This was a ${assessment.moveClass.name.lowercase()}. $intuition"
+        }
+    }
+
+    private fun mapToIntuition(assessment: MoveAssessment): String {
+        if (assessment.motifs.contains("Fork") || assessment.motifs.contains("Pin") || assessment.motifs.contains("Skewer") || assessment.motifs.contains("Discovered Attack")) {
+            return "You missed a tactical sequence or allowed a tactic."
+        }
+        
+        if (assessment.cpLoss > 300) {
+            return "This move lost significant material or allowed a forced mate."
+        } else if (assessment.cpLoss > 100) {
+            return "This move gave up a significant positional or material advantage."
+        }
+        return "This move was slightly inaccurate."
     }
 }

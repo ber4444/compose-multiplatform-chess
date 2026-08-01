@@ -67,6 +67,36 @@ fun SettingsScreen(
             }
         }
 
+        Text(
+            text = "Player Side",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+        )
+        val playerSide by settings.playerSide.collectAsState()
+        Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
+            listOf("WHITE", "BLACK").forEach { side ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .selectable(
+                            selected = playerSide == side,
+                            role = Role.RadioButton,
+                            onClick = { settings.setPlayerSide(side) },
+                        )
+                        .padding(vertical = 4.dp)
+                        .testTag("settings_player_side_${side.lowercase()}"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    RadioButton(
+                        selected = playerSide == side,
+                        onClick = null,
+                    )
+                    Text(side.lowercase().replaceFirstChar { it.titlecase() })
+                }
+            }
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()

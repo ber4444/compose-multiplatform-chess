@@ -214,12 +214,19 @@ class AndroidGameViewModel : ViewModel() {
     // it survives config changes (and is observed by the History screen across recompositions).
     val gameHistory = GameHistoryRepository(settings)
 
+    private var backfiller: com.example.myapplication.persistence.GameHistoryBackfiller? = null
+
     init {
         if (restoredState.shouldClear) currentGameStore.clear()
     }
 
     fun attachEngine(engine: ChessEngine?) {
         gameViewModel.attachEngine(engine)
+        backfiller?.stop()
+        if (engine != null) {
+            backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine)
+            backfiller?.start()
+        }
     }
 
     override fun onCleared() {
@@ -227,5 +234,6 @@ class AndroidGameViewModel : ViewModel() {
         moveCoachManager.close()
         gameSummaryManager.close()
         gameViewModel.close()
+        backfiller?.stop()
     }
 }

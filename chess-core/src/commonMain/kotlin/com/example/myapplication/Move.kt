@@ -18,7 +18,8 @@ internal val BLACK_QS_ROOK_HOME = Pair(0, 0)
 data class SelectedMove(
     val position: Pair<Int, Int>,
     val pieceIndex: Int,
-    val promotion: PromotionType? = null
+    val promotion: PromotionType? = null,
+    val evaluationCp: Int? = null
 )
 
 internal fun isPromotionMove(piece: Piece, newPosition: Pair<Int, Int>): Boolean =
@@ -88,22 +89,22 @@ internal suspend fun pickMoveStockfish(
     logger.d { "Stockfish FEN: $fen" }
 
     // Query Stockfish for the best move
-    val bestMoveUci = engine.getBestMove(fen)
+    val bestMoveResult = engine.getBestMove(fen)
 
-    if (bestMoveUci != null) {
+    if (bestMoveResult != null) {
         // Convert UCI move to app format
-        val appMove = UciMoveConverter.uciMoveToAppMove(bestMoveUci, allyPositions)
+        val appMove = UciMoveConverter.uciMoveToAppMove(bestMoveResult.uci, allyPositions)
         if (appMove != null) {
             // Validate that this is actually a legal move
             val allLegal = getAllLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces, gameState.castlingRights, gameState.enPassantTarget)
             if (allLegal.any { it.first == appMove.position && it.second == appMove.pieceIndex }) {
-                logger.d { "Stockfish move accepted: $bestMoveUci -> ${appMove.position}" }
-                return appMove
+                logger.d { "Stockfish move accepted: ${bestMoveResult.uci} -> ${appMove.position}" }
+                return appMove.copy(evaluationCp = bestMoveResult.evaluationCp)
             } else {
-                logger.w { "Stockfish move $bestMoveUci is not legal in app, falling back" }
+                logger.w { "Stockfish move ${bestMoveResult.uci} is not legal in app, falling back" }
             }
         } else {
-            logger.w { "Could not convert Stockfish move $bestMoveUci, falling back" }
+            logger.w { "Could not convert Stockfish move ${bestMoveResult.uci}, falling back" }
         }
     } else {
         logger.w { "Stockfish returned no move, falling back to CPU" }

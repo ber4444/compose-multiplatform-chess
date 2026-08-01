@@ -42,7 +42,10 @@ class GameViewModel(
     /** Current engine difficulty (issue #39 Phase 4). Applied to the engine on attach + on change. */
     private var engineDifficulty: EngineDifficulty = initialEngineDifficulty
 
-    /** `true` when a real engine (Stockfish) drives Black; `false` = built-in CPU fallback.
+    /** The side the player is playing as. Defaults to WHITE. (issue #39 Phase 4). */
+    var playerSide: Set = Set.WHITE
+
+    /** `true` when a real engine (Stockfish) drives the opponent; `false` = built-in CPU fallback.
      *  Used for PGN player naming (issue #39 Phase 3: Black = "Stockfish" vs "CPU"). */
     val engineAttached: Boolean get() = chessEngine != null
 
@@ -56,10 +59,10 @@ class GameViewModel(
         // Apply the current difficulty to the new engine (issue #39 Phase 4). The default no-op
         // configure() leaves the CPU fallback unaffected; real engines send the setoption.
         applyDifficulty()
-        // Resume-later: if the game was restored from autosave and it's Black's move, nudge the
-        // turn-driven engine flow (mirrors `animationEnd()`'s Black branch). Skipped when there's
+        // Resume-later: if the game was restored from autosave and it's the engine's move, nudge the
+        // turn-driven engine flow (mirrors `animationEnd()`'s engine branch). Skipped when there's
         // no engine (CPU fallback resumes lazily via `moveCPU`) or the game is already over.
-        maybeResumeBlack()
+        maybeResumeEngine()
     }
 
     /** Updates the engine difficulty and applies it to the attached engine (issue #39 Phase 4). */
@@ -73,14 +76,16 @@ class GameViewModel(
         scope.launch { engine.configure(engineDifficulty) }
     }
 
-    private fun maybeResumeBlack() {
+    val engineSide: Set get() = if (playerSide == Set.WHITE) Set.BLACK else Set.WHITE
+
+    private fun maybeResumeEngine() {
         if (chessEngine == null) return
-        if (_gameState.value.turn != Set.BLACK) return
+        if (_gameState.value.turn != engineSide) return
         if (_gameState.value.winState != WinState.NONE) return
         if (_animState.value.pieceToAnimate != null) return  // don't race an in-flight animation
         gameMoves?.cancel()
         gameMoves = scope.launch {
-            if (!tryBlackDrawOffer()) moveBlackWithEngine()
+            if (!tryEngineDrawOffer()) moveEngine()
         }
     }
 
@@ -113,9 +118,9 @@ class GameViewModel(
 
     fun playerMove(selectedPieceIndex: Int, newPosition: Pair<Int, Int>) {
         if (
-            gameState.value.turn == Set.WHITE &&
+            gameState.value.turn == playerSide &&
             _gameState.value.winState == WinState.NONE &&
-            _gameState.value.piecesWhite.isNotEmpty()
+            (if (playerSide == Set.WHITE) _gameState.value.piecesWhite else _gameState.value.piecesBlack).isNotEmpty()
         ) {
             if (_gameState.value.pendingPromotion != null) return
             if (_gameState.value.drawOffer != null) return
@@ -137,13 +142,14 @@ class GameViewModel(
                 return
             }
 
-            val movingPiece = gameState.value.piecesWhite[selectedPieceIndex]
-            val preMovePosition = gameState.value.positionsWhite[selectedPieceIndex]
+            analysisJob?.cancel()
+            val movingPiece = if (playerSide == Set.WHITE) gameState.value.piecesWhite[selectedPieceIndex] else gameState.value.piecesBlack[selectedPieceIndex]
+            val preMovePosition = if (playerSide == Set.WHITE) gameState.value.positionsWhite[selectedPieceIndex] else gameState.value.positionsBlack[selectedPieceIndex]
             if (isPromotionMove(movingPiece, newPosition)) {
                 _gameState.value = _gameState.value.copy(
                     pendingPromotion = PendingPromotion(
                         pieceIndex = selectedPieceIndex,
-                        from = gameState.value.positionsWhite[selectedPieceIndex],
+                        from = preMovePosition,
                         to = newPosition
                     )
                 )
@@ -154,20 +160,24 @@ class GameViewModel(
                 newPosition = newPosition,
                 pieceIndex = selectedPieceIndex,
                 turn = gameState.value.turn,
-                enemyPieces = gameState.value.piecesBlack,
-                enemyPositions = gameState.value.positionsBlack,
-                allyPositions = gameState.value.positionsWhite,
-                allyPieces = _gameState.value.piecesWhite
+                enemyPieces = if (playerSide == Set.WHITE) gameState.value.piecesBlack else gameState.value.piecesWhite,
+                enemyPositions = if (playerSide == Set.WHITE) gameState.value.positionsBlack else gameState.value.positionsWhite,
+                allyPositions = if (playerSide == Set.WHITE) gameState.value.positionsWhite else gameState.value.positionsBlack,
+                allyPieces = if (playerSide == Set.WHITE) gameState.value.piecesWhite else gameState.value.piecesBlack
             )
             autosave()
 
             val rookMove = castlingRookMove(movingPiece, preMovePosition, newPosition)
 
+            if (_gameState.value.winState == WinState.NONE) {
+                // Coach is triggered asynchronously in runIdleAnalysis after engine replies
+            }
+
             _animState.value = PieceAnimationState(
-                pieceToAnimate = gameState.value.piecesWhite[selectedPieceIndex],
-                animatePositionStart = gameState.value.positionsWhite[selectedPieceIndex],
+                pieceToAnimate = movingPiece,
+                animatePositionStart = preMovePosition,
                 animatePositionEnd = newPosition,
-                secondaryPiece = if (rookMove != null) Rook(Set.WHITE) else null,
+                secondaryPiece = if (rookMove != null) Rook(playerSide) else null,
                 secondaryStart = rookMove?.first ?: INVALID_POSITION,
                 secondaryEnd = rookMove?.second ?: INVALID_POSITION
             )
@@ -176,15 +186,22 @@ class GameViewModel(
 
     fun promotePawn(promotion: PromotionType) {
         val pending = _gameState.value.pendingPromotion ?: return
-        if (_gameState.value.turn != Set.WHITE || _gameState.value.winState != WinState.NONE) return
-        val pawn = _gameState.value.piecesWhite[pending.pieceIndex]  // capture BEFORE applying
+        if (_gameState.value.turn != playerSide || _gameState.value.winState != WinState.NONE) return
+        val pawn = if (playerSide == Set.WHITE) _gameState.value.piecesWhite[pending.pieceIndex] else _gameState.value.piecesBlack[pending.pieceIndex]
         _gameState.value = deriveNewGameState(
-            pieceIndex = pending.pieceIndex, newPosition = pending.to, turn = Set.WHITE,
-            enemyPieces = _gameState.value.piecesBlack, enemyPositions = _gameState.value.positionsBlack,
-            allyPositions = _gameState.value.positionsWhite, allyPieces = _gameState.value.piecesWhite,
+            pieceIndex = pending.pieceIndex, newPosition = pending.to, turn = playerSide,
+            enemyPieces = if (playerSide == Set.WHITE) _gameState.value.piecesBlack else _gameState.value.piecesWhite, 
+            enemyPositions = if (playerSide == Set.WHITE) _gameState.value.positionsBlack else _gameState.value.positionsWhite,
+            allyPositions = if (playerSide == Set.WHITE) _gameState.value.positionsWhite else _gameState.value.positionsBlack, 
+            allyPieces = if (playerSide == Set.WHITE) _gameState.value.piecesWhite else _gameState.value.piecesBlack,
             promotion = promotion
         )
         autosave()
+
+        if (_gameState.value.winState == WinState.NONE) {
+            // Coach is triggered asynchronously in runIdleAnalysis after engine replies
+        }
+
         _animState.value = PieceAnimationState(
             pieceToAnimate = pawn, animatePositionStart = pending.from, animatePositionEnd = pending.to
         )
@@ -198,17 +215,22 @@ class GameViewModel(
         if (_animState.value.pieceToAnimate == null) return
         _animState.value = _animState.value.copy(pieceToAnimate = null, secondaryPiece = null)
 
-        if (_gameState.value.turn == Set.BLACK) {
+        if (_gameState.value.turn == engineSide) {
             gameMoves?.cancel()
             gameMoves = scope.launch {
-                if (!tryBlackDrawOffer()) moveBlackWithEngine()
+                if (!tryEngineDrawOffer()) moveEngine()
             }
         } else {
             _viewState.value = _viewState.value.copy(moveButtonLock = false)
+            
+            analysisJob?.cancel()
+            analysisJob = scope.launch {
+                runIdleAnalysis()
+            }
         }
     }
 
-    private suspend fun moveBlackWithEngine() {
+    private suspend fun moveEngine() {
         moveCPU { enemyPositions, enemyPieces, allyPositions, allyPieces ->
             pickMoveStockfish(
                 chessEngine,
@@ -226,14 +248,16 @@ class GameViewModel(
     }
 
     suspend fun offerDraw() {
-        if (!canOfferDraw(_gameState.value)) return
+        if (!canOfferDraw(_gameState.value, playerSide)) return
         _gameState.value = _gameState.value.copy(
-            drawOffer = Set.WHITE,
+            drawOffer = playerSide,
             lastDrawOfferFullmove = _gameState.value.fullmoveNumber
         )
         val offeredState = _gameState.value
         val eval = evaluatePositionCp(chessEngine, offeredState)
-        if (shouldBlackAcceptDraw(eval, offeredState)) {
+        // Flip the eval logic depending on the engine's side
+        val shouldEngineAccept = if (engineSide == Set.BLACK) shouldBlackAcceptDraw(eval, offeredState) else shouldWhiteAcceptDraw(eval, offeredState)
+        if (shouldEngineAccept) {
             _gameState.value = _gameState.value.copy(
                 winState = WinState.DRAW,
                 drawOffer = null
@@ -242,19 +266,21 @@ class GameViewModel(
         } else {
             _gameState.value = _gameState.value.copy(
                 drawOffer = null,
-                drawOfferDeclinedBy = Set.BLACK
+                drawOfferDeclinedBy = engineSide
             )
         }
     }
 
-    suspend fun tryBlackDrawOffer(): Boolean {
+    suspend fun tryEngineDrawOffer(): Boolean {
         val state = _gameState.value
-        if (state.turn != Set.BLACK) return false
-        if (!blackDrawOfferPreconditions(state)) return false
+        if (state.turn != engineSide) return false
+        val preconditions = if (engineSide == Set.BLACK) blackDrawOfferPreconditions(state) else whiteDrawOfferPreconditions(state)
+        if (!preconditions) return false
         val eval = evaluatePositionCp(chessEngine, state)
-        if (shouldBlackOfferDraw(eval)) {
+        val shouldOffer = if (engineSide == Set.BLACK) shouldBlackOfferDraw(eval) else shouldWhiteOfferDraw(eval)
+        if (shouldOffer) {
             _gameState.value = state.copy(
-                drawOffer = Set.BLACK,
+                drawOffer = engineSide,
                 lastDrawOfferFullmove = state.fullmoveNumber
             )
             return true
@@ -264,17 +290,17 @@ class GameViewModel(
 
     fun acceptDrawOffer() {
         val state = _gameState.value
-        if (state.drawOffer == Set.BLACK && state.winState == WinState.NONE) {
+        if (state.drawOffer == engineSide && state.winState == WinState.NONE) {
             _gameState.value = state.copy(drawOffer = null, winState = WinState.DRAW)
             autosave()  // terminal draw: persist so resume reflects it
         }
     }
 
     fun declineDrawOffer() {
-        if (_gameState.value.drawOffer == Set.BLACK) {
+        if (_gameState.value.drawOffer == engineSide) {
             _gameState.value = _gameState.value.copy(drawOffer = null)
             gameMoves?.cancel()
-            gameMoves = scope.launch { moveBlackWithEngine() }
+            gameMoves = scope.launch { moveEngine() }
         }
     }
 
@@ -282,7 +308,7 @@ class GameViewModel(
         if (_animState.value.pieceToAnimate == null) return
         _animState.value = _animState.value.copy(pieceToAnimate = null, secondaryPiece = null)
 
-        if (_gameState.value.turn == Set.WHITE) {
+        if (_gameState.value.turn == playerSide) {
             _viewState.value = _viewState.value.copy(moveButtonLock = false)
         }
     }
@@ -352,14 +378,21 @@ class GameViewModel(
             return
         }
 
-        // Snapshot the pre-move state so the coach (if attached) can build a
-        // grounded request from before/after positions (plan §1.2, §8.2).
-        val stateBeforeCoach = _gameState.value
+        // Snapshot the pre-move state
+        val stateBefore = _gameState.value
 
         val selectedMove = pickMove(enemyPositions, enemyPieces, allyPositions, allyPieces)
         val newPosition = selectedMove.position
         val movingPiece = allyPieces[selectedMove.pieceIndex]
         val preMovePosition = allyPositions[selectedMove.pieceIndex]
+
+        // Update previous move's cpAfter if available (harvested from engine search)
+        if (selectedMove.evaluationCp != null && _gameState.value.moveHistory.isNotEmpty()) {
+            val updatedHistory = _gameState.value.moveHistory.toMutableList()
+            val lastIndex = updatedHistory.lastIndex
+            updatedHistory[lastIndex] = updatedHistory[lastIndex].copy(cpAfter = selectedMove.evaluationCp)
+            _gameState.value = _gameState.value.copy(moveHistory = updatedHistory)
+        }
 
         _gameState.value = deriveNewGameState(
             newPosition = newPosition,
@@ -372,22 +405,6 @@ class GameViewModel(
             promotion = selectedMove.promotion
         )
         autosave()
-
-        // Plan §8.2: trigger the coach after Stockfish returns Black's move and
-        // before/while the move animation plays. Never blocks move application.
-        // Skip if the move ended the game (checkmate/stalemate/draw).
-        if (turn == Set.BLACK &&
-            _gameState.value.winState == WinState.NONE
-        ) {
-            onMoveCoached?.invoke(
-                stateBeforeCoach,
-                _gameState.value,
-                Set.BLACK,
-                preMovePosition,
-                newPosition,
-                selectedMove.promotion
-            )
-        }
 
         val rookMove = castlingRookMove(movingPiece, preMovePosition, newPosition)
 
@@ -465,5 +482,68 @@ class GameViewModel(
     private var engineJob: Job? = null
     var aiCoachEnabled: Boolean = true
 
-    var onMoveCoached: ((stateBefore: GameUiState, stateAfter: GameUiState, movingPieceSide: Set, fromSquare: Pair<Int, Int>, toSquare: Pair<Int, Int>, promotionType: PromotionType?) -> Unit)? = null
+    var onMoveCoached: ((fenBefore: String, moveRecord: MoveRecord) -> Unit)? = null
+
+    private var analysisJob: Job? = null
+
+    private suspend fun runIdleAnalysis() {
+        val engine = chessEngine ?: return
+        val state = _gameState.value
+        val history = state.moveHistory
+        if (history.isEmpty()) return
+
+        // Look for the most recent unassessed player move.
+        // If it's the player's turn, the history ends with the engine's move.
+        // Player's last move is at lastIndex - 1.
+        val targetIndex = history.indexOfLast { 
+            val isPlayerMove = if (playerSide == Set.WHITE) history.indexOf(it) % 2 == 0 else history.indexOf(it) % 2 != 0
+            isPlayerMove && it.assessment == null && it.cpAfter != null
+        }
+        
+        if (targetIndex == -1) return
+
+        val playerRecord = history[targetIndex]
+        
+        // FEN before player's move
+        val fenBefore = if (targetIndex == 0) {
+            FenConverter.gameStateToFen(GameUiState()) // Initial state
+        } else {
+            history[targetIndex - 1].fenAfter
+        }
+
+        val cpPlayed = playerRecord.cpAfter ?: return
+
+        // Expensive call behind Mutex
+        // Bound cpBest by movetime, not depth, as requested in RAG-1 B1a.4
+        val stateBefore = FenConverter.fenToGameState(fenBefore)
+        val cpBest = evaluatePositionCp(engine, stateBefore, engineDifficulty.thinkTimeMs) ?: return
+
+        // Motif detection (fast)
+        val stateBeforeObj = FenConverter.fenToGameState(fenBefore)
+        val toSquare = UciMoveConverter.parseUciMove(playerRecord.uci).second
+        val movingSide = if (targetIndex % 2 == 0) Set.WHITE else Set.BLACK
+        val stateAfterObj = FenConverter.fenToGameState(playerRecord.fenAfter)
+        val motifs = MotifDetector.detectMotifs(stateBeforeObj, stateAfterObj, movingSide, toSquare)
+
+        val assessment = MoveAssessor.assessMove(
+            cpBefore = cpBest, // By definition, eval of board before move is the eval of the best move
+            cpPlayed = cpPlayed,
+            cpBest = cpBest,
+            motifs = motifs
+        )
+
+        // Update history safely
+        val currentHistory = _gameState.value.moveHistory.toMutableList()
+        // Ensure we haven't lost sync
+        if (targetIndex < currentHistory.size && currentHistory[targetIndex].uci == playerRecord.uci) {
+            val updatedRecord = playerRecord.copy(assessment = assessment)
+            currentHistory[targetIndex] = updatedRecord
+            _gameState.value = _gameState.value.copy(moveHistory = currentHistory)
+            autosave()
+            
+            if (_gameState.value.winState == WinState.NONE) {
+                onMoveCoached?.invoke(fenBefore, updatedRecord)
+            }
+        }
+    }
 }

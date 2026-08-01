@@ -305,7 +305,13 @@ fun GameScreen(
                             Button(
                                 onClick = {
                                     val pgn = GameActions.toPgn(gameState, viewModel.engineAttached)
-                                    gameSummaryManager.triggerSummary(pgn)
+                                    val engineDiff = appSettings?.engineDifficulty?.value?.name ?: "MEDIUM"
+                                    gameSummaryManager.triggerSummary(
+                                        pgn = pgn,
+                                        moveHistory = gameState.moveHistory,
+                                        playerSide = viewModel.playerSide,
+                                        engineDifficultyName = engineDiff
+                                    )
                                 }
                             ) {
                                 Text("Get Coach Summary")
@@ -620,7 +626,7 @@ private fun GameControls(
                 }
                 TransparentUnderlineButton(
                     onClick = viewModel::requestDrawOffer,
-                    enabled = canOfferDraw(gameState) && animState.pieceToAnimate == null,
+                    enabled = canOfferDraw(gameState, viewModel.playerSide) && animState.pieceToAnimate == null,
                     modifier = Modifier.testTag("offer_draw_button")
                 ) { Text(stringResource(Res.string.offer_draw_button)) }
             } else {
@@ -629,7 +635,7 @@ private fun GameControls(
                 }
                 Button(
                     onClick = viewModel::requestDrawOffer,
-                    enabled = canOfferDraw(gameState) && animState.pieceToAnimate == null,
+                    enabled = canOfferDraw(gameState, viewModel.playerSide) && animState.pieceToAnimate == null,
                     modifier = Modifier.testTag("offer_draw_button")
                 ) { Text(stringResource(Res.string.offer_draw_button)) }
             }

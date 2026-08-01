@@ -135,8 +135,16 @@ fun MainViewController(
         // Testability hook for the simulator screenshot harness (tools/ios_3d_screenshot.sh): start
         // directly on the 3D board so it can be captured without a human tapping the toggle.
         if (platform.posix.getenv("CHESS_START_3D") != null) viewModel.setShow3D(true)
+        
+        var backfiller: com.example.myapplication.persistence.GameHistoryBackfiller? = null
+        if (engine != null) {
+            backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine)
+            backfiller.start()
+        }
+        
         onDispose {
             scope.cancel()
+            backfiller?.stop()
             moveCoachManager.close()
             gameSummaryManager.close()
             viewModel.close() // also closes the attached engine and cancels coach job

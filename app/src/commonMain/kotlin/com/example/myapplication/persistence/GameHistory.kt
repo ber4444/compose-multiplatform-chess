@@ -1,5 +1,6 @@
 package com.example.myapplication.persistence
 
+import com.example.myapplication.MoveRecord
 import com.russhwolf.settings.Settings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +26,7 @@ data class SavedGame(
     val black: String,
     val moveCount: Int,
     val pgn: String,
+    val moveRecords: List<MoveRecord> = emptyList(),
 )
 
 /**
@@ -45,6 +47,12 @@ class GameHistoryRepository(
     /** Prepends [game], persists, and updates the flow. Drops the oldest entry past the cap. */
     fun add(game: SavedGame) {
         val updated = (listOf(game) + _games.value).take(MAX_GAMES)
+        persist(updated)
+    }
+
+    /** Updates an existing game by id, persists, and updates the flow. */
+    fun update(game: SavedGame) {
+        val updated = _games.value.map { if (it.id == game.id) game else it }
         persist(updated)
     }
 

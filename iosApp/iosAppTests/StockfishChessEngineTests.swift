@@ -39,7 +39,7 @@ final class StockfishChessEngineTests: XCTestCase {
 
         DispatchQueue.global().async {
             engine.getBestMove(fen: self.startFen) { bestMove, _ in
-                move = bestMove
+                move = bestMove?.uci
                 exp.fulfill()
             }
         }
@@ -84,7 +84,7 @@ final class StockfishChessEngineTests: XCTestCase {
 
         DispatchQueue.global().async {
             engine.getBestMove(fen: self.startFen) { bestMove, _ in
-                move = bestMove
+                move = bestMove?.uci
                 exp.fulfill()
             }
         }

@@ -8,13 +8,10 @@ enum class ExplanationConfidence {
 }
 
 data class MoveCoachRequest(
-    val fenBefore: String,
-    val bestMoveUci: String,
-    val bestMoveDisplay: String,
-    val sideToMove: String,
-    val evaluationBeforeCp: Int?,
-    val evaluationAfterCp: Int?,
-    val deterministicTags: List<String>,
+    val moveUci: String,
+    val moveDisplay: String,
+    val deterministicHeadline: String,
+    val deterministicExplanation: String,
     val engineDifficultyName: String,
     val policy: AiRoutePolicy = AiRoutePolicies.moveCoachOffline,
 )

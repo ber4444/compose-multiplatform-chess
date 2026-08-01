@@ -120,6 +120,7 @@ kotlin {
 
         commonMain.dependencies {
             api(project(":coachapi"))
+            api(project(":chess-core"))
             implementation(libs.kermit)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)

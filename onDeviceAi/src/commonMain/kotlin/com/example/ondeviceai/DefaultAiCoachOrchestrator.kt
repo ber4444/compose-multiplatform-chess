@@ -82,20 +82,13 @@ class DefaultAiCoachOrchestrator(
             ?: return fallback(request, AiRoutePolicyDecider.FALLBACK_TIMEOUT)
         benchProbe.onRawOutput(outcome.rawText)
 
-        // Parse JSON
-        val parsed = try {
-            val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
-            json.decodeFromString<MoveCoachResponse>(stripJsonCodeFence(outcome.rawText))
-        } catch (e: Exception) {
-            logger.w(e) { "Failed to parse structured output" }
-            return fallback(request, AiRoutePolicyDecider.FALLBACK_VALIDATION)
-        }
+        val parsedExplanation = stripJsonCodeFence(outcome.rawText).trim()
 
-        // Validate groundedness after deserialization
-        val validation = MoveCoachResponseValidator.validate(parsed.explanation, request)
+        // Validate groundedness
+        val validation = MoveCoachResponseValidator.validate(parsedExplanation, request)
 
         return when (validation) {
-            is MoveCoachResponseValidator.Result.Valid -> success(parsed, outcome.metrics)
+            is MoveCoachResponseValidator.Result.Valid -> success(request, parsedExplanation, outcome.metrics)
             is MoveCoachResponseValidator.Result.Invalid -> {
                 logger.w { "Validation failed: ${validation.reason}" }
                 fallback(request, AiRoutePolicyDecider.FALLBACK_VALIDATION)
@@ -146,14 +139,15 @@ class DefaultAiCoachOrchestrator(
     }
 
     private fun success(
-        response: MoveCoachResponse,
+        request: MoveCoachRequest,
+        explanation: String,
         metrics: AiInferenceMetrics,
         confidence: ExplanationConfidence = ExplanationConfidence.HIGH,
     ): MoveCoachEvent = complete(
         MoveCoachResult.Success(
             MoveCoachExplanation(
-                headline = response.headline.trim().ifBlank { response.explanation.take(60) },
-                explanation = response.explanation,
+                headline = request.deterministicHeadline,
+                explanation = explanation,
                 confidence = confidence,
                 route = AiRoute.OnDevice,
                 metrics = metrics,
@@ -165,7 +159,7 @@ class DefaultAiCoachOrchestrator(
         benchProbe.onFallback(reason)
         return complete(
             MoveCoachResult.FellBack(
-                text = MoveCoachFallback.build(request),
+                text = "${request.deterministicHeadline} ${request.deterministicExplanation}",
                 reason = reason,
             )
         )

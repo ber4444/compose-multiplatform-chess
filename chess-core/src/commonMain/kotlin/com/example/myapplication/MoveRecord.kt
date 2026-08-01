@@ -17,4 +17,6 @@ data class MoveRecord(
     val uci: String,
     val san: String,
     val fenAfter: String,
+    val cpAfter: Int? = null,
+    val assessment: MoveAssessment? = null,
 )

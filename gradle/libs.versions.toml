@@ -17,7 +17,7 @@ kotlinxSerialization = "1.8.0"
 mcpSdk = "0.7.5"
 ktor = "3.4.3"
 ksp = "2.3.10"
-genaiPrompt = "1.0.0-beta3"
+genaiPrompt = "1.0.0-beta4"
 genaiSchema = "1.0.0-alpha1"
 
 [libraries]

@@ -48,7 +48,7 @@ class GameSummaryManagerTest {
     @Test
     fun `triggering a summary without an orchestrator is a no-op and stays Unavailable`() {
         val manager = GameSummaryManager()
-        manager.triggerSummary("1. e4 e5")
+        manager.triggerSummary("1. e4 e5", emptyList(), com.example.myapplication.Set.WHITE, "MEDIUM")
         assertEquals(GameSummaryUiState.Unavailable, manager.uiState.value)
         manager.close()
     }
@@ -61,7 +61,7 @@ class GameSummaryManagerTest {
         val manager = GameSummaryManager()
         manager.attachOrchestrator(fakeOrchestrator())
 
-        manager.triggerSummary("1. e4 e5")
+        manager.triggerSummary("1. e4 e5", emptyList(), com.example.myapplication.Set.WHITE, "MEDIUM")
 
         // The predicate targets Ready specifically since Loading also matches "not Hidden."
         val result = manager.uiState.first { it is GameSummaryUiState.Ready }

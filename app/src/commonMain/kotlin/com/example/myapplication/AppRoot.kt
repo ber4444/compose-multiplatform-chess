@@ -119,6 +119,12 @@ fun AppRoot(
             LaunchedEffect(Unit) {
                 settings.aiCoachEnabled.collect { viewModel.aiCoachEnabled = it }
             }
+            LaunchedEffect(Unit) {
+                settings.playerSide.collect { sideStr -> 
+                    val side = if (sideStr == "BLACK") Set.BLACK else Set.WHITE
+                    viewModel.playerSide = side
+                }
+            }
 
             when (screen) {
                 Screen.GAME -> ChessApp(

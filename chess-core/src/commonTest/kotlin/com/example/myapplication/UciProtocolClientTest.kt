@@ -81,7 +81,7 @@ class UciProtocolClientTest {
         transport.onLine?.invoke("info depth 10")
         transport.onLine?.invoke("bestmove e2e4 ponder e7e5")
         
-        assertEquals("e2e4", moveJob.await())
+        assertEquals("e2e4", moveJob.await()?.uci)
     }
 
     @Test
@@ -159,6 +159,6 @@ class UciProtocolClientTest {
         assertEquals("go movetime 200", transport.commands.last { it.startsWith("go movetime") })
 
         transport.onLine?.invoke("bestmove e2e4")
-        assertEquals("e2e4", moveJob.await())
+        assertEquals("e2e4", moveJob.await()?.uci)
     }
 }

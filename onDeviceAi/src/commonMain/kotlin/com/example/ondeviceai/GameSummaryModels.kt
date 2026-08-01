@@ -1,7 +1,13 @@
 package com.example.ondeviceai
 
+import com.example.myapplication.MoveRecord
+import com.example.myapplication.Set
+
 data class GameSummaryRequest(
     val pgn: String,
+    val moveHistory: List<MoveRecord> = emptyList(),
+    val playerSide: Set = Set.WHITE,
+    val engineDifficultyName: String = "MEDIUM",
     val policy: AiRoutePolicy = AiRoutePolicies.moveCoachOffline,
 )
 
