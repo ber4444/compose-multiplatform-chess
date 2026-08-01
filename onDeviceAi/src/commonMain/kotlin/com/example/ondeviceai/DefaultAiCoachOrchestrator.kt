@@ -82,7 +82,7 @@ class DefaultAiCoachOrchestrator(
             ?: return fallback(request, AiRoutePolicyDecider.FALLBACK_TIMEOUT)
         benchProbe.onRawOutput(outcome.rawText)
 
-        val parsedExplanation = stripJsonCodeFence(outcome.rawText).trim()
+        val parsedExplanation = stripCodeFence(outcome.rawText).trim()
 
         // Validate groundedness
         val validation = MoveCoachResponseValidator.validate(parsedExplanation, request)
@@ -172,15 +172,21 @@ class DefaultAiCoachOrchestrator(
         text.split(Regex("\\s+")).count { it.isNotBlank() }
 
     /**
-     * Models routinely wrap requested JSON in a markdown code fence (e.g. Foundation Models:
-     * "```json\n{...}\n```") even when told to "output valid JSON" with no further instruction
-     * about markdown. Strip a wrapping fence before parsing; text without one passes through
-     * unchanged. Same category as the LiteRT-LM `<think>` stripping fix — clean a model's habitual
-     * decoration before treating its output as data.
+     * Strips a wrapping markdown code fence; text without one passes through unchanged.
+     *
+     * Named for JSON originally, and kept when the prompt stopped asking for JSON at all — the
+     * coach now requests plain prose. **The fence still has to go.** Models fence habitually,
+     * without being asked and regardless of what was requested: Foundation Models wrapped valid
+     * JSON in ```` ```json ```` when the prompt said only "output valid JSON" and never mentioned
+     * markdown, and the same reflex decorates prose. The regex still accepts an optional `json`
+     * info string precisely because that reflex outlives the instruction that provoked it.
+     *
+     * Same category as the LiteRT-LM `<think>` stripping: clean a model's habitual decoration
+     * before treating its output as data.
      */
-    private fun stripJsonCodeFence(text: String): String {
+    private fun stripCodeFence(text: String): String {
         val trimmed = text.trim()
-        val match = JSON_FENCE.matchEntire(trimmed) ?: return trimmed
+        val match = CODE_FENCE.matchEntire(trimmed) ?: return trimmed
         return match.groupValues[1].trim()
     }
 
@@ -192,7 +198,7 @@ class DefaultAiCoachOrchestrator(
     private companion object {
         // [\s\S]*? (not .*?) so the fence body matches across newlines without RegexOption
         // .DOT_MATCHES_ALL, which Kotlin/JS doesn't support.
-        val JSON_FENCE = Regex(
+        val CODE_FENCE = Regex(
             "^```(?:json)?\\s*\\n?([\\s\\S]*?)\\n?```\\s*$",
             RegexOption.IGNORE_CASE,
         )

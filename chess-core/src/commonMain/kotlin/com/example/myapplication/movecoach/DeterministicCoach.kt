@@ -37,6 +37,7 @@ object DeterministicCoach {
             "fork" -> "forks"
             "pin" -> "pins"
             "skewer" -> "skewers"
+            "discovered-attack" -> "opens a discovered attack"
             else -> null
         }
 
@@ -59,6 +60,10 @@ object DeterministicCoach {
             assessment.motifs.contains("material-swing") -> "It wins material."
             assessment.motifs.contains("recapture") -> "It recaptures, restoring material balance."
             assessment.motifs.contains("threatens") -> "It creates a concrete threat."
+            assessment.motifs.contains("fork") -> "It attacks two pieces at once."
+            assessment.motifs.contains("pin") -> "It pins an enemy piece against a more valuable one."
+            assessment.motifs.contains("skewer") -> "It skewers two pieces on one line."
+            assessment.motifs.contains("discovered-attack") -> "It uncovers an attack from the piece behind it."
             assessment.motifs.contains("center-control") -> "It fights for the center."
             assessment.motifs.contains("develops") -> "It develops a piece to an active square."
             assessment.motifs.contains("king-safety") -> "It improves king safety."

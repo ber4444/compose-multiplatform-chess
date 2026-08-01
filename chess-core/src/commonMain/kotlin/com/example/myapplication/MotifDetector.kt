@@ -3,6 +3,25 @@ package com.example.myapplication
 object MotifDetector {
 
     /**
+     * The motif vocabulary. **These constants are the contract with
+     * [com.example.myapplication.movecoach.DeterministicCoach]**, which matches motif strings to
+     * render headlines and explanations.
+     *
+     * They were briefly capitalised ("Fork", "Discovered Attack") while the coach matched
+     * lowercase-hyphenated names, so the intersection was empty and every motif branch in the coach
+     * was unreachable — detected, stored, and silently discarded. `motif vocabulary is understood by
+     * DeterministicCoach` in `MotifDetectorTest` now pins the two together; add a constant here and
+     * that test fails until the coach handles it.
+     */
+    const val FORK = "fork"
+    const val PIN = "pin"
+    const val SKEWER = "skewer"
+    const val DISCOVERED_ATTACK = "discovered-attack"
+
+    /** Every motif this detector can emit. Keep in sync when adding one. */
+    val ALL_MOTIFS = listOf(FORK, PIN, SKEWER, DISCOVERED_ATTACK)
+
+    /**
      * Detects tactical motifs present in the move that transitioned from [stateBefore] to [stateAfter].
      * Focuses on Fork, Pin, Skewer, and Discovered Attack.
      */
@@ -34,7 +53,7 @@ object MotifDetector {
             pIdx != -1 && enemyPiecesAfter[pIdx] !is Pawn
         }
         if (significantAttacks >= 2) {
-            motifs.add("Fork")
+            motifs.add(FORK)
         }
 
         // 2. Discovered Attack: A different friendly long-range piece now attacks an enemy piece
@@ -69,7 +88,7 @@ object MotifDetector {
                 }
             }
         }
-        if (discoveredAttack) motifs.add("Discovered Attack")
+        if (discoveredAttack) motifs.add(DISCOVERED_ATTACK)
 
         // 3. Pin & 4. Skewer
         // A true implementation involves casting rays and seeing if exactly one enemy piece blocks
@@ -109,8 +128,8 @@ object MotifDetector {
                 }
             }
         }
-        if (pinFound) motifs.add("Pin")
-        if (skewerFound) motifs.add("Skewer")
+        if (pinFound) motifs.add(PIN)
+        if (skewerFound) motifs.add(SKEWER)
 
         return motifs
     }
