@@ -11,9 +11,9 @@ class WasmStockfishEngine(
     /** False on handshake timeout (e.g. worker file 404) — caller then skips attachEngine. */
     suspend fun start(): Boolean = client.start()
 
-    override suspend fun getBestMove(fen: String): String? = client.bestMove(fen)
+    override suspend fun getBestMove(fen: String): BestMoveResult? = client.bestMove(fen)
 
-    override suspend fun evaluate(fen: String): Int? = client.evaluate(fen)
+    override suspend fun evaluate(fen: String, thinkTimeMs: Long?): Int? = client.evaluate(fen, thinkTimeMs = thinkTimeMs)
 
     override suspend fun configure(difficulty: EngineDifficulty) = client.configure(difficulty)
 

@@ -25,13 +25,10 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
 
     // We use a fixed prompt request
     val request = MoveCoachRequest(
-        fenBefore = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        bestMoveUci = "e2e4",
-        bestMoveDisplay = "e4",
-        sideToMove = "White",
-        evaluationBeforeCp = 20,
-        evaluationAfterCp = 35,
-        deterministicTags = listOf("Opening"),
+        moveUci = "e2e4",
+        moveDisplay = "e4",
+        deterministicHeadline = "You played e4.",
+        deterministicExplanation = "This controls the center.",
         engineDifficultyName = "Hard"
     )
 

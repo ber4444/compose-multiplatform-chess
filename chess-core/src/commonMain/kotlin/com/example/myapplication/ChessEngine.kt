@@ -1,14 +1,20 @@
 package com.example.myapplication
 
+data class BestMoveResult(
+    val uci: String,
+    val evaluationCp: Int?
+)
+
 interface ChessEngine {
-    suspend fun getBestMove(fen: String): String?
+    suspend fun getBestMove(fen: String): BestMoveResult?
     fun close()
 
     /**
      * Position evaluation in centipawns from WHITE's perspective (positive = White better).
      * Mate-in-N maps to ±(100000 - N). Null = unavailable (callers fall back to material balance).
+     * If thinkTimeMs is provided, bounds the evaluation by time rather than depth.
      */
-    suspend fun evaluate(fen: String): Int? = null
+    suspend fun evaluate(fen: String, thinkTimeMs: Long? = null): Int? = null
 
     /**
      * Apply a play-strength setting (issue #39 Phase 4). Default no-op: the built-in CPU fallback

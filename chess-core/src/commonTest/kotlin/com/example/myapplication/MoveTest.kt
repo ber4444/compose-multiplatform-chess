@@ -52,7 +52,7 @@ class MoveTest {
         val blackPositions = listOf(Pair(0, 4)) // e8
         
         val engine = object : ChessEngine { 
-            override suspend fun getBestMove(fen: String) = "a7a8n"
+            override suspend fun getBestMove(fen: String) = BestMoveResult("a7a8n", null)
             override fun close() {} 
         }
 

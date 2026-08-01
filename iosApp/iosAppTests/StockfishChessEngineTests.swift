@@ -39,7 +39,7 @@ final class StockfishChessEngineTests: XCTestCase {
 
         DispatchQueue.global().async {
             engine.getBestMove(fen: self.startFen) { bestMove, _ in
-                move = bestMove
+                move = bestMove?.uci
                 exp.fulfill()
             }
         }
@@ -60,7 +60,10 @@ final class StockfishChessEngineTests: XCTestCase {
         var score: KotlinInt?
 
         DispatchQueue.global().async {
-            engine.evaluate(fen: self.startFen) { scoreResult, _ in
+            // thinkTimeMs: nil keeps the pre-existing behaviour — the shared core's default eval
+            // movetime. A value here is the per-ply analysis budget the coach passes; this test is
+            // about the engine agreeing the start position is balanced, not about that budget.
+            engine.evaluate(fen: self.startFen, thinkTimeMs: nil) { scoreResult, _ in
                 score = scoreResult
                 exp.fulfill()
             }
@@ -84,7 +87,7 @@ final class StockfishChessEngineTests: XCTestCase {
 
         DispatchQueue.global().async {
             engine.getBestMove(fen: self.startFen) { bestMove, _ in
-                move = bestMove
+                move = bestMove?.uci
                 exp.fulfill()
             }
         }

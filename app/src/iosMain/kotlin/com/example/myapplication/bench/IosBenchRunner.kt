@@ -26,14 +26,12 @@ suspend fun runIosBench(iterations: Int) {
     val documentDirectory = fileManager.URLsForDirectory(NSDocumentDirectory, inDomains = 1uL).first() as NSURL
     val resultsFile = documentDirectory.URLByAppendingPathComponent("bench_results.jsonl")!!.path!!
     
+    // Mirrors AndroidBenchRunner so the two platforms measure the same prompt.
     val request = MoveCoachRequest(
-        fenBefore = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        bestMoveUci = "e2e4",
-        bestMoveDisplay = "e4",
-        sideToMove = "White",
-        evaluationBeforeCp = 20,
-        evaluationAfterCp = 35,
-        deterministicTags = listOf("Opening"),
+        moveUci = "e2e4",
+        moveDisplay = "e4",
+        deterministicHeadline = "You played e4.",
+        deterministicExplanation = "This controls the center.",
         engineDifficultyName = "Hard"
     )
 

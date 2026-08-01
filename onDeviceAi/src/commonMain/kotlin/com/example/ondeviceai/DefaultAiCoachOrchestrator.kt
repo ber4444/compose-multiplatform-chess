@@ -82,20 +82,13 @@ class DefaultAiCoachOrchestrator(
             ?: return fallback(request, AiRoutePolicyDecider.FALLBACK_TIMEOUT)
         benchProbe.onRawOutput(outcome.rawText)
 
-        // Parse JSON
-        val parsed = try {
-            val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
-            json.decodeFromString<MoveCoachResponse>(stripJsonCodeFence(outcome.rawText))
-        } catch (e: Exception) {
-            logger.w(e) { "Failed to parse structured output" }
-            return fallback(request, AiRoutePolicyDecider.FALLBACK_VALIDATION)
-        }
+        val parsedExplanation = stripCodeFence(outcome.rawText).trim()
 
-        // Validate groundedness after deserialization
-        val validation = MoveCoachResponseValidator.validate(parsed.explanation, request)
+        // Validate groundedness
+        val validation = MoveCoachResponseValidator.validate(parsedExplanation, request)
 
         return when (validation) {
-            is MoveCoachResponseValidator.Result.Valid -> success(parsed, outcome.metrics)
+            is MoveCoachResponseValidator.Result.Valid -> success(request, parsedExplanation, outcome.metrics)
             is MoveCoachResponseValidator.Result.Invalid -> {
                 logger.w { "Validation failed: ${validation.reason}" }
                 fallback(request, AiRoutePolicyDecider.FALLBACK_VALIDATION)
@@ -146,14 +139,15 @@ class DefaultAiCoachOrchestrator(
     }
 
     private fun success(
-        response: MoveCoachResponse,
+        request: MoveCoachRequest,
+        explanation: String,
         metrics: AiInferenceMetrics,
         confidence: ExplanationConfidence = ExplanationConfidence.HIGH,
     ): MoveCoachEvent = complete(
         MoveCoachResult.Success(
             MoveCoachExplanation(
-                headline = response.headline.trim().ifBlank { response.explanation.take(60) },
-                explanation = response.explanation,
+                headline = request.deterministicHeadline,
+                explanation = explanation,
                 confidence = confidence,
                 route = AiRoute.OnDevice,
                 metrics = metrics,
@@ -165,7 +159,7 @@ class DefaultAiCoachOrchestrator(
         benchProbe.onFallback(reason)
         return complete(
             MoveCoachResult.FellBack(
-                text = MoveCoachFallback.build(request),
+                text = "${request.deterministicHeadline} ${request.deterministicExplanation}",
                 reason = reason,
             )
         )
@@ -178,15 +172,21 @@ class DefaultAiCoachOrchestrator(
         text.split(Regex("\\s+")).count { it.isNotBlank() }
 
     /**
-     * Models routinely wrap requested JSON in a markdown code fence (e.g. Foundation Models:
-     * "```json\n{...}\n```") even when told to "output valid JSON" with no further instruction
-     * about markdown. Strip a wrapping fence before parsing; text without one passes through
-     * unchanged. Same category as the LiteRT-LM `<think>` stripping fix — clean a model's habitual
-     * decoration before treating its output as data.
+     * Strips a wrapping markdown code fence; text without one passes through unchanged.
+     *
+     * Named for JSON originally, and kept when the prompt stopped asking for JSON at all — the
+     * coach now requests plain prose. **The fence still has to go.** Models fence habitually,
+     * without being asked and regardless of what was requested: Foundation Models wrapped valid
+     * JSON in ```` ```json ```` when the prompt said only "output valid JSON" and never mentioned
+     * markdown, and the same reflex decorates prose. The regex still accepts an optional `json`
+     * info string precisely because that reflex outlives the instruction that provoked it.
+     *
+     * Same category as the LiteRT-LM `<think>` stripping: clean a model's habitual decoration
+     * before treating its output as data.
      */
-    private fun stripJsonCodeFence(text: String): String {
+    private fun stripCodeFence(text: String): String {
         val trimmed = text.trim()
-        val match = JSON_FENCE.matchEntire(trimmed) ?: return trimmed
+        val match = CODE_FENCE.matchEntire(trimmed) ?: return trimmed
         return match.groupValues[1].trim()
     }
 
@@ -198,7 +198,7 @@ class DefaultAiCoachOrchestrator(
     private companion object {
         // [\s\S]*? (not .*?) so the fence body matches across newlines without RegexOption
         // .DOT_MATCHES_ALL, which Kotlin/JS doesn't support.
-        val JSON_FENCE = Regex(
+        val CODE_FENCE = Regex(
             "^```(?:json)?\\s*\\n?([\\s\\S]*?)\\n?```\\s*$",
             RegexOption.IGNORE_CASE,
         )

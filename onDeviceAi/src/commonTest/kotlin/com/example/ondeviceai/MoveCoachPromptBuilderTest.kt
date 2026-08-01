@@ -5,82 +5,76 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+/**
+ * Rewritten for the prose prompt. The previous version asserted the presence of `STYLE_EXAMPLES`
+ * and `EXAMPLE_LABEL`; both are gone, and their removal is the point.
+ *
+ * Three on-device failures, in order, all the same bug: a 270M model copies the nearest text in its
+ * context. It emitted a style example verbatim, then the `Bad:` counter-example added to forbid
+ * that, then — once the examples were replaced by a JSON schema — the schema's own placeholder
+ * strings, in 5 of 5 measured runs. The prompt now carries exactly one thing worth copying: the
+ * deterministic explanation we actually want rewritten.
+ *
+ * So these tests assert absences as much as presences. An absence is what regresses silently.
+ */
 class MoveCoachPromptBuilderTest {
 
     private val request = MoveCoachRequest(
-        fenBefore = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        bestMoveUci = "g1f3",
-        bestMoveDisplay = "Nf3",
-        sideToMove = "white",
-        evaluationBeforeCp = 20,
-        evaluationAfterCp = 30,
-        deterministicTags = listOf("develops", "center-control"),
+        moveUci = "g1f3",
+        moveDisplay = "Nf3",
+        deterministicHeadline = "Good — Nf3",
+        deterministicExplanation = "Engine choice: Nf3. It develops a piece to an active square.",
         engineDifficultyName = "Medium",
     )
 
     @Test
-    fun `user prompt includes move description and key points`() {
+    fun `user prompt carries the explanation to rewrite`() {
+        val prompt = MoveCoachPromptBuilder.userPrompt(request)
+        assertTrue(request.deterministicExplanation in prompt, prompt)
+    }
+
+    @Test
+    fun `prompt carries no JSON schema`() {
+        // The schema-echo regression: showing the model a shape made the shape the answer.
         val built = MoveCoachPromptBuilder.build(request)
-        assertTrue(built.userPrompt.contains("Knight"))
-        assertTrue(built.userPrompt.contains("g1"))
-        assertTrue(built.userPrompt.contains("f3"))
-        assertTrue(built.userPrompt.contains("develops"))
+        val whole = built.systemPrompt + "\n" + built.userPrompt
+
+        assertFalse("{" in whole, "no JSON in the prompt: $whole")
+        assertFalse("headline" in whole.lowercase(), "no schema field names in the prompt: $whole")
     }
 
     @Test
-    fun `system prompt never contains user-specific data`() {
+    fun `prompt carries no examples for the model to copy`() {
         val built = MoveCoachPromptBuilder.build(request)
-        // System prompt is static; user-specific FEN/UCI must not leak in.
-        assertFalse(built.systemPrompt.contains(request.fenBefore))
-        assertFalse(built.systemPrompt.contains("g1f3"))
-        // "Nf3" may appear as part of a static example — that's fine.
+        val whole = (built.systemPrompt + "\n" + built.userPrompt).lowercase()
+
+        assertFalse("example" in whole, "examples are echo bait: $whole")
+        assertFalse(
+            MoveCoachPromptBuilder.GENERIC_FILLER.lowercase() in whole,
+            "the filler is a validator rule now, not a counter-example in the prompt: $whole",
+        )
     }
 
     @Test
-    fun `system prompt shows labeled style examples and no counter-example`() {
+    fun `prompt does not leak the headline the model must not write`() {
+        // The headline is computed in code from the assessment. Putting it in the prompt would hand
+        // the model a string to return unchanged — exactly how the placeholder shipped.
         val built = MoveCoachPromptBuilder.build(request)
-        // Positive examples still demonstrate the target shape...
-        MoveCoachPromptBuilder.STYLE_EXAMPLES.forEach {
-            assertTrue(built.systemPrompt.contains(it))
-        }
-        assertTrue(built.systemPrompt.contains(MoveCoachPromptBuilder.EXAMPLE_LABEL))
-        // ...but the `Bad:` counter-example is gone. A small model cannot represent "don't say
-        // this" — gemma3-270m emitted the filler verbatim on-device. That constraint now lives in
-        // MoveCoachResponseValidator, which rejects the filler instead of prompting against it.
-        assertFalse(built.systemPrompt.contains("Bad:"))
-        assertFalse(built.systemPrompt.contains(MoveCoachPromptBuilder.GENERIC_FILLER))
+        assertFalse(request.deterministicHeadline in built.userPrompt, built.userPrompt)
     }
 
     @Test
-    fun `pawn moves produce Pawn description`() {
-        val req = request.copy(bestMoveUci = "e2e4", bestMoveDisplay = "e4")
-        val built = MoveCoachPromptBuilder.build(req)
-        assertTrue(built.userPrompt.contains("Pawn"))
-        assertTrue(built.userPrompt.contains("e2"))
-        assertTrue(built.userPrompt.contains("e4"))
-    }
-
-    @Test
-    fun `castling produces plain-English description`() {
-        val req = request.copy(bestMoveDisplay = "O-O", bestMoveUci = "e1g1")
-        val built = MoveCoachPromptBuilder.build(req)
-        assertTrue(built.userPrompt.contains("Castles kingside"))
-    }
-
-    @Test
-    fun `empty tags produce engine top-choice hint`() {
-        val built = MoveCoachPromptBuilder.build(request.copy(deterministicTags = emptyList()))
-        assertTrue(built.userPrompt.contains("engine's top choice"))
-    }
-
-    @Test
-    fun `maxOutputTokens is conservative`() {
+    fun `generation stays inside the panel budget`() {
         val built = MoveCoachPromptBuilder.build(request)
-        assertTrue(built.maxOutputTokens <= 120)
+
+        assertEquals(MoveCoachPromptBuilder.MAX_OUTPUT_TOKENS_STRICT, built.maxOutputTokens)
+        // Low but non-zero: the task is rewriting, not inventing.
+        assertTrue(built.temperature in 0.0..0.5, "temperature was ${built.temperature}")
     }
 
     @Test
-    fun `MAX_OUTPUT_CHARS bounds validator`() {
-        assertEquals(300, MoveCoachPromptBuilder.MAX_OUTPUT_CHARS)
+    fun `system prompt asks for a rewrite rather than chess analysis`() {
+        val system = MoveCoachPromptBuilder.build(request).systemPrompt.lowercase()
+        assertTrue("rewrite" in system, system)
     }
 }

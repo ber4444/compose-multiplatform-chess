@@ -8,13 +8,10 @@ import kotlin.test.assertTrue
 class MoveCoachResponseValidatorTest {
 
     private val request = MoveCoachRequest(
-        fenBefore = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        bestMoveUci = "g1f3",
-        bestMoveDisplay = "Nf3",
-        sideToMove = "white",
-        evaluationBeforeCp = 20,
-        evaluationAfterCp = 30,
-        deterministicTags = listOf("develops"),
+        moveUci = "g1f3",
+        moveDisplay = "Nf3",
+        deterministicHeadline = "Good — Nf3",
+        deterministicExplanation = "Engine choice: Nf3. It develops a piece to an active square.",
         engineDifficultyName = "Medium",
     )
 
@@ -92,7 +89,7 @@ class MoveCoachResponseValidatorTest {
     @Test
     fun `grounding tokens are lowercase`() {
         val tokens = MoveCoachResponseValidator.groundingTokens(
-            request.copy(bestMoveDisplay = "Nf3", bestMoveUci = "G1F3")
+            request.copy(moveDisplay = "Nf3", moveUci = "G1F3")
         )
         assertTrue(tokens.all { it == it.lowercase() })
     }
@@ -126,11 +123,16 @@ class MoveCoachResponseValidatorTest {
         assertEquals("Nf3 develops the knight. It controls the center.", v.text)
     }
 
+    /**
+     * `STYLE_EXAMPLES` no longer exists — the examples came out of the prompt precisely because the
+     * model kept returning them. The filler survives as a validator rule rather than a prompt
+     * counter-example, so it is what this case now pins.
+     */
     @Test
-    fun `rejects a verbatim echo of a prompt style example`() {
+    fun `rejects a verbatim echo of the generic filler`() {
         val v = MoveCoachResponseValidator.validate(
-            MoveCoachPromptBuilder.STYLE_EXAMPLES.first(),
-            request.copy(bestMoveUci = "b8c6", bestMoveDisplay = "Nc6"),
+            MoveCoachPromptBuilder.GENERIC_FILLER,
+            request.copy(moveUci = "b8c6", moveDisplay = "Nc6"),
         )
         assertIs<MoveCoachResponseValidator.Result.Invalid>(v)
         assertTrue(v.reason.startsWith("echoed a prompt example"))
@@ -153,7 +155,7 @@ class MoveCoachResponseValidatorTest {
         val v = MoveCoachResponseValidator.validate(
             "Good: \"Nf3 develops the knight and controls the central e5/d4 squares.\"\n" +
                 "Good: \"This is a good move that improves the position.\"",
-            request.copy(bestMoveUci = "b8c6", bestMoveDisplay = "Nc6"),
+            request.copy(moveUci = "b8c6", moveDisplay = "Nc6"),
         )
         assertIs<MoveCoachResponseValidator.Result.Invalid>(v)
         assertTrue(v.reason.startsWith("echoed a prompt example"))
@@ -163,7 +165,7 @@ class MoveCoachResponseValidatorTest {
     fun `accepts a genuine move-specific explanation`() {
         val v = MoveCoachResponseValidator.validate(
             "Nc6 develops the knight and puts pressure on the d4 square.",
-            request.copy(bestMoveUci = "b8c6", bestMoveDisplay = "Nc6"),
+            request.copy(moveUci = "b8c6", moveDisplay = "Nc6"),
         )
         assertIs<MoveCoachResponseValidator.Result.Valid>(v)
         assertEquals("Nc6 develops the knight and puts pressure on the d4 square.", v.text)

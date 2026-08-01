@@ -10,8 +10,8 @@ class DrawAgreementTest {
 
     private fun mockEngine(eval: Int?): ChessEngine {
         return object : ChessEngine {
-            override suspend fun getBestMove(fen: String): String? = null
-            override suspend fun evaluate(fen: String): Int? = eval
+            override suspend fun getBestMove(fen: String): BestMoveResult? = null
+            override suspend fun evaluate(fen: String, thinkTimeMs: Long?): Int? = eval
             override fun close() {}
         }
     }
@@ -85,7 +85,10 @@ class DrawAgreementTest {
         )
         assertTrue(canOfferDraw(state))
 
+        // The human plays either colour now (AppSettings.playerSide); the guard is against playerSide,
+        // not a hardcoded WHITE. Offering on the engine's turn stays disabled.
         assertFalse(canOfferDraw(state.copy(turn = Set.BLACK)))
+        assertTrue(canOfferDraw(state.copy(turn = Set.BLACK), playerSide = Set.BLACK))
         assertFalse(canOfferDraw(state.copy(winState = WinState.BLACK)))
         assertFalse(canOfferDraw(state.copy(pendingPromotion = PendingPromotion(0, Pair(0,0), Pair(0,0)))))
         assertFalse(canOfferDraw(state.copy(drawOffer = Set.WHITE)))

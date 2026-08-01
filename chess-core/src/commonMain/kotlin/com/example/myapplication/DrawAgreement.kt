@@ -24,8 +24,8 @@ internal fun materialBalanceCp(state: GameUiState): Int {
     return whiteSum - blackSum
 }
 
-internal suspend fun evaluatePositionCp(engine: ChessEngine?, state: GameUiState): Int =
-    engine?.evaluate(FenConverter.gameStateToFen(state)) ?: materialBalanceCp(state)
+internal suspend fun evaluatePositionCp(engine: ChessEngine?, state: GameUiState, thinkTimeMs: Long? = null): Int =
+    engine?.evaluate(FenConverter.gameStateToFen(state), thinkTimeMs) ?: materialBalanceCp(state)
 
 internal fun shouldBlackAcceptDraw(evalCp: Int): Boolean = evalCp >= DRAW_ACCEPT_THRESHOLD_CP
 
@@ -45,7 +45,27 @@ internal fun blackDrawOfferPreconditions(state: GameUiState): Boolean {
         (state.lastDrawOfferFullmove == 0 || state.fullmoveNumber - state.lastDrawOfferFullmove >= DRAW_OFFER_COOLDOWN_FULLMOVES)
 }
 
-fun canOfferDraw(state: GameUiState): Boolean {
-    return state.turn == Set.WHITE && state.winState == WinState.NONE && state.pendingPromotion == null &&
-        state.drawOffer == null && state.fullmoveNumber > state.lastDrawOfferFullmove
+internal fun shouldWhiteAcceptDraw(evalCp: Int): Boolean = evalCp <= -DRAW_ACCEPT_THRESHOLD_CP
+
+internal fun shouldWhiteAcceptDraw(evalCp: Int, state: GameUiState): Boolean =
+    shouldWhiteAcceptDraw(evalCp) ||
+        (isQuietMatureDrawOfferPosition(state) && shouldWhiteOfferDraw(evalCp))
+
+internal fun shouldWhiteOfferDraw(evalCp: Int): Boolean = abs(evalCp) <= DRAW_OFFER_EVAL_WINDOW_CP
+
+internal fun whiteDrawOfferPreconditions(state: GameUiState): Boolean {
+    return blackDrawOfferPreconditions(state)
+}
+
+/**
+ * True when [playerSide] may offer a draw right now.
+ *
+ * The turn check is against [playerSide], not a hardcoded `WHITE` — the human plays either colour
+ * (see `AppSettings.playerSide`). Dropping the check entirely would enable the button on the
+ * engine's turn.
+ */
+fun canOfferDraw(state: GameUiState, playerSide: Set = Set.WHITE): Boolean {
+    return state.turn == playerSide && state.winState == WinState.NONE &&
+        state.pendingPromotion == null && state.drawOffer == null &&
+        state.fullmoveNumber > state.lastDrawOfferFullmove
 }

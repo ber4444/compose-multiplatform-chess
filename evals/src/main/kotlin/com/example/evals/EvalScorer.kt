@@ -46,16 +46,9 @@ object EvalScorer {
 }
 
 internal fun GoldenCase.toMoveCoachRequest() = MoveCoachRequest(
-    fenBefore = fen,
-    bestMoveUci = bestMoveUci,
-    // SAN, not UCI. MoveCoachPromptBuilder.describeMove derives the piece name from this string's
-    // first letter, and UCI always starts with a lowercase file letter — so passing UCI labelled
-    // every move "Pawn", including knight/queen moves, and the model faithfully echoed it. Mirrors
-    // production, which uses moveHistory.lastOrNull()?.san (MoveCoachContextExtractor).
-    bestMoveDisplay = movesSan.lastOrNull() ?: bestMoveUci,
-    sideToMove = if (" b " in fen) "Black" else "White",
-    evaluationBeforeCp = null,
-    evaluationAfterCp = null,
-    deterministicTags = tags,
-    engineDifficultyName = "EVAL",
+    moveUci = bestMoveUci,
+    moveDisplay = movesSan.lastOrNull() ?: bestMoveUci,
+    deterministicHeadline = "You played ${movesSan.lastOrNull() ?: bestMoveUci}.",
+    deterministicExplanation = "This was a good move.", // Dummy values for eval scoring where we don't have full MoveRecord
+    engineDifficultyName = "EVAL"
 )

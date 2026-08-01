@@ -43,14 +43,24 @@ class GameSummaryManager {
         _uiState.value = GameSummaryUiState.Hidden
     }
 
-    fun triggerSummary(pgn: String) {
+    fun triggerSummary(
+        pgn: String,
+        moveHistory: List<com.example.myapplication.MoveRecord>,
+        playerSide: com.example.myapplication.Set,
+        engineDifficultyName: String
+    ) {
         val orchestrator = this.orchestrator ?: return
         generationJob?.cancel()
 
         _uiState.value = GameSummaryUiState.Loading
         generationJob = scope.launch {
             try {
-                val request = GameSummaryRequest(pgn)
+                val request = GameSummaryRequest(
+                    pgn = pgn,
+                    moveHistory = moveHistory,
+                    playerSide = playerSide,
+                    engineDifficultyName = engineDifficultyName
+                )
                 orchestrator.summarizeGameStreaming(request).collect { event ->
                     when (event) {
                         is GameSummaryEvent.Streaming ->

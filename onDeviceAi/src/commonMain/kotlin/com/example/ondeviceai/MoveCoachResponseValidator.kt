@@ -18,7 +18,7 @@ object MoveCoachResponseValidator {
 
     fun groundingTokens(request: MoveCoachRequest): List<String> {
         val tokens = mutableSetOf<String>()
-        val uci = request.bestMoveUci.lowercase()
+        val uci = request.moveUci.lowercase()
         if (uci.isNotEmpty()) {
             tokens += uci
             if (uci.length >= 4) {
@@ -26,7 +26,7 @@ object MoveCoachResponseValidator {
                 tokens += uci.substring(2, 4)
             }
         }
-        request.bestMoveDisplay.lowercase()
+        request.moveDisplay.lowercase()
             .replace(Regex("[^a-z0-9]"), " ")
             .split(Regex("\\s+"))
             .filter { it.isNotBlank() }
@@ -116,7 +116,6 @@ object MoveCoachResponseValidator {
         s.lowercase().filter { it.isLetterOrDigit() }
 
     private val FEW_SHOT_LABELS = listOf(
-        MoveCoachPromptBuilder.EXAMPLE_LABEL,
         // Retained so responses shaped by the older Good:/Bad: prompt are still cleaned.
         "Good:",
         "Bad:",
@@ -124,7 +123,7 @@ object MoveCoachResponseValidator {
 
     /** Fingerprints of every sentence the prompt shows the model. Derived, never hand-copied. */
     private val SCAFFOLDING_FINGERPRINTS: List<String> =
-        (MoveCoachPromptBuilder.STYLE_EXAMPLES + MoveCoachPromptBuilder.GENERIC_FILLER)
+        listOf(MoveCoachPromptBuilder.GENERIC_FILLER)
             .map { it.lowercase().filter(Char::isLetterOrDigit) }
             .filter { it.isNotEmpty() }
 

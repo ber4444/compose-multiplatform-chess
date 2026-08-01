@@ -80,7 +80,7 @@ class StockfishUciConcurrencyTest {
             val evals = List(4) { async { engine.evaluate(fen) } }
 
             moves.awaitAll().forEachIndexed { i, move ->
-                assertEquals("e2e4", move, "search $i got a reply that wasn't its own")
+                assertEquals("e2e4", move?.uci, "search $i got a reply that wasn't its own")
             }
             evals.awaitAll().forEachIndexed { i, eval ->
                 assertEquals(4242, eval, "evaluation $i got a reply that wasn't its own")
@@ -109,8 +109,8 @@ class StockfishUciConcurrencyTest {
             }
             val results = work.awaitAll()
 
-            assertEquals("e2e4", results[0])
-            assertEquals("e2e4", results[2])
+            assertEquals("e2e4", (results[0] as? BestMoveResult)?.uci)
+            assertEquals("e2e4", (results[2] as? BestMoveResult)?.uci)
         } finally {
             engine.close()
         }

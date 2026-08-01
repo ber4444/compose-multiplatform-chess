@@ -40,6 +40,7 @@ object GameActions {
             black = if (engineAttached) "Stockfish" else "CPU",
             moveCount = state.moveHistory.size,
             pgn = pgn,
+            moveRecords = state.moveHistory,
         )
     }
 }

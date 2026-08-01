@@ -47,10 +47,13 @@ fun main() {
                 initialEngineDifficulty = appSettings.engineDifficulty.value,
             )
         }
+        var backfiller: com.example.myapplication.persistence.GameHistoryBackfiller? = null
         LaunchedEffect(Unit) {
             val engine = WasmStockfishEngine()
             if (engine.start()) {
                 viewModel.attachEngine(engine)   // viewModel now owns engine.close()
+                backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine)
+                backfiller?.start()
             } else {
                 Logger.w("Main") { "Stockfish wasm worker failed to start; using CPU fallback" }
                 engine.close()
@@ -72,6 +75,7 @@ fun main() {
         }
         DisposableEffect(Unit) {
             onDispose {
+                backfiller?.stop()
                 moveCoachManager.close()
                 gameSummaryManager.close()
                 viewModel.close()

@@ -1,8 +1,11 @@
 package com.example.literteval
 
+import com.example.myapplication.MoveAssessment
+import com.example.myapplication.MoveClass
+import com.example.myapplication.MoveRecord
+import com.example.myapplication.movecoach.DeterministicCoach
 import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.AiTokenOrFinal
-import com.example.ondeviceai.MoveCoachFallback
 import com.example.ondeviceai.MoveCoachPromptBuilder
 import com.example.ondeviceai.MoveCoachRequest
 import com.example.ondeviceai.litertlm.LitertLmModelStore
@@ -144,10 +147,11 @@ private suspend fun runOneCase(
 }
 
 private fun fallbackRecord(case: CandidateCase, reason: String): OutputRecord {
-    // The production orchestrator falls back to MoveCoachFallback when the
+    // The production orchestrator falls back to deterministic text when the
     // generator produces nothing. Record that text so the scorer sees what
     // the user would actually see, and mark the route.
-    val fallbackText = MoveCoachFallback.build(case.toMoveCoachRequest())
+    val req = case.toMoveCoachRequest()
+    val fallbackText = "${req.deterministicHeadline} ${req.deterministicExplanation}"
     return OutputRecord(
         id = case.id,
         fen = case.fen,
@@ -186,19 +190,45 @@ private fun loadCandidates(path: Path): List<CandidateCase> {
     return json.decodeFromString(ListSerializer(CandidateCase.serializer()), Files.readString(path))
 }
 
-private fun CandidateCase.toMoveCoachRequest() = MoveCoachRequest(
-    fenBefore = fen,
-    bestMoveUci = bestMoveUci,
-    // SAN, not UCI — describeMove reads the piece from the first letter, and UCI always starts with
-    // a lowercase file, so UCI here described every move as a pawn. The first faithfulness run was
-    // scored on output generated that way, with 4 of 10 cases actually N/N/Q/N moves.
-    bestMoveDisplay = movesSan.lastOrNull() ?: bestMoveUci,
-    sideToMove = if (" b " in fen) "Black" else "White",
-    evaluationBeforeCp = null,
-    evaluationAfterCp = null,
-    deterministicTags = tags,
-    engineDifficultyName = "EVAL",
-)
+/**
+ * Builds the request exactly as production does: the deterministic layer produces the headline and
+ * explanation, and the model is asked only to rewrite them.
+ *
+ * The headline/explanation come from [DeterministicCoach] over a synthesized [MoveRecord] rather
+ * than from string literals. That matters for what this driver measures. A fixed
+ * `"This was a good move."` on every case reduces the run to "can the model rewrite one sentence",
+ * and any faithfulness score taken that way describes the harness, not the model — the same class
+ * of error as the UCI-instead-of-SAN bug noted below, which made every prompt say "Pawn".
+ *
+ * The golden set's `tags` already share the coach's motif vocabulary — `develops`,
+ * `center-control`, and `king-safety` all hit real branches — so passing them through yields
+ * case-specific text for 97 of the 100 cases. [MoveClass.BEST] with `cpLoss = 0` is the honest
+ * classification: these cases are the engine's chosen move by construction, and the golden set
+ * carries no centipawn data to say otherwise.
+ */
+private fun CandidateCase.toMoveCoachRequest(): MoveCoachRequest {
+    val display = movesSan.lastOrNull() ?: bestMoveUci
+    val record = MoveRecord(
+        uci = bestMoveUci,
+        san = movesSan.lastOrNull() ?: "",
+        fenAfter = "",
+        assessment = MoveAssessment(
+            cpBefore = 0, cpPlayed = 0, cpBest = 0, cpLoss = 0,
+            moveClass = MoveClass.BEST,
+            motifs = tags,
+        ),
+    )
+    return MoveCoachRequest(
+        moveUci = bestMoveUci,
+        // SAN, not UCI — describeMove reads the piece from the first letter, and UCI always starts
+        // with a lowercase file, so UCI here described every move as a pawn. The first faithfulness
+        // run was scored on output generated that way, with 4 of 10 cases actually N/N/Q/N moves.
+        moveDisplay = display,
+        deterministicHeadline = DeterministicCoach.buildHeadline(record),
+        deterministicExplanation = DeterministicCoach.buildExplanation(record),
+        engineDifficultyName = "EVAL",
+    )
+}
 
 @Serializable
 data class OutputRecord(

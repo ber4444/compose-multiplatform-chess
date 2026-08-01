@@ -79,31 +79,51 @@ class EvalScorerTest {
     }
 
     /**
-     * Regression: this used to pass `bestMoveUci` as the display string. `describeMove` reads the
-     * piece from the first letter and UCI always starts with a lowercase file, so every prompt said
-     * "Pawn" — a knight move was fed to the model as "Pawn g1→h3" and it echoed that back. Any
-     * piece-accuracy measurement taken that way scores the harness, not the model.
+     * Regression, rewritten for the prose prompt. Originally this asserted the prompt said
+     * "Knight g1→h3": the builder used to describe the move itself, deriving the piece from the
+     * display string's first letter, so passing UCI labelled every move "Pawn". The prompt no
+     * longer describes anything — it hands the model deterministic text to rewrite — but the
+     * mapping still has to prefer SAN, because SAN is what reaches the user through
+     * `deterministicHeadline`.
      */
     @Test
-    fun `move coach prompt names the real piece for a knight move`() {
+    fun `golden case maps SAN to the display string, not UCI`() {
         val knightCase = GoldenCase(
             id = "knight", fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
             bestMoveUci = "g1h3", tags = listOf("opening", "develops"), movesSan = listOf("Nh3"),
         )
+        val request = knightCase.toMoveCoachRequest()
 
-        assertEquals("Nh3", knightCase.toMoveCoachRequest().bestMoveDisplay)
-        val prompt = MoveCoachPromptBuilder.build(knightCase.toMoveCoachRequest()).userPrompt
-        assertTrue("Knight g1→h3" in prompt, "expected 'Knight g1→h3' in prompt, got: $prompt")
-        assertFalse("Pawn" in prompt, "knight move must not be described as a pawn: $prompt")
+        assertEquals("Nh3", request.moveDisplay)
+        assertEquals("g1h3", request.moveUci)
+        assertTrue("Nh3" in request.deterministicHeadline, request.deterministicHeadline)
+    }
+
+    /**
+     * The prompt carries only the deterministic explanation now. Asserting that keeps the
+     * schema-echo regression closed: a JSON example in the prompt is what gemma3-270m copied back
+     * verbatim as its answer.
+     */
+    @Test
+    fun `prompt contains the explanation to rewrite and no schema`() {
+        val case = GoldenCase(
+            id = "e4", fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            bestMoveUci = "e2e4", tags = listOf("opening"), movesSan = listOf("e4"),
+        )
+        val prompt = MoveCoachPromptBuilder.build(case.toMoveCoachRequest()).userPrompt
+
+        assertTrue(case.toMoveCoachRequest().deterministicExplanation in prompt, prompt)
+        assertFalse("headline" in prompt, "prompt must not carry a JSON schema: $prompt")
+        assertFalse("{" in prompt, "prompt must not carry a JSON schema: $prompt")
     }
 
     @Test
-    fun `move coach prompt falls back to uci when a case carries no san`() {
+    fun `display string falls back to uci when a case carries no san`() {
         val noSan = GoldenCase(
             id = "no-san", fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
             bestMoveUci = "e2e4", tags = listOf("opening"),
         )
 
-        assertEquals("e2e4", noSan.toMoveCoachRequest().bestMoveDisplay)
+        assertEquals("e2e4", noSan.toMoveCoachRequest().moveDisplay)
     }
 }

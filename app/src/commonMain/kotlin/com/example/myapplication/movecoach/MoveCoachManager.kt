@@ -36,16 +36,9 @@ class MoveCoachManager(
 
     init {
         // Register the callback to automatically trigger the coach on engine moves
-        gameViewModel.onMoveCoached = { stateBefore, stateAfter, movingPieceSide, fromSquare, toSquare, promotionType ->
+        gameViewModel.onMoveCoached = { fenBefore, moveRecord ->
             if (gameViewModel.aiCoachEnabled && orchestrator != null) {
-                triggerCoach(
-                    stateBefore = stateBefore,
-                    stateAfter = stateAfter,
-                    movingPieceSide = movingPieceSide,
-                    fromSquare = fromSquare,
-                    toSquare = toSquare,
-                    promotionType = promotionType,
-                )
+                triggerCoach(fenBefore, moveRecord)
             }
         }
     }
@@ -77,37 +70,26 @@ class MoveCoachManager(
         _coachUiState.value = MoveCoachUiState.Hidden
     }
 
-    private fun triggerCoach(
-        stateBefore: GameUiState,
-        stateAfter: GameUiState,
-        movingPieceSide: Set,
-        fromSquare: Pair<Int, Int>,
-        toSquare: Pair<Int, Int>,
-        promotionType: PromotionType?,
-    ) {
+    private fun triggerCoach(fenBefore: String, moveRecord: com.example.myapplication.MoveRecord) {
         val orchestrator = this.orchestrator ?: return
         coachJob?.cancel()
 
-        val request = MoveCoachContextExtractor.build(
-            stateBefore = stateBefore,
-            stateAfter = stateAfter,
-            movingPieceSide = movingPieceSide,
-            fromSquare = fromSquare,
-            toSquare = toSquare,
-            promotionType = promotionType,
-            evaluationBeforeCp = null,
-            evaluationAfterCp = null,
+        val request = com.example.ondeviceai.MoveCoachRequest(
+            moveUci = moveRecord.uci,
+            moveDisplay = moveRecord.san,
+            deterministicHeadline = DeterministicCoach.buildHeadline(moveRecord),
+            deterministicExplanation = DeterministicCoach.buildExplanation(moveRecord),
             engineDifficultyName = engineDifficultyName,
         )
 
-        _coachUiState.value = MoveCoachUiState.Loading(request.bestMoveDisplay)
+        _coachUiState.value = MoveCoachUiState.Loading(request.moveDisplay)
         coachJob = scope.launch {
             try {
                 orchestrator.explainMoveStreaming(request).collect { event ->
                     when (event) {
                         is MoveCoachEvent.Streaming ->
                             _coachUiState.value = MoveCoachUiState.Streaming(
-                                move = request.bestMoveDisplay,
+                                move = request.moveDisplay,
                                 text = event.partialText,
                             )
                         is MoveCoachEvent.Complete -> when (val result = event.result) {

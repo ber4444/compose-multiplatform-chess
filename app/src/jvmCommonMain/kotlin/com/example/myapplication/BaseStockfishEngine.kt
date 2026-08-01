@@ -159,7 +159,7 @@ abstract class BaseStockfishEngine : ChessEngine {
         sendCommand("setoption name Skill Level value $level")
     }
 
-    override suspend fun getBestMove(fen: String): String? = uciMutex.withLock {
+    override suspend fun getBestMove(fen: String): BestMoveResult? = uciMutex.withLock {
         withContext(Dispatchers.IO) { searchBestMove(fen, thinkTimeMs) }
     }
 
@@ -168,24 +168,17 @@ abstract class BaseStockfishEngine : ChessEngine {
      * it is only safe from a caller that already holds it. Was public with no callers outside this
      * file — exposing it would reintroduce the unguarded path the mutex exists to close.
      */
-    private fun searchBestMove(fen: String, thinkTimeMs: Long): String? {
+    private fun searchBestMove(fen: String, thinkTimeMs: Long): BestMoveResult? {
         if (!isReady || process == null) return getEmbeddedBestMove(fen)
 
         return try {
             sendCommand("position fen $fen")
             sendCommand("go movetime $thinkTimeMs")
-            val bestMoveLine = waitForBestMove(timeoutMs = thinkTimeMs + 5000)
-            if (bestMoveLine != null) {
-                val parts = bestMoveLine.split(" ")
-                val idx = parts.indexOf("bestmove")
-                if (idx != -1 && idx + 1 < parts.size) {
-                    parts[idx + 1]
-                } else {
-                    logger.w { "Could not parse bestmove from: $bestMoveLine" }
-                    null
-                }
+            val bestMoveResult = waitForBestMove(timeoutMs = thinkTimeMs + 5000, fen = fen)
+            if (bestMoveResult != null) {
+                bestMoveResult
             } else {
-                logger.w { "Timed out waiting for bestmove" }
+                logger.w { "Timed out waiting for bestmove or failed to parse" }
                 null
             }
         } catch (e: IOException) {
@@ -194,7 +187,7 @@ abstract class BaseStockfishEngine : ChessEngine {
         }
     }
 
-    protected fun getEmbeddedBestMove(fen: String): String? {
+    protected fun getEmbeddedBestMove(fen: String): BestMoveResult? {
         return try {
             val gameState = FenConverter.fenToGameState(fen)
             val isWhiteTurn = gameState.turn == Set.WHITE
@@ -208,7 +201,8 @@ abstract class BaseStockfishEngine : ChessEngine {
                 logger.w { "Embedded fallback engine could not find a legal move" }
                 null
             } else {
-                UciMoveConverter.appMoveToUci(allyPositions[move.pieceIndex], move.position)
+                val uci = UciMoveConverter.appMoveToUci(allyPositions[move.pieceIndex], move.position)
+                BestMoveResult(uci, null)
             }
         } catch (e: IllegalArgumentException) {
             logger.e(e) { "Invalid FEN supplied to embedded fallback engine" }
@@ -216,14 +210,18 @@ abstract class BaseStockfishEngine : ChessEngine {
         }
     }
 
-    override suspend fun evaluate(fen: String): Int? = uciMutex.withLock {
+    override suspend fun evaluate(fen: String, thinkTimeMs: Long?): Int? = uciMutex.withLock {
         withContext(Dispatchers.IO) {
             if (!isReady || process == null) return@withContext null
 
             return@withContext try {
                 sendCommand("position fen $fen")
-                sendCommand("go depth $EVAL_DEPTH")
-                val rawEval = waitForEvaluation(EVAL_TIMEOUT_MS) ?: return@withContext null
+                if (thinkTimeMs != null) {
+                    sendCommand("go movetime $thinkTimeMs")
+                } else {
+                    sendCommand("go depth $EVAL_DEPTH")
+                }
+                val rawEval = waitForEvaluation(if (thinkTimeMs != null) thinkTimeMs + 5000L else EVAL_TIMEOUT_MS) ?: return@withContext null
                 UciEvaluation.toWhitePerspective(rawEval, UciEvaluation.isWhiteToMove(fen))
             } catch (e: IOException) {
                 logger.e(e) { "Error evaluating position" }
@@ -261,13 +259,26 @@ abstract class BaseStockfishEngine : ChessEngine {
         }
     }
 
-    private fun waitForBestMove(timeoutMs: Long): String? {
+    private fun waitForBestMove(timeoutMs: Long, fen: String): BestMoveResult? {
         val deadline = System.currentTimeMillis() + timeoutMs
+        var lastEval: Int? = null
         while (true) {
             val remaining = deadline - System.currentTimeMillis()
             if (remaining <= 0) return null
             val line = lineQueue.poll(remaining, TimeUnit.MILLISECONDS) ?: return null
-            if (line.startsWith("bestmove")) return line
+            
+            val parsedEval = UciEvaluation.parseInfoScore(line)
+            if (parsedEval != null) {
+                lastEval = parsedEval
+            }
+            
+            if (line.startsWith("bestmove")) {
+                val parts = line.split(" ")
+                val idx = parts.indexOf("bestmove")
+                val uci = if (idx != -1 && idx + 1 < parts.size) parts[idx + 1] else return null
+                val evalToWhite = lastEval?.let { UciEvaluation.toWhitePerspective(it, UciEvaluation.isWhiteToMove(fen)) }
+                return BestMoveResult(uci, evalToWhite)
+            }
         }
     }
 

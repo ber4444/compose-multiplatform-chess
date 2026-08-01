@@ -9,14 +9,13 @@ import kotlin.test.assertTrue
 
 class DefaultAiCoachOrchestratorTest {
 
+    // The deterministic layer supplies both fields; the model only ever rewrites the explanation.
+    // A failure therefore has something true to fall back to, which is why there is no retry.
     private val request = MoveCoachRequest(
-        fenBefore = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        bestMoveUci = "g1f3",
-        bestMoveDisplay = "Nf3",
-        sideToMove = "white",
-        evaluationBeforeCp = 20,
-        evaluationAfterCp = 30,
-        deterministicTags = listOf("develops"),
+        moveUci = "g1f3",
+        moveDisplay = "Nf3",
+        deterministicHeadline = "Good — Nf3",
+        deterministicExplanation = "Engine choice: Nf3. It develops a piece to an active square.",
         engineDifficultyName = "Medium",
     )
 
@@ -62,15 +61,12 @@ class DefaultAiCoachOrchestratorTest {
 
 
     @Test
-    fun `success path strips a markdown code fence around the JSON`() = runTest {
-        // Observed on Foundation Models: the model wraps otherwise-valid JSON in a ```json fence
-        // even though the prompt only asks it to "output valid JSON", with no mention of markdown.
-        // Before stripJsonCodeFence this failed structured-output parsing and fell back, discarding
-        // a genuinely good answer.
+    fun `success path strips a markdown code fence around the prose`() = runTest {
+        // Foundation Models wraps its answer in a ```…``` fence unprompted — the prompt never
+        // mentions markdown. That was true when the response was JSON and is still true now that it
+        // is prose, so the strip stays even though there is no longer anything to parse.
         val gen = FakeTextGenerator(
-            response = "```json\n" +
-                """{"headline": "Develops knight", "explanation": "Nf3 develops a knight and supports the centre."}""" +
-                "\n```",
+            response = "```\nNf3 develops a knight and supports the centre.\n```",
         )
         val result = orchestrator(gen).explainMove(request)
         assertIs<MoveCoachResult.Success>(result)

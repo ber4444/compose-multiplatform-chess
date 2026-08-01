@@ -55,23 +55,45 @@ class UciProtocolClient(private val transport: UciTransport) {
         awaitLinePrefix("readyok", REPLY_GRACE_MS)
     }
 
-    suspend fun bestMove(fen: String, thinkTimeMs: Long = this.thinkTimeMs): String? = mutex.withLock {
+    suspend fun bestMove(fen: String, thinkTimeMs: Long = this.thinkTimeMs): BestMoveResult? = mutex.withLock {
         if (!isReady) return null
         drainPending()
         transport.send("position fen $fen")
         transport.send("go movetime $thinkTimeMs")
-        val line = awaitBestMoveLine(thinkTimeMs + REPLY_GRACE_MS) ?: return null
-        parseBestMove(line)
+        var lastEval: Int? = null
+        val rawResult = withTimeoutOrNull(thinkTimeMs + REPLY_GRACE_MS) {
+            var move: String? = null
+            for (line in incoming) {
+                UciEvaluation.parseInfoScore(line)?.let { lastEval = it }
+                if (line.startsWith("bestmove")) {
+                    move = line
+                    break
+                }
+            }
+            move
+        } ?: return null
+        val uci = parseBestMove(rawResult) ?: return null
+        
+        // Convert to White's perspective
+        val cpPerspective = if (lastEval != null) {
+            UciEvaluation.toWhitePerspective(lastEval!!, UciEvaluation.isWhiteToMove(fen))
+        } else null
+        
+        return BestMoveResult(uci, cpPerspective)
     }
 
     /** Centipawns from WHITE's perspective; mirrors BaseStockfishEngine.evaluate. */
-    suspend fun evaluate(fen: String, depth: Int = EVAL_DEPTH, timeoutMs: Long = REPLY_GRACE_MS): Int? = mutex.withLock {
+    suspend fun evaluate(fen: String, depth: Int = EVAL_DEPTH, thinkTimeMs: Long? = null, timeoutMs: Long = REPLY_GRACE_MS): Int? = mutex.withLock {
         if (!isReady) return null
         drainPending()
         transport.send("position fen $fen")
-        transport.send("go depth $depth")
+        if (thinkTimeMs != null) {
+            transport.send("go movetime $thinkTimeMs")
+        } else {
+            transport.send("go depth $depth")
+        }
         var lastEval: Int? = null
-        val raw = withTimeoutOrNull(timeoutMs) {
+        val raw = withTimeoutOrNull(if (thinkTimeMs != null) thinkTimeMs + REPLY_GRACE_MS else timeoutMs) {
             for (line in incoming) {
                 UciEvaluation.parseInfoScore(line)?.let { lastEval = it }
                 if (line.startsWith("bestmove")) break   // MUST consume bestmove (queue hygiene)
