@@ -92,7 +92,7 @@ private fun runTestApplicationRoutes(
 ): List<RouteStats> {
     // testApplication returns Unit, so thread the collected stats out via a captured holder.
     val collected = mutableListOf<RouteStats>()
-    assertRoutingInvariants()
+    collected += evaluateRouteSelection()
     testApplication {
         val dependencies = caseSpecificOpeningDependencies(openingCases)
         val chatDependencies = caseSpecificChatDependencies(openingCases)
@@ -118,38 +118,7 @@ private fun runTestApplicationRoutes(
     return collected
 }
 
-/**
- * Asserts the structural routing invariants claimed in the article draft before output-quality scoring.
- * Proves that the intent-driven policy strictly routes the local features to the local vendor, and
- * the cloud features to the cloud, using the runtime decider.
- */
-private fun assertRoutingInvariants() {
-    val nominalContext = AiContextSnapshot(
-        availableLocalVendors = listOf(VendorRoute.LiteRtLm()), // A local model is available
-        isNetworkAvailable = true,
-        isAppForegrounded = true,
-        userSetting = AiUserSetting.ALLOW_CLOUD,
-        thermalState = ThermalState.NOMINAL,
-    )
 
-    // Move Coach must route to device (LOCAL_ONLY)
-    val coachDecision = AiRoutePolicyDecider.decide(AiRoutePolicies.moveCoachOffline, nominalContext)
-    check(coachDecision is AiRoutePolicyDecider.Decision.RunOnDevice) {
-        "Routing invariant failed: moveCoachOffline did not route to device. Got $coachDecision"
-    }
-
-    // Opening Explainer must route to cloud (allowLocal = false bypasses local model)
-    val explainerDecision = AiRoutePolicyDecider.decide(AiRoutePolicies.openingExplainer, nominalContext)
-    check(explainerDecision is AiRoutePolicyDecider.Decision.RunCloud) {
-        "Routing invariant failed: openingExplainer did not route to cloud. Got $explainerDecision"
-    }
-
-    // Position Chat must route to cloud (allowLocal = false bypasses local model)
-    val chatDecision = AiRoutePolicyDecider.decide(AiRoutePolicies.positionChat, nominalContext)
-    check(chatDecision is AiRoutePolicyDecider.Decision.RunCloud) {
-        "Routing invariant failed: positionChat did not route to cloud. Got $chatDecision"
-    }
-}
 
 /**
  * Deterministic retrieval fake keyed by the production opening query. Each case gets only its own
@@ -491,6 +460,7 @@ data class RouteStats(
     val note: String = "",
     var cases: Int = 0,
     var groundingViolations: Int = 0,
+    var fluencyViolations: Int = 0,
     var retries: Int = 0,
     var fallbacks: Int = 0,
     var lengthViolations: Int = 0,
@@ -498,6 +468,7 @@ data class RouteStats(
     fun record(score: OutputScore, retried: Boolean, fellBack: Boolean) {
         cases++
         if (!score.grounded) groundingViolations++
+        if (!score.fluencyCompliant) fluencyViolations++
         if (retried) retries++
         if (fellBack) fallbacks++
         if (score.lengthViolation) lengthViolations++
@@ -513,17 +484,18 @@ object ScorecardWriter {
         appendLine()
         appendLine("> Candidate dataset: $totalCases total cases, $openingCases opening cases. Owner hand-review is still required before article publication.")
         appendLine()
-        appendLine("| Route | Cases | Grounding violation | Retry | Fallback | Length violation | Collection |")
-        appendLine("|---|---:|---:|---:|---:|---:|---|")
+        appendLine("| Route | Cases | Grounding violation | Fluency violation | Retry | Fallback | Length violation | Collection |")
+        appendLine("|---|---:|---:|---:|---:|---:|---:|---|")
         stats.forEach { stat ->
             if (stat.available) {
                 appendLine(
                     "| ${stat.route} | ${stat.cases} | ${percent(stat.groundingViolations, stat.cases)} | " +
+                        "${percent(stat.fluencyViolations, stat.cases)} | " +
                         "${percent(stat.retries, stat.cases)} | ${percent(stat.fallbacks, stat.cases)} | " +
                         "${percent(stat.lengthViolations, stat.cases)} | ${stat.collection.name.lowercase()} |",
                 )
             } else {
-                appendLine("| ${stat.route} | — | — | — | — | — | ${stat.collection.name.lowercase()} (${stat.note}) |")
+                appendLine("| ${stat.route} | — | — | — | — | — | — | ${stat.collection.name.lowercase()} (${stat.note}) |")
             }
         }
         MANUAL_ROWS.forEach { appendLine(it.render()) }

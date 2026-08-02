@@ -27,6 +27,8 @@ data class ExpectationRule(
     val isAppForegrounded: Boolean,
     val isNetworkAvailable: Boolean,
     val hasLocalVendor: Boolean,
+    val userSetting: AiUserSetting = AiUserSetting.ALLOW_CLOUD,
+    val thermalState: ThermalState = ThermalState.NOMINAL,
     val expectedDecisionClass: String,
 )
 
@@ -104,7 +106,9 @@ object RouterEvalSuite {
             AiRoutePolicies.positionChat,
         ),
         snapshots: List<AiContextSnapshot> = ContextSweepBuilder.buildAllSnapshots(),
-        testBypassPrivacy: Boolean = false,
+        decider: (AiRoutePolicy, AiContextSnapshot) -> AiRoutePolicyDecider.Decision = { policy, snapshot ->
+            AiRoutePolicyDecider.decide(policy, snapshot)
+        },
     ): EvaluationResult {
         var total = 0
         var neverReaches = 0
@@ -115,9 +119,9 @@ object RouterEvalSuite {
         for (policy in policies) {
             for (snapshot in snapshots) {
                 total++
-                val decision = AiRoutePolicyDecider.decide(policy, snapshot, testBypassPrivacy = testBypassPrivacy)
+                val decision = decider(policy, snapshot)
 
-                // 1. NEVER_REACHES invariant
+                // 1. NEVER_REACHES invariant: LOCAL_ONLY or offline policy never reaches cloud
                 if (policy.privacyClass == PrivacyClass.LOCAL_ONLY || policy.requireOffline || !policy.allowCloud) {
                     if (decision is AiRoutePolicyDecider.Decision.RunCloud) {
                         neverReaches++
@@ -127,14 +131,25 @@ object RouterEvalSuite {
                     }
                 }
 
-                // 2. ALWAYS_REACHES invariant
-                if (!policy.allowLocal && policy.allowCloud && snapshot.isAppForegrounded && snapshot.isNetworkAvailable && snapshot.userSetting != AiUserSetting.OFFLINE_ONLY && snapshot.thermalState != ThermalState.CRITICAL) {
-                    if (decision !is AiRoutePolicyDecider.Decision.RunCloud) {
+                // 2. ALWAYS_REACHES invariant: Declarative check against ExpectationTable rules
+                val matchedRule = DeclarativeExpectationTable.RULES.find { rule ->
+                    rule.policy.privacyClass == policy.privacyClass &&
+                        rule.policy.allowCloud == policy.allowCloud &&
+                        rule.policy.allowLocal == policy.allowLocal &&
+                        rule.isAppForegrounded == snapshot.isAppForegrounded &&
+                        rule.isNetworkAvailable == snapshot.isNetworkAvailable &&
+                        rule.hasLocalVendor == snapshot.availableLocalVendors.isNotEmpty() &&
+                        rule.userSetting == snapshot.userSetting &&
+                        rule.thermalState == snapshot.thermalState
+                }
+                if (matchedRule != null) {
+                    val actualClass = decision::class.simpleName ?: ""
+                    if (actualClass != matchedRule.expectedDecisionClass) {
                         alwaysReaches++
                     }
                 }
 
-                // 3. CARRIES invariant
+                // 3. CARRIES invariant: RunOnDevice must carry an available local vendor
                 if (decision is AiRoutePolicyDecider.Decision.RunOnDevice) {
                     if (!snapshot.availableLocalVendors.contains(decision.route)) {
                         carries++
@@ -143,7 +158,7 @@ object RouterEvalSuite {
             }
         }
 
-        // 4. DECLARES invariant (exhaustive taxonomy verification)
+        // 4. DECLARES invariant (exhaustive taxonomy verification against expected contracts)
         val allRoutes: List<VendorRoute> = listOf(
             VendorRoute.MlKitPrompt(),
             VendorRoute.CactusLocal(),
@@ -151,13 +166,13 @@ object RouterEvalSuite {
             VendorRoute.LiteRtLm(),
         )
         for (route in allRoutes) {
-            val declaredCloudCapability = when (route) {
-                is VendorRoute.MlKitPrompt -> false
-                is VendorRoute.CactusLocal -> false
-                is VendorRoute.AppleFoundationModels -> false
-                is VendorRoute.LiteRtLm -> false
+            val isDeclaredLocalOnly = when (route) {
+                is VendorRoute.MlKitPrompt -> true
+                is VendorRoute.CactusLocal -> true
+                is VendorRoute.AppleFoundationModels -> true
+                is VendorRoute.LiteRtLm -> true
             }
-            if (declaredCloudCapability != route.isCloudCapable) {
+            if (isDeclaredLocalOnly && route.isCloudCapable) {
                 declares++
             }
         }
@@ -174,10 +189,19 @@ object RouterEvalSuite {
     }
 
     /**
-     * Perturbs the decider code under test and verifies that [evaluate] produces violations (B13).
+     * Injects a mutated decider lambda into [evaluate] to confirm sweeps flag privacy regressions (B13).
+     * Does NOT alter the production signature of [AiRoutePolicyDecider.decide].
      */
     fun mutationTestRoutingInvariants(): Boolean {
-        val result = evaluate(testBypassPrivacy = true)
+        val mutatedDecider: (AiRoutePolicy, AiContextSnapshot) -> AiRoutePolicyDecider.Decision = { policy, snapshot ->
+            // A bug in the decider that bypasses LOCAL_ONLY privacy checks and routes to cloud when network is available
+            if (policy.privacyClass == PrivacyClass.LOCAL_ONLY && snapshot.isAppForegrounded && snapshot.isNetworkAvailable) {
+                AiRoutePolicyDecider.Decision.RunCloud
+            } else {
+                AiRoutePolicyDecider.decide(policy, snapshot)
+            }
+        }
+        val result = evaluate(decider = mutatedDecider)
         return !result.isSuccess && result.violations > 0
     }
 }

@@ -59,13 +59,15 @@ class GameViewModel(
         val enemyPositions = if (current.turn == Set.WHITE) current.positionsBlack else current.positionsWhite
         val enemyPieces = if (current.turn == Set.WHITE) current.piecesBlack else current.piecesWhite
 
-        engine.configure(EngineDifficulty.HARD)
-        val move = pickMoveStockfish(engine, current, enemyPositions, enemyPieces, allyPositions, allyPieces)
-        engine.configure(engineDifficulty)
-
-        val hint = formatHint(current, move, allyPositions, allyPieces, enemyPositions)
-        _hintText.value = hint
-        return hint
+        try {
+            engine.configure(EngineDifficulty.HARD)
+            val move = pickMoveStockfish(engine, current, enemyPositions, enemyPieces, allyPositions, allyPieces)
+            val hint = formatHint(current, move, allyPositions, allyPieces, enemyPositions)
+            _hintText.value = hint
+            return hint
+        } finally {
+            engine.configure(engineDifficulty)
+        }
     }
 
     private fun formatHint(

@@ -51,10 +51,12 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
         } catch (_: Exception) {}
     }
 
+    var isFallbackGoldenRun = false
     if (goldenCasesList.isEmpty()) {
+        isFallbackGoldenRun = true
         goldenCasesList += listOf(
-            GoldenCaseFixture("opening-001", listOf("opening", "develops"), MoveCoachRequest("g1h3", "Nh3", "You played Nh3.", "Develops knight.", "Hard")),
-            GoldenCaseFixture("opening-002", listOf("opening", "pawn-push"), MoveCoachRequest("f2f4", "f4", "You played f4.", "Attacks center.", "Hard")),
+            GoldenCaseFixture("fallback-opening-001", listOf("opening", "develops"), MoveCoachRequest("g1h3", "Nh3", "You played Nh3.", "Develops knight.", "Hard"), isFallbackGolden = true),
+            GoldenCaseFixture("fallback-opening-002", listOf("opening", "pawn-push"), MoveCoachRequest("f2f4", "f4", "You played f4.", "Attacks center.", "Hard"), isFallbackGolden = true),
         )
     }
 
@@ -104,11 +106,6 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
         
         val orchestrator = DefaultAiCoachOrchestrator(
             executor = executor,
-            // The orchestrator's own built-in default reports isDeviceModelAvailable = false (a
-            // conservative fallback for callers that don't supply one — see its DefaultContextProvider).
-            // Every real entry point overrides this to true (MainActivity/Main.kt/AppRoot); without it
-            // here the route decider always short-circuits to "no local model" before ever trying
-            // CactusLocal, regardless of whether the generator above actually warmed up.
             contextProvider = { com.example.ondeviceai.AiContextSnapshot(availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors()) },
             benchProbe = probe
         )
@@ -120,9 +117,9 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
         val thermalAfter = pm.currentThermalStatus
         val pmi = android.os.Debug.MemoryInfo()
         Debug.getMemoryInfo(pmi)
-        val peakMem = Debug.getNativeHeapAllocatedSize() + (pmi.totalPss * 1024L) // crude approx or just native
+        val peakMem = Debug.getNativeHeapAllocatedSize() + (pmi.totalPss * 1024L)
         
-        val isWarm = (i > 0) // The plan says "relaunch per iteration via run_android.sh for cold init". But if iterations > 1, 2nd is warm. 
+        val isWarm = (i > 0)
         
         val result = BenchResult(
             deviceModel = deviceModel,
@@ -148,7 +145,8 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
 
         val reasonJson = jsonStringOrNull(result.fallbackReason)
         val rawOutputJson = jsonStringOrNull(result.rawOutput)
-        val jsonLine = """{"deviceModel":"${result.deviceModel}","osVersion":"${result.osVersion}","appVersion":"${result.appVersion}","modelIdentifier":"${result.modelIdentifier}","isWarm":${result.isWarm},"timestampMs":${result.timestampMs},"initStartMs":${result.initStartMs},"initEndMs":${result.initEndMs},"generateStartMs":${result.generateStartMs},"firstTokenMs":${result.firstTokenMs},"completeMs":${result.completeMs},"tokenCount":${result.tokenCount},"peakMemoryBytes":${result.peakMemoryBytes},"thermalStatusBefore":${result.thermalStatusBefore},"thermalStatusAfter":${result.thermalStatusAfter},"fallbackTriggered":${result.fallbackTriggered},"isEmulator":${result.isEmulator},"fallbackReason":$reasonJson,"rawOutput":$rawOutputJson}"""
+        val tagsJson = fixture.tags.joinToString(",", "[", "]") { jsonStringOrNull(it) }
+        val jsonLine = """{"caseId":"${fixture.id}","isFallbackGolden":${fixture.isFallbackGolden},"tags":$tagsJson,"deviceModel":"${result.deviceModel}","osVersion":"${result.osVersion}","appVersion":"${result.appVersion}","modelIdentifier":"${result.modelIdentifier}","isWarm":${result.isWarm},"timestampMs":${result.timestampMs},"initStartMs":${result.initStartMs},"initEndMs":${result.initEndMs},"generateStartMs":${result.generateStartMs},"firstTokenMs":${result.firstTokenMs},"completeMs":${result.completeMs},"tokenCount":${result.tokenCount},"peakMemoryBytes":${result.peakMemoryBytes},"thermalStatusBefore":${result.thermalStatusBefore},"thermalStatusAfter":${result.thermalStatusAfter},"fallbackTriggered":${result.fallbackTriggered},"isEmulator":${result.isEmulator},"fallbackReason":$reasonJson,"rawOutput":$rawOutputJson}"""
         resultsFile.appendText(jsonLine + "\n")
     }
 }
@@ -164,4 +162,5 @@ data class GoldenCaseFixture(
     val id: String,
     val tags: List<String>,
     val request: MoveCoachRequest,
+    val isFallbackGolden: Boolean = false,
 )
