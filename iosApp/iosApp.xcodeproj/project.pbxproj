@@ -550,7 +550,7 @@
 					"@executable_path/Frameworks",
 				);
 				OTHER_LDFLAGS = "$(inherited) -framework ChessApp";
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.myapplication;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -570,7 +570,7 @@
 					"@executable_path/Frameworks",
 				);
 				OTHER_LDFLAGS = "$(inherited) -framework ChessApp";
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.myapplication;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

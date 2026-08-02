@@ -17,7 +17,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.myapplication"
+        applicationId = "io.github.ber4444.chess"
         minSdk = 26
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -55,7 +55,7 @@ android {
 }
 
 tasks.configureEach {
-    if (name.startsWith("merge") && name.endsWith("Assets")) {
+    if ((name.startsWith("merge") && name.endsWith("Assets")) || name.contains("lint", ignoreCase = true)) {
         dependsOn(":app:copyAndroidMainComposeResourcesToAndroidAssets")
     }
 }
