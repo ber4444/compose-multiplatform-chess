@@ -70,6 +70,12 @@ fun main() {
     val llmStats = runBlocking { evaluateLlmComposed(openingCases) }
 
     val stats = deterministicStats + llmStats
+    // Recalibration aid: `EVAL_CALIBRATION=1 ./gradlew :evals:run` prints the reading-grade
+    // distribution the FluencySurface bounds are derived from. See
+    // docs/benchmarks/on-device-ai/fluency-calibration.md.
+    if (System.getenv("EVAL_CALIBRATION") == "1") {
+        stats.forEach { System.err.println("[calibration] ${it.gradePercentiles()}") }
+    }
     val scorecard = ScorecardWriter.render(cases.size, openingCases.size, stats)
     Files.writeString(Path.of("scorecard.md"), scorecard)
 
@@ -92,7 +98,7 @@ private fun runTestApplicationRoutes(
 ): List<RouteStats> {
     // testApplication returns Unit, so thread the collected stats out via a captured holder.
     val collected = mutableListOf<RouteStats>()
-    assertRoutingInvariants()
+    collected += evaluateRouteSelection()
     testApplication {
         val dependencies = caseSpecificOpeningDependencies(openingCases)
         val chatDependencies = caseSpecificChatDependencies(openingCases)
@@ -118,38 +124,7 @@ private fun runTestApplicationRoutes(
     return collected
 }
 
-/**
- * Asserts the structural routing invariants claimed in the article draft before output-quality scoring.
- * Proves that the intent-driven policy strictly routes the local features to the local vendor, and
- * the cloud features to the cloud, using the runtime decider.
- */
-private fun assertRoutingInvariants() {
-    val nominalContext = AiContextSnapshot(
-        availableLocalVendors = listOf(VendorRoute.LiteRtLm()), // A local model is available
-        isNetworkAvailable = true,
-        isAppForegrounded = true,
-        userSetting = AiUserSetting.ALLOW_CLOUD,
-        thermalState = ThermalState.NOMINAL,
-    )
 
-    // Move Coach must route to device (LOCAL_ONLY)
-    val coachDecision = AiRoutePolicyDecider.decide(AiRoutePolicies.moveCoachOffline, nominalContext)
-    check(coachDecision is AiRoutePolicyDecider.Decision.RunOnDevice) {
-        "Routing invariant failed: moveCoachOffline did not route to device. Got $coachDecision"
-    }
-
-    // Opening Explainer must route to cloud (allowLocal = false bypasses local model)
-    val explainerDecision = AiRoutePolicyDecider.decide(AiRoutePolicies.openingExplainer, nominalContext)
-    check(explainerDecision is AiRoutePolicyDecider.Decision.RunCloud) {
-        "Routing invariant failed: openingExplainer did not route to cloud. Got $explainerDecision"
-    }
-
-    // Position Chat must route to cloud (allowLocal = false bypasses local model)
-    val chatDecision = AiRoutePolicyDecider.decide(AiRoutePolicies.positionChat, nominalContext)
-    check(chatDecision is AiRoutePolicyDecider.Decision.RunCloud) {
-        "Routing invariant failed: positionChat did not route to cloud. Got $chatDecision"
-    }
-}
 
 /**
  * Deterministic retrieval fake keyed by the production opening query. Each case gets only its own
@@ -269,6 +244,14 @@ private fun describeConcept(concept: String): String? = when (concept.lowercase(
     "pawn tension", "pawn-tension" -> "creating pawn tension"
     "opening" -> "solid opening play"
     else -> concept
+}
+
+private fun evaluateRouteSelection(): RouteStats {
+    val result = RouterEvalSuite.evaluate()
+    val stats = RouteStats(route = "route-selection", collection = CollectionMode.AUTOMATED)
+    stats.cases = result.totalEvaluated
+    stats.fallbacks = result.violations
+    return stats
 }
 
 private suspend fun evaluateFake(cases: List<GoldenCase>): RouteStats {
@@ -483,16 +466,48 @@ data class RouteStats(
     val note: String = "",
     var cases: Int = 0,
     var groundingViolations: Int = 0,
+    var fluencyViolations: Int = 0,
     var retries: Int = 0,
     var fallbacks: Int = 0,
     var lengthViolations: Int = 0,
 ) {
+    private val readingGrades = mutableListOf<Double>()
+
+    /**
+     * Median measured reading grade, or `null` when the route records no scored text (the
+     * `route-selection` row scores decisions, not prose). Median rather than mean so one long
+     * outlier can't drag the reported figure.
+     */
+    /**
+     * Grade distribution for this route, used to re-derive the [FluencyScorer.FluencySurface]
+     * bounds. Not rendered in the scorecard — print it from `main` when recalibrating, and see
+     * `docs/benchmarks/on-device-ai/fluency-calibration.md` for the procedure.
+     */
+    fun gradePercentiles(): String {
+        if (readingGrades.isEmpty()) return "$route: no prose"
+        val s = readingGrades.sorted()
+        fun p(q: Double) = s[((s.size - 1) * q).toInt()]
+        return "$route n=${s.size} min=${"%.1f".format(s.first())} p50=${"%.1f".format(p(0.5))} " +
+            "p75=${"%.1f".format(p(0.75))} p90=${"%.1f".format(p(0.90))} " +
+            "p95=${"%.1f".format(p(0.95))} max=${"%.1f".format(s.last())}"
+    }
+
+    val medianReadingGrade: Double?
+        get() {
+            if (readingGrades.isEmpty()) return null
+            val sorted = readingGrades.sorted()
+            val mid = sorted.size / 2
+            return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2.0
+        }
+
     fun record(score: OutputScore, retried: Boolean, fellBack: Boolean) {
         cases++
         if (!score.grounded) groundingViolations++
+        if (!score.fluencyCompliant) fluencyViolations++
         if (retried) retries++
         if (fellBack) fallbacks++
         if (score.lengthViolation) lengthViolations++
+        readingGrades += score.readingGrade
     }
 }
 
@@ -505,17 +520,19 @@ object ScorecardWriter {
         appendLine()
         appendLine("> Candidate dataset: $totalCases total cases, $openingCases opening cases. Owner hand-review is still required before article publication.")
         appendLine()
-        appendLine("| Route | Cases | Grounding violation | Retry | Fallback | Length violation | Collection |")
-        appendLine("|---|---:|---:|---:|---:|---:|---|")
+        appendLine("| Route | Cases | Grounding violation | Reading grade | Fluency violation | Retry | Fallback | Length violation | Collection |")
+        appendLine("|---|---:|---:|---:|---:|---:|---:|---:|---|")
         stats.forEach { stat ->
             if (stat.available) {
                 appendLine(
                     "| ${stat.route} | ${stat.cases} | ${percent(stat.groundingViolations, stat.cases)} | " +
+                        "${grade(stat.medianReadingGrade)} | " +
+                        "${percent(stat.fluencyViolations, stat.cases)} | " +
                         "${percent(stat.retries, stat.cases)} | ${percent(stat.fallbacks, stat.cases)} | " +
                         "${percent(stat.lengthViolations, stat.cases)} | ${stat.collection.name.lowercase()} |",
                 )
             } else {
-                appendLine("| ${stat.route} | — | — | — | — | — | ${stat.collection.name.lowercase()} (${stat.note}) |")
+                appendLine("| ${stat.route} | — | — | — | — | — | — | — | ${stat.collection.name.lowercase()} (${stat.note}) |")
             }
         }
         MANUAL_ROWS.forEach { appendLine(it.render()) }
@@ -535,6 +552,11 @@ object ScorecardWriter {
      *
      * Percentages are strings, not computed, because there is no `CaseScore` to aggregate — the runs
      * happened on a phone. Keep the `—` convention for "not measured" so the column still parses.
+     *
+     * **Cell count must match the header.** These rows are rendered by hand, so a new column added
+     * to the automated rows above does not reach them — it silently shifts every manual value one
+     * column left. [fluencyViolation] is `—` because these runs predate the fluency scorer and were
+     * transcribed from device output, not re-scored.
      */
     private data class ManualRow(
         val route: String,
@@ -544,9 +566,12 @@ object ScorecardWriter {
         val fallback: String,
         val lengthViolation: String,
         val note: String,
+        val fluencyViolation: String = "—",
+        val readingGrade: String = "—",
     ) {
         fun render(): String =
-            "| $route | $cases | $groundingViolation | $retry | $fallback | $lengthViolation | manual ($note) |"
+            "| $route | $cases | $groundingViolation | $readingGrade | $fluencyViolation | " +
+                "$retry | $fallback | $lengthViolation | manual ($note) |"
     }
 
     private val MANUAL_ROWS = listOf(
@@ -579,4 +604,11 @@ object ScorecardWriter {
 
     private fun percent(value: Int, total: Int): String =
         if (total == 0) "—" else "${((value * 1000.0 / total).roundToInt() / 10.0)}%"
+
+    /**
+     * Median Flesch-Kincaid grade. Reported so the [FluencyScorer.FluencySurface] bounds stay
+     * auditable — a pass rate alone can't show that a bound has drifted away from the text.
+     */
+    private fun grade(value: Double?): String =
+        if (value == null) "—" else "${(value * 10.0).roundToInt() / 10.0}"
 }

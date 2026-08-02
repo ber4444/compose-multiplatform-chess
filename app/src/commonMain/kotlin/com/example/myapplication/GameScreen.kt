@@ -619,10 +619,17 @@ private fun GameControls(
             )
         }
 
-        Row {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (transparentButtons) {
                 TransparentUnderlineButton(onClick = onResetGame) {
                     Text(stringResource(Res.string.reset_button))
+                }
+                if (viewModel.engineAttached) {
+                    TransparentUnderlineButton(
+                        onClick = viewModel::requestHint,
+                        enabled = gameState.turn == viewModel.playerSide && gameState.winState == WinState.NONE && animState.pieceToAnimate == null,
+                        modifier = Modifier.testTag("hint_button")
+                    ) { Text("Hint") }
                 }
                 TransparentUnderlineButton(
                     onClick = viewModel::requestDrawOffer,
@@ -632,6 +639,13 @@ private fun GameControls(
             } else {
                 Button(onClick = onResetGame) {
                     Text(stringResource(Res.string.reset_button))
+                }
+                if (viewModel.engineAttached) {
+                    Button(
+                        onClick = viewModel::requestHint,
+                        enabled = gameState.turn == viewModel.playerSide && gameState.winState == WinState.NONE && animState.pieceToAnimate == null,
+                        modifier = Modifier.testTag("hint_button")
+                    ) { Text("Hint") }
                 }
                 Button(
                     onClick = viewModel::requestDrawOffer,

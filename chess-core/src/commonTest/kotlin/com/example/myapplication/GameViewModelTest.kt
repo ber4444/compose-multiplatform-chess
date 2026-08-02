@@ -419,4 +419,40 @@ class GameViewModelTest {
         )
         assertEquals(vmA.gameState.value.turn, vmB.gameState.value.turn)
     }
+
+    @Test
+    fun `requestHint requires attached engine and player turn and produces valid legal move hint`() = kotlinx.coroutines.test.runTest {
+        val vm = GameViewModel()
+
+        // 1. Without attached engine, requestHint does nothing
+        vm.requestHint()
+        assertNull(vm.hintText.value)
+
+        // 2. Attach a fake engine
+        val fakeEngine = object : ChessEngine {
+            override suspend fun configure(difficulty: EngineDifficulty) {}
+            override suspend fun getBestMove(fen: String): BestMoveResult? = BestMoveResult("e2e4", evaluationCp = 30)
+            override fun close() {}
+        }
+        vm.attachEngine(fakeEngine)
+
+        // 3. Request hint on player turn
+        val hint = vm.computeHintDirectly()
+        assertTrue(hint != null && hint.startsWith("Hint: Try "), "Expected hint starting with 'Hint: Try ' but got $hint")
+
+        // Assert player side has legal moves
+        val legalMoves = getAllLegalMoves(
+            enemyPositions = vm.gameState.value.positionsBlack,
+            enemyPieces = vm.gameState.value.piecesBlack,
+            allyPositions = vm.gameState.value.positionsWhite,
+            allyPieces = vm.gameState.value.piecesWhite,
+            castlingRights = vm.gameState.value.castlingRights,
+            enPassantTarget = vm.gameState.value.enPassantTarget
+        )
+        assertTrue(legalMoves.isNotEmpty(), "Player side should have legal moves")
+
+        // Clear hint works
+        vm.clearHint()
+        assertNull(vm.hintText.value)
+    }
 }

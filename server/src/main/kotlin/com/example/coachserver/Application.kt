@@ -139,7 +139,12 @@ fun Application.openingCoachModule(
         // Interactive, multi-turn, token-streaming chat about a single position. Uses genuine SSE
         // wire format (`data: <json>\n\n`) over a chunked `respondBytesWriter` response rather than
         // the ktor SSE plugin: the plugin's `sse { }` route builder is GET-only, but chat needs to
-        // POST a request body (FEN + bounded history). Cancelling the collecting Job closes the
+        // POST a request body (FEN + bounded history). Verified against **Ktor 3.5.0**: all four
+        // `io.ktor.server.sse.RoutingKt.sse` overloads take only (Route, [path], handler) with no
+        // method parameter, and the bytecode binds `HttpMethod.Get` directly. Recheck on the next
+        // bump. Corollary: 3.5's `Heartbeat.eventProvider` is a property of the plugin's
+        // ServerSSESession, so it is unreachable from this route — the hand-rolled `: keep-alive`
+        // writer below stays. Cancelling the collecting Job closes the
         // writer and aborts the underlying provider stream (see KtorStreamingChatClient on the app
         // side). Validation runs on the accumulated text at stream end; a failure emits a final
         // `fallback` event carrying deterministic text instead of `done`.
