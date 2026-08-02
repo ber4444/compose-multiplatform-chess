@@ -271,6 +271,14 @@ private fun describeConcept(concept: String): String? = when (concept.lowercase(
     else -> concept
 }
 
+private fun evaluateRouteSelection(): RouteStats {
+    val result = RouterEvalSuite.evaluate()
+    val stats = RouteStats(route = "route-selection", collection = CollectionMode.AUTOMATED)
+    stats.cases = result.totalEvaluated
+    stats.fallbacks = result.violations
+    return stats
+}
+
 private suspend fun evaluateFake(cases: List<GoldenCase>): RouteStats {
     val stats = RouteStats(route = "fake-generator", collection = CollectionMode.AUTOMATED)
     cases.forEach { case ->

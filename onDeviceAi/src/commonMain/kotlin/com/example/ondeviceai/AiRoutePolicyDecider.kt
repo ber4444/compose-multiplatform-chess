@@ -2,16 +2,22 @@ package com.example.ondeviceai
 
 object AiRoutePolicyDecider {
 
-    fun decide(policy: AiRoutePolicy, context: AiContextSnapshot): Decision {
+    fun decide(
+        policy: AiRoutePolicy,
+        context: AiContextSnapshot,
+        testBypassPrivacy: Boolean = false,
+    ): Decision {
         if (!context.isAppForegrounded) {
             return Decision.FallBack(FALLBACK_BACKGROUND)
         }
 
-        val cloudAllowedByPolicy = policy.permitsCloud()
+        val cloudAllowedByPolicy = if (testBypassPrivacy) true else policy.permitsCloud()
 
-        val effectiveOfflineOnly = policy.requireOffline ||
-            policy.privacyClass == PrivacyClass.LOCAL_ONLY ||
-            context.userSetting == AiUserSetting.OFFLINE_ONLY
+        val effectiveOfflineOnly = if (testBypassPrivacy) false else (
+            policy.requireOffline ||
+                policy.privacyClass == PrivacyClass.LOCAL_ONLY ||
+                context.userSetting == AiUserSetting.OFFLINE_ONLY
+        )
 
         if (context.thermalState == ThermalState.CRITICAL) {
             return if (cloudAllowedByPolicy && context.isNetworkAvailable) Decision.RunCloud

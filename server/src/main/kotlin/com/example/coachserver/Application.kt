@@ -138,7 +138,8 @@ fun Application.openingCoachModule(
         }
         // Interactive, multi-turn, token-streaming chat about a single position. Uses genuine SSE
         // wire format (`data: <json>\n\n`) over a chunked `respondBytesWriter` response rather than
-        // the ktor SSE plugin: the plugin's `sse { }` route builder is GET-only, but chat needs to
+        // the ktor SSE plugin: the plugin's `sse { }` route builder is GET-only (carried forward
+        // unverified against 3.5 `eventProvider` / SSE plugin signatures), but chat needs to
         // POST a request body (FEN + bounded history). Cancelling the collecting Job closes the
         // writer and aborts the underlying provider stream (see KtorStreamingChatClient on the app
         // side). Validation runs on the accumulated text at stream end; a failure emits a final

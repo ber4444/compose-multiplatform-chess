@@ -23,14 +23,40 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
     val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
     val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
 
-    // We use a fixed prompt request
-    val request = MoveCoachRequest(
-        moveUci = "e2e4",
-        moveDisplay = "e4",
-        deterministicHeadline = "You played e4.",
-        deterministicExplanation = "This controls the center.",
-        engineDifficultyName = "Hard"
-    )
+    val goldenCasesFile = File(context.filesDir, "golden/candidates.json")
+    val goldenCasesList = mutableListOf<GoldenCaseFixture>()
+    if (goldenCasesFile.exists()) {
+        try {
+            val jsonArray = org.json.JSONArray(goldenCasesFile.readText())
+            for (j in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(j)
+                val id = obj.getString("id")
+                val tagsArr = obj.getJSONArray("tags")
+                val tags = (0 until tagsArr.length()).map { tagsArr.getString(it) }
+                val bestMoveUci = obj.getString("bestMoveUci")
+                val sanArr = if (obj.has("movesSan")) obj.getJSONArray("movesSan") else null
+                val moveDisplay = if (sanArr != null && sanArr.length() > 0) sanArr.getString(sanArr.length() - 1) else bestMoveUci
+                goldenCasesList += GoldenCaseFixture(
+                    id = id,
+                    tags = tags,
+                    request = MoveCoachRequest(
+                        moveUci = bestMoveUci,
+                        moveDisplay = moveDisplay,
+                        deterministicHeadline = "You played $moveDisplay.",
+                        deterministicExplanation = "This was a strong move.",
+                        engineDifficultyName = "Hard"
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+    }
+
+    if (goldenCasesList.isEmpty()) {
+        goldenCasesList += listOf(
+            GoldenCaseFixture("opening-001", listOf("opening", "develops"), MoveCoachRequest("g1h3", "Nh3", "You played Nh3.", "Develops knight.", "Hard")),
+            GoldenCaseFixture("opening-002", listOf("opening", "pawn-push"), MoveCoachRequest("f2f4", "f4", "You played f4.", "Attacks center.", "Hard")),
+        )
+    }
 
     val deviceModel = Build.MODEL
     val osVersion = Build.VERSION.RELEASE
@@ -38,6 +64,8 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
     val isEmulator = Build.FINGERPRINT.contains("generic") || Build.MODEL.contains("Emulator")
 
     for (i in 0 until iterations) {
+        val fixture = goldenCasesList[i % goldenCasesList.size]
+        val request = fixture.request
         val thermalBefore = pm.currentThermalStatus
         var initStart = 0L
         var initEnd = 0L
@@ -131,3 +159,9 @@ private fun jsonStringOrNull(s: String?): String {
         .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
     return "\"$escaped\""
 }
+
+data class GoldenCaseFixture(
+    val id: String,
+    val tags: List<String>,
+    val request: MoveCoachRequest,
+)

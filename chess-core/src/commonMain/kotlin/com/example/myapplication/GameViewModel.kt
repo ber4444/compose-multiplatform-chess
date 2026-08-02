@@ -36,6 +36,71 @@ class GameViewModel(
     private val _viewState = MutableStateFlow(ViewState(show3D = initialShow3D))
     val viewState: StateFlow<ViewState> = _viewState
 
+    private val _hintText = MutableStateFlow<String?>(null)
+    val hintText: StateFlow<String?> = _hintText
+    private var hintJob: Job? = null
+
+    /**
+     * Computes a full-strength Stockfish move hint for the player's turn (B5).
+     * Requires an attached engine, guards turn state, and cancels previous hint requests.
+     */
+    fun requestHint() {
+        hintJob?.cancel()
+        hintJob = scope.launch { computeHintDirectly() }
+    }
+
+    suspend fun computeHintDirectly(): String? {
+        val current = _gameState.value
+        if (current.turn != playerSide || current.winState != WinState.NONE) return null
+        val engine = chessEngine ?: return null
+
+        val allyPositions = if (current.turn == Set.WHITE) current.positionsWhite else current.positionsBlack
+        val allyPieces = if (current.turn == Set.WHITE) current.piecesWhite else current.piecesBlack
+        val enemyPositions = if (current.turn == Set.WHITE) current.positionsBlack else current.positionsWhite
+        val enemyPieces = if (current.turn == Set.WHITE) current.piecesBlack else current.piecesWhite
+
+        engine.configure(EngineDifficulty.HARD)
+        val move = pickMoveStockfish(engine, current, enemyPositions, enemyPieces, allyPositions, allyPieces)
+        engine.configure(engineDifficulty)
+
+        val hint = formatHint(current, move, allyPositions, allyPieces, enemyPositions)
+        _hintText.value = hint
+        return hint
+    }
+
+    private fun formatHint(
+        current: GameUiState,
+        move: SelectedMove,
+        allyPositions: List<Pair<Int, Int>>,
+        allyPieces: List<Piece>,
+        enemyPositions: List<Pair<Int, Int>>,
+    ): String {
+        if (move.position != INVALID_POSITION && move.pieceIndex != -1) {
+            val from = allyPositions[move.pieceIndex]
+            val to = move.position
+            val movingPiece = allyPieces[move.pieceIndex]
+            val isCapture = enemyPositions.contains(to) || (to == current.enPassantTarget && movingPiece is Pawn)
+            val san = SanConverter.toSan(
+                preMove = current,
+                pieceIndex = move.pieceIndex,
+                from = from,
+                to = to,
+                movingPiece = movingPiece,
+                isCapture = isCapture,
+                promotion = move.promotion,
+                castleRook = castlingRookMove(movingPiece, from, to),
+                checkSuffix = "",
+            )
+            return "Hint: Try $san"
+        } else {
+            return "Hint: No legal moves available"
+        }
+    }
+
+    fun clearHint() {
+        _hintText.value = null
+    }
+
     private var gameMoves: Job? = null
     private var chessEngine: ChessEngine? = null
 

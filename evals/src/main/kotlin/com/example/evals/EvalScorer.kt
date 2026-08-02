@@ -7,22 +7,27 @@ import com.example.ondeviceai.MoveCoachResponseValidator
 data class OutputScore(
     val grounded: Boolean,
     val lengthViolation: Boolean,
+    val fluencyCompliant: Boolean = true,
 )
 
 object EvalScorer {
     fun scoreMove(case: GoldenCase, text: String): OutputScore {
         val result = MoveCoachResponseValidator.validate(text, case.toMoveCoachRequest())
+        val fluency = FluencyScorer.evaluate(text).isCompliant
         return OutputScore(
             grounded = result is MoveCoachResponseValidator.Result.Valid,
             lengthViolation = text.trim().length > MoveCoachPromptBuilder.MAX_OUTPUT_CHARS,
+            fluencyCompliant = fluency,
         )
     }
 
     fun scoreOpening(case: GoldenCase, text: String): OutputScore {
         val lower = text.lowercase()
+        val fluency = FluencyScorer.evaluate(text).isCompliant
         return OutputScore(
             grounded = case.expectedConcepts.all { lower.contains(it.lowercase()) },
             lengthViolation = text.trim().length > MoveCoachPromptBuilder.MAX_OUTPUT_CHARS,
+            fluencyCompliant = fluency,
         )
     }
 
@@ -35,6 +40,7 @@ object EvalScorer {
     fun scoreChat(turn: ChatTurnFixture, text: String): OutputScore {
         val lower = text.lowercase()
         val grounded = turn.expectedConcepts.any { lower.contains(it.lowercase()) }
+        val fluency = FluencyScorer.evaluate(text).isCompliant
         return OutputScore(
             grounded = grounded,
             lengthViolation = text.trim().length > CHAT_OUTPUT_CAP,
