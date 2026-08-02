@@ -8,6 +8,26 @@ ACTIVITY="com.example.myapplication.MainActivity"
 # Clear previous results
 adb shell "run-as $PACKAGE rm -f files/bench/results.jsonl" || true
 
+# Deliver the golden set (B14). Without this the runner finds no candidates.json and silently
+# falls back to two hardcoded fixtures, which produces rows that look real but score nothing.
+# filesDir is app-private, so the only route in is /data/local/tmp + `run-as` (debug builds only —
+# which is fine, the bench itself is gated behind isDebug in MainActivity).
+GOLDEN_SRC="$(dirname "$0")/../evals/golden/candidates.json"
+if [ -f "$GOLDEN_SRC" ]; then
+    adb push "$GOLDEN_SRC" /data/local/tmp/candidates.json >/dev/null
+    adb shell "run-as $PACKAGE mkdir -p files/golden"
+    adb shell "run-as $PACKAGE sh -c 'cat /data/local/tmp/candidates.json > files/golden/candidates.json'"
+    adb shell rm -f /data/local/tmp/candidates.json
+    pushed=$(adb shell "run-as $PACKAGE sh -c 'wc -c < files/golden/candidates.json'" 2>/dev/null | tr -d '\r')
+    if [ "${pushed:-0}" -gt 0 ] 2>/dev/null; then
+        echo "Golden set delivered ($pushed bytes)."
+    else
+        echo "WARNING: golden set push failed — the run will use fallback fixtures (isFallbackGolden=true)." >&2
+    fi
+else
+    echo "WARNING: $GOLDEN_SRC not found — the run will use fallback fixtures (isFallbackGolden=true)." >&2
+fi
+
 echo "Running $ITERATIONS cold-init iterations on Android..."
 
 for i in $(seq 1 $ITERATIONS); do

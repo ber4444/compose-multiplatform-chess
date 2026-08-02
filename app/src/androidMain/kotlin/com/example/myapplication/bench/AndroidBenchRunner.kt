@@ -48,7 +48,13 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
                     )
                 )
             }
-        } catch (_: Exception) {}
+        } catch (t: Throwable) {
+            // Don't swallow: a malformed golden file silently degrades the whole run to the two
+            // fallback fixtures, and the resulting rows look like real data. isFallbackGolden marks
+            // them in the JSONL, but the *reason* only exists here.
+            android.util.Log.e("AndroidBenchRunner", "Failed to parse ${goldenCasesFile.path}; falling back to built-in fixtures", t)
+            goldenCasesList.clear()
+        }
     }
 
     var isFallbackGoldenRun = false

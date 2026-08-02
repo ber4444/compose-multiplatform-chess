@@ -91,6 +91,10 @@ class GameViewModel(
                 isCapture = isCapture,
                 promotion = move.promotion,
                 castleRook = castlingRookMove(movingPiece, from, to),
+                // Deliberately no "+"/"#": the real move path derives those from the *post-move*
+                // state (see deriveNewGameState), and speculatively applying the candidate move
+                // just to decorate a hint would run the autosave/move-record side effects too.
+                // A hint reads fine as "Try Qh5"; it does not need to announce mate.
                 checkSuffix = "",
             )
             return "Hint: Try $san"

@@ -179,7 +179,11 @@ object RouterEvalSuite {
 
         val totalViolations = neverReaches + alwaysReaches + carries + declares
         return EvaluationResult(
-            totalEvaluated = total,
+            // DECLARES is a per-route taxonomy check, not a per-(policy, snapshot) one, so its
+            // checks are added to the denominator too. Otherwise its violations land in the
+            // numerator of a rate whose denominator never counted them, and the scorecard's
+            // violation percentage overstates by one route-check per decision case.
+            totalEvaluated = total + allRoutes.size,
             violations = totalViolations,
             neverReachesViolations = neverReaches,
             alwaysReachesViolations = alwaysReaches,

@@ -515,6 +515,11 @@ object ScorecardWriter {
      *
      * Percentages are strings, not computed, because there is no `CaseScore` to aggregate — the runs
      * happened on a phone. Keep the `—` convention for "not measured" so the column still parses.
+     *
+     * **Cell count must match the header.** These rows are rendered by hand, so a new column added
+     * to the automated rows above does not reach them — it silently shifts every manual value one
+     * column left. [fluencyViolation] is `—` because these runs predate the fluency scorer and were
+     * transcribed from device output, not re-scored.
      */
     private data class ManualRow(
         val route: String,
@@ -524,9 +529,11 @@ object ScorecardWriter {
         val fallback: String,
         val lengthViolation: String,
         val note: String,
+        val fluencyViolation: String = "—",
     ) {
         fun render(): String =
-            "| $route | $cases | $groundingViolation | $retry | $fallback | $lengthViolation | manual ($note) |"
+            "| $route | $cases | $groundingViolation | $fluencyViolation | $retry | $fallback | " +
+                "$lengthViolation | manual ($note) |"
     }
 
     private val MANUAL_ROWS = listOf(
