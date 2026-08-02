@@ -5,11 +5,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * No-op entitlements implementation. Defaults to locked ([initialUnlocked] = false) so that unconfigured
- * platforms fail locked by default (§0.4 review requirement).
+ * [Entitlements] for the **storeless** targets: desktop and Web/Wasm entry points construct this
+ * with `initialUnlocked = true`, because there is no store to buy from and everything is free there.
  *
- * Desktop and Web/Wasm entry points explicitly instantiate [NoOpEntitlements](initialUnlocked = true)
- * because those targets have no native app store and keep all features unlocked.
+ * Deliberately *not* the default on Android/iOS — [purchasePro] here succeeds without any billing
+ * client, so using it on a store platform would grant Pro for a tap. Those targets fall to
+ * [UnconfiguredEntitlements] until the RevenueCat SDK is wired (§0.4). [initialUnlocked] still
+ * defaults to `false` so an accidental bare `NoOpEntitlements()` starts locked rather than open.
  */
 class NoOpEntitlements(
     initialUnlocked: Boolean = false

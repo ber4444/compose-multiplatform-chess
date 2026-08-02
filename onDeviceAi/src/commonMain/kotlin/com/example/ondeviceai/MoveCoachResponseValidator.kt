@@ -110,6 +110,11 @@ object MoveCoachResponseValidator {
             }
             uniqueSentences.add(sentence)
         }
+        // Nothing was a duplicate, so return the input untouched rather than a split/rejoin of it.
+        // splitSentences breaks on every '.', including ones inside "0.5" or "e.g.", and rejoining
+        // with " " would inject a space there ("You are up 0. 5 pawns."). Only pay that risk when
+        // there is actually a duplicate to drop.
+        if (uniqueSentences.size == sentences.size) return text
         return uniqueSentences.joinToString(" ")
     }
 

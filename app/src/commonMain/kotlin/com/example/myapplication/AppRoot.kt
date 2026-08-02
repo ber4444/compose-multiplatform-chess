@@ -52,7 +52,7 @@ import com.example.ondeviceai.createBundledRuleLookupTool
 import com.example.ondeviceai.defaultRulesQaAnswerer
 import com.example.myapplication.monetization.Entitlements
 import com.example.myapplication.monetization.LocalEntitlements
-import com.example.myapplication.monetization.NoOpEntitlements
+import com.example.myapplication.monetization.UnconfiguredEntitlements
 
 /**
  * Top-level navigation host. Owns the single source of truth for the current screen, applies the
@@ -78,7 +78,9 @@ fun AppRoot(
     pgnSharer: PgnSharer? = null,
     moveCoachManager: MoveCoachManager? = null,
     gameSummaryManager: GameSummaryManager? = null,
-    entitlements: Entitlements = remember { NoOpEntitlements(initialUnlocked = false) },
+    // Store platforms (Android, iOS) pass nothing and land here: locked, and purchasePro() fails
+    // loudly rather than granting Pro for free. Desktop/wasm pass NoOpEntitlements(true) instead.
+    entitlements: Entitlements = remember { UnconfiguredEntitlements() },
     switchTopPadding: Dp = 8.dp,
 ) {
     val openingExplainerStateHolder = remember { OpeningExplainerStateHolder(createOpeningExplainer()) }

@@ -86,6 +86,31 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `citation tags never reach the rendered stream or the stopped transcript`() = runTest {
+        val events = MutableSharedFlow<ChatStreamEvent>(extraBufferCapacity = 8)
+        val chat = fakeChat(events.asSharedFlow())
+        val vm = ChatViewModel(chat, scope = testScope())
+
+        vm.send(gameState, "Tell me about the center")
+        advanceUntilIdle()
+        events.emit(ChatStreamEvent(ChatStreamEvent.TYPE_TOKEN, text = "The center is contested "))
+        // A tag arriving split across chunks must not render either half.
+        events.emit(ChatStreamEvent(ChatStreamEvent.TYPE_TOKEN, text = "[lichess-"))
+        advanceUntilIdle()
+        assertEquals("The center is contested", vm.state.value.displayPartialText)
+
+        events.emit(ChatStreamEvent(ChatStreamEvent.TYPE_TOKEN, text = "c20]."))
+        advanceUntilIdle()
+        assertEquals("The center is contested.", vm.state.value.displayPartialText)
+
+        // Stop promotes the buffer straight to a message, bypassing finalizeAssistant.
+        vm.stop()
+        advanceUntilIdle()
+        val promoted = vm.state.value.messages.last { it.role == "assistant" }
+        assertEquals("The center is contested.", promoted.text)
+    }
+
+    @Test
     fun `retry re-issues the last turn and clears the failed message`() = runTest {
         val firstFlow = MutableSharedFlow<ChatStreamEvent>(extraBufferCapacity = 8)
         var streamInvocation = 0

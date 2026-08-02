@@ -1,6 +1,7 @@
 package com.example.myapplication.movecoach
 
 import co.touchlab.kermit.Logger
+import com.example.myapplication.ui.CitationSanitizer
 import com.example.ondeviceai.GameSummaryEvent
 import com.example.ondeviceai.GameSummaryOrchestrator
 import com.example.ondeviceai.GameSummaryRequest
@@ -64,12 +65,24 @@ class GameSummaryManager {
                 orchestrator.summarizeGameStreaming(request).collect { event ->
                     when (event) {
                         is GameSummaryEvent.Streaming ->
-                            _uiState.value = GameSummaryUiState.Streaming(event.partialText)
+                            _uiState.value = GameSummaryUiState.Streaming(
+                                CitationSanitizer.sanitizeStreaming(event.partialText)
+                            )
+                        // This surface runs with no response validator (any non-blank text is
+                        // accepted), so the sanitizer is the only thing between raw model output
+                        // and the user.
                         is GameSummaryEvent.Complete -> when (val result = event.result) {
                             is GameSummaryResult.Success ->
-                                _uiState.value = GameSummaryUiState.Ready(result.explanation)
+                                _uiState.value = GameSummaryUiState.Ready(
+                                    result.explanation.copy(
+                                        explanation = CitationSanitizer.sanitize(result.explanation.explanation),
+                                    )
+                                )
                             is GameSummaryResult.FellBack ->
-                                _uiState.value = GameSummaryUiState.Fallback(result.text, result.reason)
+                                _uiState.value = GameSummaryUiState.Fallback(
+                                    CitationSanitizer.sanitize(result.text),
+                                    result.reason,
+                                )
                             is GameSummaryResult.Failed ->
                                 _uiState.value = GameSummaryUiState.Error(result.message)
                         }

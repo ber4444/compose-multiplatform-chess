@@ -4,6 +4,7 @@ import com.example.coachapi.OpeningExplainRequest
 import com.example.myapplication.FenConverter
 import com.example.myapplication.GameUiState
 import com.example.myapplication.WinState
+import com.example.myapplication.ui.CitationSanitizer
 import com.example.ondeviceai.OpeningExplainer
 import com.example.ondeviceai.OpeningExplainerResult
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,7 +60,7 @@ class OpeningExplainerStateHolder(
 
     private fun com.example.coachapi.OpeningExplainResponse.toUiState(isFallback: Boolean) =
         OpeningExplainerUiState.Ready(
-            text = com.example.myapplication.ui.CitationSanitizer.sanitize(text),
+            text = CitationSanitizer.sanitize(text),
             sourceTitles = passages.map { it.title }.distinct(),
             isFallback = isFallback,
         )

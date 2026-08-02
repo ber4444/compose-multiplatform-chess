@@ -25,4 +25,32 @@ class CitationSanitizerTest {
         val result = CitationSanitizer.sanitize(input)
         assertEquals("Standard chess text without citations.", result)
     }
+
+    @Test
+    fun `preserves move citations for the board-jump affordance`() {
+        val input = "Your first slip was [move-14], and the game turned at [move-22] [lichess-c20]."
+        val result = CitationSanitizer.sanitize(input)
+        assertEquals("Your first slip was [move-14], and the game turned at [move-22].", result)
+    }
+
+    @Test
+    fun `streaming view hides a tag that has not closed yet`() {
+        // Mid-stream the closing bracket has not arrived; the fragment must not render.
+        assertEquals(
+            "The center is contested",
+            CitationSanitizer.sanitizeStreaming("The center is contested [lichess-c2"),
+        )
+        assertEquals(
+            "The center is contested",
+            CitationSanitizer.sanitizeStreaming("The center is contested ["),
+        )
+    }
+
+    @Test
+    fun `streaming view keeps a completed move citation`() {
+        assertEquals(
+            "The game turned at [move-22]",
+            CitationSanitizer.sanitizeStreaming("The game turned at [move-22]"),
+        )
+    }
 }
