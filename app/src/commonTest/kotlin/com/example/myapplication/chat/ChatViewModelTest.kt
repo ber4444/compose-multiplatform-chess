@@ -57,7 +57,7 @@ class ChatViewModelTest {
         assertEquals(2, state.messages.size) // user + assistant
         assertEquals("user", state.messages[0].role)
         assertEquals("assistant", state.messages[1].role)
-        assertEquals("The center is contested [s1].", state.messages[1].text)
+        assertEquals("The center is contested.", state.messages[1].text)
         assertEquals(false, state.messages[1].isFallback)
     }
 
@@ -83,6 +83,31 @@ class ChatViewModelTest {
         assertEquals(true, state.canRetry)
         // The partial assistant text is promoted to a marked fallback message.
         assertEquals(true, state.messages.any { it.role == "assistant" && it.isFallback })
+    }
+
+    @Test
+    fun `citation tags never reach the rendered stream or the stopped transcript`() = runTest {
+        val events = MutableSharedFlow<ChatStreamEvent>(extraBufferCapacity = 8)
+        val chat = fakeChat(events.asSharedFlow())
+        val vm = ChatViewModel(chat, scope = testScope())
+
+        vm.send(gameState, "Tell me about the center")
+        advanceUntilIdle()
+        events.emit(ChatStreamEvent(ChatStreamEvent.TYPE_TOKEN, text = "The center is contested "))
+        // A tag arriving split across chunks must not render either half.
+        events.emit(ChatStreamEvent(ChatStreamEvent.TYPE_TOKEN, text = "[lichess-"))
+        advanceUntilIdle()
+        assertEquals("The center is contested", vm.state.value.displayPartialText)
+
+        events.emit(ChatStreamEvent(ChatStreamEvent.TYPE_TOKEN, text = "c20]."))
+        advanceUntilIdle()
+        assertEquals("The center is contested.", vm.state.value.displayPartialText)
+
+        // Stop promotes the buffer straight to a message, bypassing finalizeAssistant.
+        vm.stop()
+        advanceUntilIdle()
+        val promoted = vm.state.value.messages.last { it.role == "assistant" }
+        assertEquals("The center is contested.", promoted.text)
     }
 
     @Test
@@ -148,7 +173,7 @@ class ChatViewModelTest {
         assertEquals(1, state.messages.count { it.role == "assistant" })
         // The fallback text wins over the unvalidated partial.
         val assistant = state.messages.last { it.role == "assistant" }
-        assertEquals("Focus on central control [s1].", assistant.text)
+        assertEquals("Focus on central control.", assistant.text)
         assertEquals(true, assistant.isFallback)
     }
 

@@ -50,6 +50,9 @@ import com.example.ondeviceai.AiUserSetting
 import com.example.ondeviceai.DefaultRulesQaOrchestrator
 import com.example.ondeviceai.createBundledRuleLookupTool
 import com.example.ondeviceai.defaultRulesQaAnswerer
+import com.example.myapplication.monetization.Entitlements
+import com.example.myapplication.monetization.LocalEntitlements
+import com.example.myapplication.monetization.UnconfiguredEntitlements
 
 /**
  * Top-level navigation host. Owns the single source of truth for the current screen, applies the
@@ -75,6 +78,9 @@ fun AppRoot(
     pgnSharer: PgnSharer? = null,
     moveCoachManager: MoveCoachManager? = null,
     gameSummaryManager: GameSummaryManager? = null,
+    // Store platforms (Android, iOS) pass nothing and land here: locked, and purchasePro() fails
+    // loudly rather than granting Pro for free. Desktop/wasm pass NoOpEntitlements(true) instead.
+    entitlements: Entitlements = remember { UnconfiguredEntitlements() },
     switchTopPadding: Dp = 8.dp,
 ) {
     val openingExplainerStateHolder = remember { OpeningExplainerStateHolder(createOpeningExplainer()) }
@@ -102,6 +108,7 @@ fun AppRoot(
     }
     CompositionLocalProvider(
         LocalAppSettings provides settings,
+        LocalEntitlements provides entitlements,
         LocalMoveCoachManager provides moveCoachManager,
         LocalGameSummaryManager provides gameSummaryManager,
         LocalOpeningExplainerStateHolder provides openingExplainerStateHolder,

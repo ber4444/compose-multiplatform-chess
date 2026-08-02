@@ -189,4 +189,23 @@ class MoveCoachResponseValidatorTest {
         assertIs<MoveCoachResponseValidator.Result.Valid>(v)
         assertEquals("Nf3 develops the knight toward the center.", v.text)
     }
+
+    @Test
+    fun `deduplicates repeated sentence loop into valid response`() {
+        val sentence = "Nf3 develops the knight toward the center."
+        val repeatedText = "$sentence $sentence"
+        val v = MoveCoachResponseValidator.validate(repeatedText, request)
+        assertIs<MoveCoachResponseValidator.Result.Valid>(v)
+        assertEquals(sentence, v.text)
+    }
+
+    @Test
+    fun `leaves a decimal intact when nothing is duplicated`() {
+        // splitSentences breaks on every '.', so a naive split/rejoin would emit "up 0. 5 pawns".
+        // Non-duplicated text must come back byte-identical.
+        val text = "Nf3 develops the knight and leaves you up 0.5 pawns. Keep the initiative."
+        val v = MoveCoachResponseValidator.validate(text, request)
+        assertIs<MoveCoachResponseValidator.Result.Valid>(v)
+        assertEquals(text, v.text)
+    }
 }

@@ -5,6 +5,7 @@ import com.example.coachapi.ChatTurn
 import com.example.coachapi.PositionChatRequest
 import com.example.myapplication.FenConverter
 import com.example.myapplication.GameUiState
+import com.example.myapplication.ui.CitationSanitizer
 import com.example.ondeviceai.PositionChat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,7 +37,14 @@ data class ChatUiState(
     val canRetry: Boolean = false,
     /** `true` once at least one token has arrived for the in-flight turn (drives the typing indicator). */
     val firstTokenReceived: Boolean = false,
-)
+) {
+    /**
+     * Display-safe view of [partialText]. [partialText] itself stays raw because [ChatViewModel]
+     * finalizes the turn from it; the UI must render *this* instead, or corpus citation tags are
+     * visible for the whole duration of the stream and only disappear on `done` (B4).
+     */
+    val displayPartialText: String get() = CitationSanitizer.sanitizeStreaming(partialText)
+}
 
 /**
  * Holds the multi-turn conversation for one position. Conversation state lives here (M4): the
@@ -83,8 +91,14 @@ class ChatViewModel(
             streaming = false,
             // Promote any partial assistant text to a (marked) message so the transcript is honest,
             // then surface Retry so the user can re-issue the turn.
+            // Sanitized like finalizeAssistant's — Stop promotes the buffer straight to a message,
+            // so without this the raw citation tags persist in the transcript rather than flashing.
             messages = if (current.partialText.isBlank()) current.messages
-            else current.messages + ChatMessage("assistant", current.partialText, isFallback = true),
+            else current.messages + ChatMessage(
+                "assistant",
+                CitationSanitizer.sanitize(current.partialText),
+                isFallback = true,
+            ),
             partialText = "",
             error = true,
             canRetry = true,
@@ -163,8 +177,9 @@ class ChatViewModel(
 
     private fun finalizeAssistant(text: String, isFallback: Boolean) {
         val current = mutableState.value
+        val sanitizedText = CitationSanitizer.sanitize(text)
         mutableState.value = current.copy(
-            messages = current.messages + ChatMessage("assistant", text, isFallback = isFallback),
+            messages = current.messages + ChatMessage("assistant", sanitizedText, isFallback = isFallback),
             partialText = "",
             streaming = false,
             error = false,

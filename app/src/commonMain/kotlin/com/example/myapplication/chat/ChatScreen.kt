@@ -76,7 +76,7 @@ fun ChatScreen(
             }
             if (state.streaming) {
                 item(key = "__streaming__") {
-                    StreamingRow(state.partialText, state.firstTokenReceived)
+                    StreamingRow(state.displayPartialText, state.firstTokenReceived)
                 }
             }
             if (state.error && !state.streaming) {

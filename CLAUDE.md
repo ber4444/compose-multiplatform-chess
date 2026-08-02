@@ -153,6 +153,44 @@ The app persists three things via `multiplatform-settings` (russhwolf) + `kotlin
 - Two `LaunchedEffect` collectors bridge settings → VM: `AppSettings.engineDifficulty` → `viewModel.setEngineDifficulty`, and `AppSettings.aiCoachEnabled` → `viewModel.aiCoachEnabled`.
 - It `remember`s the cloud/on-device holders it owns — `OpeningExplainerStateHolder(createOpeningExplainer())`, `ChatViewModel(createPositionChat())`, and `RulesQaStateHolder(...)` over `defaultRulesQaAnswerer(createBundledRuleLookupTool())` — and closes the first two in `DisposableEffect`. The move-coach and game-summary managers are *not* created here: entry points own them (they need the platform runtime + lifecycle) and pass them in, then `AppRoot` publishes them via `LocalMoveCoachManager` / `LocalGameSummaryManager` / `LocalOpeningExplainerStateHolder` so `GameScreen` can read them.
 
+## Monetization seam
+
+Entitlement gating lives in `:app`'s `monetization/` package and is **injected like `PgnSharer` /
+`Board3DSupport`**, never resolved statically. `:chess-core` must stay free of any billing
+dependency — it's the artifact the React Native repo compiles against.
+
+- **`Entitlements`** — interface: `isProUnlocked: StateFlow<Boolean>`, `purchasePro()`,
+  `restorePurchases()`. Published to the UI through `LocalEntitlements`
+  (`staticCompositionLocalOf<Entitlements?>`, nullable, mirroring `LocalAppSettings`).
+- **Two implementations, and the split is load-bearing:**
+  - `NoOpEntitlements(initialUnlocked = true)` — desktop and wasm entry points construct this
+    explicitly. No store on those targets, so everything is legitimately free.
+  - `UnconfiguredEntitlements` — the `AppRoot` **default**, so Android and iOS land here until the
+    RevenueCat SDK is wired. Locked, and `purchasePro()` returns `false`. Do **not** "simplify" this
+    back to `NoOpEntitlements` on the store platforms: its `purchasePro()` flips the flag and
+    returns `true`, which would hand out Pro for a tap on exactly the two targets where money is
+    meant to change hands.
+- Planned tiering (§0.4 of the Shipaton plan): free keeps unlimited play, both boards, full engine
+  difficulty, the **deterministic** coach, PGN export and history; Pro adds the model-phrased coach,
+  Game Summary, Position Chat, Opening Explainer and Rules Q&A. Nothing reads `LocalEntitlements`
+  yet — the seam ships before the gating.
+
+## Citation sanitization
+
+`ui/CitationSanitizer` strips internal retrieval ids (`[lichess-…]` from `:server`'s corpus,
+`[board-goal]`-style ids from the bundled rules corpus) at **every `:app` display path**: Move
+Coach, Game Summary, Opening Explainer, and Position Chat — the last both streamed and final.
+
+Three things to know before editing it:
+
+- **`[move-N]` is preserved on purpose.** Those are RAG-2's evaluative-summary citations, and B16
+  turns them into tappable board jumps. Widening the regex to eat them deletes the affordance.
+- **Streaming needs `sanitizeStreaming`, not `sanitize`.** It additionally drops a trailing
+  unterminated `[…`, because mid-stream the closing bracket hasn't arrived and the tag would
+  otherwise render character-by-character before vanishing on `done`.
+- **Game Summary is the highest-risk consumer** — it runs with no response validator at all, so the
+  sanitizer is the only thing between raw model output and the user.
+
 ## State and UI
 
 `GameViewModel` (commonMain) is a plain class, **not** an androidx ViewModel — it owns its own `CoroutineScope` and exposes `StateFlow`s (`gameState`, `animState`, `viewState`); callers must call `close()`. Game rules are top-level functions in `Move.kt` and `Piece.kt`. Board state in `GameUiState` is parallel lists (`piecesWhite`/`positionsWhite`, etc.) indexed together, along with a `castlingRights` field tracking availability for both colors. Turn alternation is driven by animation completion: `animationEnd()` triggers Black's move after White's animation finishes.

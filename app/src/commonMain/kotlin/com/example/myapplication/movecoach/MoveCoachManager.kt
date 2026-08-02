@@ -3,6 +3,7 @@ package com.example.myapplication.movecoach
 import co.touchlab.kermit.Logger
 import com.example.myapplication.GameUiState
 import com.example.myapplication.GameViewModel
+import com.example.myapplication.ui.CitationSanitizer
 import com.example.myapplication.PromotionType
 import com.example.myapplication.Set
 import com.example.ondeviceai.AiCoachOrchestrator
@@ -90,13 +91,21 @@ class MoveCoachManager(
                         is MoveCoachEvent.Streaming ->
                             _coachUiState.value = MoveCoachUiState.Streaming(
                                 move = request.moveDisplay,
-                                text = event.partialText,
+                                text = CitationSanitizer.sanitizeStreaming(event.partialText),
                             )
                         is MoveCoachEvent.Complete -> when (val result = event.result) {
                             is MoveCoachResult.Success ->
-                                _coachUiState.value = MoveCoachUiState.Ready(result.explanation)
+                                _coachUiState.value = MoveCoachUiState.Ready(
+                                    result.explanation.copy(
+                                        headline = CitationSanitizer.sanitize(result.explanation.headline),
+                                        explanation = CitationSanitizer.sanitize(result.explanation.explanation),
+                                    )
+                                )
                             is MoveCoachResult.FellBack ->
-                                _coachUiState.value = MoveCoachUiState.Fallback(result.text, result.reason)
+                                _coachUiState.value = MoveCoachUiState.Fallback(
+                                    CitationSanitizer.sanitize(result.text),
+                                    result.reason,
+                                )
                             is MoveCoachResult.Failed ->
                                 _coachUiState.value = MoveCoachUiState.Error(result.message)
                         }
