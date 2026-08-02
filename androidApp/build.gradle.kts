@@ -54,6 +54,9 @@ android {
     }
 }
 
+// AGP AndroidLintAnalysisTask / LintModelWriterTask reads outputs from :app's Compose resource generator
+// without declaring an implicit Gradle dependency. Forcing lint* and merge*Assets tasks to depend on
+// :app:copyAndroidMainComposeResourcesToAndroidAssets prevents task dependency validation errors on release builds.
 tasks.configureEach {
     if ((name.startsWith("merge") && name.endsWith("Assets")) || name.contains("lint", ignoreCase = true)) {
         dependsOn(":app:copyAndroidMainComposeResourcesToAndroidAssets")

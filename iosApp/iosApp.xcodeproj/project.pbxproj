@@ -416,7 +416,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.myapplication.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/iosApp.app/iosApp";
@@ -433,7 +433,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.myapplication.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/iosApp.app/iosApp";
@@ -449,7 +449,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.myapplication.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess.uitests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = iosApp;
@@ -529,7 +529,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.myapplication.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess.uitests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = iosApp;

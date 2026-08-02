@@ -12,7 +12,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 DEVICE="${1:-iPhone 17}"
-BUNDLE_ID="com.example.myapplication"
+BUNDLE_ID="io.github.ber4444.chess"
 SCHEME="iosApp"
 DD="build/ios-dd"
 OUT="$(pwd)/build/ios-3d-screenshot.png"
