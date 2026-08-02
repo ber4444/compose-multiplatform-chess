@@ -50,6 +50,9 @@ import com.example.ondeviceai.AiUserSetting
 import com.example.ondeviceai.DefaultRulesQaOrchestrator
 import com.example.ondeviceai.createBundledRuleLookupTool
 import com.example.ondeviceai.defaultRulesQaAnswerer
+import com.example.myapplication.persistence.Entitlements
+import com.example.myapplication.persistence.LocalEntitlements
+import com.example.myapplication.persistence.NoOpEntitlements
 
 /**
  * Top-level navigation host. Owns the single source of truth for the current screen, applies the
@@ -75,6 +78,7 @@ fun AppRoot(
     pgnSharer: PgnSharer? = null,
     moveCoachManager: MoveCoachManager? = null,
     gameSummaryManager: GameSummaryManager? = null,
+    entitlements: Entitlements = remember { NoOpEntitlements() },
     switchTopPadding: Dp = 8.dp,
 ) {
     val openingExplainerStateHolder = remember { OpeningExplainerStateHolder(createOpeningExplainer()) }
@@ -102,6 +106,7 @@ fun AppRoot(
     }
     CompositionLocalProvider(
         LocalAppSettings provides settings,
+        LocalEntitlements provides entitlements,
         LocalMoveCoachManager provides moveCoachManager,
         LocalGameSummaryManager provides gameSummaryManager,
         LocalOpeningExplainerStateHolder provides openingExplainerStateHolder,

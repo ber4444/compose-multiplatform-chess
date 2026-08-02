@@ -37,9 +37,6 @@ object MoveCoachResponseValidator {
     fun validate(rawText: String, request: MoveCoachRequest): Result {
         val text = normalize(rawText)
         if (text.isEmpty()) return Result.Invalid("empty response")
-        if (text.length > MoveCoachPromptBuilder.MAX_OUTPUT_CHARS) {
-            return Result.Invalid("response exceeds ${MoveCoachPromptBuilder.MAX_OUTPUT_CHARS} chars")
-        }
         val lower = text.lowercase()
         FORBIDDEN_PHRASES.firstOrNull { lower.contains(it) }?.let { phrase ->
             return Result.Invalid("forbidden phrase: $phrase")
@@ -50,6 +47,11 @@ object MoveCoachResponseValidator {
         // both of which are actually about *this* move. Never show the user the prompt back.
         if (isEchoedScaffolding(text)) {
             return Result.Invalid("echoed a prompt example instead of describing the move")
+        }
+        // B15: Repetition check runs before length check so a repeated sentence loop (e.g. Gemini Nano)
+        // is caught as a repetition loop rather than misreported as a length violation.
+        if (hasRepeatedLoop(text)) {
+            return Result.Invalid("repeated sentence loop detected")
         }
         // Grounding check: accept if the response mentions the move (UCI squares,
         // display text) OR contains chess-relevant vocabulary (piece names,
@@ -69,24 +71,41 @@ object MoveCoachResponseValidator {
         if (!mentionsMove && !mentionsChess) {
             return Result.Invalid("response is not grounded in the move or chess vocabulary")
         }
+        // Length check runs LAST so grounding and repetition checks take precedence.
+        if (text.length > MoveCoachPromptBuilder.MAX_OUTPUT_CHARS) {
+            return Result.Invalid("response exceeds ${MoveCoachPromptBuilder.MAX_OUTPUT_CHARS} chars")
+        }
         return Result.Valid(text)
     }
 
     /**
-     * Clean the model's few-shot echo before validating/displaying. Small models often parrot the
-     * prompt's labeled examples ("Good: \"…\"" / "Bad: \"…\"" — see [MoveCoachPromptBuilder]); drop a
-     * leading Good:/Bad: label and unwrap a fully quoted sentence on each line, then rejoin into one
-     * blurb. Plain string ops, no regex, so behavior is identical on every JVM/JS/Wasm/Native/Android
-     * runtime (and can't hit the ICU-vs-JVM regex divergence).
+     * True if [text] contains repeated sentence loops (B15).
      */
-    internal fun normalize(rawText: String): String =
-        rawText.lineSequence()
+    internal fun hasRepeatedLoop(text: String): Boolean {
+        val sentences = text.split(Regex("(?<=[.!?])\\s+"))
+            .map { it.trim().lowercase() }
+            .filter { it.length >= 10 }
+        if (sentences.size < 2) return false
+        val seen = mutableSetOf<String>()
+        for (sentence in sentences) {
+            if (!seen.add(sentence)) return true
+        }
+        return false
+    }
+
+    /**
+     * Clean the model's few-shot echo and strip raw citation tags (B4) before validating/displaying.
+     */
+    internal fun normalize(rawText: String): String {
+        val sanitized = CitationSanitizer.sanitize(rawText)
+        return sanitized.lineSequence()
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .map { unwrapQuotes(stripFewShotLabel(it)) }
             .filter { it.isNotEmpty() }
             .joinToString(" ")
             .trim()
+    }
 
     private fun stripFewShotLabel(line: String): String {
         for (label in FEW_SHOT_LABELS) {

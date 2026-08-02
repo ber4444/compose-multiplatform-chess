@@ -189,4 +189,23 @@ class MoveCoachResponseValidatorTest {
         assertIs<MoveCoachResponseValidator.Result.Valid>(v)
         assertEquals("Nf3 develops the knight toward the center.", v.text)
     }
+
+    @Test
+    fun `rejects repeated sentence loop before checking length`() {
+        val sentence = "Nf3 develops the knight toward the center."
+        val repeatedText = "$sentence $sentence"
+        val v = MoveCoachResponseValidator.validate(repeatedText, request)
+        assertIs<MoveCoachResponseValidator.Result.Invalid>(v)
+        assertEquals("repeated sentence loop detected", v.reason)
+    }
+
+    @Test
+    fun `strips lichess citation tags during normalization`() {
+        val v = MoveCoachResponseValidator.validate(
+            "Nf3 develops the knight and controls e5 [lichess-c-955-c55].",
+            request,
+        )
+        assertIs<MoveCoachResponseValidator.Result.Valid>(v)
+        assertEquals("Nf3 develops the knight and controls e5.", v.text)
+    }
 }
