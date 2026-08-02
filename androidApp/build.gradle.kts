@@ -17,7 +17,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.myapplication"
+        applicationId = "io.github.ber4444.chess"
         minSdk = 26
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -54,8 +54,11 @@ android {
     }
 }
 
+// AGP AndroidLintAnalysisTask / LintModelWriterTask reads outputs from :app's Compose resource generator
+// without declaring an implicit Gradle dependency. Forcing lint* and merge*Assets tasks to depend on
+// :app:copyAndroidMainComposeResourcesToAndroidAssets prevents task dependency validation errors on release builds.
 tasks.configureEach {
-    if (name.startsWith("merge") && name.endsWith("Assets")) {
+    if ((name.startsWith("merge") && name.endsWith("Assets")) || name.contains("lint", ignoreCase = true)) {
         dependsOn(":app:copyAndroidMainComposeResourcesToAndroidAssets")
     }
 }

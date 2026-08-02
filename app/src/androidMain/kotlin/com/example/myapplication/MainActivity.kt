@@ -60,7 +60,7 @@ class MainActivity : ComponentActivity() {
         )
 
         holder.attachEngine(createStockfishEngine())
-        attachMoveCoach(isDebug)
+        attachMoveCoach()
 
         val appSettings = AppSettings(createSettings("chess"))
         // PgnSharer needs the host Activity (for ACTION_SEND), so it's built here, not in the holder.
@@ -102,13 +102,7 @@ class MainActivity : ComponentActivity() {
      * model (~1-2s init). This replaces the earlier LiteRT-LM path (557 MB,
      * 7-9s cold start) and ML Kit Prompt API (AICore, narrow device support).
      */
-    private fun attachMoveCoach(isDebug: Boolean) {
-        if (!isDebug) {
-            holder.moveCoachManager.attachCoachOrchestrator(null)
-            holder.gameSummaryManager.attachOrchestrator(null)
-            return
-        }
-
+    private fun attachMoveCoach() {
         // Initialize Cactus native runtime (required before any CactusLM use)
         initializeCactus(this)
 

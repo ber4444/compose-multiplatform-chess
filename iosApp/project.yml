@@ -1,6 +1,6 @@
 name: iosApp
 options:
-  bundleIdPrefix: com.example.myapplication
+  bundleIdPrefix: io.github.ber4444
   deploymentTarget:
     iOS: "16.0"          # floor set by ChessKitEngine (.iOS(.v16))
   createIntermediateGroups: true
@@ -36,7 +36,7 @@ targets:
         CADisableMinimumFrameDurationOnPhone: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.myapplication
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.ber4444.chess
         # Only ChessApp is linked directly; OnDeviceAi is exported into ChessApp
         # via `export(project(":onDeviceAi"))` in app/build.gradle.kts to avoid
         # KT-42254 (duplicate Kotlin/Native runtime injection).
@@ -64,7 +64,7 @@ targets:
       - target: iosApp
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.myapplication.tests
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.ber4444.chess.tests
         FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/iosApp.app/iosApp"
         BUNDLE_LOADER: "$(TEST_HOST)"
@@ -76,7 +76,7 @@ targets:
       - target: iosApp
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.myapplication.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.ber4444.chess.uitests
         TEST_TARGET_NAME: iosApp
 schemes:
   iosApp:
