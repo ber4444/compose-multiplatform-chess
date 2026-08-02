@@ -36,10 +36,14 @@ configurations.all {
 // Resolved from the active developer dir rather than hard-coded, so a machine with a differently
 // named or versioned Xcode still links. See the iosSimulatorArm64 test-binary linkerOpts below.
 val xcodeSwiftSimulatorLibDir: String by lazy {
-    val developerDir = providers.exec {
-        commandLine("xcode-select", "-p")
-    }.standardOutput.asText.get().trim()
-    "$developerDir/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator"
+    if (!System.getProperty("os.name").contains("Mac")) {
+        ""
+    } else {
+        val developerDir = providers.exec {
+            commandLine("xcode-select", "-p")
+        }.standardOutput.asText.get().trim()
+        "$developerDir/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator"
+    }
 }
 
 kotlin {
