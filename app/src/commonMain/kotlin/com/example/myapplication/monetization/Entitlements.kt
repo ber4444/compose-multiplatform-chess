@@ -3,28 +3,65 @@ package com.example.myapplication.monetization
 import kotlinx.coroutines.flow.StateFlow
 
 /**
+ * A purchasable plan, in store-agnostic terms. Deliberately **not** a RevenueCat type: this crosses
+ * into `commonMain` and the paywall UI, and `purchases-kmp` only exists on Android and iOS
+ * (see the `storeMain` source set), so a leaked SDK type would break desktop and wasm.
+ *
+ * [priceLabel] is the store's own localized, currency-formatted string — never format prices
+ * yourself from an amount, and never assume a currency symbol position.
+ */
+data class ProPlan(
+    /** Opaque package identifier; hand it straight back to [Entitlements.purchase]. */
+    val id: String,
+    val title: String,
+    val priceLabel: String,
+    /** Store-provided extra, e.g. an introductory-offer line. Null when there isn't one. */
+    val detail: String? = null,
+    /** Set on at most one plan, to mark the plan the paywall should emphasize. */
+    val isBestValue: Boolean = false,
+)
+
+/**
+ * Outcome of a purchase attempt.
+ *
+ * [Cancelled] exists so the paywall can stay silent when the user backs out of the store sheet.
+ * Collapsing it into [Failed] produces the most common paywall bug there is: an error toast for a
+ * deliberate, correct user action.
+ */
+sealed interface PurchaseOutcome {
+    data object Purchased : PurchaseOutcome
+    data object Cancelled : PurchaseOutcome
+    /** No store, no configured SDK, or no offering — nothing the user can do about it. */
+    data object Unavailable : PurchaseOutcome
+    data class Failed(val message: String?) : PurchaseOutcome
+}
+
+/**
  * Injected monetization seam for feature entitlement gating (§0.4).
  *
- * Tier Structure:
- * - Free: Unlimited play, 2D + 3D board, Stockfish difficulty, deterministic move coach, PGN export, game history.
- * - Pro (Chess Coach Pro): Model-phrased move coach, Game Summary, Position Chat, Opening Explainer, Rules Q&A.
+ * Tier structure:
+ * - **Free** — unlimited play, 2D + 3D board, full Stockfish difficulty range, the **deterministic**
+ *   move coach, PGN export, game history.
+ * - **Pro** — the model-phrased move coach, Game Summary, Position Chat, Opening Explainer,
+ *   Rules Q&A.
  *
- * Placed strictly in `:app` (never in `:chess-core`) to avoid introducing billing SDK dependencies
- * into the shared core compiled by the React Native consumer.
+ * Lives strictly in `:app`, never `:chess-core`, so no billing dependency reaches the artifact the
+ * React Native consumer compiles against.
  */
 interface Entitlements {
-    /**
-     * Flow emitting whether the user has access to Pro features.
-     */
+    /** Whether the user currently has Pro. */
     val isProUnlocked: StateFlow<Boolean>
 
     /**
-     * Launch purchase flow for Chess Coach Pro.
+     * Plans to show on the paywall, most-prominent first. Empty means "nothing to sell right now"
+     * — no store, no configured key, no current offering, or offline — and the paywall should say
+     * so rather than render a dead purchase button.
      */
-    suspend fun purchasePro(): Boolean
+    suspend fun availablePlans(): List<ProPlan>
 
-    /**
-     * Restore previous purchases.
-     */
+    /** Launch the store purchase flow for [planId], which must come from [availablePlans]. */
+    suspend fun purchase(planId: String): PurchaseOutcome
+
+    /** Restore a previous purchase. Returns whether Pro is unlocked afterwards. */
     suspend fun restorePurchases(): Boolean
 }

@@ -25,7 +25,7 @@ sealed interface OpeningExplainerResult {
 
     data class Fallback(
         val response: OpeningExplainResponse,
-        val reason: String,
+        val reason: AiRoutePolicyDecider.FallbackReason,
     ) : OpeningExplainerResult
 }
 
@@ -52,7 +52,7 @@ class DefaultOpeningExplainer(
                 AiRoutePolicies.openingExplainer.latencyBudget.completeMs,
             ) {
                 availableClient.explain(request)
-            } ?: return fallback(AiRoutePolicyDecider.FALLBACK_TIMEOUT)
+            } ?: return fallback(AiRoutePolicyDecider.FallbackReason.Timeout)
             OpeningExplainerResult.Success(response, AiRoute.Cloud)
         } catch (cancellation: CancellationException) {
             throw cancellation
@@ -61,7 +61,7 @@ class DefaultOpeningExplainer(
         }
     }
 
-    private fun fallback(reason: String) = OpeningExplainerResult.Fallback(
+    private fun fallback(reason: AiRoutePolicyDecider.FallbackReason) = OpeningExplainerResult.Fallback(
         response = OpeningExplainResponse(
             text = "The opening explanation is unavailable offline. Focus on central control, develop minor pieces, and secure the king.",
             passages = emptyList(),
@@ -71,7 +71,11 @@ class DefaultOpeningExplainer(
     )
 
     companion object {
-        const val FALLBACK_CLOUD_ERROR = "cloud opening service unavailable"
-        const val FALLBACK_NO_OPENING_MODEL = "no on-device opening explainer"
+        // Surface-specific reasons that no shared FallbackReason case covers. They stay distinct
+        // values (not bare NoRoute) so the log line names which cloud surface failed.
+        val FALLBACK_CLOUD_ERROR: AiRoutePolicyDecider.FallbackReason =
+            AiRoutePolicyDecider.FallbackReason.Other("cloud opening service unavailable")
+        val FALLBACK_NO_OPENING_MODEL: AiRoutePolicyDecider.FallbackReason =
+            AiRoutePolicyDecider.FallbackReason.Other("no on-device opening explainer")
     }
 }

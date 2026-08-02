@@ -23,6 +23,9 @@ import com.example.myapplication.share.androidPgnSharer
 import android.content.pm.ApplicationInfo
 import com.example.myapplication.movecoach.MoveCoachManager
 import com.example.myapplication.movecoach.GameSummaryManager
+import com.example.myapplication.monetization.RevenueCatEntitlements
+import com.example.myapplication.monetization.UnconfiguredEntitlements
+import com.example.myapplication.monetization.revenueCatApiKey
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
 import com.example.myapplication.bench.runAndroidBench
@@ -66,6 +69,15 @@ class MainActivity : ComponentActivity() {
         // PgnSharer needs the host Activity (for ACTION_SEND), so it's built here, not in the holder.
         val pgnSharer = androidPgnSharer(this)
 
+        // Injected like pgnSharer/board3D. Null when no key is configured (see
+        // generateRevenueCatConfig in app/build.gradle.kts) — AppRoot's UnconfiguredEntitlements
+        // default then applies, which is locked.
+        val entitlements = RevenueCatEntitlements.createOrNull(
+            apiKey = revenueCatApiKey,
+            debugLogging = isDebug,
+        )
+        entitlements?.let { CoroutineScope(Dispatchers.IO).launch { it.refresh() } }
+
         setContent {
             AppRoot(
                 viewModel = holder.gameViewModel,
@@ -75,6 +87,8 @@ class MainActivity : ComponentActivity() {
                 pgnSharer = pgnSharer,
                 moveCoachManager = holder.moveCoachManager,
                 gameSummaryManager = holder.gameSummaryManager,
+                entitlements = entitlements
+                    ?: androidx.compose.runtime.remember { UnconfiguredEntitlements() },
             )
         }
     }
@@ -114,28 +128,6 @@ class MainActivity : ComponentActivity() {
 
         CoroutineScope(Dispatchers.IO).launch {
             val executor = VendorRouteExecutor()
-            try {
-                val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
-                val context = com.example.ondeviceai.AiContextSnapshot(
-                    availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
-                    isAppForegrounded = true,
-                    userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
-                )
-                // Warm up only the route the decider actually picks; any other decision means
-                // there is nothing local to warm.
-                val decision = com.example.ondeviceai.AiRoutePolicyDecider.decide(policy, context)
-                (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
-                    ?.let { executor.execute(it.route)?.warmup() }
-            } catch (e: Exception) {
-                Logger.e("MainActivity") { "Failed to warmup model: ${e.message}" }
-            }
-
-            holder.moveCoachManager.setCoachModelState(
-                com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
-                    message = "Starting Gemma engine…"
-                )
-            )
-
             val contextProvider: suspend () -> com.example.ondeviceai.AiContextSnapshot = {
                 com.example.ondeviceai.AiContextSnapshot(
                     availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
@@ -157,7 +149,39 @@ class MainActivity : ComponentActivity() {
                     contextProvider = contextProvider,
                 )
             )
-            holder.moveCoachManager.hideWindow()
+            // B18: the orchestrator is attached BEFORE warmup finishes on purpose. Every surface
+            // stays live during the ~200 MB first-run download — a coached move routes through the
+            // orchestrator, sees AiAvailability.Downloading, and renders the deterministic line
+            // (FallbackPresentation.Silent), which is the product rather than an error.
+            try {
+                val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
+                val context = com.example.ondeviceai.AiContextSnapshot(
+                    availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
+                    isAppForegrounded = true,
+                    userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
+                )
+                // Warm up only the route the decider actually picks; any other decision means
+                // there is nothing local to warm.
+                val decision = com.example.ondeviceai.AiRoutePolicyDecider.decide(policy, context)
+                val generator = (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
+                    ?.let { executor.execute(it.route) }
+                // Join the download so the panel's terminal state reflects the real outcome. The
+                // panel must never be left on a LoadingModel spinner that nothing clears.
+                (generator as? com.example.ondeviceai.cactus.CactusTextGenerator)?.awaitWarmup()
+                    ?: generator?.warmup()
+
+                (generator?.status() as? com.example.ondeviceai.AiAvailability.Error)?.let {
+                    // Logged, not surfaced: the deterministic coach still answers every move, so
+                    // a permanent "unavailable" banner would be noise. Same rule as B17's Silent.
+                    Logger.e("MainActivity") { "Cactus failed to load: ${it.message}" }
+                }
+            } catch (e: Exception) {
+                Logger.e("MainActivity") { "Failed to warmup model: ${e.message}" }
+            } finally {
+                // Always clears the LoadingModel placeholder — the panel must not be able to end
+                // on a spinner no matter which branch above ran.
+                holder.moveCoachManager.hideWindow()
+            }
         }
     }
 

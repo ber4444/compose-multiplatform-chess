@@ -9,13 +9,19 @@ import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.AiGenerationRequest
 import com.example.ondeviceai.AiInferenceMetrics
 import com.example.ondeviceai.AiRoute
+import com.example.ondeviceai.AiRoutePolicyDecider
 import com.example.ondeviceai.AiTokenOrFinal
 import com.example.ondeviceai.OnDeviceTextGenerator
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.Executors
 
 /**
@@ -42,24 +48,60 @@ class CactusTextGenerator(
         Thread(r, "cactus-engine").apply { isDaemon = true }
     }.asCoroutineDispatcher()
 
-    private var lm: CactusLM? = null
-    private var initializationFailed: String? = null
+    // @Volatile because status() is deliberately NOT confined to engineDispatcher any more (B18:
+    // it must answer instantly while a download runs, instead of blocking behind it). Without the
+    // barrier a caller on another thread can keep reading a stale null and report Unavailable
+    // forever after init has already succeeded on the engine thread.
+    @Volatile private var lm: CactusLM? = null
+    @Volatile private var initializationFailed: String? = null
 
-    override suspend fun status(): AiAvailability = withContext(engineDispatcher) {
-        initializationFailed?.let { return@withContext AiAvailability.Error(it) }
-        ensureInitialized()
-        if (lm != null) AiAvailability.Available
-        else AiAvailability.Error(initializationFailed ?: "Cactus init failed")
+    /**
+     * The single in-flight initialization, or null when none has started. Shared rather than
+     * re-entered: `downloadModel` internally hops to `Dispatchers.IO`, which *releases*
+     * [engineDispatcher] mid-flight, so a `generate()` arriving during warmup would otherwise pass
+     * `ensureInitialized`'s null check and start a second ~200 MB download of the same model.
+     */
+    private var initJob: Deferred<Unit>? = null
+    private val initMutex = Mutex()
+    private val initScope = CoroutineScope(SupervisorJob() + engineDispatcher)
+
+    override suspend fun status(): AiAvailability {
+        initializationFailed?.let { return AiAvailability.Error(it) }
+        if (lm != null) return AiAvailability.Available
+        // Distinguishing "fetching" from "nothing here" is what lets the coach panel say
+        // "downloading" instead of "unavailable" on first launch.
+        return if (initJob?.isActive == true) AiAvailability.Downloading else AiAvailability.Unavailable
     }
 
+    /** Starts initialization and returns immediately — the board and the deterministic coach stay
+     *  usable while the model downloads. Await [awaitWarmup] if you need the outcome. */
     override suspend fun warmup() {
-        withContext(engineDispatcher) { ensureInitialized() }
+        startInit()
+    }
+
+    /** [warmup] plus joining the download, for callers that report the final state (entry points). */
+    suspend fun awaitWarmup() {
+        startInit().await()
+    }
+
+    // A completed job is reused rather than retried: ensureInitialized() records a hard failure in
+    // initializationFailed, and re-attempting a failed 200 MB download on every move is worse than
+    // reporting Error once.
+    private suspend fun startInit(): Deferred<Unit> = initMutex.withLock {
+        initJob ?: initScope.async { ensureInitialized() }.also { initJob = it }
     }
 
     override fun generate(request: AiGenerationRequest): Flow<AiTokenOrFinal> = flow {
-        ensureInitialized()
+        // Join the shared init rather than calling ensureInitialized() directly — see initJob.
+        startInit().await()
         val activeLm = lm ?: run {
-            emit(failureMetric(initializationFailed ?: "Cactus not initialized"))
+            emit(
+                failureMetric(
+                    AiRoutePolicyDecider.FallbackReason.Other(
+                        initializationFailed ?: "Cactus not initialized",
+                    ),
+                ),
+            )
             return@flow
         }
 
@@ -139,7 +181,7 @@ class CactusTextGenerator(
         }
     }
 
-    private fun failureMetric(reason: String) = AiTokenOrFinal.Final(
+    private fun failureMetric(reason: AiRoutePolicyDecider.FallbackReason) = AiTokenOrFinal.Final(
         text = "",
         metrics = AiInferenceMetrics(
             firstTokenMs = null,

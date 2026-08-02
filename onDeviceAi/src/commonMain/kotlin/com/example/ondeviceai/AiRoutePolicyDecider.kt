@@ -4,7 +4,7 @@ object AiRoutePolicyDecider {
 
     fun decide(policy: AiRoutePolicy, context: AiContextSnapshot): Decision {
         if (!context.isAppForegrounded) {
-            return Decision.FallBack(FALLBACK_BACKGROUND)
+            return Decision.FallBack(FallbackReason.Background)
         }
 
         val cloudAllowedByPolicy = policy.permitsCloud()
@@ -15,7 +15,7 @@ object AiRoutePolicyDecider {
 
         if (context.thermalState == ThermalState.CRITICAL) {
             return if (cloudAllowedByPolicy && context.isNetworkAvailable) Decision.RunCloud
-            else Decision.FallBack(FALLBACK_THERMAL)
+            else Decision.FallBack(FallbackReason.Thermal)
         }
 
         val eligibleVendors = if (!policy.allowLocal) {
@@ -28,25 +28,28 @@ object AiRoutePolicyDecider {
 
         return when {
             eligibleVendors.isNotEmpty() -> Decision.RunOnDevice(eligibleVendors.first())
-            effectiveOfflineOnly -> Decision.FallBack(FALLBACK_NO_LOCAL_MODEL)
+            effectiveOfflineOnly -> Decision.FallBack(FallbackReason.NoLocalModel)
             cloudAllowedByPolicy && context.isNetworkAvailable -> Decision.RunCloud
-            cloudAllowedByPolicy -> Decision.FallBack(FALLBACK_NO_NETWORK)
-            else -> Decision.FallBack(FALLBACK_NO_ROUTE)
+            cloudAllowedByPolicy -> Decision.FallBack(FallbackReason.NoNetwork)
+            else -> Decision.FallBack(FallbackReason.NoRoute)
         }
     }
 
     sealed interface Decision {
         data class RunOnDevice(val route: VendorRoute) : Decision
         data object RunCloud : Decision
-        data class FallBack(val reason: String) : Decision
+        data class FallBack(val reason: FallbackReason) : Decision
     }
 
-    const val FALLBACK_NO_LOCAL_MODEL = "no local model"
-    const val FALLBACK_NO_NETWORK = "no network and no local model"
-    const val FALLBACK_NO_ROUTE = "no route satisfies the policy"
-    const val FALLBACK_BACKGROUND = "app backgrounded; ML Kit unavailable"
-    const val FALLBACK_THERMAL = "thermal state too high for inference"
-    const val FALLBACK_QUOTA = "platform quota/busy"
-    const val FALLBACK_VALIDATION = "model output failed validation"
-    const val FALLBACK_TIMEOUT = "inference exceeded latency budget"
+    sealed class FallbackReason(val description: String) {
+        data object NoLocalModel : FallbackReason("no local model")
+        data object NoNetwork : FallbackReason("no network and no local model")
+        data object NoRoute : FallbackReason("no route satisfies the policy")
+        data object Background : FallbackReason("app backgrounded; ML Kit unavailable")
+        data object Thermal : FallbackReason("thermal state too high for inference")
+        data object Quota : FallbackReason("platform quota/busy")
+        data object Validation : FallbackReason("model output failed validation")
+        data object Timeout : FallbackReason("inference exceeded latency budget")
+        data class Other(val message: String) : FallbackReason(message)
+    }
 }

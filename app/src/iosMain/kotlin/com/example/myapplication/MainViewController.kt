@@ -77,6 +77,14 @@ fun MainViewController(
     val gameSummaryManager = remember {
         com.example.myapplication.movecoach.GameSummaryManager()
     }
+    // Injected like pgnSharer. Null when no key is configured (see generateRevenueCatConfig in
+    // app/build.gradle.kts); the locked UnconfiguredEntitlements then applies.
+    val entitlements = remember {
+        com.example.myapplication.monetization.RevenueCatEntitlements.createOrNull(
+            apiKey = com.example.myapplication.monetization.revenueCatApiKey,
+            debugLogging = false,
+        )
+    }
     DisposableEffect(Unit) {
         viewModel.attachEngine(engine)
 
@@ -88,6 +96,7 @@ fun MainViewController(
         )
 
         val scope = CoroutineScope(Dispatchers.Main)
+        scope.launch { entitlements?.refresh() }
         scope.launch {
             val availability = probeFoundationModelsAvailability()
             when (availability) {
@@ -159,6 +168,8 @@ fun MainViewController(
             pgnSharer = pgnSharer,
             moveCoachManager = moveCoachManager,
             gameSummaryManager = gameSummaryManager,
+            entitlements = entitlements
+                ?: remember { com.example.myapplication.monetization.UnconfiguredEntitlements() },
             switchTopPadding = (-16).dp
         )
     }

@@ -34,6 +34,20 @@ class MoveCoachManager(
 
     private var coachJob: Job? = null
     private var orchestrator: AiCoachOrchestrator? = null
+    /** The last request built by [triggerCoach], replayed by [retry]. */
+    private var lastRequest: com.example.ondeviceai.MoveCoachRequest? = null
+
+    /**
+     * Whether the model-phrased coach is unlocked (§0.4). Bridged from `Entitlements.isProUnlocked`
+     * by `AppRoot`, mirroring how `AppSettings.aiCoachEnabled` reaches `GameViewModel`.
+     *
+     * Defaults to `true` so every existing caller — desktop/wasm entry points, Compose UI tests,
+     * and `MoveCoachManagerTest` — keeps its current behaviour; only a real locked `Entitlements`
+     * flips it. When `false` the free tier still gets a **complete** coach line, built from the
+     * same `DeterministicCoach` text the orchestrator would fall back to; the model is simply never
+     * invoked, so a locked user costs no inference and sees no upsell mid-game.
+     */
+    @Volatile var proUnlocked: Boolean = true
 
     init {
         // Register the callback to automatically trigger the coach on engine moves
@@ -72,9 +86,6 @@ class MoveCoachManager(
     }
 
     private fun triggerCoach(fenBefore: String, moveRecord: com.example.myapplication.MoveRecord) {
-        val orchestrator = this.orchestrator ?: return
-        coachJob?.cancel()
-
         val request = com.example.ondeviceai.MoveCoachRequest(
             moveUci = moveRecord.uci,
             moveDisplay = moveRecord.san,
@@ -82,6 +93,44 @@ class MoveCoachManager(
             deterministicExplanation = DeterministicCoach.buildExplanation(moveRecord),
             engineDifficultyName = engineDifficultyName,
         )
+        lastRequest = request
+        launchCoach(request)
+    }
+
+    /**
+     * Re-run the most recent request. Only the [FallbackPresentation.Retryable] state (a timeout)
+     * surfaces this — every other fallback is either permanent for this device or already showing
+     * the text the user wanted, so a retry button would be noise. No-ops before the first coached
+     * move, or when no orchestrator is attached.
+     */
+    fun retry() {
+        launchCoach(lastRequest ?: return)
+    }
+
+    private fun launchCoach(request: com.example.ondeviceai.MoveCoachRequest) {
+        val orchestrator = this.orchestrator ?: return
+        coachJob?.cancel()
+
+        if (!proUnlocked) {
+            // Free tier: render the deterministic line as a finished answer, not a Fallback. It is
+            // a complete, correct explanation — labelling it a fallback would tell the user their
+            // own product tier is a degraded state.
+            _coachUiState.value = MoveCoachUiState.Ready(
+                com.example.ondeviceai.MoveCoachExplanation(
+                    headline = request.deterministicHeadline,
+                    explanation = request.deterministicExplanation,
+                    confidence = com.example.ondeviceai.ExplanationConfidence.HIGH,
+                    route = com.example.ondeviceai.AiRoute.OnDevice,
+                    metrics = com.example.ondeviceai.AiInferenceMetrics(
+                        firstTokenMs = null,
+                        completeMs = 0L,
+                        tokenCount = 0,
+                        route = com.example.ondeviceai.AiRoute.OnDevice,
+                    ),
+                )
+            )
+            return
+        }
 
         _coachUiState.value = MoveCoachUiState.Loading(request.moveDisplay)
         coachJob = scope.launch {

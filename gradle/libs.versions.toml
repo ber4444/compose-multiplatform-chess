@@ -19,6 +19,7 @@ ktor = "3.5.0"
 ksp = "2.3.10"
 genaiPrompt = "1.0.0-beta4"
 genaiSchema = "1.0.0-alpha1"
+purchasesKmp = "3.4.0"
 
 [libraries]
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
@@ -58,6 +59,10 @@ ktor-serialization-json = { module = "io.ktor:ktor-serialization-kotlinx-json", 
 genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "genaiPrompt" }
 genai-schema = { module = "com.google.mlkit:genai-schema", version.ref = "genaiSchema" }
 genai-schema-compiler = { module = "com.google.mlkit:genai-schema-compiler", version.ref = "genaiSchema" }
+# RevenueCat KMP SDK. The coordinate is purchases-kmp-*core*; a bare `purchases-kmp` is not
+# published. Only android/iosArm64/iosSimulatorArm64/iosX64 variants exist — hence :app's storeMain
+# source set rather than commonMain.
+purchases-kmp = { module = "com.revenuecat.purchases:purchases-kmp-core", version.ref = "purchasesKmp" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

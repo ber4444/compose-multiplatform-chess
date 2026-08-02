@@ -172,6 +172,12 @@ object MoveCoachResponseValidator {
 
     sealed interface Result {
         data class Valid(val text: String) : Result
+        /**
+         * [reason] is a *diagnostic*, not a routed [AiRoutePolicyDecider.FallbackReason]: it names
+         * which rule the text broke ("forbidden phrase: …") for the log line. Every rejection maps
+         * to the single product state [AiRoutePolicyDecider.FallbackReason.Validation] — the caller
+         * decides that, not the validator.
+         */
         data class Invalid(val reason: String) : Result
     }
 }

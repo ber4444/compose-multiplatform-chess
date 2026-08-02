@@ -148,14 +148,15 @@ private fun attachMoveCoach(
         val decision = com.example.ondeviceai.AiRoutePolicyDecider.decide(policy, context)
         val generator = (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
             ?.let { executor.execute(it.route) }
-        runCatching { generator?.warmup() }
-            .onFailure { Logger.w("Main") { "LiteRT-LM warmup failed: ${it.message}" } }
+        // awaitWarmup(), not warmup(): warmup() now returns as soon as the download *starts* (B18),
+        // so status() immediately after would report Downloading and the Error branch below would
+        // never run — leaving an init failure invisible behind a spinner. status() no longer
+        // re-runs ensureInitialized(), so joining here is what surfaces initializationFailed.
+        runCatching {
+            (generator as? com.example.ondeviceai.litertlm.LitertLmTextGenerator)?.awaitWarmup()
+                ?: generator?.warmup()
+        }.onFailure { Logger.w("Main") { "LiteRT-LM warmup failed: ${it.message}" } }
 
-        // Check the real status after warmup so an init failure surfaces in the panel
-        // (and the log, via LitertLmTextGenerator.ensureInitialized) instead of leaving
-        // an infinite spinner. status() runs ensureInitialized() again — cheap if it
-        // already succeeded, and the only path that surfaces initializationFailed if it
-        // didn't.
         val status = generator?.status()
         Logger.i("Main") { "LiteRT-LM status after warmup: $status" }
         when (status) {

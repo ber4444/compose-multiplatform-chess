@@ -40,7 +40,7 @@ class DefaultGameSummaryOrchestratorTest {
         val gen = FakeTextGenerator(status = AiAvailability.Unavailable)
         val result = orchestrator(gen).summarizeGame(request)
         assertIs<GameSummaryResult.FellBack>(result)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL, result.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.NoLocalModel, result.reason)
         assertEquals(0, gen.generateCount)
     }
 
@@ -49,7 +49,7 @@ class DefaultGameSummaryOrchestratorTest {
         val gen = FakeTextGenerator(status = AiAvailability.Busy)
         val result = orchestrator(gen).summarizeGame(request)
         assertIs<GameSummaryResult.FellBack>(result)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_QUOTA, result.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.Quota, result.reason)
     }
 
     @Test
@@ -57,7 +57,7 @@ class DefaultGameSummaryOrchestratorTest {
         val gen = FakeTextGenerator(response = "   ")
         val result = orchestrator(gen).summarizeGame(request)
         assertIs<GameSummaryResult.FellBack>(result)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_VALIDATION, result.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.Validation, result.reason)
         assertEquals(1, gen.generateCount)
     }
 
@@ -66,7 +66,8 @@ class DefaultGameSummaryOrchestratorTest {
         val gen = FakeTextGenerator(throwOnGenerate = RuntimeException("boom"))
         val result = orchestrator(gen).summarizeGame(request)
         assertIs<GameSummaryResult.FellBack>(result)
-        assertTrue(result.reason.contains("generation error"))
+        val reason = assertIs<AiRoutePolicyDecider.FallbackReason.Other>(result.reason)
+        assertTrue(reason.description.contains("generation error"))
     }
 
     @Test
@@ -82,7 +83,7 @@ class DefaultGameSummaryOrchestratorTest {
         )
         val result = orchestrator.summarizeGame(request)
         assertIs<GameSummaryResult.FellBack>(result)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL, result.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.NoLocalModel, result.reason)
     }
 
     @Test
@@ -111,7 +112,7 @@ class DefaultGameSummaryOrchestratorTest {
         )
         val result = orchestrator.summarizeGame(request)
         assertIs<GameSummaryResult.FellBack>(result)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_BACKGROUND, result.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.Background, result.reason)
         assertEquals(0, gen.generateCount)
     }
 

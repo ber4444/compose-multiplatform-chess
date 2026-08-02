@@ -88,7 +88,7 @@ onDeviceAi commonMain            (on-device AI orchestration; published as io.gi
  └── iosMain
 ```
 
-A custom intermediate source set `jvmCommonMain` sits between `commonMain` and the two JVM-backed targets (`androidMain`, `desktopMain`); it holds process/IO code that can't live in commonMain (Wasm has no `java.lang.Process`). `iosMain` dependsOn commonMain holding `MainViewController`; `iosSimulatorArm64Test` holds Compose UI tests; `iosApp/` Xcode project is generated using XcodeGen (`project.yml` as source of truth — regenerate with `xcodegen generate`).
+A custom intermediate source set `jvmCommonMain` sits between `commonMain` and the two JVM-backed targets (`androidMain`, `desktopMain`); it holds process/IO code that can't live in commonMain (Wasm has no `java.lang.Process`). A second one, `storeMain`, sits between `commonMain` and the two *store* targets (`androidMain`, `iosMain`) and holds anything depending on the RevenueCat SDK — see [Monetization seam](#monetization-seam). `iosMain` dependsOn commonMain holding `MainViewController`; `iosSimulatorArm64Test` holds Compose UI tests; `iosApp/` Xcode project is generated using XcodeGen (`project.yml` as source of truth — regenerate with `xcodegen generate`).
 
 Application ID is `io.github.ber4444.chess` (renamed for store eligibility in §0.3). All Kotlin source code uses package `com.example.myapplication` even though the project is named `game`. Generated compose resources class is `game.app.generated.resources`.
 
@@ -163,14 +163,34 @@ dependency — it's the artifact the React Native repo compiles against.
 - **`Entitlements`** — interface: `isProUnlocked: StateFlow<Boolean>`, `purchasePro()`,
   `restorePurchases()`. Published to the UI through `LocalEntitlements`
   (`staticCompositionLocalOf<Entitlements?>`, nullable, mirroring `LocalAppSettings`).
-- **Two implementations, and the split is load-bearing:**
+- **Three implementations, and the split is load-bearing:**
   - `NoOpEntitlements(initialUnlocked = true)` — desktop and wasm entry points construct this
     explicitly. No store on those targets, so everything is legitimately free.
-  - `UnconfiguredEntitlements` — the `AppRoot` **default**, so Android and iOS land here until the
-    RevenueCat SDK is wired. Locked, and `purchasePro()` returns `false`. Do **not** "simplify" this
-    back to `NoOpEntitlements` on the store platforms: its `purchasePro()` flips the flag and
-    returns `true`, which would hand out Pro for a tap on exactly the two targets where money is
-    meant to change hands.
+  - `UnconfiguredEntitlements` — the `AppRoot` **default**. Locked, `purchasePro()` returns `false`.
+    Keep it as the default: previews, Compose UI tests, and any caller that omits the argument must
+    not configure a billing SDK or hit the network. Do **not** "simplify" it to `NoOpEntitlements` —
+    that one's `purchasePro()` flips the flag and returns `true`, handing out Pro for a tap on
+    exactly the two targets where money is meant to change hands.
+  - `RevenueCatEntitlements` — Android and iOS, injected by `MainActivity` / `MainViewController`
+    via `createOrNull(apiKey, debugLogging)`, which returns `null` on a blank key so an unkeyed
+    clone lands on the locked default instead of failing. Call `refresh()` from the entry point;
+    it is deliberately not fired from `init {}` (that ran a network call on the composition thread).
+- **The RevenueCat coordinate and source set are both non-obvious:**
+  - The artifact is `com.revenuecat.purchases:purchases-kmp-core`. A bare `purchases-kmp` is **not
+    published at any version** — that coordinate 404s on Maven Central.
+  - It publishes only `android` / `iosArm64` / `iosSimulatorArm64` / `iosX64` variants, so it lives
+    in `:app`'s **`storeMain`** intermediate source set (`commonMain` ← `storeMain` ← `androidMain`
+    + `iosMain`), never `commonMain`. In `commonMain` it breaks `:app:compileKotlinDesktop` at
+    dependency resolution, before any Kotlin is compiled.
+  - The iOS **test** binary needs an explicit `-L` to this host's Swift toolchain (see the
+    `linkerOpts` on `iosSimulatorArm64`). `purchases-kmp-core` ships RevenueCat's *prebuilt* Swift
+    objects whose embedded `LC_LINKER_OPTION` points at the Xcode path on RevenueCat's build
+    machine; that path doesn't exist locally, so `ld` skips it and `swiftCompatibility56` /
+    `swiftCompatibilityConcurrency` go undefined. The app *framework* link does not catch this —
+    it defers symbols to Xcode — so the failure only appears in `:app:iosSimulatorArm64Test`.
+  - Keys come from `REVENUECAT_ANDROID_KEY` / `REVENUECAT_IOS_KEY` env → `revenuecat.androidKey` /
+    `revenuecat.iosKey` in `local.properties` → empty, generated into `storeMain` by
+    `generateRevenueCatConfig` (mirrors `generateOpeningExplainerConfig`). No key is committed.
 - Planned tiering (§0.4 of the Shipaton plan): free keeps unlimited play, both boards, full engine
   difficulty, the **deterministic** coach, PGN export and history; Pro adds the model-phrased coach,
   Game Summary, Position Chat, Opening Explainer and Rules Q&A. Nothing reads `LocalEntitlements`
@@ -239,6 +259,31 @@ the two cloud routes; `:evals` gates grounding regressions in CI (routing and fl
 >
 > **Structured Output.** The project uses `kotlinx.serialization` for structured JSON output parsing, intentionally dropping KSP-based schema generation (`genai-schema-compiler`) and `@Generable`/`@Guide` annotations. Prompts define schemas as plain JSON examples that models output, which are decoded natively.
 
+### Fallback states (B17)
+
+`AiRoutePolicyDecider.FallbackReason` is a **sealed** class — the routing/validation/quota/timeout
+taxonomy, with `Other(message)` for free-form causes. It reaches the UI *typed*; do not flatten it
+to `reason.description` at the manager boundary, which is what previously made every fallback render
+identically. `:app`'s `movecoach/FallbackPresentation` is the single place it becomes a product
+state, and there are only three:
+
+- **`Silent`** — no-model, offline, no-route, backgrounded, validator veto, and **CRITICAL thermal**.
+  The deterministic line is the product, so it renders as ordinary coach text with no error chrome.
+  This is the "never render a dead panel on CRITICAL thermal" guarantee; it holds only because the
+  orchestrator's fallback text is always non-blank (pinned by `DefaultAiCoachOrchestratorTest`).
+- **`Labeled`** — quota only. Waiting changes the outcome, so the user is told.
+- **`Retryable`** — timeout only. `MoveCoachManager.retry()` / `GameSummaryManager.retry()` replay
+  the last request.
+
+Two things follow. Adding a `FallbackReason` case is a compile error in `FallbackPresentation.of`
+until someone decides which state it maps to — that is the point of B17. And a validator's `Invalid`
+reason stays a plain `String`: it names *which rule broke* for the log line, and every rejection maps
+to the one product state `FallbackReason.Validation`. Don't type it.
+
+Note the bench runners (`AndroidBenchRunner`, `IosBenchRunner`) serialize `reason.description`, whose
+strings are unchanged from the old constants — the JSONL that `docs/benchmarks/on-device-ai/` consumes
+must stay stable.
+
 ### AI routing
 
 `AiRoutePolicyDecider.decide(policy, context)` in commonMain is the **single** routing authority.
@@ -266,7 +311,7 @@ through `:server`.**
 
 The `allowLocal = false` flag on `openingExplainer` and `positionChat` policies is **load-bearing**: it ensures cloud-first policies never route to an on-device generator even when a capable local model exists. This provides a structural, type-safe guarantee for the cloud route that is checked by `AiRoutePolicyDecider` and pinned by the 90-context invariant test.
 
-- **On-device AI Move Coach:** A Compose panel (`MoveCoachPanel`) that surfaces a natural-language explanation of Black's move after it animates. Wiring: `GameViewModel` fires its `onMoveCoached` callback after applying the engine's move (skipped when the move ends the game) and exposes an `aiCoachEnabled` flag; `MoveCoachManager` (in `:app`) registers that callback in its `init` and owns the private `triggerCoach(...)` — cancellable, never blocks the move. There is **no** `GameViewModel.triggerCoach`; the VM stays coach-agnostic apart from the callback + flag. Gated twice: the entry point must attach an orchestrator (Android attaches Cactus on all builds — the `FLAG_DEBUGGABLE` gate was removed so the store release ships the AI features; desktop `CHESS_ENABLE_COACH=1`, wasm `?coach=1`; iOS attaches when Foundation Models reports available), **and** `AppSettings.aiCoachEnabled` (Settings switch, default on) must be true. Backed by a shared KMP module `:onDeviceAi` holding the routing policy (`AiRoutePolicies.moveCoachOffline`), prompt builder, validator, and deterministic fallback in `commonMain`; platform runtimes are injected at the entry points. **Consequence:** release Android users perform the ~200 MB Gemma 270M model download on first launch, currently with no progress UI — that first-run UX is the open prerequisite for any public Play track.
+- **On-device AI Move Coach:** A Compose panel (`MoveCoachPanel`) that surfaces a natural-language explanation of Black's move after it animates. Wiring: `GameViewModel` fires its `onMoveCoached` callback after applying the engine's move (skipped when the move ends the game) and exposes an `aiCoachEnabled` flag; `MoveCoachManager` (in `:app`) registers that callback in its `init` and owns the private `triggerCoach(...)` — cancellable, never blocks the move. There is **no** `GameViewModel.triggerCoach`; the VM stays coach-agnostic apart from the callback + flag. Gated twice: the entry point must attach an orchestrator (Android attaches Cactus on all builds — the `FLAG_DEBUGGABLE` gate was removed so the store release ships the AI features; desktop `CHESS_ENABLE_COACH=1`, wasm `?coach=1`; iOS attaches when Foundation Models reports available), **and** `AppSettings.aiCoachEnabled` (Settings switch, default on) must be true. Backed by a shared KMP module `:onDeviceAi` holding the routing policy (`AiRoutePolicies.moveCoachOffline`), prompt builder, validator, and deterministic fallback in `commonMain`; platform runtimes are injected at the entry points. **Consequence:** release Android users perform the ~200 MB Gemma 270M model download on first launch. That download is now non-blocking — `warmup()` returns as soon as it starts, the orchestrator is attached *before* it finishes, and a coached move during it renders the deterministic line — but there is still **no determinate progress UI**, because Cactus exposes no progress callback. See `docs/benchmarks/on-device-ai/cactus-download-progress.md` for the SDK inspection and the file-polling design that would give a real percentage. Two fences in `CactusTextGenerator`: `lm`/`initializationFailed` are `@Volatile` (`status()` is intentionally off the engine dispatcher so it can answer during a download), and initialization goes through one shared `initJob` — `downloadModel` hops to `Dispatchers.IO` internally, releasing the single-threaded engine dispatcher, so a re-entrant `ensureInitialized()` starts a *second* 200 MB download. `LitertLmTextGenerator` mirrors both. Entry points that report a terminal state must call `awaitWarmup()`, not `warmup()`.
   - **Android backend:** **Cactus (`com.cactuscompute:cactus:1.4.1-beta`)** — Cactus runtime. The `gemma3-270m` model (~200 MB .cact) is downloaded from Hugging Face by Cactus on first launch into `filesDir` (debug APK ~258 MB; no model bundled in the APK). `AndroidManifest.xml` declares `INTERNET` so Cactus can fetch the model. Cold start ~1–2 s. Replaced the earlier LiteRT-LM path (7–9 s cold init, streaming crash, no resolvable Maven coordinate) and the ML Kit Prompt API path (narrow AICore device support); `MoveCoachModelAsset.kt` and `AndroidCoachWiring` were removed in the migration. See `docs/benchmarks/on-device-ai/android-delivery-decision.md`.
   - **iOS backend:** **Foundation Models** (Apple Intelligence) via `FoundationMoveCoachBridge` registered into `FoundationModelsBridgeRegistry` from `iOSApp.swift`. Requires **iOS 26.0+** (every Foundation Models call is `@available(iOS 26.0, *)`-gated; the app's own deployment target is 16.0) plus `SystemLanguageModel.default.availability == .available`. Unlike Android/desktop/wasm there is **no build flag or debug/release distinction** — `MainViewController` probes availability at launch on every build and falls back to rule-based text when unavailable (old OS, ineligible device, or Apple Intelligence off in Settings — all surface identically). iOS has **not** been migrated to Cactus yet — it stays on Foundation Models, though the `:onDeviceAi` KMP module makes that swap feasible later.
   - **Desktop backend:** **LiteRT-LM** (`com.google.ai.edge.litertlm:litertlm-jvm`, Google AI Edge) — the Kotlin/JVM API over LiteRT-LM, with native libs bundled inside the jar (linux-x86_64 / linux-aarch64 / darwin-aarch64 / win-x86_64; **no Intel Mac** — those hosts fall back). The Qwen3-0.6B-int4 model (~347 MB `.litertlm`) is downloaded from Hugging Face on first launch by `LitertLmModelStore` and cached under `~/.chess-coach-models/`. Gated behind `CHESS_ENABLE_COACH=1` (env var) in `Main.kt` — without it the coach panel stays `Hidden` (the previous default). Android no longer has an equivalent gate; desktop and wasm are now the only gated targets. Implemented by `LitertLmTextGenerator` in `:onDeviceAi` desktopMain, wired via the same `OnDeviceTextGenerator` seam as Cactus/Foundation Models; the entire `DefaultAiCoachOrchestrator` → `MoveCoachManager` pipeline is reused unchanged. (The literal "LiteRT.js"/prebuilt LiteRT C++ SDK are not LLM runtimes — see `docs/benchmarks/on-device-ai/desktop-wasm-litert-lm.md` for why LiteRT-LM was chosen.)

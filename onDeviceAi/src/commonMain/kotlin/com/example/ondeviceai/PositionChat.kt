@@ -69,14 +69,17 @@ class DefaultPositionChat(
         client?.close()
     }
 
-    private fun fallbackEvent(reason: String) = ChatStreamEvent(
+    private fun fallbackEvent(reason: AiRoutePolicyDecider.FallbackReason) = ChatStreamEvent(
         type = ChatStreamEvent.TYPE_FALLBACK,
         text = "Position chat is unavailable. Focus on central control, piece development, and king safety.",
         composerId = "offline-fallback",
     )
 
     companion object {
-        const val FALLBACK_CLOUD_ERROR = "cloud position-chat service unavailable"
-        const val FALLBACK_NO_CHAT_MODEL = "no on-device position-chat model"
+        // See DefaultOpeningExplainer's companion — same rationale.
+        val FALLBACK_CLOUD_ERROR: AiRoutePolicyDecider.FallbackReason =
+            AiRoutePolicyDecider.FallbackReason.Other("cloud position-chat service unavailable")
+        val FALLBACK_NO_CHAT_MODEL: AiRoutePolicyDecider.FallbackReason =
+            AiRoutePolicyDecider.FallbackReason.Other("no on-device position-chat model")
     }
 }

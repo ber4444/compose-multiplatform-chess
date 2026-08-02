@@ -1,5 +1,6 @@
 package com.example.ondeviceai
 
+import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -22,7 +23,7 @@ sealed interface RulesQaResult {
 
     data class FellBack(
         val text: String,
-        val reason: String,
+        val reason: AiRoutePolicyDecider.FallbackReason,
     ) : RulesQaResult
 }
 
@@ -46,6 +47,8 @@ object RulesQaResponseValidator {
 
     sealed interface Result {
         data class Valid(val text: String, val citedPassageIds: List<String>) : Result
+        /** A diagnostic naming the broken rule; the caller maps every rejection to
+         *  [AiRoutePolicyDecider.FallbackReason.Validation]. Mirrors [MoveCoachResponseValidator]. */
         data class Invalid(val reason: String) : Result
     }
 }
@@ -54,21 +57,30 @@ class DefaultRulesQaOrchestrator(
     private val answerer: RulesQaAnswerer,
     private val contextProvider: suspend () -> AiContextSnapshot,
 ) {
+    // Not a constructor parameter: contextProvider is passed as a trailing lambda at every call
+    // site, and this module is published, so appending a param is both a source and a binary break.
+    private val logger: Logger = Logger.withTag("RulesQa")
+
     suspend fun answer(question: String): RulesQaResult {
         val normalizedQuestion = question.trim()
-        if (normalizedQuestion.isEmpty()) return fallback("empty question")
+        if (normalizedQuestion.isEmpty()) {
+            return fallback(AiRoutePolicyDecider.FallbackReason.Other("empty question"))
+        }
 
         val context = try {
             contextProvider()
         } catch (ce: CancellationException) {
             throw ce
         } catch (t: Throwable) {
-            return fallback("context snapshot failed: ${t.message}")
+            return fallback(
+                AiRoutePolicyDecider.FallbackReason.Other("context snapshot failed: ${t.message}"),
+            )
         }
 
         return when (val decision = AiRoutePolicyDecider.decide(AiRoutePolicies.rulesQaOffline, context)) {
             is AiRoutePolicyDecider.Decision.RunOnDevice -> runOnDevice(normalizedQuestion, decision.route)
-            is AiRoutePolicyDecider.Decision.RunCloud -> fallback("Cloud route not supported")
+            is AiRoutePolicyDecider.Decision.RunCloud ->
+                fallback(AiRoutePolicyDecider.FallbackReason.Other("cloud route not supported"))
             is AiRoutePolicyDecider.Decision.FallBack -> fallback(decision.reason)
         }
     }
@@ -77,11 +89,13 @@ class DefaultRulesQaOrchestrator(
         val output = try {
             withTimeoutOrNull(AiRoutePolicies.rulesQaOffline.latencyBudget.completeMs) {
                 answerer.answer(question, route)
-            } ?: return fallback(AiRoutePolicyDecider.FALLBACK_TIMEOUT)
+            } ?: return fallback(AiRoutePolicyDecider.FallbackReason.Timeout)
         } catch (ce: CancellationException) {
             throw ce
         } catch (t: Throwable) {
-            return fallback("rules generation failed: ${t.message}")
+            return fallback(
+                AiRoutePolicyDecider.FallbackReason.Other("rules generation failed: ${t.message}"),
+            )
         }
 
         return when (
@@ -94,13 +108,16 @@ class DefaultRulesQaOrchestrator(
                 text = validation.text,
                 passageIds = validation.citedPassageIds,
             )
-            is RulesQaResponseValidator.Result.Invalid -> fallback(
-                "${AiRoutePolicyDecider.FALLBACK_VALIDATION}: ${validation.reason}",
-            )
+            // The specific broken rule is a diagnostic; the product state is the same either way.
+            // Mirrors DefaultAiCoachOrchestrator: log the detail, fall back with Validation.
+            is RulesQaResponseValidator.Result.Invalid -> {
+                logger.w { "Rules Q&A validation failed: ${validation.reason}" }
+                fallback(AiRoutePolicyDecider.FallbackReason.Validation)
+            }
         }
     }
 
-    private fun fallback(reason: String) = RulesQaResult.FellBack(
+    private fun fallback(reason: AiRoutePolicyDecider.FallbackReason) = RulesQaResult.FellBack(
         text = RulesQaFallback.TEXT,
         reason = reason,
     )

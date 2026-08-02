@@ -3,7 +3,7 @@ package com.example.ondeviceai
 sealed interface AiRoute {
     data object OnDevice : AiRoute
     data object Cloud : AiRoute
-    data class Fallback(val reason: String) : AiRoute
+    data class Fallback(val reason: AiRoutePolicyDecider.FallbackReason) : AiRoute
 }
 
 enum class AiUserSetting {

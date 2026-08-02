@@ -53,6 +53,9 @@ import com.example.ondeviceai.defaultRulesQaAnswerer
 import com.example.myapplication.monetization.Entitlements
 import com.example.myapplication.monetization.LocalEntitlements
 import com.example.myapplication.monetization.UnconfiguredEntitlements
+import com.example.myapplication.monetization.PaywallScreen
+import com.example.myapplication.monetization.ProUpsellCard
+import com.example.myapplication.monetization.isProUnlocked
 
 /**
  * Top-level navigation host. Owns the single source of truth for the current screen, applies the
@@ -62,7 +65,7 @@ import com.example.myapplication.monetization.UnconfiguredEntitlements
  * Replaces the per-platform `MyApplicationTheme { ChessApp(...) }` duplication. New screens
  * (History, Settings) are added here as the lifecycle/persistence work lands.
  */
-enum class Screen { GAME, HISTORY, SETTINGS, RULES, CHAT }
+enum class Screen { GAME, HISTORY, SETTINGS, RULES, CHAT, PAYWALL }
 
 val LocalMoveCoachManager = staticCompositionLocalOf<MoveCoachManager?> { null }
 val LocalGameSummaryManager = staticCompositionLocalOf<GameSummaryManager?> { null }
@@ -78,8 +81,10 @@ fun AppRoot(
     pgnSharer: PgnSharer? = null,
     moveCoachManager: MoveCoachManager? = null,
     gameSummaryManager: GameSummaryManager? = null,
-    // Store platforms (Android, iOS) pass nothing and land here: locked, and purchasePro() fails
-    // loudly rather than granting Pro for free. Desktop/wasm pass NoOpEntitlements(true) instead.
+    // The default is deliberately the locked, SDK-free implementation: previews, Compose UI tests,
+    // and any caller that omits this argument must not configure a billing SDK or hit the network.
+    // Android/iOS pass RevenueCatEntitlements.createOrNull(...); desktop/wasm pass
+    // NoOpEntitlements(true). purchasePro() here fails rather than granting Pro for free.
     entitlements: Entitlements = remember { UnconfiguredEntitlements() },
     switchTopPadding: Dp = 8.dp,
 ) {
@@ -126,6 +131,13 @@ fun AppRoot(
             LaunchedEffect(Unit) {
                 settings.aiCoachEnabled.collect { viewModel.aiCoachEnabled = it }
             }
+            // Bridge the Pro entitlement → the coach manager, mirroring the aiCoachEnabled bridge
+            // above. Free keeps the deterministic coach; Pro gets the model-phrased one. The
+            // manager can't read LocalEntitlements itself — entry points construct it before any
+            // composition exists.
+            LaunchedEffect(entitlements, moveCoachManager) {
+                entitlements.isProUnlocked.collect { moveCoachManager?.proUnlocked = it }
+            }
             LaunchedEffect(Unit) {
                 settings.playerSide.collect { sideStr -> 
                     val side = if (sideStr == "BLACK") Set.BLACK else Set.WHITE
@@ -144,6 +156,7 @@ fun AppRoot(
                     onOpenSettings = { screen = Screen.SETTINGS },
                     onOpenRules = { screen = Screen.RULES },
                     onOpenChat = { screen = Screen.CHAT },
+                    onOpenPaywall = { screen = Screen.PAYWALL },
                 )
                 Screen.HISTORY -> if (gameHistory != null) {
                     GameHistoryScreen(
@@ -160,15 +173,41 @@ fun AppRoot(
                     onBack = { screen = Screen.GAME },
                     board3D = board3D,
                 )
-                Screen.RULES -> RulesQaScreen(
-                    stateHolder = rulesQaStateHolder,
-                    onBack = { screen = Screen.GAME },
-                )
-                Screen.CHAT -> ChatScreen(
-                    viewModel = chatViewModel,
-                    gameState = gameState,
-                    onBack = { screen = Screen.GAME },
-                )
+                // Branching here rather than wrapping in ProGate: RulesQaScreen supplies its own
+                // SubScreenScaffold, so nesting would render two title bars when unlocked.
+                Screen.RULES -> if (isProUnlocked()) {
+                    RulesQaScreen(
+                        stateHolder = rulesQaStateHolder,
+                        onBack = { screen = Screen.GAME },
+                    )
+                } else {
+                    SubScreenScaffold(title = "Chess rules", onBack = { screen = Screen.GAME }) {
+                        ProUpsellCard(
+                            featureName = "Rules Q&A",
+                            pitch = "Ask any rules question and get an answer cited to the " +
+                                "rulebook, entirely on your device.",
+                            onOpenPaywall = { screen = Screen.PAYWALL },
+                            modifier = Modifier.padding(16.dp),
+                        )
+                    }
+                }
+                Screen.PAYWALL -> PaywallScreen(onClose = { screen = Screen.GAME })
+                Screen.CHAT -> if (isProUnlocked()) {
+                    ChatScreen(
+                        viewModel = chatViewModel,
+                        gameState = gameState,
+                        onBack = { screen = Screen.GAME },
+                    )
+                } else {
+                    SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }) {
+                        ProUpsellCard(
+                            featureName = "Position Chat",
+                            pitch = "Ask about the position you're in and get grounded answers as you play.",
+                            onOpenPaywall = { screen = Screen.PAYWALL },
+                            modifier = Modifier.padding(16.dp),
+                        )
+                    }
+                }
             }
         }
     }

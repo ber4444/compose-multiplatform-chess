@@ -4,6 +4,7 @@ import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.AiGenerationRequest
 import com.example.ondeviceai.AiInferenceMetrics
 import com.example.ondeviceai.AiRoute
+import com.example.ondeviceai.AiRoutePolicyDecider
 import com.example.ondeviceai.AiTokenOrFinal
 import com.example.ondeviceai.OnDeviceTextGenerator
 import com.google.ai.edge.litertlm.Backend
@@ -16,9 +17,15 @@ import com.google.ai.edge.litertlm.SamplerConfig
 import co.touchlab.kermit.Logger
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
 
@@ -55,23 +62,41 @@ class LitertLmTextGenerator(
     @Volatile private var engine: Engine? = null
     @Volatile private var initializationFailed: String? = null
 
-    override suspend fun status(): AiAvailability = withContext(engineDispatcher) {
-        initializationFailed?.let { return@withContext AiAvailability.Error(it) }
-        ensureInitialized()
-        when {
-            engine != null -> AiAvailability.Available
-            else -> AiAvailability.Error(initializationFailed ?: "LiteRT-LM init failed")
-        }
+    /** One shared initialization; see [CactusTextGenerator]'s `initJob` for why this can't be a
+     *  plain re-entrant call (the model fetch releases [engineDispatcher] mid-flight). */
+    private var initJob: Deferred<Unit>? = null
+    private val initMutex = Mutex()
+    private val initScope = CoroutineScope(SupervisorJob() + engineDispatcher)
+
+    override suspend fun status(): AiAvailability {
+        initializationFailed?.let { return AiAvailability.Error(it) }
+        if (engine != null) return AiAvailability.Available
+        return if (initJob?.isActive == true) AiAvailability.Downloading else AiAvailability.Unavailable
     }
 
+    /** Returns as soon as the download starts, so the UI stays live. [awaitWarmup] joins it. */
     override suspend fun warmup() {
-        withContext(engineDispatcher) { ensureInitialized() }
+        startInit()
+    }
+
+    suspend fun awaitWarmup() {
+        startInit().await()
+    }
+
+    private suspend fun startInit(): Deferred<Unit> = initMutex.withLock {
+        initJob ?: initScope.async { ensureInitialized() }.also { initJob = it }
     }
 
     override fun generate(request: AiGenerationRequest): Flow<AiTokenOrFinal> = flow {
-        ensureInitialized()
+        startInit().await()
         val activeEngine = engine ?: run {
-            emit(failureMetric(initializationFailed ?: "LiteRT-LM not initialized"))
+            emit(
+                failureMetric(
+                    AiRoutePolicyDecider.FallbackReason.Other(
+                        initializationFailed ?: "LiteRT-LM not initialized",
+                    ),
+                ),
+            )
             return@flow
         }
 
@@ -201,7 +226,7 @@ class LitertLmTextGenerator(
         }
     }
 
-    private fun failureMetric(reason: String) = AiTokenOrFinal.Final(
+    private fun failureMetric(reason: AiRoutePolicyDecider.FallbackReason) = AiTokenOrFinal.Final(
         text = "",
         metrics = AiInferenceMetrics(
             firstTokenMs = null,

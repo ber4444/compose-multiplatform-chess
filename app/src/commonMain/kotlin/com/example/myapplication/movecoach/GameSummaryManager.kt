@@ -24,6 +24,8 @@ class GameSummaryManager {
 
     private var orchestrator: GameSummaryOrchestrator? = null
     private var generationJob: Job? = null
+    /** The last request built by [triggerSummary], replayed by [retry]. */
+    private var lastRequest: GameSummaryRequest? = null
 
     /**
      * Attaches (or clears) the orchestrator. A `null` orchestrator — the release-Android,
@@ -50,18 +52,28 @@ class GameSummaryManager {
         playerSide: com.example.myapplication.Set,
         engineDifficultyName: String
     ) {
+        val request = GameSummaryRequest(
+            pgn = pgn,
+            moveHistory = moveHistory,
+            playerSide = playerSide,
+            engineDifficultyName = engineDifficultyName
+        )
+        lastRequest = request
+        launchSummary(request)
+    }
+
+    /** Re-run the most recent summary. Surfaced only by [FallbackPresentation.Retryable]. */
+    fun retry() {
+        launchSummary(lastRequest ?: return)
+    }
+
+    private fun launchSummary(request: GameSummaryRequest) {
         val orchestrator = this.orchestrator ?: return
         generationJob?.cancel()
 
         _uiState.value = GameSummaryUiState.Loading
         generationJob = scope.launch {
             try {
-                val request = GameSummaryRequest(
-                    pgn = pgn,
-                    moveHistory = moveHistory,
-                    playerSide = playerSide,
-                    engineDifficultyName = engineDifficultyName
-                )
                 orchestrator.summarizeGameStreaming(request).collect { event ->
                     when (event) {
                         is GameSummaryEvent.Streaming ->

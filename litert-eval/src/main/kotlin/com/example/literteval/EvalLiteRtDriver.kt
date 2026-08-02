@@ -142,7 +142,8 @@ private suspend fun runOneCase(
         )
     } else {
         // Empty generation → the orchestrator would fall back in production.
-        fallbackRecord(case, reason = metrics?.metrics?.fallbackReason ?: "empty output")
+        // fallbackReason is a sealed FallbackReason; the eval record wants the human string.
+        fallbackRecord(case, reason = metrics?.metrics?.fallbackReason?.description ?: "empty output")
     }
 }
 

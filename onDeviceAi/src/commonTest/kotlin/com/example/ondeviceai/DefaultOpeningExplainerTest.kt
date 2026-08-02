@@ -49,7 +49,7 @@ class DefaultOpeningExplainerTest {
 
         assertEquals(0, calls)
         val fallback = assertIs<OpeningExplainerResult.Fallback>(result)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_NO_NETWORK, fallback.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.NoNetwork, fallback.reason)
         assertEquals(true, fallback.response.text.contains("unavailable offline"))
     }
 
@@ -78,7 +78,7 @@ class DefaultOpeningExplainerTest {
 
         val result = assertIs<OpeningExplainerResult.Fallback>(explainer.explain(request))
 
-        assertEquals(AiRoutePolicyDecider.FALLBACK_TIMEOUT, result.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.Timeout, result.reason)
     }
 
     private fun cloudContext() = AiContextSnapshot(
