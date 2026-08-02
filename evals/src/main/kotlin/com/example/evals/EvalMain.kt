@@ -70,6 +70,12 @@ fun main() {
     val llmStats = runBlocking { evaluateLlmComposed(openingCases) }
 
     val stats = deterministicStats + llmStats
+    // Recalibration aid: `EVAL_CALIBRATION=1 ./gradlew :evals:run` prints the reading-grade
+    // distribution the FluencySurface bounds are derived from. See
+    // docs/benchmarks/on-device-ai/fluency-calibration.md.
+    if (System.getenv("EVAL_CALIBRATION") == "1") {
+        stats.forEach { System.err.println("[calibration] ${it.gradePercentiles()}") }
+    }
     val scorecard = ScorecardWriter.render(cases.size, openingCases.size, stats)
     Files.writeString(Path.of("scorecard.md"), scorecard)
 
@@ -465,6 +471,35 @@ data class RouteStats(
     var fallbacks: Int = 0,
     var lengthViolations: Int = 0,
 ) {
+    private val readingGrades = mutableListOf<Double>()
+
+    /**
+     * Median measured reading grade, or `null` when the route records no scored text (the
+     * `route-selection` row scores decisions, not prose). Median rather than mean so one long
+     * outlier can't drag the reported figure.
+     */
+    /**
+     * Grade distribution for this route, used to re-derive the [FluencyScorer.FluencySurface]
+     * bounds. Not rendered in the scorecard — print it from `main` when recalibrating, and see
+     * `docs/benchmarks/on-device-ai/fluency-calibration.md` for the procedure.
+     */
+    fun gradePercentiles(): String {
+        if (readingGrades.isEmpty()) return "$route: no prose"
+        val s = readingGrades.sorted()
+        fun p(q: Double) = s[((s.size - 1) * q).toInt()]
+        return "$route n=${s.size} min=${"%.1f".format(s.first())} p50=${"%.1f".format(p(0.5))} " +
+            "p75=${"%.1f".format(p(0.75))} p90=${"%.1f".format(p(0.90))} " +
+            "p95=${"%.1f".format(p(0.95))} max=${"%.1f".format(s.last())}"
+    }
+
+    val medianReadingGrade: Double?
+        get() {
+            if (readingGrades.isEmpty()) return null
+            val sorted = readingGrades.sorted()
+            val mid = sorted.size / 2
+            return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2.0
+        }
+
     fun record(score: OutputScore, retried: Boolean, fellBack: Boolean) {
         cases++
         if (!score.grounded) groundingViolations++
@@ -472,6 +507,7 @@ data class RouteStats(
         if (retried) retries++
         if (fellBack) fallbacks++
         if (score.lengthViolation) lengthViolations++
+        readingGrades += score.readingGrade
     }
 }
 
@@ -484,18 +520,19 @@ object ScorecardWriter {
         appendLine()
         appendLine("> Candidate dataset: $totalCases total cases, $openingCases opening cases. Owner hand-review is still required before article publication.")
         appendLine()
-        appendLine("| Route | Cases | Grounding violation | Fluency violation | Retry | Fallback | Length violation | Collection |")
-        appendLine("|---|---:|---:|---:|---:|---:|---:|---|")
+        appendLine("| Route | Cases | Grounding violation | Reading grade | Fluency violation | Retry | Fallback | Length violation | Collection |")
+        appendLine("|---|---:|---:|---:|---:|---:|---:|---:|---|")
         stats.forEach { stat ->
             if (stat.available) {
                 appendLine(
                     "| ${stat.route} | ${stat.cases} | ${percent(stat.groundingViolations, stat.cases)} | " +
+                        "${grade(stat.medianReadingGrade)} | " +
                         "${percent(stat.fluencyViolations, stat.cases)} | " +
                         "${percent(stat.retries, stat.cases)} | ${percent(stat.fallbacks, stat.cases)} | " +
                         "${percent(stat.lengthViolations, stat.cases)} | ${stat.collection.name.lowercase()} |",
                 )
             } else {
-                appendLine("| ${stat.route} | — | — | — | — | — | — | ${stat.collection.name.lowercase()} (${stat.note}) |")
+                appendLine("| ${stat.route} | — | — | — | — | — | — | — | ${stat.collection.name.lowercase()} (${stat.note}) |")
             }
         }
         MANUAL_ROWS.forEach { appendLine(it.render()) }
@@ -530,10 +567,11 @@ object ScorecardWriter {
         val lengthViolation: String,
         val note: String,
         val fluencyViolation: String = "—",
+        val readingGrade: String = "—",
     ) {
         fun render(): String =
-            "| $route | $cases | $groundingViolation | $fluencyViolation | $retry | $fallback | " +
-                "$lengthViolation | manual ($note) |"
+            "| $route | $cases | $groundingViolation | $readingGrade | $fluencyViolation | " +
+                "$retry | $fallback | $lengthViolation | manual ($note) |"
     }
 
     private val MANUAL_ROWS = listOf(
@@ -566,4 +604,11 @@ object ScorecardWriter {
 
     private fun percent(value: Int, total: Int): String =
         if (total == 0) "—" else "${((value * 1000.0 / total).roundToInt() / 10.0)}%"
+
+    /**
+     * Median Flesch-Kincaid grade. Reported so the [FluencyScorer.FluencySurface] bounds stay
+     * auditable — a pass rate alone can't show that a bound has drifted away from the text.
+     */
+    private fun grade(value: Double?): String =
+        if (value == null) "—" else "${(value * 10.0).roundToInt() / 10.0}"
 }

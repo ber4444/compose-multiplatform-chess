@@ -8,26 +8,30 @@ data class OutputScore(
     val grounded: Boolean,
     val lengthViolation: Boolean,
     val fluencyCompliant: Boolean = true,
+    /** Measured Flesch-Kincaid grade, reported alongside the pass/fail so the bound stays auditable. */
+    val readingGrade: Double = 0.0,
 )
 
 object EvalScorer {
     fun scoreMove(case: GoldenCase, text: String): OutputScore {
         val result = MoveCoachResponseValidator.validate(text, case.toMoveCoachRequest())
-        val fluency = FluencyScorer.evaluate(text).isCompliant
+        val fluency = FluencyScorer.evaluate(text, FluencyScorer.FluencySurface.MOVE_COACH)
         return OutputScore(
             grounded = result is MoveCoachResponseValidator.Result.Valid,
             lengthViolation = text.trim().length > MoveCoachPromptBuilder.MAX_OUTPUT_CHARS,
-            fluencyCompliant = fluency,
+            fluencyCompliant = fluency.isCompliant,
+            readingGrade = fluency.gradeLevel,
         )
     }
 
     fun scoreOpening(case: GoldenCase, text: String): OutputScore {
         val lower = text.lowercase()
-        val fluency = FluencyScorer.evaluate(text).isCompliant
+        val fluency = FluencyScorer.evaluate(text, FluencyScorer.FluencySurface.OPENING)
         return OutputScore(
             grounded = case.expectedConcepts.all { lower.contains(it.lowercase()) },
             lengthViolation = text.trim().length > MoveCoachPromptBuilder.MAX_OUTPUT_CHARS,
-            fluencyCompliant = fluency,
+            fluencyCompliant = fluency.isCompliant,
+            readingGrade = fluency.gradeLevel,
         )
     }
 
@@ -40,10 +44,14 @@ object EvalScorer {
     fun scoreChat(turn: ChatTurnFixture, text: String): OutputScore {
         val lower = text.lowercase()
         val grounded = turn.expectedConcepts.any { lower.contains(it.lowercase()) }
-        val fluency = FluencyScorer.evaluate(text).isCompliant
+        // Was computed and then dropped from the returned score, so every chat route reported
+        // 0% fluency violation — "not measured", rendered identically to "clean".
+        val fluency = FluencyScorer.evaluate(text, FluencyScorer.FluencySurface.CHAT)
         return OutputScore(
             grounded = grounded,
             lengthViolation = text.trim().length > CHAT_OUTPUT_CAP,
+            fluencyCompliant = fluency.isCompliant,
+            readingGrade = fluency.gradeLevel,
         )
     }
 
