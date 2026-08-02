@@ -100,6 +100,7 @@ fun main() = application {
             pgnSharer = pgnSharer,
             moveCoachManager = moveCoachManager,
             gameSummaryManager = gameSummaryManager,
+            entitlements = androidx.compose.runtime.remember { com.example.myapplication.monetization.NoOpEntitlements(initialUnlocked = true) },
         )
     }
 }

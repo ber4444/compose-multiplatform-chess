@@ -1,4 +1,4 @@
-package com.example.myapplication.persistence
+package com.example.myapplication.monetization
 
 import kotlinx.coroutines.flow.StateFlow
 

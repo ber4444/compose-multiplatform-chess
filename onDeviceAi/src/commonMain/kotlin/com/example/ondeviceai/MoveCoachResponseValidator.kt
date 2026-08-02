@@ -37,7 +37,8 @@ object MoveCoachResponseValidator {
     fun validate(rawText: String, request: MoveCoachRequest): Result {
         val text = normalize(rawText)
         if (text.isEmpty()) return Result.Invalid("empty response")
-        val lower = text.lowercase()
+        val dedupedText = deduplicateSentences(text)
+        val lower = dedupedText.lowercase()
         FORBIDDEN_PHRASES.firstOrNull { lower.contains(it) }?.let { phrase ->
             return Result.Invalid("forbidden phrase: $phrase")
         }
@@ -45,19 +46,12 @@ object MoveCoachResponseValidator {
         // on-device: gemma3-270m returned style example #1 plus the old `Bad:` filler, verbatim).
         // Rejecting here routes the orchestrator to its retry, then to the deterministic fallback —
         // both of which are actually about *this* move. Never show the user the prompt back.
-        if (isEchoedScaffolding(text)) {
+        if (isEchoedScaffolding(dedupedText)) {
             return Result.Invalid("echoed a prompt example instead of describing the move")
-        }
-        // B15: Repetition check runs before length check so a repeated sentence loop (e.g. Gemini Nano)
-        // is caught as a repetition loop rather than misreported as a length violation.
-        if (hasRepeatedLoop(text)) {
-            return Result.Invalid("repeated sentence loop detected")
         }
         // Grounding check: accept if the response mentions the move (UCI squares,
         // display text) OR contains chess-relevant vocabulary (piece names,
-        // tactical terms). This is permissive enough to let natural-language
-        // explanations through ("Develops the knight toward the center") while
-        // still rejecting completely irrelevant output.
+        // tactical terms).
         val tokens = groundingTokens(request)
         val chessVocab = listOf(
             "knight", "bishop", "rook", "queen", "king", "pawn",
@@ -71,41 +65,66 @@ object MoveCoachResponseValidator {
         if (!mentionsMove && !mentionsChess) {
             return Result.Invalid("response is not grounded in the move or chess vocabulary")
         }
-        // Length check runs LAST so grounding and repetition checks take precedence.
-        if (text.length > MoveCoachPromptBuilder.MAX_OUTPUT_CHARS) {
+        // Length check runs after deduplication so a verbatim sentence repeat (e.g. Gemini Nano)
+        // is deduplicated into a valid response rather than rejected for length.
+        if (dedupedText.length > MoveCoachPromptBuilder.MAX_OUTPUT_CHARS) {
             return Result.Invalid("response exceeds ${MoveCoachPromptBuilder.MAX_OUTPUT_CHARS} chars")
         }
-        return Result.Valid(text)
+        return Result.Valid(dedupedText)
     }
 
     /**
-     * True if [text] contains repeated sentence loops (B15).
+     * Splits sentences character-by-character without regex lookbehinds for KMP / JS IR compatibility.
      */
-    internal fun hasRepeatedLoop(text: String): Boolean {
-        val sentences = text.split(Regex("(?<=[.!?])\\s+"))
-            .map { it.trim().lowercase() }
-            .filter { it.length >= 10 }
-        if (sentences.size < 2) return false
+    internal fun splitSentences(text: String): List<String> {
+        if (text.isEmpty()) return emptyList()
+        val sentences = mutableListOf<String>()
+        val sb = StringBuilder()
+        for (char in text) {
+            sb.append(char)
+            if (char == '.' || char == '!' || char == '?') {
+                val s = sb.toString().trim()
+                if (s.isNotEmpty()) sentences.add(s)
+                sb.clear()
+            }
+        }
+        val remainder = sb.toString().trim()
+        if (remainder.isNotEmpty()) {
+            sentences.add(remainder)
+        }
+        return sentences
+    }
+
+    /**
+     * Deduplicates verbatim repeated sentences in place (B15).
+     */
+    internal fun deduplicateSentences(text: String): String {
+        val sentences = splitSentences(text)
+        if (sentences.size <= 1) return text
+        val uniqueSentences = mutableListOf<String>()
         val seen = mutableSetOf<String>()
         for (sentence in sentences) {
-            if (!seen.add(sentence)) return true
+            val key = sentence.lowercase().filter { it.isLetterOrDigit() }
+            if (key.isNotEmpty() && !seen.add(key)) {
+                continue
+            }
+            uniqueSentences.add(sentence)
         }
-        return false
+        return uniqueSentences.joinToString(" ")
     }
 
     /**
-     * Clean the model's few-shot echo and strip raw citation tags (B4) before validating/displaying.
+     * Clean the model's few-shot echo before validating/displaying. Plain string ops, no regex,
+     * so behavior is identical on every JVM/JS/Wasm/Native/Android runtime (and can't hit the ICU-vs-JVM regex divergence).
      */
-    internal fun normalize(rawText: String): String {
-        val sanitized = CitationSanitizer.sanitize(rawText)
-        return sanitized.lineSequence()
+    internal fun normalize(rawText: String): String =
+        rawText.lineSequence()
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .map { unwrapQuotes(stripFewShotLabel(it)) }
             .filter { it.isNotEmpty() }
             .joinToString(" ")
             .trim()
-    }
 
     private fun stripFewShotLabel(line: String): String {
         for (label in FEW_SHOT_LABELS) {

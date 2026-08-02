@@ -163,8 +163,9 @@ class ChatViewModel(
 
     private fun finalizeAssistant(text: String, isFallback: Boolean) {
         val current = mutableState.value
+        val sanitizedText = com.example.myapplication.ui.CitationSanitizer.sanitize(text)
         mutableState.value = current.copy(
-            messages = current.messages + ChatMessage("assistant", text, isFallback = isFallback),
+            messages = current.messages + ChatMessage("assistant", sanitizedText, isFallback = isFallback),
             partialText = "",
             streaming = false,
             error = false,

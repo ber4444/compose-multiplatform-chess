@@ -57,7 +57,7 @@ class ChatViewModelTest {
         assertEquals(2, state.messages.size) // user + assistant
         assertEquals("user", state.messages[0].role)
         assertEquals("assistant", state.messages[1].role)
-        assertEquals("The center is contested [s1].", state.messages[1].text)
+        assertEquals("The center is contested.", state.messages[1].text)
         assertEquals(false, state.messages[1].isFallback)
     }
 
@@ -148,7 +148,7 @@ class ChatViewModelTest {
         assertEquals(1, state.messages.count { it.role == "assistant" })
         // The fallback text wins over the unvalidated partial.
         val assistant = state.messages.last { it.role == "assistant" }
-        assertEquals("Focus on central control [s1].", assistant.text)
+        assertEquals("Focus on central control.", assistant.text)
         assertEquals(true, assistant.isFallback)
     }
 

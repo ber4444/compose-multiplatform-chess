@@ -59,7 +59,7 @@ class OpeningExplainerStateHolder(
 
     private fun com.example.coachapi.OpeningExplainResponse.toUiState(isFallback: Boolean) =
         OpeningExplainerUiState.Ready(
-            text = text,
+            text = com.example.myapplication.ui.CitationSanitizer.sanitize(text),
             sourceTitles = passages.map { it.title }.distinct(),
             isFallback = isFallback,
         )
