@@ -27,6 +27,7 @@ xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug 
 ./gradlew :app:desktopTest --tests "*board3d*"  # run 3D desktop tests (DesktopRendererSmokeTest writes build/chess3d-*.png to eyeball)
 tools/fetch_filament_desktop.sh                 # fetch gitignored desktop Filament headers/libs for native bridge builds
 tools/ios_3d_screenshot.sh                      # screenshot the real iOS 3D board in a booted sim -> build/ios-3d-screenshot.png
+tools/verify_opening_retrieval.sh               # smoke-test the DEPLOYED opening explainer: 8 openings, asserts returned ECO matches
 ```
 
 When an Android SDK path is needed, use the Android CLI first: `android info sdk`.

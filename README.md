@@ -462,14 +462,35 @@ curl https://compose-chess-opening-coach.fly.dev/health
 echo "coach.baseUrl=https://compose-chess-opening-coach.fly.dev" >> local.properties
 # or: export CHESS_COACH_BASE_URL=https://compose-chess-opening-coach.fly.dev
 
-# 8. (Optional) Enable the paid LLM composer for richer prose:
+# 8. Verify retrieval end to end (eight real openings; sends eco = null like the real clients):
+tools/verify_opening_retrieval.sh
+# → each row should show the expected ECO and `wrong ECO retrieved: 0/8`
+
+# 9. (Optional) Enable the paid LLM composer for richer prose. Set the cost cap explicitly —
+#    see the note below on why omitting it can disable the composer entirely:
 fly secrets set --app compose-chess-opening-coach \
   COACH_LLM_API_KEY=… \
   COACH_LLM_API_URL=https://api.openai.com/v1/chat/completions \
   COACH_LLM_MODEL=gpt-4.1-mini \
   COACH_LLM_INPUT_USD_PER_MILLION=0.40 \
-  COACH_LLM_OUTPUT_USD_PER_MILLION=1.60
+  COACH_LLM_OUTPUT_USD_PER_MILLION=1.60 \
+  COACH_LLM_MAX_USD_CENTS=2.5
 ```
+
+> **Size `COACH_LLM_MAX_USD_CENTS` against the token *ceiling*, not expected usage.**
+> `ProviderCostBudget.admits()` prices each request before calling out, and charges the full
+> `maxOutputTokens` (2048) rather than the ~75 tokens an answer actually uses. At $9/M output that
+> estimate is ~1.84¢ *per request*, so the 0.2¢ default rejects every call **before the network** and
+> the composer silently serves template text with nothing in the logs but
+> `opening-provider-skipped budget`. Compute your own: `2048 × output_price_per_M / 1e6 × 100`
+> cents, plus input, then leave headroom. Actual spend stays roughly an order of magnitude below the
+> cap — a known wart of charging the ceiling.
+
+> **Providers are configured as a set, not a menu.** `COACH_LLM_API_URL` and `COACH_LLM_MODEL` must
+> come from the same provider; mixing them returns `HTTP 404 {"error":{"message":"The model ... does
+> not exist"}}`, which is the host rejecting the model, not a bad key. `COACH_LLM_API_URL` defaults
+> to `api.openai.com`, so it must be set explicitly for any other provider. List what a host serves
+> with `curl -s -H "Authorization: Bearer $KEY" "${URL%/chat/completions}/models"`.
 
 > **Why no `bin/server-seed`?** The `application` plugin's `installDist` generates one launcher
 > script (`bin/server`, wired to `ApplicationKt` by `server/build.gradle.kts:57`); the seed
