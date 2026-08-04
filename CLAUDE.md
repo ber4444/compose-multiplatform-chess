@@ -415,6 +415,10 @@ The `allowLocal = false` flag on `openingExplainer` and `positionChat` policies 
   - `ChatViewModel` keeps a single `streamJob` (Stop cancels it, which must close the TCP connection) and sends the last 6 turns; the server independently caps history at 12 turns / 20 plies / 500 chars.
   - Validation is server-side on the *accumulated* text at stream end; a veto emits `fallback` with `TemplateChatComposer`'s grounded text. `DefaultPositionChat`'s own fallback event is a fixed offline sentence and is **not** retrieval-grounded — don't conflate the two layers.
 - `docs/plans/on-device-coach-rag-unification.md` is a **proposal** — grounding the coach, summary, and chat in a persisted per-ply `MoveAssessment` record (cpLoss/motifs) instead of a reference corpus, plus habit aggregation, difficulty-aware advice, and chat re-scoping. **None of it is implemented.** Don't document or assume it as existing behaviour.
+- `docs/plans/cloud-eval-honesty-followups.md` — **open** follow-ups from the cloud-retrieval fix:
+  the grounding scorer measures verbatim copying rather than grounding, the cloud eval row can't
+  fail the build, chat may not actually stream token-by-token, and the cost budget prices the token
+  ceiling. None of it is implemented; each item says what to measure before changing anything.
 - `docs/plans/hybrid-inference-vendor-adoption-plan.md` outlines the vendor adoption plan for hybrid AI inference.
 - `docs/plans/review-fixes-hybrid-inference.md` documents P0 blocking review fixes for the hybrid inference implementation (PR #106) and should be completed before further feature development.
 
