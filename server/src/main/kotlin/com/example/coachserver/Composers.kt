@@ -140,9 +140,6 @@ class LlmComposer(
         appendLine("Write EXACTLY 2 or 3 sentences (no more, no less). Total length under 280 characters.")
         appendLine("Every sentence MUST end with a bracketed source id like [${passages.first().sourceId}].")
         appendLine("Use ONLY facts from the sources above. Do not invent moves, evaluations, or threats.")
-        // Belt to the cleaner's braces: the cleaner only removes deliberation that is structurally
-        // marked, so the cheapest fix for unmarked scratchpad is to not ask for it.
-        appendLine("Output ONLY the final answer. No reasoning, notes, bullet lists, or corrections.")
         appendLine()
         appendLine("Example of the required format:")
         appendLine(exampleOutputFor(request, passages))
@@ -179,8 +176,7 @@ class LlmComposer(
             "You are a chess opening coach. You MUST follow the output format exactly: " +
                 "2 or 3 sentences, each ending with a bracketed source id like [source-1], " +
                 "under 280 characters total. Use ONLY the supplied sources; never invent moves, " +
-                "engine evaluations, ratings, or threats. The bracketed id is mandatory in every sentence. " +
-                "Reply with the answer only \u2014 no deliberation, self-correction, or commentary."
+                "engine evaluations, ratings, or threats. The bracketed id is mandatory in every sentence."
     }
 }
 
