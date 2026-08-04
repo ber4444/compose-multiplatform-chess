@@ -385,8 +385,19 @@ class PositionChatRouteTest {
     }
 
     private fun inMemoryRepo(passages: List<Passage>) = object : PassageRepository {
-        override fun retrieve(embedding: FloatArray, limit: Int): List<Passage> = passages.take(limit)
-        override fun upsert(passage: Passage, embedding: FloatArray) = Unit
+        override fun retrieve(
+            embedding: FloatArray,
+            limit: Int,
+            movesSan: List<String>,
+            eco: String?,
+        ) = RetrievalResult(passages.take(limit), eco)
+
+        override fun upsert(
+            passage: Passage,
+            embedding: FloatArray,
+            eco: String?,
+            moves: String?,
+        ) = Unit
     }
 
     private val sseJson = Json { ignoreUnknownKeys = true }

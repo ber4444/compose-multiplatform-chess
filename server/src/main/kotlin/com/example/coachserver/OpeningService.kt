@@ -10,9 +10,39 @@ fun interface Embedder {
     fun embed(text: String): FloatArray
 }
 
+/**
+ * What one retrieval returned, plus the ECO the *server* resolved from the move prefix.
+ *
+ * [resolvedEco] is not an echo of the request: both clients send `eco = null` (they have no ECO
+ * book), so the server identifying the opening itself is the only way an ECO ever reaches the
+ * composers. `null` means the moves matched nothing in the book.
+ */
+data class RetrievalResult(
+    val passages: List<Passage>,
+    val resolvedEco: String?,
+)
+
 interface PassageRepository {
-    fun retrieve(embedding: FloatArray, limit: Int = 4): List<Passage>
-    fun upsert(passage: Passage, embedding: FloatArray)
+    /**
+     * Retrieves up to [limit] passages for a position.
+     *
+     * [movesSan] is the load-bearing argument, not [embedding]. An opening is a property of its
+     * move prefix, so implementations must resolve the line by *exact longest-prefix match* over
+     * the corpus move index first, and use the embedding only to fill the remaining slots. A
+     * 384-dimension MiniLM vector cannot tell C00 from E00 — measured against the live corpus,
+     * embedding-only retrieval answered a French Defence position with four Catalan passages and a
+     * Sicilian position with the English Opening.
+     *
+     * [eco] is a caller-supplied hint used only when the move prefix matches nothing.
+     */
+    fun retrieve(
+        embedding: FloatArray,
+        limit: Int = 4,
+        movesSan: List<String> = emptyList(),
+        eco: String? = null,
+    ): RetrievalResult
+
+    fun upsert(passage: Passage, embedding: FloatArray, eco: String? = null, moves: String? = null)
 }
 
 data class ComposedText(
@@ -52,8 +82,19 @@ class OpeningService(
         require(embedding.size == EMBEDDING_DIMENSIONS) {
             "embedder returned ${embedding.size} values; expected $EMBEDDING_DIMENSIONS"
         }
-        val passages = dependencies.passageRepository.retrieve(embedding, RETRIEVAL_LIMIT)
-        val composition = dependencies.composer.compose(request, passages)
+        val retrieval = dependencies.passageRepository.retrieve(
+            embedding = embedding,
+            limit = RETRIEVAL_LIMIT,
+            movesSan = request.movesSan,
+            eco = eco,
+        )
+        val passages = retrieval.passages
+        // Hand the composers the ECO the book resolved. Clients always send null, so without this
+        // the LLM prompt's "ECO:" line reads "unknown" on every single request.
+        val composition = dependencies.composer.compose(
+            request.copy(eco = retrieval.resolvedEco ?: eco),
+            passages,
+        )
         OpeningExplainResponse(
             text = composition.text,
             passages = passages,
@@ -78,8 +119,14 @@ class OpeningService(
 object OpeningQueryBuilder {
     private const val MAX_OPENING_MOVES = 12
 
+    /**
+     * Builds the *embedding* query only. The ECO code is deliberately **not** concatenated here:
+     * as one token in a 384-dimension vector it was outvoted by everything else, and measurably
+     * worse than absent — a request carrying `eco = "C00"` retrieved four E00/E06 Catalan passages,
+     * the vector having latched onto the wrong volume letter. ECO is a structured key, so it is
+     * passed to `PassageRepository.retrieve` as a filter instead of being blended into prose.
+     */
     fun build(request: OpeningExplainRequest): String = buildString {
-        request.eco?.takeIf(String::isNotBlank)?.let { append("ECO ").append(it.trim()).append(' ') }
         append("opening after ")
         append(request.movesSan.take(MAX_OPENING_MOVES).joinToString(" ").ifBlank { "the supplied position" })
     }

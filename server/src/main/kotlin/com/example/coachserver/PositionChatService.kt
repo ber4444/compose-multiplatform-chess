@@ -223,8 +223,17 @@ class LlmChatComposer(
             // again, uncaught, which is what turns an ordinary disconnect into an unclean connection
             // reset instead of the graceful fallback this composer intends. Must propagate untouched.
             throw e
-        } catch (_: Exception) {
-            // Provider failure mid-stream → downgrade to deterministic fallback text.
+        } catch (e: Exception) {
+            // Provider failure mid-stream → downgrade to deterministic fallback text. Logged
+            // because the downgrade is otherwise invisible: the client sees a normal answer with
+            // `composerId = template-chat-v1` and no way to tell a provider outage from a
+            // deliberately deterministic deployment. The most common cause is the provider
+            // exceeding CHAT_PROVIDER_TIMEOUT_MS, which produces boilerplate after a long wait —
+            // worse UX than an error, so it has to be visible in the logs to be tuned.
+            println(
+                "chat-provider-failed after ${accumulated.length} chars: " +
+                    "${e::class.simpleName}: ${e.message?.take(200)}"
+            )
             fallback.streamCompose(request, passages).collect { emit(it) }
             return@flow
         }
@@ -553,15 +562,25 @@ class PositionChatService(
     private val dependencies: ChatServerDependencies,
 ) {
     suspend fun chat(request: PositionChatRequest): Flow<ChatChunk> {
-        val passages = withContext(Dispatchers.IO) {
+        val retrieval = withContext(Dispatchers.IO) {
             validateRequest(request)
             val embedding = dependencies.embedder.embed(PositionChatQueryBuilder.build(request))
             require(embedding.size == OpeningService.EMBEDDING_DIMENSIONS) {
                 "embedder returned ${embedding.size} values; expected ${OpeningService.EMBEDDING_DIMENSIONS}"
             }
-            dependencies.passageRepository.retrieve(embedding, RETRIEVAL_LIMIT)
+            dependencies.passageRepository.retrieve(
+                embedding = embedding,
+                limit = RETRIEVAL_LIMIT,
+                movesSan = request.movesSan,
+                eco = request.eco,
+            )
         }
-        return dependencies.streamingChatComposer.streamCompose(request, passages)
+        return dependencies.streamingChatComposer.streamCompose(
+            // Same reason as the opening route: clients send eco = null, so the composer's ECO line
+            // is "unknown" unless the server hands back the one it resolved from the move prefix.
+            request.copy(eco = retrieval.resolvedEco ?: request.eco),
+            retrieval.passages,
+        )
     }
 
     private fun validateRequest(request: PositionChatRequest) {

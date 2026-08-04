@@ -28,7 +28,7 @@ class PostgresPassageRepositoryTest {
 
             val results = repository.retrieve(vector(first = 0.9f), limit = 1)
 
-            assertEquals(listOf("near"), results.map(Passage::sourceId))
+            assertEquals(listOf("near"), results.passages.map(Passage::sourceId))
         }
     }
 
