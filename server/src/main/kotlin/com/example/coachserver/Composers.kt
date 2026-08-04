@@ -110,7 +110,10 @@ class LlmComposer(
         // The exception is captured rather than discarded: an auth failure, a bad model id and a
         // model that simply wrote badly all produced the identical "fell back" row before this.
         val attempt = runCatching { client.generate(SYSTEM_PROMPT, prompt, maxOutputTokens) }
-        val candidate = attempt.getOrNull()
+        // Strip structurally-marked deliberation before validating. LlmChatComposer already did
+        // this for its stream; without it here, a model's scratchpad reached the validator and the
+        // rejection was recorded as a quality failure.
+        val candidate = attempt.getOrNull()?.let(ModelOutputCleaner::clean)
         val valid = candidate?.let { OpeningExplanationValidator.validate(it, passages) }
         probe(
             when {
@@ -137,6 +140,9 @@ class LlmComposer(
         appendLine("Write EXACTLY 2 or 3 sentences (no more, no less). Total length under 280 characters.")
         appendLine("Every sentence MUST end with a bracketed source id like [${passages.first().sourceId}].")
         appendLine("Use ONLY facts from the sources above. Do not invent moves, evaluations, or threats.")
+        // Belt to the cleaner's braces: the cleaner only removes deliberation that is structurally
+        // marked, so the cheapest fix for unmarked scratchpad is to not ask for it.
+        appendLine("Output ONLY the final answer. No reasoning, notes, bullet lists, or corrections.")
         appendLine()
         appendLine("Example of the required format:")
         appendLine(exampleOutputFor(request, passages))
@@ -173,7 +179,8 @@ class LlmComposer(
             "You are a chess opening coach. You MUST follow the output format exactly: " +
                 "2 or 3 sentences, each ending with a bracketed source id like [source-1], " +
                 "under 280 characters total. Use ONLY the supplied sources; never invent moves, " +
-                "engine evaluations, ratings, or threats. The bracketed id is mandatory in every sentence."
+                "engine evaluations, ratings, or threats. The bracketed id is mandatory in every sentence. " +
+                "Reply with the answer only \u2014 no deliberation, self-correction, or commentary."
     }
 }
 
