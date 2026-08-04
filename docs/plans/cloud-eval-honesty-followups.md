@@ -15,6 +15,28 @@ The through-line in every item below: **an aggregate that cannot name its own ca
 evidence.** Each one is a number we currently quote that measures something other than what its name
 says.
 
+## Who can do what
+
+Not all of this is agent work, and the distinction is load-bearing rather than administrative. Two
+items require *human judgement about quality*, which is exactly the thing neither a model nor a
+validator can stand in for — an agent asked to "review prose quality" will produce confident prose
+about prose, which is the failure mode both of this project's eval articles exist to argue against.
+
+| Item | Who | Blocked on |
+|---|---|---|
+| P0-1 scorer redesign | agent | P0-2's finding |
+| P0-2 adjudicate the 42% | agent | **human**: provider API key + ~20 min run (costs money) |
+| P1-1 gate cloud grounding in CI | agent | — |
+| P1-2 does chat actually stream? | agent | partly **human**: needs live calls against the deployment |
+| P1-3 cost budget prices the ceiling | agent | — |
+| P2-1 citation-id length | agent | — |
+| P2-2 eval runtime | agent | — |
+| **R-1 prose quality hand-review** | **human only** | — |
+| **R-2 chat composerId / TTFT** | **human only** | running the real app |
+
+An agent picking this up should do P1-1, P1-3, P2-1 and P2-2 unblocked, and stop at the boundaries
+marked human rather than approximating them.
+
 ---
 
 ## P0 — a metric that cannot be won
@@ -42,7 +64,7 @@ numbers that turned out to be measuring the harness.
 against is real (a model citing a passage while discussing a different position); only the
 *measurement* of it is wrong.
 
-### P0-2 Adjudicate the 42% with the data we now capture
+### P0-2 Adjudicate the 42% with the data we now capture — **needs a provider key**
 
 `ComposeAttempt.Accepted` carries its text as of `95fe26f`, so accepted outputs land in
 `evals/build/llm-compose-attempts.txt`. Nobody has read them.
@@ -123,7 +145,7 @@ timing out legitimate thinking-model responses and reporting them as quality fai
 
 ## From the original branch review — still open
 
-### R-1 Prose quality hand-review of the two cloud surfaces
+### R-1 Prose quality hand-review of the two cloud surfaces — **human only**
 
 The review asked for this and it has not been done. The corpus tautology is fixed (passages now lead
 with an `EcoNarrator` claim instead of "X is classified as ECO Y"), but **nobody has read the
@@ -136,7 +158,7 @@ useless".
 - [ ] `tools/verify_opening_retrieval.sh` prints the first 70 chars of each; that is enough to spot
       truncation but **not** enough for this review. Read full responses.
 
-### R-2 Chat monitoring: `composerId` and time-to-first-token
+### R-2 Chat monitoring: `composerId` and time-to-first-token — **human only**
 
 Related to P1-2 but distinct: the concern is a *silent* downgrade. A provider timeout drops to
 `TemplateChatComposer` and the user sees a plausible answer with no error, after a long wait.
@@ -159,5 +181,10 @@ Related to P1-2 but distinct: the concern is a *silent* downgrade. A provider ti
 - **Change one thing per measurement.** A deliberation stripper and a prompt instruction shipped
   together once here and the pair regressed 4/8 → 1/8; neither could be attributed until they were
   separated (`ee1c7f2`, `94856e6`).
+- **Do not simulate the human-only items.** R-1 and R-2 are marked human because their output is a
+  judgement, not an artifact. An agent can produce a convincing "prose quality review" without
+  reading anything a user would see, and a convincing latency table without making a call. If the
+  key or the device is unavailable, leave the item open and say so — an unrun check recorded as
+  done is worse than one recorded as pending, because it stops anyone else from running it.
 - **`:server:test` runs only in `ai-coach-evals.yml`**, which triggers on `server/**` paths and on
   PRs to `main`. Work on a branch is not covered until the PR is opened.
