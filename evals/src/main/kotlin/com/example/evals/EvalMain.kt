@@ -6,6 +6,7 @@ import com.example.coachapi.OpeningExplainResponse
 import com.example.coachapi.Passage
 import com.example.coachapi.PositionChatRequest
 import com.example.coachserver.ChatServerDependencies
+import com.example.coachserver.ComposeAttempt
 import com.example.coachserver.Embedder
 import com.example.coachserver.LlmComposer
 import com.example.coachserver.OpeningQueryBuilder
@@ -13,6 +14,7 @@ import com.example.coachserver.PassageRepository
 import com.example.coachserver.PositionChatQueryBuilder
 import com.example.coachserver.PositionChatService
 import com.example.coachserver.RequestRateLimiter
+import com.example.coachserver.RetrievalResult
 import com.example.coachserver.ServerDependencies
 import com.example.coachserver.TemplateChatComposer
 import com.example.coachserver.TemplateComposer
@@ -162,12 +164,25 @@ internal fun caseSpecificOpeningDependencies(
             }
         },
         passageRepository = object : PassageRepository {
-            override fun retrieve(embedding: FloatArray, limit: Int): List<Passage> {
+            override fun retrieve(
+                embedding: FloatArray,
+                limit: Int,
+                movesSan: List<String>,
+                eco: String?,
+            ): RetrievalResult {
                 val index = embedding[0].toInt() - 1
-                return passages.getOrNull(index)?.let(::listOf).orEmpty().take(limit)
+                return RetrievalResult(
+                    passages.getOrNull(index)?.let(::listOf).orEmpty().take(limit),
+                    eco,
+                )
             }
 
-            override fun upsert(passage: Passage, embedding: FloatArray) = Unit
+            override fun upsert(
+                passage: Passage,
+                embedding: FloatArray,
+                eco: String?,
+                moves: String?,
+            ) = Unit
         },
         composer = composer,
     )
@@ -205,12 +220,25 @@ internal fun caseSpecificChatDependencies(cases: List<GoldenCase>): ChatServerDe
             }
         },
         passageRepository = object : PassageRepository {
-            override fun retrieve(embedding: FloatArray, limit: Int): List<Passage> {
+            override fun retrieve(
+                embedding: FloatArray,
+                limit: Int,
+                movesSan: List<String>,
+                eco: String?,
+            ): RetrievalResult {
                 val index = embedding[0].toInt() - 1
-                return passages.getOrNull(index)?.let(::listOf).orEmpty().take(limit)
+                return RetrievalResult(
+                    passages.getOrNull(index)?.let(::listOf).orEmpty().take(limit),
+                    eco,
+                )
             }
 
-            override fun upsert(passage: Passage, embedding: FloatArray) = Unit
+            override fun upsert(
+                passage: Passage,
+                embedding: FloatArray,
+                eco: String?,
+                moves: String?,
+            ) = Unit
         },
         streamingChatComposer = TemplateChatComposer(),
     )
@@ -393,7 +421,11 @@ private suspend fun evaluateDeployed(cases: List<GoldenCase>): RouteStats {
  * → composition → validation pipeline; the only difference is the composer.
  */
 private suspend fun evaluateLlmComposed(cases: List<GoldenCase>): RouteStats {
-    val composer = selectComposer(System.getenv(), TemplateComposer())
+    // A fallback *rate* is four findings wearing one number. Collect why each call fell back, so a
+    // 100% row can distinguish "the provider was never reachable" from "the model wrote badly" —
+    // the first is a configuration bug and says nothing about the provider at all.
+    val attempts = mutableListOf<ComposeAttempt>()
+    val composer = selectComposer(System.getenv(), TemplateComposer()) { attempts += it }
     if (composer !is LlmComposer) {
         return RouteStats(
             route = "local-llm-compose",
@@ -417,10 +449,53 @@ private suspend fun evaluateLlmComposed(cases: List<GoldenCase>): RouteStats {
         stats.record(
             EvalScorer.scoreOpening(case, composed.text),
             retried = false,
-            fellBack = composed.composerId != "llm-v1",
+            fellBack = composed.composerId != LlmComposer.ID,
         )
     }
+    stats.note = summarizeAttempts(attempts)
+    writeAttemptLog(attempts)
     return stats
+}
+
+/** One-line breakdown for the scorecard row, so the number carries its own explanation. */
+private fun summarizeAttempts(attempts: List<ComposeAttempt>): String {
+    if (attempts.isEmpty()) return "no provider calls recorded"
+    val byLabel = attempts.groupingBy(ComposeAttempt::label).eachCount()
+    val detail = attempts.firstNotNullOfOrNull { attempt ->
+        when (attempt) {
+            is ComposeAttempt.ProviderError -> "first error: ${attempt.error}"
+            is ComposeAttempt.ValidatorRejected -> "first veto: ${attempt.reason}"
+            else -> null
+        }
+    }
+    return listOfNotNull(
+        byLabel.entries.sortedByDescending { it.value }.joinToString(", ") { "${it.key} ${it.value}" },
+        detail,
+        "raw outputs in evals/build/llm-compose-attempts.txt",
+    ).joinToString(" — ")
+}
+
+/**
+ * Records the raw provider output for every call. This is the cheapest diagnostic in the harness
+ * and the only one that distinguishes "the validator named the gate" from "here is what the model
+ * actually wrote" — the scorecard's aggregate cannot.
+ */
+private fun writeAttemptLog(attempts: List<ComposeAttempt>) {
+    val file = java.io.File("build/llm-compose-attempts.txt")
+    file.parentFile?.mkdirs()
+    file.writeText(
+        attempts.joinToString("\n\n") { attempt ->
+            when (attempt) {
+                is ComposeAttempt.BudgetRejected ->
+                    "[budget-rejected] prompt was ${attempt.promptChars} chars; provider never called"
+                is ComposeAttempt.ProviderError -> "[provider-error] ${attempt.error}"
+                ComposeAttempt.ProviderEmpty -> "[provider-empty] client returned null"
+                is ComposeAttempt.ValidatorRejected ->
+                    "[validator-rejected] ${attempt.reason}\nraw: ${attempt.raw}"
+                ComposeAttempt.Accepted -> "[accepted]"
+            }
+        },
+    )
 }
 
 /**
@@ -434,7 +509,14 @@ internal fun caseSpecificRetrieval(cases: List<GoldenCase>): Pair<ServerDependen
             Passage(
                 sourceId = "eval-${case.id}",
                 title = "${case.eco} opening concepts",
-                text = case.expectedConcepts.joinToString(", ").ifBlank { "development and center control" } + ".",
+                // MUST be openingConceptsPassage, the same text the template route above retrieves.
+                // This used to be the bare tag list ("development, center."), which meant the two
+                // scorecard rows were scored against different substrates: `local-template` got
+                // prose while `local-llm-compose` got ~2 tokens of chess vocabulary. Since
+                // OpeningExplanationValidator requires >=2 content-word overlaps *per sentence*
+                // with the cited passage, the LLM row could not pass no matter what the model
+                // wrote, and its published pass rate measured the passage, not the provider.
+                text = openingConceptsPassage(case.expectedConcepts),
             )
         )
     }
@@ -463,7 +545,8 @@ data class RouteStats(
     val route: String,
     val collection: CollectionMode,
     val available: Boolean = true,
-    val note: String = "",
+    // var, not val: the LLM route can only explain its fallback rate after the run.
+    var note: String = "",
     var cases: Int = 0,
     var groundingViolations: Int = 0,
     var fluencyViolations: Int = 0,

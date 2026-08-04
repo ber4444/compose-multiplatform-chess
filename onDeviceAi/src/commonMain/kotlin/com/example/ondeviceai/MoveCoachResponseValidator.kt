@@ -44,8 +44,9 @@ object MoveCoachResponseValidator {
         }
         // Small models copy the prompt's few-shot examples instead of describing the move (observed
         // on-device: gemma3-270m returned style example #1 plus the old `Bad:` filler, verbatim).
-        // Rejecting here routes the orchestrator to its retry, then to the deterministic fallback —
-        // both of which are actually about *this* move. Never show the user the prompt back.
+        // Rejecting here routes the orchestrator straight to the deterministic fallback (there is
+        // no retry loop — a validation failure emits MoveCoachFallback immediately), which is
+        // actually about *this* move. Never show the user the prompt back.
         if (isEchoedScaffolding(dedupedText)) {
             return Result.Invalid("echoed a prompt example instead of describing the move")
         }

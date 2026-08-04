@@ -72,7 +72,7 @@ class EvalScorerTest {
         val dependencies = caseSpecificOpeningDependencies(listOf(first, second))
 
         val embedding = dependencies.embedder.embed(OpeningQueryBuilder.build(second.toOpeningRequest()))
-        val passages = dependencies.passageRepository.retrieve(embedding, 4)
+        val passages = dependencies.passageRepository.retrieve(embedding, 4).passages
 
         assertEquals(listOf("eval-second"), passages.map { it.sourceId })
         assertFalse(EvalScorer.scoreOpening(first, passages.single().text).grounded)
