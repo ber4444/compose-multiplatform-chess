@@ -73,7 +73,8 @@ sealed class ComposeAttempt {
     data class ProviderError(val error: String) : ComposeAttempt()
     data object ProviderEmpty : ComposeAttempt()
     data class ValidatorRejected(val reason: String, val raw: String) : ComposeAttempt()
-    data object Accepted : ComposeAttempt()
+    /** Carries its text: a grounding score cannot be adjudicated without the output that earned it. */
+    data class Accepted(val text: String) : ComposeAttempt()
 
     val label: String
         get() = when (this) {
@@ -81,7 +82,7 @@ sealed class ComposeAttempt {
             is ProviderError -> "provider-error"
             ProviderEmpty -> "provider-empty"
             is ValidatorRejected -> "validator-rejected"
-            Accepted -> "accepted"
+            is Accepted -> "accepted"
         }
 }
 
@@ -125,7 +126,7 @@ class LlmComposer(
                     reason = OpeningExplanationValidator.rejectionReason(candidate, passages).orEmpty(),
                     raw = candidate,
                 )
-                else -> ComposeAttempt.Accepted
+                else -> ComposeAttempt.Accepted(valid)
             },
         )
         return if (valid != null) ComposedText(valid, ID) else fallback.compose(request, passages)

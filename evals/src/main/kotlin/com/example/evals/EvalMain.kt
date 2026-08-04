@@ -492,7 +492,7 @@ private fun writeAttemptLog(attempts: List<ComposeAttempt>) {
                 ComposeAttempt.ProviderEmpty -> "[provider-empty] client returned null"
                 is ComposeAttempt.ValidatorRejected ->
                     "[validator-rejected] ${attempt.reason}\nraw: ${attempt.raw}"
-                ComposeAttempt.Accepted -> "[accepted]"
+                is ComposeAttempt.Accepted -> "[accepted]\n${attempt.text}"
             }
         },
     )

@@ -221,7 +221,7 @@ fun defaultDependencies(environment: Map<String, String>): ServerDependencies {
             ComposeAttempt.ProviderEmpty -> println("opening-provider-empty")
             is ComposeAttempt.ValidatorRejected ->
                 println("opening-validation-rejected ${attempt.reason} | raw=${attempt.raw.take(300)}")
-            ComposeAttempt.Accepted -> Unit
+            is ComposeAttempt.Accepted -> Unit
         }
     }
     return ServerDependencies(embedder, PostgresPassageRepository(dataSource), composer)
