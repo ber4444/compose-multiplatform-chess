@@ -363,7 +363,15 @@ teeth when the contract is independent of the implementation.
   `TemplateComposer` if validation fails — unvalidated prose is never returned.
 - **Corpus** — `server/corpus/` holds the five ECO openings TSVs from `lichess-org/chess-openings`
   (CC0) plus curated concept notes. The `:server:seed` task (`SeedMain`) chunks, embeds, and upserts
-  them into Postgres.
+  them into Postgres, along with each row's ECO code and its normalized move prefix.
+- **Retrieval is book-first.** An opening is a property of its move prefix, so
+  `PostgresPassageRepository` resolves the line by exact longest-prefix match on the stored move
+  sequence, then fills the remaining slots with ECO-scoped and finally unscoped vector neighbours.
+  Embedding-only retrieval was measured returning the wrong opening about half the time (1.e4 c5 →
+  English Opening; 1.e4 e6 → Catalan), and because every wrong answer was still fluent and cited,
+  no validator downstream could catch it. `OpeningRetrievalGroundingTest` pins eight openings.
+  **The `eco`/`moves` columns are `NULL` until you reseed** — deploying the schema alone silently
+  keeps the old vector-only behaviour.
 
 **Runtime configuration** is read only from environment variables (no secrets are committed):
 

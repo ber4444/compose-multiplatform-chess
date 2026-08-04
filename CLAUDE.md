@@ -61,7 +61,7 @@ Nine Gradle projects. The five KMP ones carry the app; the rest are JVM-only too
 - `:androidApp` — thin Android application wrapper (manifest, launcher icons) that depends on `:app`.
 - `:onDeviceAi` — AI orchestration for all five surfaces (move coach, game summary, rules Q&A, opening explainer, position chat) plus the route policy. On-device generation lives behind its `OnDeviceTextGenerator` seam; the two cloud surfaces keep only their orchestrators here and take an injected client. Targets: `android`, `jvm("desktop")`, `iosArm64`, `iosSimulatorArm64`, `js(IR)`, `wasmJs`. Published to GitHub Packages as `io.github.ber4444:onDeviceAi` alongside `:coachApi` (see `.github/workflows/publish-on-device-ai.yml`) so the React Native repo can consume it. Has `api(project(":coachApi"))` — coachApi types leak into `OpeningExplainer.kt`'s public signatures, so both artifacts move in lockstep under one `on-device-ai-v*` tag.
 - `:coachApi` — serialization-only KMP wire models (opening-explain request/response, `PositionChatRequest`, `ChatTurn`, `ChatStreamEvent`) shared by `:onDeviceAi`, `:app`, and the JVM `:server`. Published as `io.github.ber4444:coachApi`. Targets mirror `:onDeviceAi`.
-- `:server` — JVM-only Ktor cloud-AI service: `POST /v1/openings/explain` (one-shot) and `POST /v1/positions/chat/stream` (SSE), both over one Postgres+pgvector corpus with ONNX MiniLM embeddings. Deterministic template composers by default; the provider-LLM composers are opt-in via `COACH_LLM_*` env vars and always validated + fallback-guarded. Deployed to Fly.io (see README). **`server/openapi.yaml` is hand-written on purpose** — a spec generated from the routing tree cannot detect server drift, because it *is* the server. `OpenApiContractTest` validates real responses against it; keep the spec independent of the code it checks.
+- `:server` — JVM-only Ktor cloud-AI service: `POST /v1/openings/explain` (one-shot) and `POST /v1/positions/chat/stream` (SSE), both over one Postgres+pgvector corpus with ONNX MiniLM embeddings. Deterministic template composers by default; the provider-LLM composers are opt-in via `COACH_LLM_*` env vars and always validated + fallback-guarded. Deployed to Fly.io (see README). **`server/openapi.yaml` is hand-written on purpose** — a spec generated from the routing tree cannot detect server drift, because it *is* the server. `OpenApiContractTest` validates real responses against it; keep the spec independent of the code it checks. **Retrieval is book-first, not embedding-first** — see [Cloud retrieval](#cloud-retrieval).
 - `:evals` — JVM-only rule-based eval harness; regenerates `evals/scorecard.md` and fails on grounding regression. Also scores two non-gating columns: `FluencyScorer` (Flesch-Kincaid + three tone rules, bounds calibrated **per surface** against that surface's own deterministic composer — see `docs/benchmarks/on-device-ai/fluency-calibration.md`; the grades are ordinal, not real US grade levels) and `RouterEvalSuite` (the `route-selection` row: four named invariants swept over the full context grid, with a mutation test that injects a broken decider and asserts the sweep goes red). **Routing eval scaffolding lives here, never in `:onDeviceAi`** — that module is published to the RN consumer, so eval types there become public API. Gated in CI by `.github/workflows/ai-coach-evals.yml` on changes to `:onDeviceAi`, `:coachApi`, `:server`, `:evals`, or `app/src/**/{opening,chat}/**`.
 - `:litert-eval` — JVM-only driver that runs the desktop `LitertLmTextGenerator` from the CLI. Depends on `:ondeviceai` + `:coachapi` only, deliberately **not** `:server` (keeps Ktor from pinning this module's coroutines version — see the `force` block in its `build.gradle.kts`).
 - `:perft-mcp` — JVM-only stdio MCP server exposing the perft rig as agent tools. No dependency on `:app`/`:chess-core` (shells out to gradle + stockfish).
@@ -191,10 +191,68 @@ dependency — it's the artifact the React Native repo compiles against.
   - Keys come from `REVENUECAT_ANDROID_KEY` / `REVENUECAT_IOS_KEY` env → `revenuecat.androidKey` /
     `revenuecat.iosKey` in `local.properties` → empty, generated into `storeMain` by
     `generateRevenueCatConfig` (mirrors `generateOpeningExplainerConfig`). No key is committed.
-- Planned tiering (§0.4 of the Shipaton plan): free keeps unlimited play, both boards, full engine
+  - **Four keys, not two.** `REVENUECAT_ANDROID_TEST_KEY` / `REVENUECAT_IOS_TEST_KEY` (→
+    `revenuecat.androidTestKey` / `revenuecat.iosTestKey`) hold the dashboard's `test_…` Test Store
+    keys. `revenueCatApiKey(debug)` — an `expect fun`, not a val — picks them: **debug** prefers the
+    test key and falls back to the production key when none is set (so a single-key setup keeps
+    working); **release never resolves to a test key at all**, because shipping one would give every
+    user a free unverifiable "purchase". The debug signal is `FLAG_DEBUGGABLE` on Android and
+    `Platform.isDebugBinary` on iOS, and it drives `debugLogging` in the same call.
+- Tiering (§0.4 of the Shipaton plan): free keeps unlimited play, both boards, full engine
   difficulty, the **deterministic** coach, PGN export and history; Pro adds the model-phrased coach,
-  Game Summary, Position Chat, Opening Explainer and Rules Q&A. Nothing reads `LocalEntitlements`
-  yet — the seam ships before the gating.
+  Game Summary, Position Chat, Opening Explainer and Rules Q&A.
+
+## Cloud retrieval
+
+`:server`'s two cloud routes share one retrieval path, and it is **book-first**. Three fences:
+
+- **An opening is identified by its move prefix, not by vector similarity.**
+  `PostgresPassageRepository.retrieve` runs three tiers: exact longest-prefix match on the
+  normalized SAN sequence (`MoveSequence` + the `moves` column), then ECO-scoped vector neighbours,
+  then plain vector. Embedding-only retrieval was measured returning the wrong opening on **8 of 8**
+  real openings against the live deployment (Sicilian → C43 Urusov Gambit, French → E06 Catalan,
+  Ruy Lopez → D05 Rubinstein) — and every wrong answer was fluent, cited, and validator-approved, so
+  nothing downstream could notice. Book-first retrieval scores 8/8 correct on the same probe.
+  `OpeningRetrievalGroundingTest` pins those openings with all-zero embeddings, so it can only pass
+  through the book tier.
+- **ECO is a filter argument, never query prose.** `OpeningQueryBuilder`/`PositionChatQueryBuilder`
+  deliberately do **not** concatenate the ECO code into the embedded text: one token in a 384-d
+  MiniLM vector is outvoted, and measurably harmful (a request carrying `eco = "C00"` retrieved
+  E00/E06). Both clients send `eco = null` regardless, so the *server's* `RetrievalResult.resolvedEco`
+  is the only ECO that ever reaches a composer — don't drop it when editing either route.
+- **Passage text must lead with a claim, not a restatement.** Both composers quote the top passage's
+  *first sentence*, so `SeedMain` prefixes each lichess row with `EcoNarrator.characterize(eco)`.
+  Without it the leading sentence is "X is classified as ECO Y", and even perfect retrieval returns
+  a tautology. `EcoNarratorTest` fails if any ECO in the corpus lacks a characterization or if one
+  exceeds the 125-char window `TemplateComposer.sentence` truncates at.
+
+The `eco`/`moves` columns are added by `schema.sql` but stay `NULL` until `SeedMain` reseeds; tier 3
+covers that case, so applying the schema without reseeding degrades to exactly the old behaviour
+rather than returning nothing. **A schema change here is not live until the corpus is reseeded.**
+
+### Why the provider LLM "failed" (four causes, none of them the model)
+
+`LlmComposer` fell back on 100% of requests, which read as a quality verdict and was not one. Each
+cause is now pinned by a test; all four are worth knowing before touching this path again:
+
+1. **Move numbers counted as sentence boundaries.** `OpeningExplanationValidator` requires 2–3
+   sentences, and split on `(?<=[.!?])\s+` — so `2. Ke2` and `1...c5` each read as a sentence end
+   and a compliant three-sentence answer was rejected as five or seven. On a chess corpus this
+   rejected *every* well-formed answer. `splitSentences` now masks a period preceded by a digit;
+   `SentenceCountingTest` replays the verbatim live outputs that were wrongly rejected.
+2. **`ChatMessage.content` was non-null.** A reasoning model that spends its budget deliberating
+   returns `{"role":"assistant"}` with no `content` key — `MissingFieldException`, swallowed by
+   `runCatching{}.getOrNull()` and reported as an ordinary fallback.
+3. **`MAX_OUTPUT_TOKENS` was 90**, derived from the 300-*character* output cap — the wrong quantity.
+   `LlmChatComposer` had already learned this (2048, with a comment) and the opening route never got
+   the fix. Both now share `DEFAULT_MAX_OUTPUT_TOKENS`, pinned equal by a test.
+4. **Nothing distinguished the causes.** `ComposeAttempt` now reports budget-rejected /
+   provider-error / provider-empty / validator-rejected / accepted, `rejectionReason` names the
+   failing rule, and both are logged in production (`opening-provider-failed`,
+   `opening-validation-rejected`) and summarized into the `local-llm-compose` scorecard row.
+
+**A bare fallback *rate* is not a finding.** It conflates "never called", "called and errored", and
+"wrote something the validator refused" — and here the true cause was in the validator all along.
 
 ## Citation sanitization
 
