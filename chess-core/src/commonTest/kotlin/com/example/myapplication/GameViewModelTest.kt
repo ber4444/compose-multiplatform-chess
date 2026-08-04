@@ -4,6 +4,8 @@ import kotlin.test.assertTrue
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlin.test.assertNull
 
 class GameViewModelTest {
@@ -454,5 +456,51 @@ class GameViewModelTest {
         // Clear hint works
         vm.clearHint()
         assertNull(vm.hintText.value)
+    }
+
+    /**
+     * The interesting question about the hint button is not whether cancellation works — it
+     * demonstrably does — but **what difficulty the engine is left at afterwards**. `requestHint()`
+     * raises the engine to HARD and restores it in a `finally`; because `ChessEngine.configure` is
+     * a suspend function, a cancelled hint used to abandon the restore at its first suspension
+     * point and strand the opponent at Skill Level 20 for the rest of the game.
+     */
+    @Test
+    fun `hint restores the configured difficulty even when the hint job is cancelled`() = kotlinx.coroutines.test.runTest {
+        val configured = mutableListOf<EngineDifficulty>()
+        val engine = object : ChessEngine {
+            // A real UCI configure suspends (process write plus an `isready` round trip), which is
+            // exactly what let a cancelled coroutine abandon the restore.
+            override suspend fun configure(difficulty: EngineDifficulty) {
+                kotlinx.coroutines.delay(10)
+                configured += difficulty
+            }
+
+            override suspend fun getBestMove(fen: String): BestMoveResult? {
+                kotlinx.coroutines.delay(10_000)
+                return BestMoveResult("e2e4", evaluationCp = 30)
+            }
+
+            override fun close() {}
+        }
+        val vm = GameViewModel(initialEngineDifficulty = EngineDifficulty.EASY)
+        vm.attachEngine(engine)
+        testScheduler.advanceUntilIdle()
+        configured.clear()
+
+        val hint = backgroundScope.launch { vm.computeHintDirectly() }
+        // Far enough in to have raised the engine to HARD, still inside the long search.
+        testScheduler.advanceTimeBy(50)
+        assertEquals(listOf(EngineDifficulty.HARD), configured, "Hint should have raised the engine")
+
+        // The impatient player taps Hint again (or leaves the screen), cancelling this job.
+        hint.cancelAndJoin()
+
+        assertEquals(
+            EngineDifficulty.EASY,
+            configured.lastOrNull(),
+            "Engine was left at ${configured.lastOrNull()} after a cancelled hint; expected the " +
+                "player's EASY setting to be restored. Sequence: $configured",
+        )
     }
 }
