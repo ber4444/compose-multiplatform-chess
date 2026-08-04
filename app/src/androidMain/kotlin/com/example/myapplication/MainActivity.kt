@@ -73,7 +73,9 @@ class MainActivity : ComponentActivity() {
         // generateRevenueCatConfig in app/build.gradle.kts) — AppRoot's UnconfiguredEntitlements
         // default then applies, which is locked.
         val entitlements = RevenueCatEntitlements.createOrNull(
-            apiKey = revenueCatApiKey,
+            // isDebug also picks the key: a debug build uses the RevenueCat Test Store key when one
+            // is configured, so a dev tap never buys a real Play product.
+            apiKey = revenueCatApiKey(debug = isDebug),
             debugLogging = isDebug,
         )
         entitlements?.let { CoroutineScope(Dispatchers.IO).launch { it.refresh() } }

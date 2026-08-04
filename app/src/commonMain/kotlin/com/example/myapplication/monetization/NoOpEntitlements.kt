@@ -5,32 +5,63 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * [Entitlements] for the **storeless** targets: desktop and Web/Wasm entry points construct this
- * with `initialUnlocked = true`, because there is no store to buy from and everything is free there.
+ * [Entitlements] for the **storeless** targets: desktop and Web/Wasm. `purchases-kmp-core` has no
+ * JVM or wasm variant (see the `storeMain` source set), so there is no billing client to talk to
+ * and nothing to charge through.
  *
- * Deliberately *not* the default on Android/iOS — [purchase] here succeeds without any billing
- * client, so using it on a store platform would grant Pro for a tap. Those targets use
+ * Those targets nonetheless start **locked**, so the paywall and every `ProGate` upsell render and
+ * stay testable at desktop and browser window sizes — the two form factors no phone build covers.
+ * [purchase] then unlocks locally and for free, which is the honest outcome where there is no store:
+ * the user is not being denied something they could otherwise have paid for.
+ *
+ * Deliberately *not* the default on Android/iOS — a free unlock there would hand out Pro for a tap
+ * on exactly the two platforms where money is meant to change hands. Those use
  * [RevenueCatEntitlements], falling back to [UnconfiguredEntitlements] when no API key is
  * configured (§0.4). [initialUnlocked] still defaults to `false` so an accidental bare
  * `NoOpEntitlements()` starts locked rather than open.
+ *
+ * @param onUnlockChanged persistence hook — desktop and wasm pass `AppSettings::setProUnlocked` so
+ *   the unlock survives a restart. Without it every launch would re-show the paywall, which reads
+ *   as a bug rather than as a tier.
  */
 class NoOpEntitlements(
-    initialUnlocked: Boolean = false
+    initialUnlocked: Boolean = false,
+    private val onUnlockChanged: (Boolean) -> Unit = {},
 ) : Entitlements {
     private val _isProUnlocked = MutableStateFlow(initialUnlocked)
     override val isProUnlocked: StateFlow<Boolean> = _isProUnlocked.asStateFlow()
 
-    /** Empty: nothing to sell on a storeless platform, and the paywall says so rather than
-     *  rendering a dead purchase button. */
-    override suspend fun availablePlans(): List<ProPlan> = emptyList()
+    /**
+     * One synthetic plan, priced at "Free". Non-empty on purpose: an empty list drives the
+     * paywall's "purchases aren't available" state, which would leave a storeless user permanently
+     * locked out of features that cost nothing to grant.
+     */
+    override suspend fun availablePlans(): List<ProPlan> = listOf(
+        ProPlan(
+            id = LOCAL_PLAN_ID,
+            title = "Pro",
+            priceLabel = "Free",
+            detail = "Free on this platform — there's no store to charge through.",
+        ),
+    )
 
     override suspend fun purchase(planId: String): PurchaseOutcome {
-        _isProUnlocked.value = true
+        unlock()
         return PurchaseOutcome.Purchased
     }
 
     override suspend fun restorePurchases(): Boolean {
-        _isProUnlocked.value = true
+        unlock()
         return true
+    }
+
+    private fun unlock() {
+        _isProUnlocked.value = true
+        onUnlockChanged(true)
+    }
+
+    companion object {
+        /** Id of the single synthetic plan. [purchase] accepts anything; the paywall sends this. */
+        const val LOCAL_PLAN_ID = "local-free-pro"
     }
 }

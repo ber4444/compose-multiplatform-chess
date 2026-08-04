@@ -80,9 +80,13 @@ fun MainViewController(
     // Injected like pgnSharer. Null when no key is configured (see generateRevenueCatConfig in
     // app/build.gradle.kts); the locked UnconfiguredEntitlements then applies.
     val entitlements = remember {
+        // Platform.isDebugBinary is the K/N equivalent of Android's FLAG_DEBUGGABLE: it selects the
+        // RevenueCat Test Store key (when configured) and the SDK's debug logging together, so a
+        // debug simulator/device build never runs a purchase against a real App Store product.
+        val debug = kotlin.native.Platform.isDebugBinary
         com.example.myapplication.monetization.RevenueCatEntitlements.createOrNull(
-            apiKey = com.example.myapplication.monetization.revenueCatApiKey,
-            debugLogging = false,
+            apiKey = com.example.myapplication.monetization.revenueCatApiKey(debug = debug),
+            debugLogging = debug,
         )
     }
     DisposableEffect(Unit) {

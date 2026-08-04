@@ -30,7 +30,8 @@ tools/ios_3d_screenshot.sh                      # screenshot the real iOS 3D boa
 ```
 
 When an Android SDK path is needed, use the Android CLI first: `android info sdk`.
-On this machine it currently reports `/Users/presence/Library/Android/sdk`; prefer the CLI result over guessing or hard-coding `ANDROID_HOME`.
+It reports `/Users/presence/Library/Android/sdk` on the macOS host and `/media/presence/SECOND/Android/Sdk` on the Linux one; prefer the CLI result over guessing or hard-coding `ANDROID_HOME`.
+Gradle reads `sdk.dir` from the gitignored `local.properties`; if an Android task fails with "SDK location not found", that key is missing or stale (e.g. carrying the other host's path) — fix it there rather than exporting `ANDROID_HOME` per invocation.
 
 Verifying the iOS Filament/Metal 3D *look* can't be done from a unit test — the Metal-backed `UIKitView` needs the real app/simulator rendering stack, which the headless `simctl spawn` Kotlin/Native test runner cannot provide. Use `tools/ios_3d_screenshot.sh` instead: it launches the real app with `CHESS_START_3D=1` (read in `MainViewController`) so it opens directly on the 3D board, then captures via `simctl io screenshot`.
 
@@ -138,7 +139,7 @@ Stockfish binaries are vendored at `app/src/androidMain/jniLibs/{arm64-v8a,armea
 
 The app persists three things via `multiplatform-settings` (russhwolf) + `kotlinx-serialization`, all constructed over one `createSettings("chess")` backend per entry point:
 
-- **`AppSettings`** (`commonMain/.../persistence/AppSettings.kt`) — typed, observable view over `Settings`. Plain class (mirrors `GameViewModel` — not androidx ViewModel), constructed at the entry point and threaded into `AppRoot` via `LocalAppSettings` (`staticCompositionLocalOf<AppSettings?>`, nullable so `GameScreen` renders in tests without `AppRoot`). Holds `MutableStateFlow`s seeded from settings + write-through setters. Surface: `board3DEnabled` (default true; drives the 3D surface mount/teardown via a `GameScreen` `LaunchedEffect`), `engineDifficulty` (default `MEDIUM`; bridged to `viewModel.setEngineDifficulty` by an `AppRoot` collector), and `aiCoachEnabled` (default true; bridged to `viewModel.aiCoachEnabled` — the user-facing half of the Move Coach gate, on top of the per-platform build gate). The persisted theme override was removed — theme always follows system dark mode. **Note:** the class KDoc still says "3D toggle + engine difficulty" and predates `aiCoachEnabled`.
+- **`AppSettings`** (`commonMain/.../persistence/AppSettings.kt`) — typed, observable view over `Settings`. Plain class (mirrors `GameViewModel` — not androidx ViewModel), constructed at the entry point and threaded into `AppRoot` via `LocalAppSettings` (`staticCompositionLocalOf<AppSettings?>`, nullable so `GameScreen` renders in tests without `AppRoot`). Holds `MutableStateFlow`s seeded from settings + write-through setters. Surface: `board3DEnabled` (default true; drives the 3D surface mount/teardown via a `GameScreen` `LaunchedEffect`), `engineDifficulty` (default `MEDIUM`; bridged to `viewModel.setEngineDifficulty` by an `AppRoot` collector), and `aiCoachEnabled` (default true; bridged to `viewModel.aiCoachEnabled` — the user-facing half of the Move Coach gate, on top of the per-platform build gate). Plus two plain (non-flow) values: `playerSide`, and `proUnlocked` — the latter a **storeless-targets-only** seed/sink for `NoOpEntitlements` on desktop and wasm. Never read it on Android/iOS: entitlement state there comes from RevenueCat, and a device-writable settings key would be a trivial paywall bypass. The persisted theme override was removed — theme always follows system dark mode. **Note:** the class KDoc still says "3D toggle + engine difficulty" and predates `aiCoachEnabled`.
 - **`CurrentGameStore`** (`commonMain/.../persistence/CurrentGameStore.kt`) — autosave/resume-later. The in-progress game is serialized as a `GameSnapshot` (FEN + small `@Serializable` DTOs for `moveHistory`/`positionHistory`/win/draw fields) under a versioned key `current_game.v1`. Saved on every completed move/draw resolution (explicit `autosave()` calls in `deriveNewGameState`/draw handlers — **not** on transient `selectedSquare` updates); restored at construction via `CurrentGameStoreSupport.loadInitialState` (a finished game starts fresh + clears the stale snapshot). `resetGame()` clears it.
 - **`GameHistoryRepository`** (`commonMain/.../persistence/GameHistory.kt`) — the list of finished games (`SavedGame` DTOs: id/result/players/moveCount/pgn), persisted as one JSON blob under `game_history.v1`, exposed as a `StateFlow<List<SavedGame>>` (newest first, capped at 200). `GameActions` builds the PGN (`PgnSerializer`/`PgnTags`) + `SavedGame` from a `GameUiState` at game end.
 
@@ -160,21 +161,44 @@ Entitlement gating lives in `:app`'s `monetization/` package and is **injected l
 `Board3DSupport`**, never resolved statically. `:chess-core` must stay free of any billing
 dependency — it's the artifact the React Native repo compiles against.
 
-- **`Entitlements`** — interface: `isProUnlocked: StateFlow<Boolean>`, `purchasePro()`,
-  `restorePurchases()`. Published to the UI through `LocalEntitlements`
-  (`staticCompositionLocalOf<Entitlements?>`, nullable, mirroring `LocalAppSettings`).
-- **Three implementations, and the split is load-bearing:**
-  - `NoOpEntitlements(initialUnlocked = true)` — desktop and wasm entry points construct this
-    explicitly. No store on those targets, so everything is legitimately free.
-  - `UnconfiguredEntitlements` — the `AppRoot` **default**. Locked, `purchasePro()` returns `false`.
-    Keep it as the default: previews, Compose UI tests, and any caller that omits the argument must
-    not configure a billing SDK or hit the network. Do **not** "simplify" it to `NoOpEntitlements` —
-    that one's `purchasePro()` flips the flag and returns `true`, handing out Pro for a tap on
-    exactly the two targets where money is meant to change hands.
+- **`Entitlements`** — interface: `isProUnlocked: StateFlow<Boolean>`, `availablePlans()`,
+  `purchase(planId)`, `restorePurchases()`. Published to the UI through `LocalEntitlements`
+  (`staticCompositionLocalOf<Entitlements?>`, nullable, mirroring `LocalAppSettings`). `ProPlan` /
+  `PurchaseOutcome` are store-agnostic on purpose — a leaked RevenueCat type in `commonMain` breaks
+  desktop and wasm at dependency resolution.
+- **Three implementations, and the split is load-bearing. All three start locked** — every target
+  shows the paywall, so its layout is checkable at phone, desktop *and* browser window sizes:
+  - `NoOpEntitlements` — desktop and wasm. No store on those targets (`purchases-kmp-core` has no
+    JVM/wasm variant), so it offers **one synthetic plan priced "Free"** and `purchase()` unlocks
+    locally. Non-empty plans are deliberate: an empty list drives the paywall's "purchases aren't
+    available" copy, which would lock a storeless user out permanently. Entry points seed it from
+    `AppSettings.proUnlocked` and pass `AppSettings::setProUnlocked` as `onUnlockChanged`, so the
+    free unlock survives a restart instead of re-showing the paywall every launch.
+  - `UnconfiguredEntitlements` — the `AppRoot` **default**. Locked, `purchase()` returns
+    `Unavailable`. Keep it as the default: previews, Compose UI tests, and any caller that omits the
+    argument must not configure a billing SDK or hit the network. Do **not** "simplify" it to
+    `NoOpEntitlements` — that one's `purchase()` flips the flag and returns `Purchased`, handing out
+    Pro for a tap on exactly the two targets where money is meant to change hands.
   - `RevenueCatEntitlements` — Android and iOS, injected by `MainActivity` / `MainViewController`
     via `createOrNull(apiKey, debugLogging)`, which returns `null` on a blank key so an unkeyed
     clone lands on the locked default instead of failing. Call `refresh()` from the entry point;
     it is deliberately not fired from `init {}` (that ran a network call on the composition thread).
+- **Gating is live, and the `available` flag is the part that's easy to get wrong.** `ProGate`
+  (`monetization/ProGate.kt`) wraps Game Summary and Opening Explainer in `GameScreen`; `AppRoot`
+  branches on `isProUnlocked()` for the Rules and Chat screens (they own their own
+  `SubScreenScaffold`, so nesting would double the title bar); `MoveCoachManager.proUnlocked`
+  renders the deterministic line for free users rather than an upsell mid-game.
+  - `ProGate(available = false)` renders **nothing — not even the upsell**. Selling a feature that
+    stays dead after payment is the paywall bug that earns a refund and a one-star review, so every
+    call site passes a real availability signal: `summaryState !is GameSummaryUiState.Unavailable`
+    (no coach orchestrator attached), `cloudCoachConfigured` (no `coach.baseUrl` → both cloud
+    surfaces can only emit their offline sentence), and `rulesQaAnswerer != null` (desktop/wasm/JS
+    return `null` unconditionally). Availability is a property of the **build**, not the
+    entitlement — `LocalEntitlements` cannot know it, so it must stay an argument.
+  - `isProUnlocked()` treats a `null` `LocalEntitlements` as **unrestricted**, which is right for
+    previews but means **no Compose UI test can catch a paywall regression** — they never install a
+    provider, so `:app:connectedAndroidDeviceTest` always sees everything unlocked. Paywall
+    behaviour is hand-test-only; see `EntitlementsTest` for the parts that are unit-testable.
 - **The RevenueCat coordinate and source set are both non-obvious:**
   - The artifact is `com.revenuecat.purchases:purchases-kmp-core`. A bare `purchases-kmp` is **not
     published at any version** — that coordinate 404s on Maven Central.

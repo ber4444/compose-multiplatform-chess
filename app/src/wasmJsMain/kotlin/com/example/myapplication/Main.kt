@@ -90,7 +90,14 @@ fun main() {
             pgnSharer = pgnSharer,
             moveCoachManager = moveCoachManager,
             gameSummaryManager = gameSummaryManager,
-            entitlements = androidx.compose.runtime.remember { com.example.myapplication.monetization.NoOpEntitlements(initialUnlocked = true) },
+            // Locked by default, like desktop, so the paywall renders in a browser window too. No
+            // store on wasm, so the unlock is local and free, persisted through StorageSettings.
+            entitlements = androidx.compose.runtime.remember {
+                com.example.myapplication.monetization.NoOpEntitlements(
+                    initialUnlocked = appSettings.proUnlocked,
+                    onUnlockChanged = appSettings::setProUnlocked,
+                )
+            },
         )
     }
 }

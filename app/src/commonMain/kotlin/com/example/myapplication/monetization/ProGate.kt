@@ -35,6 +35,12 @@ fun isProUnlocked(): Boolean {
  *
  * [featureName] and [pitch] describe the specific surface, because a generic "upgrade" card next to
  * five different features tells the user nothing about what they'd actually get.
+ *
+ * [available] is **whether this build/device could run the feature at all** — a coach orchestrator
+ * is attached, a cloud base URL is configured, and so on. When it is `false` nothing renders, not
+ * even the upsell: selling a feature that would stay dead after payment is the one paywall bug that
+ * costs a refund and a review. Availability is a property of the build, not of the entitlement, so
+ * it has to be passed in by the call site — [LocalEntitlements] cannot know it.
  */
 @Composable
 fun ProGate(
@@ -42,8 +48,10 @@ fun ProGate(
     pitch: String,
     onOpenPaywall: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    available: Boolean = true,
     content: @Composable () -> Unit,
 ) {
+    if (!available) return
     if (isProUnlocked()) {
         content()
         return

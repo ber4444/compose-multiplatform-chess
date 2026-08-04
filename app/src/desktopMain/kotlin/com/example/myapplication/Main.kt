@@ -100,7 +100,15 @@ fun main() = application {
             pgnSharer = pgnSharer,
             moveCoachManager = moveCoachManager,
             gameSummaryManager = gameSummaryManager,
-            entitlements = androidx.compose.runtime.remember { com.example.myapplication.monetization.NoOpEntitlements(initialUnlocked = true) },
+            // Starts locked so the paywall and the ProGate upsells actually render here — desktop
+            // is where their layout gets checked at a window size no phone build covers. No store
+            // on the JVM, so the "purchase" unlocks locally and free; AppSettings persists it.
+            entitlements = androidx.compose.runtime.remember {
+                com.example.myapplication.monetization.NoOpEntitlements(
+                    initialUnlocked = appSettings.proUnlocked,
+                    onUnlockChanged = appSettings::setProUnlocked,
+                )
+            },
         )
     }
 }

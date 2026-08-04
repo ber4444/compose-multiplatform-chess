@@ -535,21 +535,31 @@ EVAL_CALIBRATION=1 ./gradlew :evals:run             # print per-route reading-gr
 Feature gating goes through an injected `Entitlements` seam in `:app`'s `monetization/` package —
 never resolved statically, and never in `:chess-core`, which is the artifact the React Native repo
 compiles against and must stay free of any billing dependency. The interface is
-`isProUnlocked: StateFlow<Boolean>` / `purchasePro()` / `restorePurchases()`, published to the UI
-through `LocalEntitlements`.
+`isProUnlocked: StateFlow<Boolean>` / `availablePlans()` / `purchase(planId)` / `restorePurchases()`,
+published to the UI through `LocalEntitlements`.
 
-Three implementations, and which one you get is deliberate:
+Three implementations, and which one you get is deliberate. **All three start locked**, so the
+paywall renders on every target and its layout is checkable at phone, desktop and browser sizes:
 
 | Implementation | Used by | Behaviour |
 |---|---|---|
 | `RevenueCatEntitlements` | Android, iOS | Backed by the RevenueCat KMP SDK. Injected by `MainActivity` / `MainViewController` |
-| `NoOpEntitlements(initialUnlocked = true)` | Desktop, Web | No store on those targets, so everything is legitimately free |
-| `UnconfiguredEntitlements` | The `AppRoot` **default** | Locked; `purchasePro()` returns `false` |
+| `NoOpEntitlements` | Desktop, Web | No store on those targets: offers one synthetic plan priced "Free", and `purchase()` unlocks locally. Seeded from / persisted to `AppSettings.proUnlocked` |
+| `UnconfiguredEntitlements` | The `AppRoot` **default** | Locked; `purchase()` returns `Unavailable` |
 
 Keeping `UnconfiguredEntitlements` as the default is the point: previews, Compose UI tests, and any
 caller that omits the argument must not configure a billing SDK or make a network call. And it must
-not be "simplified" to `NoOpEntitlements` — that one's `purchasePro()` flips the flag and returns
-`true`, which would hand out Pro for a tap on exactly the two platforms where money changes hands.
+not be "simplified" to `NoOpEntitlements` — that one's `purchase()` flips the flag and returns
+`Purchased`, which would hand out Pro for a tap on exactly the two platforms where money changes
+hands.
+
+**What's gated.** `ProGate` wraps Game Summary and Opening Explainer; `AppRoot` branches for the
+Rules and Chat screens; free users get the deterministic move coach rather than an upsell mid-game.
+A gate also takes an `available` flag, and when it is false **nothing renders — not even the
+upsell**: a build with no coach orchestrator, no `coach.baseUrl`, or no rules answerer must not sell
+a feature that would stay dead after payment. Note that `isProUnlocked()` treats a null
+`LocalEntitlements` as unrestricted (right for previews), so **no Compose UI test can catch a
+paywall regression** — that surface is hand-tested.
 
 Three things about the SDK wiring that cost time to discover:
 
@@ -572,14 +582,22 @@ nothing is committed:
 # env, or revenuecat.androidKey / revenuecat.iosKey in local.properties
 export REVENUECAT_ANDROID_KEY=goog_…
 export REVENUECAT_IOS_KEY=appl_…
+
+# optional Test Store keys — debug builds prefer these, release builds never use them
+export REVENUECAT_ANDROID_TEST_KEY=test_…
+export REVENUECAT_IOS_TEST_KEY=test_…
 ```
 
+`revenueCatApiKey(debug)` picks between them. A **debug** build (`FLAG_DEBUGGABLE` on Android,
+`Platform.isDebugBinary` on iOS) uses the test key when one is set and otherwise falls back to the
+production key, so an existing single-key setup keeps working. A **release** build never resolves to
+a test key at all — shipping one would give every user a free, unverifiable "purchase".
+
 With no key configured, `RevenueCatEntitlements.createOrNull(...)` returns `null` and the entry point
-falls back to the locked default — a fresh clone builds and runs, it just can't purchase. Planned
-tiering: free keeps unlimited play, both boards, the full engine difficulty range, the
-**deterministic** coach, PGN export and history; Pro adds the model-phrased coach, Game Summary,
-Position Chat, Opening Explainer and Rules Q&A. **Nothing reads `LocalEntitlements` yet** — the seam
-and the SDK ship before the gating and the paywall.
+falls back to the locked default — a fresh clone builds and runs, it just can't purchase, and the
+five Pro surfaces show their upsell. Tiering: free keeps unlimited play, both boards, the full engine
+difficulty range, the **deterministic** coach, PGN export and history; Pro adds the model-phrased
+coach, Game Summary, Position Chat, Opening Explainer and Rules Q&A.
 
 ## Benchmarking
 

@@ -42,6 +42,7 @@ import com.example.myapplication.movecoach.MoveCoachManager
 import com.example.myapplication.movecoach.GameSummaryManager
 import com.example.myapplication.opening.OpeningExplainerStateHolder
 import com.example.myapplication.opening.createOpeningExplainer
+import com.example.myapplication.opening.cloudCoachConfigured
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.example.myapplication.rules.RulesQaScreen
 import com.example.myapplication.rules.RulesQaStateHolder
@@ -83,18 +84,20 @@ fun AppRoot(
     gameSummaryManager: GameSummaryManager? = null,
     // The default is deliberately the locked, SDK-free implementation: previews, Compose UI tests,
     // and any caller that omits this argument must not configure a billing SDK or hit the network.
-    // Android/iOS pass RevenueCatEntitlements.createOrNull(...); desktop/wasm pass
-    // NoOpEntitlements(true). purchasePro() here fails rather than granting Pro for free.
+    // Android/iOS pass RevenueCatEntitlements.createOrNull(...); desktop/wasm pass a locked
+    // NoOpEntitlements seeded from AppSettings. purchase() here fails rather than granting Pro.
     entitlements: Entitlements = remember { UnconfiguredEntitlements() },
     switchTopPadding: Dp = 8.dp,
 ) {
     val openingExplainerStateHolder = remember { OpeningExplainerStateHolder(createOpeningExplainer()) }
     val chatViewModel = remember { ChatViewModel(createPositionChat()) }
     val gameState by viewModel.gameState.collectAsState()
+    // Hoisted out of the RulesQaStateHolder construction below because a null answerer is also the
+    // "don't sell this" signal for the Pro gate — desktop, wasm and JS return null unconditionally.
+    val rulesQaAnswerer = remember { defaultRulesQaAnswerer(createBundledRuleLookupTool()) }
     val rulesQaStateHolder = remember {
-        val answerer = defaultRulesQaAnswerer(createBundledRuleLookupTool())
         RulesQaStateHolder(
-            answerer?.let {
+            rulesQaAnswerer?.let {
                 DefaultRulesQaOrchestrator(it) {
                     AiContextSnapshot(
                         availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
@@ -175,7 +178,11 @@ fun AppRoot(
                 )
                 // Branching here rather than wrapping in ProGate: RulesQaScreen supplies its own
                 // SubScreenScaffold, so nesting would render two title bars when unlocked.
-                Screen.RULES -> if (isProUnlocked()) {
+                //
+                // `rulesQaAnswerer == null` short-circuits the gate for the same reason ProGate's
+                // `available` flag does — on a build with no answerer the feature stays dead after a
+                // purchase, so it must not be sold. RulesQaScreen already says so itself.
+                Screen.RULES -> if (rulesQaAnswerer == null || isProUnlocked()) {
                     RulesQaScreen(
                         stateHolder = rulesQaStateHolder,
                         onBack = { screen = Screen.GAME },
@@ -192,14 +199,25 @@ fun AppRoot(
                     }
                 }
                 Screen.PAYWALL -> PaywallScreen(onClose = { screen = Screen.GAME })
-                Screen.CHAT -> if (isProUnlocked()) {
-                    ChatScreen(
+                Screen.CHAT -> when {
+                    // Unavailable beats both branches: chat is cloud-only, so without a base URL
+                    // it can only ever emit its fixed offline sentence. Say that instead of either
+                    // selling it or pretending the input box works.
+                    !cloudCoachConfigured ->
+                        SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }) {
+                            Text(
+                                "Position Chat needs a coach server, and this build has none configured.",
+                                modifier = Modifier.padding(16.dp),
+                            )
+                        }
+
+                    isProUnlocked() -> ChatScreen(
                         viewModel = chatViewModel,
                         gameState = gameState,
                         onBack = { screen = Screen.GAME },
                     )
-                } else {
-                    SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }) {
+
+                    else -> SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }) {
                         ProUpsellCard(
                             featureName = "Position Chat",
                             pitch = "Ask about the position you're in and get grounded answers as you play.",

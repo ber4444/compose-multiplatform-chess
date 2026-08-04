@@ -37,9 +37,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * The Pro paywall. Reads whatever [Entitlements] `AppRoot` published, so on desktop/wasm
- * ([NoOpEntitlements]) and on an unkeyed Android/iOS build ([UnconfiguredEntitlements]) it renders
- * the "nothing to sell" state rather than a dead purchase button.
+ * The Pro paywall. Reads whatever [Entitlements] `AppRoot` published, so on an unkeyed Android/iOS
+ * build ([UnconfiguredEntitlements]) it renders the "nothing to sell" state rather than a dead
+ * purchase button. On desktop/wasm ([NoOpEntitlements]) it renders a full plan row priced "Free",
+ * so the whole purchase path stays exercisable at window sizes no phone build covers.
  *
  * Deliberately hand-rolled rather than RevenueCat's remote paywall: the remote one pulls in the
  * `purchases-kmp-ui` artifact, which — like the core — has no desktop or wasm variant, so it could

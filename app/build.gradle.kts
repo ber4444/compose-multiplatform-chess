@@ -301,10 +301,18 @@ fun revenueCatKey(envName: String, propertyName: String) = providers.provider {
 }
 val revenueCatAndroidKey = revenueCatKey("REVENUECAT_ANDROID_KEY", "revenuecat.androidKey")
 val revenueCatIosKey = revenueCatKey("REVENUECAT_IOS_KEY", "revenuecat.iosKey")
+// Test Store keys (the `test_…` ones from the RevenueCat dashboard). Debug builds prefer these so
+// a dev tap never reaches a real store product; release builds never see them at all — see
+// revenueCatApiKey(debug) in RevenueCatEntitlements.kt. Blank is fine and normal: debug then falls
+// back to the production key, exactly as before this split existed.
+val revenueCatAndroidTestKey = revenueCatKey("REVENUECAT_ANDROID_TEST_KEY", "revenuecat.androidTestKey")
+val revenueCatIosTestKey = revenueCatKey("REVENUECAT_IOS_TEST_KEY", "revenuecat.iosTestKey")
 val revenueCatConfigDir = layout.buildDirectory.dir("generated/revenueCat/storeMain/kotlin")
 val generateRevenueCatConfig by tasks.registering {
     inputs.property("androidKey", revenueCatAndroidKey)
     inputs.property("iosKey", revenueCatIosKey)
+    inputs.property("androidTestKey", revenueCatAndroidTestKey)
+    inputs.property("iosTestKey", revenueCatIosTestKey)
     outputs.dir(revenueCatConfigDir)
     doLast {
         fun String.escaped() = replace("\\", "\\\\")
@@ -320,6 +328,8 @@ val generateRevenueCatConfig by tasks.registering {
 
             internal const val REVENUECAT_ANDROID_KEY: String = "${revenueCatAndroidKey.get().escaped()}"
             internal const val REVENUECAT_IOS_KEY: String = "${revenueCatIosKey.get().escaped()}"
+            internal const val REVENUECAT_ANDROID_TEST_KEY: String = "${revenueCatAndroidTestKey.get().escaped()}"
+            internal const val REVENUECAT_IOS_TEST_KEY: String = "${revenueCatIosTestKey.get().escaped()}"
             """.trimIndent() + "\n",
         )
     }

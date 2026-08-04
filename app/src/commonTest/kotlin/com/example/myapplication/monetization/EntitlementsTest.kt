@@ -23,24 +23,39 @@ class EntitlementsTest {
     }
 
     @Test
-    fun `a bare NoOpEntitlements starts locked`() {
-        // The storeless targets pass initialUnlocked = true explicitly; an accidental bare
-        // constructor must not silently open everything.
-        assertEquals(false, NoOpEntitlements().isProUnlocked.value)
-    }
-
-    @Test
-    fun `storeless entitlements are unlocked and have nothing to sell`() = runTest {
-        val entitlements = NoOpEntitlements(initialUnlocked = true)
+    fun `storeless entitlements start locked so the paywall renders on desktop and wasm`() = runTest {
+        val entitlements = NoOpEntitlements()
+        assertEquals(false, entitlements.isProUnlocked.value)
+        // Non-empty plans keep the paywall out of its "purchases aren't available" dead end, which
+        // would otherwise lock a storeless user out permanently.
+        assertEquals(listOf(NoOpEntitlements.LOCAL_PLAN_ID), entitlements.availablePlans().map { it.id })
+        assertEquals(PurchaseOutcome.Purchased, entitlements.purchase(NoOpEntitlements.LOCAL_PLAN_ID))
         assertEquals(true, entitlements.isProUnlocked.value)
-        // Empty plans is what drives the paywall's "not available here" state instead of a dead
-        // purchase button.
-        assertTrue(entitlements.availablePlans().isEmpty())
     }
 
     @Test
-    fun `neither SDK-free implementation offers plans`() = runTest {
+    fun `storeless unlock is reported for persistence`() = runTest {
+        // Desktop/wasm pass AppSettings::setProUnlocked here; without it the paywall would reappear
+        // on every launch.
+        var persisted: Boolean? = null
+        val entitlements = NoOpEntitlements(onUnlockChanged = { persisted = it })
+        entitlements.purchase(NoOpEntitlements.LOCAL_PLAN_ID)
+        assertEquals(true, persisted)
+
+        var restorePersisted: Boolean? = null
+        NoOpEntitlements(onUnlockChanged = { restorePersisted = it }).restorePurchases()
+        assertEquals(true, restorePersisted)
+    }
+
+    @Test
+    fun `a seeded storeless unlock survives construction`() {
+        assertEquals(true, NoOpEntitlements(initialUnlocked = true).isProUnlocked.value)
+    }
+
+    @Test
+    fun `the store-platform default offers no plans`() = runTest {
+        // Unlike NoOpEntitlements: there is a store here, so an empty offering must render the
+        // paywall's "not available" copy rather than a free unlock.
         assertTrue(UnconfiguredEntitlements().availablePlans().isEmpty())
-        assertTrue(NoOpEntitlements(initialUnlocked = true).availablePlans().isEmpty())
     }
 }

@@ -80,6 +80,7 @@ import com.example.myapplication.movecoach.GameSummaryUiState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.CircularProgressIndicator
 import com.example.myapplication.opening.OpeningExplainerPanel
+import com.example.myapplication.opening.cloudCoachConfigured
 import com.example.myapplication.opening.OpeningExplainerUiState
 import game.app.generated.resources.Res
 import game.app.generated.resources.cancel_button
@@ -306,6 +307,10 @@ fun GameScreen(
                         featureName = "Game Summary",
                         pitch = "Get a coach's read on the whole game — the turning points and what to work on.",
                         onOpenPaywall = onOpenPaywall,
+                        // Same Unavailable check that hides the button: with no orchestrator
+                        // attached the feature would not work after a purchase either, so the
+                        // upsell has to disappear alongside it.
+                        available = summaryState !is GameSummaryUiState.Unavailable,
                     ) {
                     when (summaryState) {
                         GameSummaryUiState.Unavailable -> Unit
@@ -385,6 +390,8 @@ fun GameScreen(
                     pitch = "See what opening you played and the ideas behind it.",
                     onOpenPaywall = onOpenPaywall,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    // No base URL → the panel can only ever show its offline sentence.
+                    available = cloudCoachConfigured,
                 ) {
                 OpeningExplainerPanel(
                     state = openingExplainerState,

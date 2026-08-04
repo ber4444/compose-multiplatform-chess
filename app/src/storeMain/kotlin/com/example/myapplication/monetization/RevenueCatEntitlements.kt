@@ -164,5 +164,14 @@ class RevenueCatEntitlements private constructor(
     }
 }
 
-/** The platform's RevenueCat public SDK key, generated into `storeMain` by `generateRevenueCatConfig`. */
-internal expect val revenueCatApiKey: String
+/**
+ * The platform's RevenueCat public SDK key, generated into `storeMain` by `generateRevenueCatConfig`.
+ *
+ * [debug] selects the Test Store key (`test_…`) when one is configured, so a debug build's purchase
+ * flow runs against RevenueCat's test store instead of a real Play/App Store product. A release
+ * build **never** resolves to the test key, whether or not one is configured — shipping a `test_`
+ * key would silently give every user a free, unverifiable "purchase". A debug build with no test
+ * key falls back to the production key rather than going blank, so an existing single-key setup
+ * keeps working unchanged.
+ */
+internal expect fun revenueCatApiKey(debug: Boolean): String

@@ -13,8 +13,9 @@ import kotlinx.coroutines.flow.asStateFlow
  * out Pro for a tap the moment a paywall button is wired to it, on exactly the two platforms where
  * money is supposed to change hands. Failing here makes the missing wiring visible instead.
  *
- * Desktop and Web/Wasm use [NoOpEntitlements] with `initialUnlocked = true` — they have no store,
- * so everything is legitimately free there.
+ * Desktop and Web/Wasm use [NoOpEntitlements] instead: also locked at first launch, so the paywall
+ * renders there too, but its [NoOpEntitlements.purchase] grants Pro locally and free — correct on a
+ * platform with no store, and a bypass on one that has it.
  *
  * Reached on Android/iOS when no RevenueCat key is configured, which is the state of any fresh
  * clone. **Consequence worth knowing:** the five Pro AI surfaces are gated off in that build. That

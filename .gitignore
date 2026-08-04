@@ -1,3 +1,5 @@
+.claude/settings.local.json
+.claude/skills/*
 .DS_Store
 */.DS_Store
 build/*
