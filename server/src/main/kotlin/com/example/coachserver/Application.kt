@@ -209,7 +209,21 @@ fun defaultDependencies(environment: Map<String, String>): ServerDependencies {
         vocabPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_VOCAB")),
     )
     val template = TemplateComposer()
-    val composer = selectComposer(environment, template)
+    // Mirrors the chat composer's `chat-provider-failed` line. Without it a configured LLM composer
+    // that fails every call is indistinguishable from one that was never configured: both serve
+    // `composerId = template-v1` and neither leaves a trace. Accepted calls are not logged — only
+    // the downgrades, which are the ones nobody would otherwise notice.
+    val composer = selectComposer(environment, template) { attempt ->
+        when (attempt) {
+            is ComposeAttempt.BudgetRejected ->
+                println("opening-provider-skipped budget: prompt ${attempt.promptChars} chars, no call made")
+            is ComposeAttempt.ProviderError -> println("opening-provider-failed ${attempt.error}")
+            ComposeAttempt.ProviderEmpty -> println("opening-provider-empty")
+            is ComposeAttempt.ValidatorRejected ->
+                println("opening-validation-rejected ${attempt.reason} | raw=${attempt.raw.take(300)}")
+            ComposeAttempt.Accepted -> Unit
+        }
+    }
     return ServerDependencies(embedder, PostgresPassageRepository(dataSource), composer)
 }
 
@@ -293,6 +307,7 @@ fun parseChatMaxOutputTokens(environment: Map<String, String>): Int =
 fun selectComposer(
     environment: Map<String, String>,
     fallback: TemplateComposer,
+    probe: (ComposeAttempt) -> Unit = {},
 ): TextComposer {
     val apiKey = environment["COACH_LLM_API_KEY"]?.takeIf(String::isNotBlank) ?: return fallback
     val inputPrice = environment["COACH_LLM_INPUT_USD_PER_MILLION"]?.toDoubleOrNull()
@@ -324,6 +339,9 @@ fun selectComposer(
             inputUsdPerMillionTokens = inputPrice,
             outputUsdPerMillionTokens = outputPrice,
         ),
+        probe = probe,
+        maxOutputTokens = environment["COACH_LLM_MAX_OUTPUT_TOKENS"]?.toIntOrNull()?.takeIf { it > 0 }
+            ?: LlmComposer.DEFAULT_MAX_OUTPUT_TOKENS,
     )
 }
 
@@ -375,9 +393,23 @@ class FixedWindowRateLimiter(
 }
 
 private const val MAX_REQUEST_BYTES = 16 * 1024L
-private const val PROVIDER_TIMEOUT_MS = 5_000L
-// Chat streams token-by-token, so it gets a longer per-request ceiling than the one-shot explainer.
-private const val CHAT_PROVIDER_TIMEOUT_MS = 30_000L
+
+// The one-shot explainer's provider ceiling. 5 s was too tight to be measuring the model: a 70B
+// class model on a commodity inference host answers in roughly 2-6 s, so a meaningful share of
+// calls timed out inside java.net.http and surfaced — via runCatching{}.getOrNull() — as an
+// ordinary "fell back to template" row. A benchmark run against that reports the timeout as a
+// quality result. Overridable so a slower model can be evaluated without a rebuild; the app's own
+// request ceiling is well above it.
+private val PROVIDER_TIMEOUT_MS =
+    System.getenv("COACH_LLM_TIMEOUT_MS")?.toLongOrNull()?.takeIf { it > 0 } ?: 20_000L
+// Chat streams token-by-token, so it gets a longer per-request ceiling than the one-shot explainer
+// — but not an unbounded one. This is deliberately aligned with AiRoutePolicies.positionChat's
+// completeMs (20 s): past that the client has already given up on the turn being worth waiting for,
+// and the composer's timeout downgrade produces *deterministic boilerplate*, which is a worse
+// outcome to wait 30 s for than an error. Measured at 30 s: a silent flip to template-chat-v1 at
+// 30.36 s against a 5 s median for the LLM path. Any change here should move with that policy
+// constant, and the failure is logged by LlmChatComposer (`chat-provider-failed`).
+private const val CHAT_PROVIDER_TIMEOUT_MS = 20_000L
 // Well under any proxy idle-connection timeout we'd plausibly sit behind (Fly's edge included).
 private const val SSE_HEARTBEAT_INTERVAL_MS = 15_000L
 
