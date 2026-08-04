@@ -47,7 +47,12 @@ command passes — it covers Android, desktop, and wasm. A second job (`apple`) 
 targets and runs `:app:iosSimulatorArm64Test :ondeviceai:iosSimulatorArm64Test
 :coachapi:iosSimulatorArm64Test :app:desktopTest :chess-core:desktopTest` plus the `iosApp` xcodebuild
 tests; a nightly job runs the deep perft tier. Touching AI code also triggers
-`.github/workflows/ai-coach-evals.yml` (`:evals:run`), which fails on any grounding violation.
+`.github/workflows/ai-coach-evals.yml`, which runs `:server:test` (Testcontainers Postgres) and
+`:evals:run`, and fails on any grounding violation. **`:server:test` runs only there** — the main
+workflow never references `:server:`, so a server change that skips this workflow's path filter is
+untested. The job also fails if `OpeningRetrievalGroundingTest` *skipped* rather than ran: it is
+`@Testcontainers(disabledWithoutDocker = true)`, so a runner without Docker would otherwise go
+green with the retrieval gate never executing.
 
 ## Module and source-set structure
 

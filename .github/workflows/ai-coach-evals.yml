@@ -36,7 +36,7 @@ jobs:
   evals:
     name: Grounding regression gate
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
       - name: Checkout code
@@ -50,6 +50,44 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+
+      # The server suite ran nowhere in CI until now: android-tests.yml never referenced :server:,
+      # and this workflow only ran :evals:run. Both the retrieval grounding gate and every
+      # composer/validator test were unprotected. GitHub-hosted ubuntu runners ship Docker, so the
+      # Testcontainers-backed Postgres tests execute here.
+      - name: Run server tests (Testcontainers Postgres)
+        run: ./gradlew :server:test
+
+      # A silently-skipped suite is indistinguishable from a passing one: the Testcontainers tests
+      # are annotated `disabledWithoutDocker = true`, so a runner image without Docker would make
+      # this job green while the retrieval gate never executed. Fail loudly instead. Mirrors the
+      # perft localizer status step in android-tests.yml.
+      - name: Verify the retrieval grounding gate actually ran
+        if: always()
+        run: |
+          xml="$(find server/build/test-results -name '*OpeningRetrievalGroundingTest*.xml' 2>/dev/null | head -1 || true)"
+          if [ -z "$xml" ]; then
+            echo "### ❌ Retrieval grounding gate: NOT RUN (no result file)" >> "$GITHUB_STEP_SUMMARY"
+            echo "OpeningRetrievalGroundingTest produced no result file — the suite did not execute." >&2
+            exit 1
+          elif grep -q '<skipped' "$xml"; then
+            echo "### ❌ Retrieval grounding gate: SKIPPED (Docker unavailable)" >> "$GITHUB_STEP_SUMMARY"
+            echo "OpeningRetrievalGroundingTest was skipped — Docker is required for this gate." >&2
+            exit 1
+          elif grep -q '<failure' "$xml"; then
+            echo "### Retrieval grounding gate: ran (with failures — see report)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            tests="$(grep -o 'tests="[0-9]*"' "$xml" | head -1)"
+            echo "### ✅ Retrieval grounding gate: ran ($tests)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload server test report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-test-results
+          path: server/build/test-results/test/
+          if-no-files-found: warn
 
       - name: Run fake, fallback, and local-server evals
         run: ./gradlew :evals:run
