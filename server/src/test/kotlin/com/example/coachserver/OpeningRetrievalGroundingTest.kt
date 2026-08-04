@@ -59,20 +59,36 @@ class OpeningRetrievalGroundingTest {
 
     @Test
     fun `the longest matching line wins over its shorter prefix`() {
-        // 1.e4 alone is C20; the Sicilian is only correct because the three-ply match beats it.
+        // 1.e4 alone is B00 (King's Pawn Game); the Sicilian is only correct because the two-ply
+        // match is longer and `ORDER BY length(moves) DESC` prefers it.
         val kingsPawn = repository.retrieve(ZERO_VECTOR, 4, listOf("e4"), null)
         val sicilian = repository.retrieve(ZERO_VECTOR, 4, listOf("e4", "c5"), null)
 
-        assertEquals("C20", kingsPawn.resolvedEco)
+        assertEquals("B00", kingsPawn.resolvedEco)
         assertEquals("B20", sicilian.resolvedEco)
     }
 
     @Test
-    fun `an out-of-book position falls back to vector search instead of returning nothing`() {
+    fun `a line deeper than the book still resolves to the family it belongs to`() {
+        // Prefix matching means leaving published theory does not lose the opening: 1.a3 h6 2.a4 h5
+        // is nobody's main line, but it is still Anderssen's Opening and should be named as such.
+        // (An earlier version of this test expected `null`, assuming such a position is "out of
+        // book". It isn't — the corpus covers all twenty legal first moves, so a prefix match
+        // essentially always succeeds. That is the design working, not a gap.)
         val result = repository.retrieve(ZERO_VECTOR, 4, listOf("a3", "h6", "a4", "h5"), null)
 
+        assertEquals("A00", result.resolvedEco)
+        assertTrue(result.passages.isNotEmpty())
+    }
+
+    @Test
+    fun `a position with no move history falls back to vector search`() {
+        // The genuine book-miss path: nothing to match on, so tier 1 is skipped entirely and the
+        // vector tiers must still return passages rather than an empty result.
+        val result = repository.retrieve(ZERO_VECTOR, 4, emptyList(), null)
+
         assertEquals(null, result.resolvedEco)
-        assertTrue(result.passages.isNotEmpty(), "Out-of-book positions must still retrieve something")
+        assertTrue(result.passages.isNotEmpty(), "Vector fallback must still retrieve passages")
     }
 
     @Test
