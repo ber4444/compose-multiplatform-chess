@@ -11,8 +11,9 @@ import kotlinx.coroutines.flow.StateFlow
  * platform entry point and threaded into `AppRoot`. Holds [MutableStateFlow]s seeded from settings
  * and writes through on every setter.
  *
- * Surface: 3D-board-enabled toggle + engine difficulty. The persisted theme override was removed
- * (theme now always follows the system dark-mode setting).
+ * Surface: the 3D-board toggle, engine difficulty, the AI Move Coach toggle and the player side —
+ * all observable — plus [proUnlocked], a plain value read only on the storeless targets. Theme is
+ * not persisted: it always follows the system dark-mode setting.
  */
 class AppSettings(private val settings: Settings) {
 
