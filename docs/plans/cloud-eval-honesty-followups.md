@@ -221,23 +221,38 @@ partly answer R-2 already.
    - **Do not extend the SAN heuristics further.** Each new pattern buys a few percent and moves
          closer to inventing meaning the moves do not prove.
 
-2. **The in-container seed fails intermittently and the cause is unknown.** `SeedMain` twice died
-   with `java.io.EOFException` in `doAuthentication` against the same
-   `…-db.flycast:5432?sslmode=disable` URL the app uses successfully. Ruled out: missing secret
-   (present in the SSH session), cold database (3/3 checks passing), IPv6 preference (tested), and
-   **stale credentials** — the app machine was restarted and came back healthy, which disproves the
-   "surviving on pre-existing connections" theory. Unexplained; it succeeds on some runs.
-   - [ ] Capture the full stack on the next failure and check the Postgres side (`fly logs -a
-         compose-chess-opening-coach-db`) at the same timestamp.
+2. **The seed opens one Postgres connection per row, and that is the likely root of both problems.**
+   `PostgresPassageRepository.upsert` takes a fresh connection for each of the 3,803 rows — a cost
+   `OpeningRetrievalGroundingTest` already worked around with a batched insert, noting it is "fine
+   for the nightly seed job". It is not fine: the full run exceeds **28 minutes** in-container, and
+   two runs died with `java.io.EOFException` in `doAuthentication` against the same
+   `…-db.flycast:5432?sslmode=disable` URL the app uses successfully. Sustained connection churn
+   through the Fly proxy is the best remaining explanation.
+
+   Ruled out for the EOF: missing secret (present in the SSH session), cold database (3/3 checks
+   passing), IPv6 preference (tested), and **stale credentials** — the app machine was restarted and
+   came back healthy, which disproves the "surviving on pre-existing connections" theory.
+
+   - [ ] **Batch the seed upserts** (one prepared statement, `addBatch`/`executeBatch` on a single
+         connection), reusing what the test already does. Fixes the runtime and probably the EOF.
+   - [ ] If the EOF survives batching, correlate against `fly logs -a compose-chess-opening-coach-db`
+         at the failure timestamp.
 
 3. **A killed seed leaves a partly-updated corpus, silently.** `SeedMain` upserts row by row and
-   prints only a final `Seeded N` line, so a run interrupted at 110 s had already rewritten an
-   unknown fraction — and nothing distinguishes that state from "never ran". This is what made the
-   first reseed look like a total failure when it had in fact written the new text.
+   prints only a final `Seeded N` line, so an interrupted run has already rewritten an unknown
+   fraction — and nothing distinguishes that state from "never ran". This cost real time: a run
+   killed by a 110 s command timeout was read as a total failure when it had in fact written the new
+   text, and a later run reported exit 143 that was **also** just a timeout (28 min), not a crash.
    - [ ] Log progress every N rows, and print the generator version, so a partial run is visible
          from the outside.
-   - [ ] Consider a cheap completeness probe (e.g. count rows whose text still matches the old
-         shape) rather than trusting the exit code.
+   - [ ] Add a completeness probe. Note the obvious one — query the API and look for old-shape text
+         — **cannot work**: a base line legitimately leads with the family claim, and the response
+         does not say how deep a row's move prefix is, so "not reseeded" and "base line" are
+         indistinguishable from outside. It has to count rows in the database.
+
+   Coverage of the 2026-08-05 reseed was ultimately established by *ordering*, not by sampling luck:
+   `loadCorpus` walks the directory sorted (`a`, `b`, `c`, `concepts.md`, `d`, `e`), and `e.tsv` rows
+   carry the new text — so everything before them was written.
 
 ### Opened while closing these
 
