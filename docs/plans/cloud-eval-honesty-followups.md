@@ -193,6 +193,52 @@ partly answer R-2 already.
    template truncates at `MAX_OUTPUT_CHARS` without a word boundary. A user cannot tell any of these
    apart from a real answer.
 
+### From the first deploy + reseed — 2026-08-05
+
+1. **`LineNarrator`'s weak branches are the majority, measured.** Branch distribution over all 3,803
+   corpus rows:
+
+   | Branch | Share |
+   |---|---|
+   | piece move (*"brings the knight to f3"*) | 31.1% |
+   | generic (*"defined by X at move N"*) | 16.9% |
+   | central pawn (*"claims central space with d4"*) | 11.6% |
+   | fianchetto / capture / flank push / early queen / castles / check / king move | 24.6% |
+   | base line — keeps the family claim | 14.1% |
+   | too short for a line sentence | 1.9% |
+
+   **Three rows in five get a sentence that describes a move rather than explaining an idea.** The
+   cause is structural: `LineNarrator` sees a list of SAN strings and never a board, so `Nf3` can
+   only become "a knight went to f3".
+
+   - [ ] **Fix by replaying the line, not by adding SAN patterns.** `:server` is JVM-only and
+         `:chess-core` has a JVM target, so seeding can replay each line and derive *facts*:
+         material balance (real gambit detection), developed minor pieces per side, castling status,
+         central pawn count and tension. All computed — still inside "code detects, the model
+         narrates". Cost: `:chess-core` generates SAN but does not parse it, so this needs a
+         SAN→move matcher over the existing move generator. **Own PR**, so the next R-1 re-review can
+         attribute the change.
+   - **Do not extend the SAN heuristics further.** Each new pattern buys a few percent and moves
+         closer to inventing meaning the moves do not prove.
+
+2. **The in-container seed fails intermittently and the cause is unknown.** `SeedMain` twice died
+   with `java.io.EOFException` in `doAuthentication` against the same
+   `…-db.flycast:5432?sslmode=disable` URL the app uses successfully. Ruled out: missing secret
+   (present in the SSH session), cold database (3/3 checks passing), IPv6 preference (tested), and
+   **stale credentials** — the app machine was restarted and came back healthy, which disproves the
+   "surviving on pre-existing connections" theory. Unexplained; it succeeds on some runs.
+   - [ ] Capture the full stack on the next failure and check the Postgres side (`fly logs -a
+         compose-chess-opening-coach-db`) at the same timestamp.
+
+3. **A killed seed leaves a partly-updated corpus, silently.** `SeedMain` upserts row by row and
+   prints only a final `Seeded N` line, so a run interrupted at 110 s had already rewritten an
+   unknown fraction — and nothing distinguishes that state from "never ran". This is what made the
+   first reseed look like a total failure when it had in fact written the new text.
+   - [ ] Log progress every N rows, and print the generator version, so a partial run is visible
+         from the outside.
+   - [ ] Consider a cheap completeness probe (e.g. count rows whose text still matches the old
+         shape) rather than trusting the exit code.
+
 ### Opened while closing these
 
 None blocking; each says what to measure before changing anything.
