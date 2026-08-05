@@ -424,10 +424,24 @@ The `allowLocal = false` flag on `openingExplainer` and `positionChat` policies 
   - `ChatViewModel` keeps a single `streamJob` (Stop cancels it, which must close the TCP connection) and sends the last 6 turns; the server independently caps history at 12 turns / 20 plies / 500 chars.
   - Validation is server-side on the *accumulated* text at stream end; a veto emits `fallback` with `TemplateChatComposer`'s grounded text. `DefaultPositionChat`'s own fallback event is a fixed offline sentence and is **not** retrieval-grounded — don't conflate the two layers.
 - `docs/plans/on-device-coach-rag-unification.md` — **partially implemented**; check before assuming either way. Landed: **RAG-1** (per-ply `MoveAssessment` + motifs, persisted on `MoveRecord`, coach subject switched to the player's moves), **RAG-2** (summary ranks turning points by `cpLoss`/`MoveClass` and cites `[move-N]`), **RAG-3** (the per-move line is grounded in the assessment and the headline is computed in code by `DeterministicCoach`), and the Hint-button split-out from **RAG-4**. Not implemented: the rest of RAG-4 (assessment-record retrieval in chat, counterfactuals, deterministic-feature query construction), **RAG-5** (habit aggregation across games — `GameHistoryBackfiller` backfills assessments but nothing aggregates them), and **RAG-6** (offline chat). Don't document the unimplemented phases as existing behaviour.
-- `docs/plans/cloud-eval-honesty-followups.md` — **open** follow-ups from the cloud-retrieval fix:
-  the grounding scorer measures verbatim copying rather than grounding, the cloud eval row can't
-  fail the build, chat may not actually stream token-by-token, and the cost budget prices the token
-  ceiling. None of it is implemented; each item says what to measure before changing anything.
+- `docs/plans/cloud-eval-honesty-followups.md` — follow-ups from the cloud-retrieval fix. **P0/P1/P2
+  all closed 2026-08-05**; only the two human-only items (R-1 prose quality, R-2 chat monitoring) and
+  a short list of newly-opened items remain. Four conclusions worth knowing before touching this
+  area, all measured against gemini-3.6-flash on 100 golden cases:
+  - **The provider composer is accepted on 99 of 100 cases.** The old "42% ungrounded" was
+    `EvalScorer.scoreOpening` requiring the *literal* string `"development"`/`"center"`, so it scored
+    verbatim copying — `TemplateComposer` quotes its passage and scored 0% by construction, while
+    every correct paraphrase failed. Grounding is now concept coverage (`ConceptVocabulary`, an
+    auditable synonym table) **plus** passage anchoring.
+  - **Chat does not stream.** Live: TTFT 10.9 s, then the whole answer in one SSE `token` event. Our
+    writer and `LlmChatComposer` are both ruled out in tests; the provider batches. Don't describe
+    the shipped experience as token-by-token.
+  - **`ProviderCostBudget` prices measured expected output (1400 tokens), not the 2048 ceiling**, and
+    the default cap is 1.5¢. A thinking model bills ~13× its visible answer, and Gemini reports
+    reasoning tokens only in `total_tokens`.
+  - **`book-retrieval` is an AUTOMATED eval row** — 100 golden cases must resolve to their ECO from
+    the move prefix offline. `CorpusBookIndex` duplicates the SQL book tier and is pinned to it by a
+    cross-check in `OpeningRetrievalGroundingTest`; don't let them drift.
 - `docs/plans/hybrid-inference-vendor-adoption-plan.md` outlines the vendor adoption plan for hybrid AI inference.
 - `docs/plans/review-fixes-hybrid-inference.md` documents P0 blocking review fixes for the hybrid inference implementation (PR #106) and should be completed before further feature development.
 

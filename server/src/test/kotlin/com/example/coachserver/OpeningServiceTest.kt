@@ -109,7 +109,7 @@ class OpeningServiceTest {
         )
         val request = OpeningExplainRequest(fen = "fen", movesSan = listOf("e4", "e5"), eco = "C20")
         val composer = LlmComposer(
-            client = LlmClient { _, _, _ -> "I think Stockfish probably depth 30 likes it." },
+            client = LlmClient { _, _, _ -> LlmCompletion("I think Stockfish probably depth 30 likes it.") },
             fallback = TemplateComposer(),
         )
 
@@ -126,7 +126,10 @@ class OpeningServiceTest {
         )
         val composer = LlmComposer(
             client = LlmClient { _, _, _ ->
-                "The king pawns contest the center [c20]. This opening forces checkmate through development [c20]."
+                LlmCompletion(
+                    "The king pawns contest the center [c20]. " +
+                        "This opening forces checkmate through development [c20].",
+                )
             },
             fallback = TemplateComposer(),
         )
@@ -143,7 +146,7 @@ class OpeningServiceTest {
     fun `provider budget rejects a request above the configured cost ceiling`() {
         var calls = 0
         val composer = LlmComposer(
-            client = LlmClient { _, _, _ -> calls++; "unused" },
+            client = LlmClient { _, _, _ -> calls++; LlmCompletion("unused") },
             fallback = TemplateComposer(),
             budget = ProviderCostBudget(
                 maxUsdCents = 0.2,

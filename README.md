@@ -507,16 +507,27 @@ fly secrets set --app compose-chess-opening-coach \
   COACH_LLM_MODEL=gpt-4.1-mini \
   COACH_LLM_INPUT_USD_PER_MILLION=0.40 \
   COACH_LLM_OUTPUT_USD_PER_MILLION=1.60 \
-  COACH_LLM_MAX_USD_CENTS=2.5
+  COACH_LLM_MAX_USD_CENTS=2.5   # see the sizing note below; 1.5 is the built-in default
 ```
 
-> **Size `COACH_LLM_MAX_USD_CENTS` against the token *ceiling*, not expected usage.**
-> `ProviderCostBudget.admits()` prices each request before calling out and charges the full
-> `maxOutputTokens` (2048), not the ~75 tokens an answer uses, so a cap below that estimate rejects
-> every call before the network and the composer serves template text
-> (`opening-provider-skipped budget` in the logs). Compute yours as
-> `2048 × output_price_per_M / 1e6 × 100` cents, plus input, and leave headroom; actual spend lands
-> roughly an order of magnitude below the cap.
+> **`COACH_LLM_MAX_USD_CENTS` is a per-request ceiling on *expected* cost.**
+> `ProviderCostBudget.admits()` prices each request before calling out, charging
+> `expectedOutputTokens` plus the input prompt. That constant is **1400**, measured — not the ~100
+> tokens of visible answer: `./gradlew :evals:run` against gemini-3.6-flash (100 opening calls,
+> 2026-08-05) billed p50 **1344**, p90 **2011**, max 2044 output tokens per call, because a thinking
+> model's deliberation is billed at the output rate and is roughly 13× the reply. Compute yours as
+> `(prompt_chars / 3 × input_price_per_M + 1400 × output_price_per_M) / 1e6 × 100` cents — about
+> 0.25¢ at the gpt-4.1-mini prices above, about 1.15¢ at gemini-3.6-flash's 1.50/7.50. The built-in
+> default is **1.5¢**, sized to admit both.
+>
+> It previously charged the full `maxOutputTokens` (2048) instead, ~11× an ordinary call, so the cap
+> had to be set an order of magnitude above intended spend before *any* call was permitted — at this
+> very default, every request was rejected before the network and the composer silently served
+> template text (`opening-provider-skipped budget` in the logs). The ceiling is still enforced: the
+> provider is sent `max_tokens`, and a configuration whose worst case exceeds
+> `ProviderCostBudget.WORST_CASE_MULTIPLE` × the cap is refused outright.
+> Recalibrate `expectedOutputTokens` from the `billed output tokens` figure that
+> `./gradlew :evals:run` writes into the `local-llm-compose` scorecard note.
 
 > **`COACH_LLM_API_URL` and `COACH_LLM_MODEL` must come from the same provider.** The URL defaults to
 > `api.openai.com`, so set it explicitly for any other host, and list what that host serves with

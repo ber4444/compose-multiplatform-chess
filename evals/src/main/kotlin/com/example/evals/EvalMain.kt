@@ -7,6 +7,7 @@ import com.example.coachapi.Passage
 import com.example.coachapi.PositionChatRequest
 import com.example.coachserver.ChatServerDependencies
 import com.example.coachserver.ComposeAttempt
+import com.example.coachserver.CorpusBookIndex
 import com.example.coachserver.Embedder
 import com.example.coachserver.LlmComposer
 import com.example.coachserver.OpeningQueryBuilder
@@ -46,10 +47,16 @@ import com.example.ondeviceai.AiUserSetting
 import com.example.ondeviceai.ThermalState
 import com.example.ondeviceai.VendorRoute
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentLinkedQueue
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
@@ -101,6 +108,7 @@ private fun runTestApplicationRoutes(
     // testApplication returns Unit, so thread the collected stats out via a captured holder.
     val collected = mutableListOf<RouteStats>()
     collected += evaluateRouteSelection()
+    collected += evaluateBookRetrieval(openingCases)
     testApplication {
         val dependencies = caseSpecificOpeningDependencies(openingCases)
         val chatDependencies = caseSpecificChatDependencies(openingCases)
@@ -274,6 +282,49 @@ private fun describeConcept(concept: String): String? = when (concept.lowercase(
     else -> concept
 }
 
+/**
+ * Opening identification, scored offline against the checked-in corpus — the **cloud** grounding
+ * gate that CI can actually run.
+ *
+ * The gap this closes: the on-device surfaces had a hard grounding gate and the two cloud surfaces
+ * had none, because the only row that exercises cloud composition needs a provider key. That is the
+ * precise shape of the failure that shipped — embedding-only retrieval answered 8 of 8 real
+ * openings with the wrong opening, and every wrong answer was fluent, cited and validator-approved,
+ * so *nothing downstream could notice*. Composition quality was gated; the retrieval it composes
+ * from was not.
+ *
+ * Every golden case carries the ECO its move sequence belongs to, so the check is exact rather than
+ * statistical: resolve the ECO from the moves through the same longest-prefix rule production uses
+ * (see [CorpusBookIndex], pinned to the SQL by `OpeningRetrievalGroundingTest`), and a mismatch is a
+ * grounding violation. This runs with no database, no Docker, no network and no key, which is what
+ * makes it AUTOMATED — and being AUTOMATED is what makes it fail the build.
+ */
+internal fun evaluateBookRetrieval(openingCases: List<GoldenCase>, corpusDirectory: String = CORPUS_DIRECTORY): RouteStats {
+    val stats = RouteStats(route = "book-retrieval", collection = CollectionMode.AUTOMATED)
+    // Deliberately not guarded by a directory-exists check that degrades to "unavailable": a gate
+    // that disappears when its input moves is the thing this row exists to prevent.
+    val index = CorpusBookIndex.fromCorpus(Path.of(corpusDirectory))
+    val failures = openingCases.mapNotNull { case ->
+        val resolved = index.resolve(case.movesSan)?.eco
+        stats.cases++
+        if (resolved == case.eco) {
+            null
+        } else {
+            stats.groundingViolations++
+            "${case.id}: resolved ${resolved ?: "nothing"}, expected ${case.eco}"
+        }
+    }
+    stats.note = if (failures.isEmpty()) {
+        "ECO resolved from moves for all ${stats.cases} cases"
+    } else {
+        "first mismatch: ${failures.first()}"
+    }
+    return stats
+}
+
+/** Relative to `:evals`'s working directory, which is the module directory. */
+internal const val CORPUS_DIRECTORY = "../server/corpus"
+
 private fun evaluateRouteSelection(): RouteStats {
     val result = RouterEvalSuite.evaluate()
     val stats = RouteStats(route = "route-selection", collection = CollectionMode.AUTOMATED)
@@ -297,16 +348,28 @@ private suspend fun evaluateFake(cases: List<GoldenCase>): RouteStats {
     return stats
 }
 
+/**
+ * @param knowsRetrievedPassage whether this route's retrieval is the harness's own fixture, in
+ * which case the passage each case was grounded in is known and the answer can be anchored to it.
+ * The deployed route retrieves from the live corpus, so it is scored on concept coverage alone —
+ * see [EvalScorer.scoreOpening].
+ */
 private suspend fun evaluateOpeningRoute(
     name: String,
     cases: List<GoldenCase>,
+    collection: CollectionMode = CollectionMode.AUTOMATED,
+    knowsRetrievedPassage: Boolean = true,
     request: suspend (OpeningExplainRequest) -> OpeningExplainResponse,
 ): RouteStats {
-    val stats = RouteStats(route = name, collection = CollectionMode.AUTOMATED)
+    val stats = RouteStats(route = name, collection = collection)
     cases.forEach { case ->
         val response = request(case.toOpeningRequest())
         stats.record(
-            EvalScorer.scoreOpening(case, response.text),
+            EvalScorer.scoreOpening(
+                case,
+                response.text,
+                passageText = openingConceptsPassage(case.expectedConcepts).takeIf { knowsRetrievedPassage },
+            ),
             retried = false,
             fellBack = response.composerId.contains("fallback"),
         )
@@ -385,12 +448,19 @@ private suspend fun evaluateDeployed(cases: List<GoldenCase>): RouteStats {
     }
     return try {
         client.get("$baseUrl/health")
-        evaluateOpeningRoute("deployed-cloud", cases) { request ->
+        evaluateOpeningRoute(
+            name = "deployed-cloud",
+            cases = cases,
+            collection = CollectionMode.OPTIONAL,
+            // The live corpus decides what comes back; the harness cannot know which passage was
+            // retrieved, so this row is concept coverage only.
+            knowsRetrievedPassage = false,
+        ) { request ->
             client.post("$baseUrl/v1/openings/explain") {
                 contentType(ContentType.Application.Json)
                 setBody(request)
             }.body()
-        }.copy(collection = CollectionMode.OPTIONAL)
+        }
     } catch (exception: CancellationException) {
         throw exception
     } catch (exception: Exception) {
@@ -424,8 +494,14 @@ private suspend fun evaluateLlmComposed(cases: List<GoldenCase>): RouteStats {
     // A fallback *rate* is four findings wearing one number. Collect why each call fell back, so a
     // 100% row can distinguish "the provider was never reachable" from "the model wrote badly" —
     // the first is a configuration bug and says nothing about the provider at all.
-    val attempts = mutableListOf<ComposeAttempt>()
-    val composer = selectComposer(System.getenv(), TemplateComposer()) { attempts += it }
+    //
+    // Concurrent (see below), so: a thread-safe queue, and a ThreadLocal carrying which case the
+    // calling thread is composing. The probe is a property of the shared composer and receives no
+    // request, so without the ThreadLocal an accepted output could not be attributed to the
+    // position that produced it — and an output nobody can locate cannot be adjudicated.
+    val currentCaseId = ThreadLocal<String?>()
+    val attempts = ConcurrentLinkedQueue<Pair<String?, ComposeAttempt>>()
+    val composer = selectComposer(System.getenv(), TemplateComposer()) { attempts += currentCaseId.get() to it }
     if (composer !is LlmComposer) {
         return RouteStats(
             route = "local-llm-compose",
@@ -434,28 +510,88 @@ private suspend fun evaluateLlmComposed(cases: List<GoldenCase>): RouteStats {
             note = "COACH_LLM_API_KEY or token prices not set",
         )
     }
+    // A redacted fingerprint of the credential actually in the JVM, printed once. "Please pass a
+    // valid API key" on all 100 calls, from a key that works in curl, is a value-transport problem
+    // (stray quotes, a trailing newline, an unexpanded placeholder, a stale daemon environment) and
+    // nothing in the run could distinguish those from a revoked key. Four characters of prefix
+    // cannot reconstruct a 39-character secret, and the length alone settles the common cases.
+    val environment = System.getenv()
+    environment["COACH_LLM_API_KEY"]?.let { key ->
+        System.err.println(
+            "[llm-route] key chars=${key.length} prefix=${key.take(4)}… " +
+                "trailing_whitespace=${key != key.trim()} quoted=${key.startsWith("'") || key.startsWith("\"")} " +
+                "model=${environment["COACH_LLM_MODEL"]} url=${environment["COACH_LLM_API_URL"]}",
+        )
+    }
     val stats = RouteStats(route = "local-llm-compose", collection = CollectionMode.OPTIONAL)
     val (_, passagesByCase) = caseSpecificRetrieval(cases)
-    cases.forEach { case ->
-        val request = case.toOpeningRequest()
-        val passages = passagesByCase[case.id].orEmpty()
+    val composedByCase = mapCasesConcurrently(cases) { case ->
         // LlmComposer.compose() does a blocking java.net.http.HttpClient.send() to a real LLM
         // endpoint (PROVIDER_TIMEOUT_MS per request). This route runs in a plain runBlocking in
         // main(), NOT inside testApplication — testApplication's body is wrapped in
-        // runTestWithRealTime with a hard 60s ceiling that ~10 sequential network calls blow
-        // past (UncompletedCoroutinesError: After waiting for 1m). Hop to the IO dispatcher so
-        // each blocking call runs off the caller thread.
-        val composed = withContext(Dispatchers.IO) { composer.compose(request, passages) }
+        // runTestWithRealTime with a hard 60s ceiling that sequential network calls blow past
+        // (UncompletedCoroutinesError: After waiting for 1m).
+        currentCaseId.set(case.id)
+        try {
+            composer.compose(case.toOpeningRequest(), passagesByCase[case.id].orEmpty())
+        } finally {
+            currentCaseId.remove()
+        }
+    }
+    // Scored in case order, never completion order: the scorecard must not change because the
+    // network reordered the responses.
+    composedByCase.forEach { (case, composed) ->
         stats.record(
-            EvalScorer.scoreOpening(case, composed.text),
+            EvalScorer.scoreOpening(
+                case,
+                composed.text,
+                passageText = passagesByCase[case.id].orEmpty().joinToString(" ") { it.text },
+            ),
             retried = false,
             fellBack = composed.composerId != LlmComposer.ID,
         )
     }
-    stats.note = summarizeAttempts(attempts)
-    writeAttemptLog(attempts)
+    // Same reason: the attempt log is sorted back into case order so two runs of the same build
+    // produce a diffable file.
+    val caseOrder = cases.withIndex().associate { (index, case) -> case.id to index }
+    val orderedAttempts = attempts.sortedBy { caseOrder[it.first] ?: Int.MAX_VALUE }
+    stats.note = summarizeAttempts(orderedAttempts.map { it.second })
+    writeAttemptLog(orderedAttempts)
     return stats
 }
+
+/**
+ * Runs [transform] over [cases] with bounded concurrency, returning results **in case order**.
+ *
+ * 100 sequential provider calls at a 20 s ceiling each is a ~20 minute run, which is long enough
+ * that the harness stops being run. Bounded rather than unbounded because the provider rate-limits,
+ * and a flood of 429s would be recorded as provider errors — i.e. as a quality result, the exact
+ * confusion this harness exists to remove.
+ *
+ * The ordering guarantee is the load-bearing part: everything downstream (the scorecard row, the
+ * attempt log) must be identical run to run, or a diff between two runs shows network scheduling
+ * rather than a change in behaviour.
+ */
+internal suspend fun <T> mapCasesConcurrently(
+    cases: List<GoldenCase>,
+    concurrency: Int = PROVIDER_CONCURRENCY,
+    transform: suspend (GoldenCase) -> T,
+): List<Pair<GoldenCase, T>> = coroutineScope {
+    val semaphore = Semaphore(concurrency)
+    cases.map { case ->
+        // awaitAll resolves in list order regardless of which call finished first.
+        async(Dispatchers.IO) { case to semaphore.withPermit { transform(case) } }
+    }.awaitAll()
+}
+
+/**
+ * How many provider calls are in flight at once. Chosen low enough to stay under a commodity
+ * provider's per-minute limit while cutting the run from ~20 minutes to a few. Raise only alongside
+ * a check that the run's `provider-error` count did not move — a rate-limit rejection and a bad
+ * answer are the same row in this scorecard otherwise. Override with `EVAL_PROVIDER_CONCURRENCY`.
+ */
+private val PROVIDER_CONCURRENCY =
+    System.getenv("EVAL_PROVIDER_CONCURRENCY")?.toIntOrNull()?.takeIf { it > 0 } ?: 8
 
 /** One-line breakdown for the scorecard row, so the number carries its own explanation. */
 private fun summarizeAttempts(attempts: List<ComposeAttempt>): String {
@@ -469,10 +605,64 @@ private fun summarizeAttempts(attempts: List<ComposeAttempt>): String {
         }
     }
     return listOfNotNull(
+        // Which model produced this row. Without it the row is unattributable: the harness reads
+        // COACH_LLM_MODEL from whoever ran it, the *deployment* holds its own model in a Fly secret,
+        // and the two are routinely different — so a row quoted as "the cloud composer's numbers"
+        // may describe a model the deployment has never run.
+        "model=${System.getenv("COACH_LLM_MODEL") ?: "unset (gpt-4.1-mini default)"}",
         byLabel.entries.sortedByDescending { it.value }.joinToString(", ") { "${it.key} ${it.value}" },
         detail,
+        billedOutputTokens(attempts),
+        citationTruncation(attempts),
         "raw outputs in evals/build/llm-compose-attempts.txt",
     ).joinToString(" — ")
+        // A provider error body is JSON with newlines and pipes in it, and this string is rendered
+        // into a markdown table cell — verbatim, it splits the row across several broken lines and
+        // takes the rest of the table with it. Flatten, don't truncate: the first error message is
+        // the most useful thing in the row.
+        .replace(Regex("\\s+"), " ")
+        .replace("|", "/")
+        .trim()
+}
+
+/**
+ * P2-1's measurement, taken automatically on every keyed run.
+ *
+ * The hypothesis is that source ids (~17 characters each, so ~60 of a 280-character instruction
+ * budget once three sentences are cited) push the model into running out of room mid-citation, and
+ * that this is behind the residual `uncited sentence` rejections. That is a plausible story and
+ * plausible stories are what this plan exists to distrust, so the fix — shortening ids at seed time
+ * — is gated on the count below being non-trivial rather than on the arithmetic sounding right.
+ *
+ * Counted, not eyeballed: a raw output whose tail is an unterminated `[…` ran out of budget with a
+ * citation half-written; one merely missing a citation did something else.
+ */
+private fun citationTruncation(attempts: List<ComposeAttempt>): String? {
+    val rejected = attempts.filterIsInstance<ComposeAttempt.ValidatorRejected>()
+    if (rejected.isEmpty()) return null
+    val uncited = rejected.count { it.reason.startsWith("uncited sentence") }
+    val midCitation = rejected.count { UNTERMINATED_CITATION.containsMatchIn(it.raw.trimEnd()) }
+    return "validator rejections: $uncited uncited, $midCitation ended mid-citation"
+}
+
+/** A trailing `[` with no closing bracket: a citation the model started and had no room to finish. */
+private val UNTERMINATED_CITATION = Regex("\\[[^\\[\\]]{0,40}$")
+
+/**
+ * Measured billed output per provider call, when the provider reports usage.
+ *
+ * This is the calibration input for [com.example.coachserver.ProviderCostBudget.expectedOutputTokens]
+ * — the one number in the cost gate that cannot be derived from the answer's text, because a
+ * reasoning model bills deliberation it never returns. Without this line the constant is a guess,
+ * and a guessed constant in a gate that silently disables the provider is how the old ceiling-priced
+ * budget went unnoticed.
+ */
+private fun billedOutputTokens(attempts: List<ComposeAttempt>): String? {
+    val measured = attempts.mapNotNull(ComposeAttempt::billedOutputTokens).sorted()
+    if (measured.isEmpty()) return null
+    fun percentile(q: Double) = measured[((measured.size - 1) * q).toInt()]
+    return "billed output tokens n=${measured.size} p50=${percentile(0.5)} " +
+        "p90=${percentile(0.9)} max=${measured.last()}"
 }
 
 /**
@@ -480,19 +670,24 @@ private fun summarizeAttempts(attempts: List<ComposeAttempt>): String {
  * and the only one that distinguishes "the validator named the gate" from "here is what the model
  * actually wrote" — the scorecard's aggregate cannot.
  */
-private fun writeAttemptLog(attempts: List<ComposeAttempt>) {
+private fun writeAttemptLog(attempts: List<Pair<String?, ComposeAttempt>>) {
     val file = java.io.File("build/llm-compose-attempts.txt")
     file.parentFile?.mkdirs()
     file.writeText(
-        attempts.joinToString("\n\n") { attempt ->
+        attempts.joinToString("\n\n") { (caseId, attempt) ->
+            // The case id is what makes an accepted output adjudicable: "is this a correct
+            // paraphrase or an off-position answer?" is unanswerable without knowing which
+            // position it was answering.
+            val header = "case=${caseId ?: "unknown"}" +
+                (attempt.billedOutputTokens?.let { " billed_output_tokens=$it" } ?: "")
             when (attempt) {
                 is ComposeAttempt.BudgetRejected ->
-                    "[budget-rejected] prompt was ${attempt.promptChars} chars; provider never called"
-                is ComposeAttempt.ProviderError -> "[provider-error] ${attempt.error}"
-                ComposeAttempt.ProviderEmpty -> "[provider-empty] client returned null"
+                    "[budget-rejected] $header prompt was ${attempt.promptChars} chars; provider never called"
+                is ComposeAttempt.ProviderError -> "[provider-error] $header ${attempt.error}"
+                ComposeAttempt.ProviderEmpty -> "[provider-empty] $header client returned null"
                 is ComposeAttempt.ValidatorRejected ->
-                    "[validator-rejected] ${attempt.reason}\nraw: ${attempt.raw}"
-                is ComposeAttempt.Accepted -> "[accepted]\n${attempt.text}"
+                    "[validator-rejected] $header ${attempt.reason}\nraw: ${attempt.raw}"
+                is ComposeAttempt.Accepted -> "[accepted] $header\n${attempt.text}"
             }
         },
     )
@@ -612,15 +807,46 @@ object ScorecardWriter {
                         "${grade(stat.medianReadingGrade)} | " +
                         "${percent(stat.fluencyViolations, stat.cases)} | " +
                         "${percent(stat.retries, stat.cases)} | ${percent(stat.fallbacks, stat.cases)} | " +
-                        "${percent(stat.lengthViolations, stat.cases)} | ${stat.collection.name.lowercase()} |",
+                        "${percent(stat.lengthViolations, stat.cases)} | " +
+                        // The note was computed for every row and rendered for none of the ones that
+                        // ran, so `local-llm-compose` published a bare fallback percentage while the
+                        // breakdown that explains it ("provider-error 100" — a dead API key, not a
+                        // model verdict) was assembled and dropped on the floor. A number whose
+                        // cause is known but unprinted is the same failure as one whose cause is
+                        // unknown: the reader draws the wrong conclusion either way.
+                        "${stat.collection.name.lowercase()}${stat.note.takeIf(String::isNotBlank)?.let { " ($it)" }.orEmpty()} |",
                 )
             } else {
                 appendLine("| ${stat.route} | — | — | — | — | — | — | — | ${stat.collection.name.lowercase()} (${stat.note}) |")
             }
         }
         MANUAL_ROWS.forEach { appendLine(it.render()) }
+        // After the table, never inside it: a banner between rows splits the markdown table in two.
+        notCollected(stats)?.let {
+            appendLine()
+            appendLine(it)
+        }
         appendLine()
         appendLine("The scorer is rule-based: move cases use `MoveCoachResponseValidator`; opening cases require all `expectedConcepts`; multi-turn chat cases require at least one expected concept per turn (the no-drift check). No judge model is used.")
+    }
+
+    /**
+     * A prominent "this was not measured" banner for every route that did not run.
+     *
+     * Mirrors the CI skip-detector on `OpeningRetrievalGroundingTest`: a suite that silently skips
+     * is indistinguishable from one that passes, and a scorecard row rendered as a line of dashes
+     * reads as "clean" to everyone who is not looking for it. The two cloud rows are exactly the
+     * ones that go missing — they need a provider key and a deployment that CI does not have — so
+     * their absence has to be stated rather than implied.
+     */
+    private fun notCollected(stats: List<RouteStats>): String? {
+        val missing = stats.filterNot(RouteStats::available)
+        if (missing.isEmpty()) return null
+        return buildString {
+            appendLine("> ⚠️ **Not collected in this run** — these rows are absent, not clean:")
+            appendLine(">")
+            missing.forEach { appendLine("> - `${it.route}` — ${it.note}") }
+        }.trimEnd()
     }
 
     /**

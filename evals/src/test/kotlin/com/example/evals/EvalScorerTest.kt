@@ -59,6 +59,72 @@ class EvalScorerTest {
         assertTrue(EvalScorer.scoreOpening(case, "It fights for the center and supports development.").grounded)
     }
 
+    /**
+     * The pair P0-1 requires: the criterion must be observed **passing a paraphrase** and
+     * **failing an off-position answer**. The old verbatim-containment check could do neither — it
+     * passed only literal copies, so it scored the deterministic template at 0% violations by
+     * construction and rejected 90 of 96 validator-approved provider answers, all of them correct
+     * paraphrases (measured 2026-08-05, gemini-3.6-flash).
+     */
+    private val sicilianPassage =
+        "The Sicilian Defence answers 1.e4 with 1...c5, developing pieces toward active squares " +
+            "while both sides fight for central squares with their pawns."
+
+    private val sicilianCase = GoldenCase(
+        id = "sicilian", fen = "fen", bestMoveUci = "c7c5", tags = listOf("opening"),
+        eco = "B20", movesSan = listOf("e4", "c5"), expectedConcepts = listOf("center", "development"),
+    )
+
+    @Test
+    fun `a grounded paraphrase passes`() {
+        // Verbatim "center"/"development" appear nowhere in this sentence. It is still the right
+        // answer, and this is the exact wording the provider was failed for.
+        val paraphrase = "Black develops minor pieces toward active squares and fights for " +
+            "central squares with pawns [b20]."
+
+        assertTrue(EvalScorer.scoreOpening(sicilianCase, paraphrase, sicilianPassage).grounded)
+    }
+
+    @Test
+    fun `a fluent answer about a different position fails`() {
+        // Fluent, confident, and about something else entirely: no concept coverage, and almost no
+        // content shared with the passage it claims to explain. The failure mode the column is
+        // *supposed* to catch, and never could.
+        val offPosition = "White builds a kingside attack with the rook lift and the queen swings " +
+            "across to h5 [b20]."
+
+        assertFalse(EvalScorer.scoreOpening(sicilianCase, offPosition, sicilianPassage).grounded)
+    }
+
+    @Test
+    fun `covering the concepts is not enough without sharing content with the source`() {
+        // The anchor half, isolated: this names both concepts but is grounded in nothing — it could
+        // have been written without reading the passage at all.
+        val unanchored = "Center and development matter."
+
+        assertTrue(ConceptVocabulary.isCovered("center", unanchored))
+        assertFalse(
+            EvalScorer.scoreOpening(
+                sicilianCase,
+                unanchored,
+                "Nimzowitsch's overprotection doctrine assigns surplus defenders to key squares.",
+            ).grounded,
+        )
+    }
+
+    @Test
+    fun `verbatim quotation still passes`() {
+        // No regression for the deterministic template, which quotes its source.
+        assertTrue(EvalScorer.scoreOpening(sicilianCase, "$sicilianPassage [b20]", sicilianPassage).grounded)
+    }
+
+    @Test
+    fun `an uncovered concept still fails`() {
+        val centerOnly = "Both sides fight for central squares with their pawns [b20]."
+
+        assertFalse(EvalScorer.scoreOpening(sicilianCase, centerOnly, sicilianPassage).grounded)
+    }
+
     @Test
     fun `local opening retrieval returns the passage for the matching production query`() {
         val first = GoldenCase(
@@ -75,7 +141,12 @@ class EvalScorerTest {
         val passages = dependencies.passageRepository.retrieve(embedding, 4).passages
 
         assertEquals(listOf("eval-second"), passages.map { it.sourceId })
-        assertFalse(EvalScorer.scoreOpening(first, passages.single().text).grounded)
+        // Was `assertFalse(scoreOpening(first, secondsPassage).grounded)` — using the scorer as a
+        // stand-in for retrieval isolation. That only held because the old scorer demanded the
+        // literal string "center" and the shared passage backbone says "central control": the
+        // assertion was riding on a wording accident, and the paraphrase-tolerant scorer correctly
+        // reports that this passage does discuss the centre. Assert isolation directly instead.
+        assertTrue(passages.none { it.sourceId == "eval-first" })
     }
 
     /**

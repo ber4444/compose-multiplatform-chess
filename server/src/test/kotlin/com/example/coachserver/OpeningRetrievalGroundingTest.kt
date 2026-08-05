@@ -106,6 +106,33 @@ class OpeningRetrievalGroundingTest {
         assertTrue(firstSentence.contains("Sicilian"), "Expected Sicilian content, got: $firstSentence")
     }
 
+    @Test
+    fun `the offline book index resolves exactly what the SQL book tier resolves`() {
+        // The eval harness gates opening identification on CorpusBookIndex, because that gate has to
+        // run on a machine with no Docker and no database. That makes the index a second
+        // implementation of this SQL, and a second implementation that drifts is worse than none:
+        // the new AUTOMATED row would stay green while production retrieval regressed. Pinning them
+        // to each other here is what makes the offline gate mean anything.
+        val index = CorpusBookIndex.fromCorpus(Path.of("corpus"))
+        val probes = CASES.map(Case::movesSan) + listOf(
+            listOf("e4"),
+            listOf("d4"),
+            listOf("c4", "e5"),
+            listOf("a3", "h6", "a4", "h5"),
+            listOf("e4", "c5", "Nf3", "d6", "d4", "cxd4", "Nxd4", "Nf6", "Nc3", "a6"),
+            listOf("d4", "Nf6", "c4", "e6", "Nf3", "b6", "g3", "Ba6"),
+            emptyList(),
+        )
+
+        val disagreements = probes.mapNotNull { moves ->
+            val sql = repository.retrieve(ZERO_VECTOR, 4, moves, null).resolvedEco
+            val offline = index.resolve(moves)?.eco
+            "$moves: sql=$sql offline=$offline".takeIf { sql != offline }
+        }
+
+        assertTrue(disagreements.isEmpty(), "Offline index disagrees with SQL book tier:\n${disagreements.joinToString("\n")}")
+    }
+
     private data class Case(val name: String, val movesSan: List<String>, val expectedEco: String)
 
     companion object {

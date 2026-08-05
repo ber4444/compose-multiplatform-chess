@@ -460,7 +460,19 @@ class OpenAiCompatibleStreamingLlmClient(
                 json.decodeFromString<StreamChatResponse>(unstreamed.toString())
                     .choices.firstOrNull()?.let { it.message?.content ?: it.delta.content }
             }.getOrNull()
-            if (!whole.isNullOrEmpty()) emit(whole)
+            if (!whole.isNullOrEmpty()) {
+                // Named in the log because it is invisible everywhere else: the response is
+                // well-formed, validated, and indistinguishable downstream from a streamed one —
+                // except that the user watched a blank panel for the whole generation and then got
+                // the answer in one jump. Measured against the deployment on 2026-08-05: TTFT 10.9 s
+                // followed by the entire answer as a single SSE `token` event. If this line appears,
+                // the batching is the provider's; if it does not and turns still arrive whole, the
+                // provider is streaming a single large delta instead.
+                println("chat-provider-oneshot model=$model chars=${whole.length} — no SSE deltas; the UI cannot stream this turn")
+                emit(whole)
+            }
+        } else if (deltas == 1) {
+            println("chat-provider-single-delta model=$model — provider streamed the whole answer as one delta")
         }
     }.flowOn(Dispatchers.IO)
 

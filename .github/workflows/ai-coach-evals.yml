@@ -89,8 +89,28 @@ jobs:
           path: server/build/test-results/test/
           if-no-files-found: warn
 
+      # The harness's own suites ran in no workflow at all: android-tests.yml never references
+      # :evals: and this job only ran :evals:run, which does not depend on `test`. So the mutation
+      # test that proves the routing sweep can go red, and the fixtures that prove the retrieval
+      # gate can fail, were themselves ungated — a checker nobody checks.
+      - name: Run eval harness tests
+        run: ./gradlew :evals:test
+
       - name: Run fake, fallback, and local-server evals
         run: ./gradlew :evals:run
+
+      # The scorecard's optional rows (cloud provider, live deployment) are absent here by design —
+      # CI has no key and no deployment. Absent must not read as clean, so the banner the harness
+      # writes is lifted into the job summary rather than left inside an artifact nobody opens.
+      # Same reasoning as the retrieval-gate skip detector above.
+      - name: Report routes that were not collected
+        if: always()
+        run: |
+          if grep -q "Not collected in this run" evals/scorecard.md; then
+            sed -n '/Not collected in this run/,/^$/p' evals/scorecard.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### ✅ Every scorecard route was collected" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload scorecard
         if: always()

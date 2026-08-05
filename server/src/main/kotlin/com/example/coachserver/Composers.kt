@@ -44,21 +44,83 @@ class TemplateComposer : TextComposer {
     }
 }
 
+/**
+ * One provider completion. Carries [completionTokens] when the provider reports usage, because the
+ * *billed* output of a call is not recoverable from its text: a reasoning model bills its
+ * deliberation as output tokens and returns none of it. [ProviderCostBudget]'s expected-output
+ * estimate is calibrated against this number, so a run that never records it can only guess.
+ */
+data class LlmCompletion(val text: String, val completionTokens: Int? = null)
+
 fun interface LlmClient {
-    fun generate(systemPrompt: String, userPrompt: String, maxOutputTokens: Int): String?
+    fun generate(systemPrompt: String, userPrompt: String, maxOutputTokens: Int): LlmCompletion?
 }
 
+/**
+ * Per-request spend gate, checked before the network call.
+ *
+ * **Prices the expected billed output, not the token ceiling.** It used to charge the full
+ * `maxOutputTokens` (2048) on every call — roughly 11x what a compliant 2-3 sentence answer costs —
+ * with the consequence that [maxUsdCents] stopped communicating a budget: the cap had to be set an
+ * order of magnitude above intended spend before any call was permitted at all, and at the
+ * documented 0.2c default *every* request was rejected before the network
+ * (`opening-provider-skipped budget` in the logs) while the composer quietly served template text.
+ *
+ * The ceiling is still enforced, in the two places that can actually enforce it:
+ * - the provider, which is sent `max_tokens = maxOutputTokens` and stops there; and
+ * - [WORST_CASE_MULTIPLE] below, a hard stop that refuses a configuration whose *worst case* is
+ *   wildly out of proportion to the budget (an absurd token ceiling, or a model priced 100x the one
+ *   the cap was written for). That is a config sanity check, not a per-request estimate — which is
+ *   what conflating the two cost this route.
+ */
 data class ProviderCostBudget(
+    /** Ceiling on the **expected** cost of one request, in US cents. */
     val maxUsdCents: Double,
     val inputUsdPerMillionTokens: Double,
     val outputUsdPerMillionTokens: Double,
+    /**
+     * Billed output tokens an ordinary accepted call is expected to cost. Deliberately well above
+     * the ~100 tokens of visible answer that fits [OpeningExplanationValidator.MAX_OUTPUT_CHARS]:
+     * for a thinking model the invisible deliberation is the dominant term and is billed at the
+     * same rate. Recalibrate from the `billed output tokens` line the eval harness writes into the
+     * `local-llm-compose` scorecard note whenever the configured model changes.
+     */
+    val expectedOutputTokens: Int = DEFAULT_EXPECTED_OUTPUT_TOKENS,
 ) {
-    fun admits(inputChars: Int, outputTokens: Int): Boolean {
+    fun admits(inputChars: Int, maxOutputTokens: Int): Boolean {
+        val expected = estimateUsdCents(inputChars, minOf(expectedOutputTokens, maxOutputTokens))
+        if (expected > maxUsdCents) return false
+        return estimateUsdCents(inputChars, maxOutputTokens) <= maxUsdCents * WORST_CASE_MULTIPLE
+    }
+
+    fun estimateUsdCents(inputChars: Int, outputTokens: Int): Double {
         // Three chars/token deliberately overestimates normal English token use.
         val inputTokens = (inputChars + 2) / 3
         val estimatedUsd = inputTokens * inputUsdPerMillionTokens / 1_000_000.0 +
             outputTokens * outputUsdPerMillionTokens / 1_000_000.0
-        return estimatedUsd * 100.0 <= maxUsdCents
+        return estimatedUsd * 100.0
+    }
+
+    companion object {
+        /**
+         * Measured, not guessed: `./gradlew :evals:run` against gemini-3.6-flash on 2026-08-05,
+         * 100 opening calls, billed output p50=1344 p90=2011 max=2044 (the max is the 2048 ceiling,
+         * so the true tail is clipped). Set near p50 — pricing the p90 would refuse ordinary calls
+         * to protect against rare ones, which is the failure this constant replaced.
+         *
+         * Note how far this is from the ~100 tokens of *visible* answer: on a thinking model the
+         * deliberation is roughly 13x the reply and is billed identically. Re-measure when the
+         * configured model changes; the harness prints the distribution in the scorecard note.
+         */
+        const val DEFAULT_EXPECTED_OUTPUT_TOKENS = 1_400
+
+        /**
+         * How far above [maxUsdCents] a single request's *worst case* may sit before the
+         * configuration is refused outright. Sized so the shipped defaults (2048 tokens at
+         * commodity prices against a 0.2c cap) pass comfortably, while a 100k-token ceiling or a
+         * frontier-priced model does not.
+         */
+        const val WORST_CASE_MULTIPLE = 25.0
     }
 }
 
@@ -72,9 +134,26 @@ sealed class ComposeAttempt {
     data class BudgetRejected(val promptChars: Int) : ComposeAttempt()
     data class ProviderError(val error: String) : ComposeAttempt()
     data object ProviderEmpty : ComposeAttempt()
-    data class ValidatorRejected(val reason: String, val raw: String) : ComposeAttempt()
+    data class ValidatorRejected(
+        val reason: String,
+        val raw: String,
+        val completionTokens: Int? = null,
+    ) : ComposeAttempt()
     /** Carries its text: a grounding score cannot be adjudicated without the output that earned it. */
-    data class Accepted(val text: String) : ComposeAttempt()
+    data class Accepted(val text: String, val completionTokens: Int? = null) : ComposeAttempt()
+
+    /**
+     * Billed output tokens for the attempts that reached the provider, when it reported usage.
+     * `null` for the gates that never made a call. Collected so
+     * [ProviderCostBudget.expectedOutputTokens] can be set from a measured distribution rather than
+     * from the visible answer length, which excludes reasoning tokens entirely.
+     */
+    val billedOutputTokens: Int?
+        get() = when (this) {
+            is Accepted -> completionTokens
+            is ValidatorRejected -> completionTokens
+            else -> null
+        }
 
     val label: String
         get() = when (this) {
@@ -111,10 +190,11 @@ class LlmComposer(
         // The exception is captured rather than discarded: an auth failure, a bad model id and a
         // model that simply wrote badly all produced the identical "fell back" row before this.
         val attempt = runCatching { client.generate(SYSTEM_PROMPT, prompt, maxOutputTokens) }
+        val completion = attempt.getOrNull()
         // Strip structurally-marked deliberation before validating. LlmChatComposer already did
         // this for its stream; without it here, a model's scratchpad reached the validator and the
         // rejection was recorded as a quality failure.
-        val candidate = attempt.getOrNull()?.let(ModelOutputCleaner::clean)
+        val candidate = completion?.text?.let(ModelOutputCleaner::clean)
         val valid = candidate?.let { OpeningExplanationValidator.validate(it, passages) }
         probe(
             when {
@@ -125,8 +205,9 @@ class LlmComposer(
                 valid == null -> ComposeAttempt.ValidatorRejected(
                     reason = OpeningExplanationValidator.rejectionReason(candidate, passages).orEmpty(),
                     raw = candidate,
+                    completionTokens = completion.completionTokens,
                 )
-                else -> ComposeAttempt.Accepted(valid)
+                else -> ComposeAttempt.Accepted(valid, completion.completionTokens)
             },
         )
         return if (valid != null) ComposedText(valid, ID) else fallback.compose(request, passages)
@@ -302,7 +383,7 @@ class OpenAiCompatibleLlmClient(
     private val requestTimeout: java.time.Duration = java.time.Duration.ofSeconds(5),
     private val transport: LlmHttpTransport? = null,
 ) : LlmClient {
-    override fun generate(systemPrompt: String, userPrompt: String, maxOutputTokens: Int): String? {
+    override fun generate(systemPrompt: String, userPrompt: String, maxOutputTokens: Int): LlmCompletion? {
         val payload = ChatRequest(
             model = model,
             messages = listOf(ChatMessage("system", systemPrompt), ChatMessage("user", userPrompt)),
@@ -329,7 +410,8 @@ class OpenAiCompatibleLlmClient(
             }
             response.body()
         }
-        val choice = json.decodeFromString<ChatResponse>(responseBody).choices.firstOrNull()
+        val decoded = json.decodeFromString<ChatResponse>(responseBody)
+        val choice = decoded.choices.firstOrNull()
         val content = choice?.message?.content?.takeIf(String::isNotBlank)
         if (content == null) {
             // Distinguish "spent the budget thinking" from "returned nothing" — the first is fixed
@@ -341,7 +423,7 @@ class OpenAiCompatibleLlmClient(
                     "If finish_reason is 'length', raise COACH_LLM_MAX_OUTPUT_TOKENS.",
             )
         }
-        return content
+        return LlmCompletion(content, decoded.usage?.billedOutputTokens)
     }
 
     @Serializable
@@ -356,7 +438,36 @@ class OpenAiCompatibleLlmClient(
     data class ChatMessage(val role: String, val content: String)
 
     @Serializable
-    data class ChatResponse(val choices: List<Choice> = emptyList())
+    data class ChatResponse(val choices: List<Choice> = emptyList(), val usage: Usage? = null)
+
+    /**
+     * OpenAI-compatible usage block. Optional because not every compatible host returns it — the
+     * cost estimate must not depend on the provider being generous, only improve when it is.
+     * `completion_tokens` includes reasoning tokens, which is exactly why it is worth reading:
+     * nothing in the returned text reveals them.
+     */
+    @Serializable
+    data class Usage(
+        @SerialName("prompt_tokens") val promptTokens: Int? = null,
+        @SerialName("completion_tokens") val completionTokens: Int? = null,
+        @SerialName("total_tokens") val totalTokens: Int? = null,
+    ) {
+        /**
+         * Output tokens that are actually billed.
+         *
+         * **`completion_tokens` alone under-reports on a reasoning model.** Measured against Gemini
+         * on 2026-08-05: a call that spent its whole budget deliberating returned
+         * `prompt_tokens=2, completion_tokens=0, total_tokens=15` — thirteen tokens of reasoning
+         * counted in the total and in nothing else. Calibrating
+         * [ProviderCostBudget.expectedOutputTokens] against `completion_tokens` would therefore
+         * price the one component that dominates the bill at zero.
+         */
+        val billedOutputTokens: Int?
+            get() {
+                val derived = totalTokens?.let { total -> promptTokens?.let { total - it } }
+                return listOfNotNull(completionTokens, derived).maxOrNull()
+            }
+    }
 
     /**
      * `content` is **nullable and defaulted**, and that is load-bearing rather than defensive.
