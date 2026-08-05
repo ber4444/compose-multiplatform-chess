@@ -54,12 +54,49 @@ that it fits the 125-char window; nothing asks whether two rows say different th
 everything else: retrieval is 8/8 correct, the validator accepts 99/100, grounding scores clean, and
 the product is still not worth shipping.
 
+#### R-1 second pass, after `LineNarrator` shipped — **still no. Now with a criterion.**
+
+Owner re-read the post-reseed samples. Repetitions persist (`"Ruy Lopez: Ruy Lopez"`,
+`"Queen's Gambit: Queen's Gambit and Slav"`) and **most line descriptions still fail**. The verdict
+came with the thing this document has been missing all along — a **test for usefulness**, which no
+validator, scorer or eval row here has ever encoded:
+
+> **Does it give a practical plan, a trade-off, or a decision rule?** Naming a move or restating
+> geometry the player can already see does not count.
+
+Graded against it, with the owner's own examples:
+
+| Tier | Examples | Verdict |
+|---|---|---|
+| **Useful** | "prepare d4", "attack White's centre later", "gives up castling", "accepts less space for a sound structure", "Black has a blocked light bishop" | a plan, a trade-off, or a consequence |
+| **Low-value** | "a bishop goes to c4", "knights develop early", "the queen comes out on move 2", "a flank pawn moves", "this line is defined by X" | restates the move list |
+| **Actively harmful** | generic parent-category prose attached to a specific opening; duplicate labels; sibling-opening lists | worse than silence — it misinforms about *this* line |
+
+**This inverts two of my design decisions, and the branch table above should be re-read through it.**
+
+- **Most of `LineNarrator`'s branches are the *low-value* row verbatim.** "brings the bishop to c4"
+  (31.1%), "the queen comes out on move 2" (2.2%), "pushes h4 on the wing" (3.5%), "defined by X"
+  (16.9%) are the owner's examples of what does **not** count. Only the king-move branch ("gives up
+  castling", 0.7%) and arguably the fianchetto/capture branches clear the bar. **Roughly 55% of rows
+  are producing text the reviewer classes as low-value, and the earlier "24.6% says something usable"
+  was my grading, not a user's.**
+- **`EcoNarrator`'s family claim is *actively harmful* on a specific line.** It is by construction
+  "generic parent-category prose attached to a specific opening". I kept it as the lead for each
+  ECO's base line and as the second sentence everywhere — that decision needs revisiting, not just
+  the branch above it. A B20 sub-line that opens with the generic Sicilian family sentence is in the
+  bottom tier of this table.
+- **The three-tier test belongs in the harness, or it will be re-derived by hand every time.** It
+  cannot be a keyword rule (that is P0-1's mistake again) but it *can* be a review protocol with a
+  fixed rubric, applied to a fixed sample, recorded per run.
+
 Derived work (not yet started, ordered by ratio of user-visible improvement to effort):
 
-- [ ] **Stop printing the name twice.** Either drop the title prefix in `TemplateComposer` or stop
+- [ ] **Stop printing the name twice** — confirmed still live after the reseed (`"Ruy Lopez: Ruy
+      Lopez"`), and the R-1 second pass puts duplicate labels in the *actively harmful* tier. Either drop the title prefix in `TemplateComposer` or stop
       leading `EcoNarrator` strings with the opening name. One of the two, not both — the composers
       quote the first sentence, so it must still stand alone.
-- [ ] **Don't cite a shorter prefix when a longer one matched.** `PostgresPassageRepository` should
+- [ ] **Don't cite a shorter prefix when a longer one matched** — sibling-opening lists
+      (`"Queen's Gambit: Queen's Gambit and Slav"`) are also *actively harmful*, not merely noise. `PostgresPassageRepository` should
       prefer sibling lines *within* the resolved ECO over the parent-family row, or the composers
       should stop quoting passage two when its `moves` is a strict prefix of passage one's.
 - [ ] **Make the two surfaces say different things.** Chat should answer the *question* from the
@@ -211,6 +248,10 @@ partly answer R-2 already.
    cause is structural: `LineNarrator` sees a list of SAN strings and never a board, so `Nf3` can
    only become "a knight went to f3".
 
+   - [ ] **Target the *useful* tier, not distinctness.** The R-1 second pass reclassifies most of
+         these branches as low-value: distinct-but-descriptive was the wrong goal. A replacement
+         sentence has to carry a plan ("prepare d4"), a trade-off ("accepts less space for a sound
+         structure") or a consequence ("gives up castling").
    - [ ] **Fix by replaying the line, not by adding SAN patterns.** `:server` is JVM-only and
          `:chess-core` has a JVM target, so seeding can replay each line and derive *facts*:
          material balance (real gambit detection), developed minor pieces per side, castling status,
