@@ -171,6 +171,31 @@ Related to P1-2 but distinct: the concern is a *silent* downgrade. A provider ti
 
 ---
 
+## Article impact
+
+Two published articles describe this system, and several of their claims are *contingent on items in
+this plan*. Closing an item can therefore create an obligation outside the repo. Recorded here
+because that obligation otherwise lives only in the author's head.
+
+| Item | On close | Why |
+|---|---|---|
+| P1-2 chat streaming | **Correction** to *Routing Modes Are Not a Routing Policy* | The article states tokens reach the UI immediately, token-by-token, and justifies validating the accumulated stream on that basis. Live calls returned each answer as a single event. If that holds, a published user-facing claim is wrong — not stale, wrong. |
+| P0-1 + P0-2 grounding scorer | **Update** to *I Stopped Eyeballing LLM Output* | Its "A Fallback Rate Is Not a Finding" section says in as many words that this one is "still open" and quotes the 0% → 42% jump. Resolving it closes a thread the article deliberately leaves dangling and replaces 42% with a real number. |
+| P1-3 cost budget | Minor edit | The article describes how the per-request estimate works. Re-pricing or renaming the constant makes that description stale. |
+| P1-1, P2-1, P2-2, R-2 | None | Internal; no published claim rests on them. |
+
+**Possible new material — do not pre-commit.** P0-1 (a grounding metric that rewards verbatim
+copying) and R-1 (no automated check catches grounded-but-useless) are one problem from two sides:
+every guardrail here measures *faithfulness*, and faithfulness is trivially satisfied by text that
+copies its source or says nothing. Neither article answers how to score grounding so that a
+paraphrase passes and an off-position answer fails. If solving that takes real design, it is worth
+writing up.
+
+Deciding it will be an article *before* the measurement is the same error that produced the
+1%/11% verdict, which is why P0-2 is ordered before P0-1. If P0-2 shows those 42 outputs are
+genuinely off-concept rather than paraphrased, the finding inverts: the template's advantage becomes
+partly real, and the write-up is a different piece entirely.
+
 ## Fences
 
 - **Do not weaken a validator to make a number improve.** Every gate here exists because of an
