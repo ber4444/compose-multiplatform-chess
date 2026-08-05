@@ -101,6 +101,42 @@ class ChatStreamingChunkCountTest {
     }
 
     @Test
+    fun `untagged deliberation never reaches the client`() {
+        // Observed live 2026-08-05: the model wrote note lines above its answer, no <think> tag in
+        // sight, and PositionChatValidator accepted the result — so scratchpad was shown to the user
+        // and the turn ended with `done`.
+        val chunks = tokenChunks(
+            listOf(
+                "* Let's make sure the ID is exactly ``.\n",
+                " * Let's write:\n",
+                "Both king pawns contest the center for development [lichess-c20]. ",
+                "Castling early keeps the king safe [lichess-c20].",
+            ),
+        )
+
+        val whole = chunks.joinToString("")
+        assertTrue(whole.isNotBlank(), "the answer itself must survive")
+        assertTrue("Let's" !in whole, "deliberation reached the client: $whole")
+        assertTrue(whole.startsWith("Both king pawns"), whole)
+    }
+
+    @Test
+    fun `the deterministic fallback is cut on a word boundary`() {
+        // "Italian G" and "French Defense is c" both shipped to users in the R-1 sample. The
+        // fallback is what a user sees when the model path fails, so a mid-word cut is the only
+        // text some of them ever read.
+        val long = "Italian Game and Two Knights: the bishops aim at f7, and play revolves around " +
+            "the d4 break and the central tension in a way that runs well past the output cap for " +
+            "this surface, forcing a truncation somewhere in this sentence."
+
+        val cut = long.truncateAtWord(120)
+
+        assertTrue(cut.length <= 121, "length ${cut.length}")
+        assertTrue(cut.endsWith("\u2026"), cut)
+        assertTrue(long.startsWith(cut.removeSuffix("\u2026")), "must be a prefix of the original: $cut")
+    }
+
+    @Test
     fun `a provider that answers with one whole completion produces exactly one chunk`() {
         // Not a bug in this class — it is the shape the live deployment is in, pinned so the
         // distinction stays legible: one chunk here means the provider batched, never that the

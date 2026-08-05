@@ -81,7 +81,7 @@ class TemplateChatComposer : StreamingChatComposer {
                 "${top.title}: ${sentence(top.text)}$tail"
             }
         }
-        return grounded.take(PositionChatValidator.MAX_OUTPUT_CHARS).trim()
+        return grounded.truncateAtWord(PositionChatValidator.MAX_OUTPUT_CHARS)
     }
 
     private fun sentence(text: String): String {
@@ -92,6 +92,71 @@ class TemplateChatComposer : StreamingChatComposer {
 
     companion object {
         const val ID = "template-chat-v1"
+    }
+}
+
+/**
+ * Truncates to [limit] on a word boundary. `take(limit)` shipped `"…Italian G"` and
+ * `"…French Defense is c"` to users in the 2026-08-05 sample: the fallback is the text shown when
+ * the model path fails, so a mid-word cut is the *only* thing some users ever read.
+ */
+internal fun String.truncateAtWord(limit: Int): String {
+    val trimmed = trim()
+    if (trimmed.length <= limit) return trimmed
+    val cut = trimmed.take(limit)
+    return (cut.substringBeforeLast(' ', cut).trimEnd(',', ';', ':', ' ') + "\u2026").trim()
+}
+
+/**
+ * Holds back a *leading* run of note-shaped lines so scratchpad never reaches the client mid-stream.
+ *
+ * [ModelOutputCleaner] can only judge a complete line, so output is withheld until the stream has
+ * produced a line break or a sentence end; at that point the accumulated text is cleaned and
+ * released, and the gate becomes a pass-through. In practice the provider returns whole completions
+ * (see the plan's P1-2), so this resolves on the first chunk.
+ *
+ * Deliberately only *leading* notes, matching ModelOutputCleaner's own rule: removing a note from
+ * the middle of an answer would be editing the answer.
+ */
+internal class LeadingNoteGate {
+    private var released = false
+    private val pending = StringBuilder()
+
+    fun push(text: String): String {
+        if (released) return text
+        if (text.isEmpty()) return ""
+        pending.append(text)
+        val whole = pending.toString()
+        val lines = whole.split('\n')
+        val firstProse = lines.indexOfFirst { it.isNotBlank() && !ModelOutputCleaner.isNoteLine(it) }
+        if (firstProse == -1) {
+            // Everything so far is note-shaped. Keep only the incomplete trailing line: the
+            // complete ones are decided, and holding them would grow without bound on a model that
+            // deliberates at length.
+            val lastBreak = whole.lastIndexOf('\n')
+            if (lastBreak >= 0) {
+                pending.setLength(0)
+                pending.append(whole.substring(lastBreak + 1))
+            }
+            return ""
+        }
+        // Release from the first prose line **verbatim** — no trim. Trimming here would silently
+        // eat the spaces between deltas and re-glue the answer as "…center.King safety…".
+        released = true
+        pending.setLength(0)
+        return lines.drop(firstProse).joinToString("\n")
+    }
+
+    /** Whatever is still held when the stream ends without ever producing a prose line. */
+    fun flush(): String {
+        if (released) return ""
+        released = true
+        val remainder = pending.toString()
+        pending.setLength(0)
+        // All notes and nothing else: hand it back rather than returning "", so the turn fails
+        // validation as invalid output instead of silently becoming empty. Same rule as
+        // ModelOutputCleaner.dropLeadingNotes.
+        return remainder
     }
 }
 
@@ -144,7 +209,13 @@ class LlmChatComposer(
         // still streams ```json to the user. Both the emitted tokens and the validated text go
         // through this, so what the judge sees and what the validator sees are the same string.
         val fence = CodeFenceStripper()
-        
+        // Deliberation that is not `<think>`-tagged. Observed on the deployment 2026-08-05: the
+        // model wrote "* Let's make sure the ID is exactly ``." above its answer, the fence stripper
+        // had nothing to catch, and PositionChatValidator accepted the result — so scratchpad
+        // reached the user and terminated with `done`. ModelOutputCleaner already handled this shape
+        // for the one-shot route; the chat route never used it.
+        val notes = LeadingNoteGate()
+
         try {
             client.streamGenerate(SYSTEM_PROMPT, prompt, request.history, maxOutputTokens).collect { delta ->
                 if (delta.isNotEmpty()) {
@@ -165,7 +236,7 @@ class LlmChatComposer(
                                     break // Wait for more tokens
                                 }
                                 // No <think> started, emit everything
-                                val toEmit = fence.push(buffer.substring(i))
+                                val toEmit = notes.push(fence.push(buffer.substring(i)))
                                 if (toEmit.isNotEmpty()) {
                                     accumulated.append(toEmit)
                                     emit(ChatChunk.Token(toEmit))
@@ -173,7 +244,7 @@ class LlmChatComposer(
                                 i = buffer.length
                             } else {
                                 // Emit up to <think>
-                                val toEmit = fence.push(buffer.substring(i, thinkIdx))
+                                val toEmit = notes.push(fence.push(buffer.substring(i, thinkIdx)))
                                 if (toEmit.isNotEmpty()) {
                                     accumulated.append(toEmit)
                                     emit(ChatChunk.Token(toEmit))
@@ -205,17 +276,20 @@ class LlmChatComposer(
                 }
             }
             if (!insideThink && buffer.isNotEmpty()) {
-                val toEmit = fence.push(buffer.toString())
+                val toEmit = notes.push(fence.push(buffer.toString()))
                 if (toEmit.isNotEmpty()) {
                     accumulated.append(toEmit)
                     emit(ChatChunk.Token(toEmit))
                 }
             }
-            // Releases whatever was held back pending a possible closing fence.
-            fence.flush().takeIf { it.isNotEmpty() }?.let {
-                accumulated.append(it)
-                emit(ChatChunk.Token(it))
-            }
+            // Releases whatever was held back pending a possible closing fence, then whatever the
+            // note gate is still holding (a stream that ended before any prose line arrived).
+            listOf(notes.push(fence.flush()), notes.flush())
+                .filter(String::isNotEmpty)
+                .forEach {
+                    accumulated.append(it)
+                    emit(ChatChunk.Token(it))
+                }
         } catch (e: kotlinx.coroutines.CancellationException) {
             // CancellationException is an Exception subtype, so a bare `catch (_: Exception)` below
             // would also swallow real cancellation (e.g. the client disconnecting) and then try to
@@ -237,7 +311,9 @@ class LlmChatComposer(
             fallback.streamCompose(request, passages).collect { emit(it) }
             return@flow
         }
-        val parsedExplanation = stripCodeFence(accumulated.toString()).trim()
+        // Cleaned again at the end for the shapes only a whole answer reveals; the gate above has
+        // already removed anything the user would otherwise have seen.
+        val parsedExplanation = ModelOutputCleaner.clean(stripCodeFence(accumulated.toString())).trim()
         val valid = PositionChatValidator.validate(parsedExplanation, passages)
         if (valid != null) {
             emit(ChatChunk.Done(ID))
@@ -282,7 +358,7 @@ class LlmChatComposer(
             val top = passages.first()
             "${top.title}: ${top.text.take(125)}"
         }
-        return base.take(PositionChatValidator.MAX_OUTPUT_CHARS).trim()
+        return base.truncateAtWord(PositionChatValidator.MAX_OUTPUT_CHARS)
     }
 
     private fun stripCodeFence(text: String): String {
