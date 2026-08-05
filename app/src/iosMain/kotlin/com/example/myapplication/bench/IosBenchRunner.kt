@@ -61,7 +61,10 @@ suspend fun runIosBench(iterations: Int) {
             override fun onGenerateStart() { genStart = nowEpochMillis() }
             override fun onFirstToken() { firstToken = nowEpochMillis() }
             override fun onGenerateComplete(tokenCount: Int) { completeMs = nowEpochMillis(); tokens = tokenCount }
-            override fun onFallback(reason: String) { fallback = true; fallbackReason = reason }
+            // See AndroidBenchRunner — description keeps the emitted JSONL byte-identical.
+            override fun onFallback(reason: com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason) {
+                fallback = true; fallbackReason = reason.description
+            }
             override fun onRawOutput(text: String) { rawOutput = text }
         }
         

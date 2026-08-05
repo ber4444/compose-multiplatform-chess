@@ -46,7 +46,7 @@ class DefaultAiCoachOrchestratorTest {
         val gen = FakeTextGenerator(status = AiAvailability.Unavailable)
         val result = orchestrator(gen).explainMove(request)
         assertIs<MoveCoachResult.FellBack>(result)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL, result.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.NoLocalModel, result.reason)
         assertEquals(0, gen.generateCount)
     }
 
@@ -55,7 +55,7 @@ class DefaultAiCoachOrchestratorTest {
         val gen = FakeTextGenerator(status = AiAvailability.Busy)
         val result = orchestrator(gen).explainMove(request)
         assertIs<MoveCoachResult.FellBack>(result)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_QUOTA, result.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.Quota, result.reason)
     }
 
 
@@ -79,7 +79,7 @@ class DefaultAiCoachOrchestratorTest {
         gen.generateInterceptor = { _, _ -> """{"headline": "Bad", "explanation": "This move does not mention the move."}""" }
         val result = orchestrator(gen).explainMove(request)
         assertIs<MoveCoachResult.FellBack>(result)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_VALIDATION, result.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.Validation, result.reason)
         assertEquals(1, gen.generateCount)
     }
 
@@ -88,7 +88,8 @@ class DefaultAiCoachOrchestratorTest {
         val gen = FakeTextGenerator(throwOnGenerate = RuntimeException("boom"))
         val result = orchestrator(gen).explainMove(request)
         assertIs<MoveCoachResult.FellBack>(result)
-        assertTrue(result.reason.contains("generation error"))
+        val reason = assertIs<AiRoutePolicyDecider.FallbackReason.Other>(result.reason)
+        assertTrue(reason.description.contains("generation error"))
     }
 
     @Test
@@ -104,7 +105,7 @@ class DefaultAiCoachOrchestratorTest {
         )
         val result = orchestrator.explainMove(request)
         assertIs<MoveCoachResult.FellBack>(result)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL, result.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.NoLocalModel, result.reason)
     }
 
     @Test
@@ -133,7 +134,30 @@ class DefaultAiCoachOrchestratorTest {
         )
         val result = orchestrator.explainMove(request)
         assertIs<MoveCoachResult.FellBack>(result)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_BACKGROUND, result.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.Background, result.reason)
+        assertEquals(0, gen.generateCount)
+    }
+
+    @Test
+    fun `CRITICAL thermal falls back to non-blank deterministic text`() = runTest {
+        // B17's hard guarantee, end to end: CRITICAL thermal must never reach the UI as an empty
+        // panel. The decider routes it to FallbackReason.Thermal (pinned in
+        // AiRoutePolicyDeciderTest) and :app maps that to FallbackPresentation.Silent — but only
+        // if there is text to render silently, which is what this asserts.
+        val gen = FakeTextGenerator()
+        val orchestrator = orchestrator(
+            gen,
+            context = AiContextSnapshot(
+                availableLocalVendors = listOf(VendorRoute.LiteRtLm()),
+                isAppForegrounded = true,
+                userSetting = AiUserSetting.OFFLINE_ONLY,
+                thermalState = ThermalState.CRITICAL,
+            ),
+        )
+        val result = orchestrator.explainMove(request)
+        assertIs<MoveCoachResult.FellBack>(result)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.Thermal, result.reason)
+        assertTrue(result.text.isNotBlank())
         assertEquals(0, gen.generateCount)
     }
 

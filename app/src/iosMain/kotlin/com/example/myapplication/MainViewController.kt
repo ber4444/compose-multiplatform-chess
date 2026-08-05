@@ -77,6 +77,22 @@ fun MainViewController(
     val gameSummaryManager = remember {
         com.example.myapplication.movecoach.GameSummaryManager()
     }
+    // Injected like pgnSharer. Null when no key is configured (see generateRevenueCatConfig in
+    // app/build.gradle.kts); the locked UnconfiguredEntitlements then applies.
+    val entitlements = remember {
+        // Platform.isDebugBinary is the K/N equivalent of Android's FLAG_DEBUGGABLE: it selects the
+        // RevenueCat Test Store key (when configured) and the SDK's debug logging together, so a
+        // debug simulator/device build never runs a purchase against a real App Store product.
+        // The opt-in is scoped to this expression rather than the file or the module: the API is
+        // experimental, and a module-wide opt-in would silently cover future uses that nobody
+        // reviewed. There is no stable equivalent — Kotlin/Native exposes no other build-type probe.
+        @OptIn(kotlin.experimental.ExperimentalNativeApi::class)
+        val debug = kotlin.native.Platform.isDebugBinary
+        com.example.myapplication.monetization.RevenueCatEntitlements.createOrNull(
+            apiKey = com.example.myapplication.monetization.revenueCatApiKey(debug = debug),
+            debugLogging = debug,
+        )
+    }
     DisposableEffect(Unit) {
         viewModel.attachEngine(engine)
 
@@ -88,6 +104,7 @@ fun MainViewController(
         )
 
         val scope = CoroutineScope(Dispatchers.Main)
+        scope.launch { entitlements?.refresh() }
         scope.launch {
             val availability = probeFoundationModelsAvailability()
             when (availability) {
@@ -159,6 +176,8 @@ fun MainViewController(
             pgnSharer = pgnSharer,
             moveCoachManager = moveCoachManager,
             gameSummaryManager = gameSummaryManager,
+            entitlements = entitlements
+                ?: remember { com.example.myapplication.monetization.UnconfiguredEntitlements() },
             switchTopPadding = (-16).dp
         )
     }

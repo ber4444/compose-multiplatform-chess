@@ -72,12 +72,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
+import com.example.myapplication.monetization.ProGate
+import com.example.myapplication.movecoach.FallbackPresentation
 import com.example.myapplication.movecoach.MoveCoachPanel
 import com.example.myapplication.movecoach.MoveCoachUiState
 import com.example.myapplication.movecoach.GameSummaryUiState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.CircularProgressIndicator
 import com.example.myapplication.opening.OpeningExplainerPanel
+import com.example.myapplication.opening.cloudCoachConfigured
 import com.example.myapplication.opening.OpeningExplainerUiState
 import game.app.generated.resources.Res
 import game.app.generated.resources.cancel_button
@@ -149,6 +152,7 @@ fun GameScreen(
     onOpenSettings: () -> Unit = {},
     onOpenRules: () -> Unit = {},
     onOpenChat: () -> Unit = {},
+    onOpenPaywall: (() -> Unit)? = null,
 ) {
     val gameState by viewModel.gameState.collectAsState()
     val animState by viewModel.animState.collectAsState()
@@ -299,6 +303,15 @@ fun GameScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                     }
 
+                    ProGate(
+                        featureName = "Game Summary",
+                        pitch = "Get a coach's read on the whole game — the turning points and what to work on.",
+                        onOpenPaywall = onOpenPaywall,
+                        // Same Unavailable check that hides the button: with no orchestrator
+                        // attached the feature would not work after a purchase either, so the
+                        // upsell has to disappear alongside it.
+                        available = summaryState !is GameSummaryUiState.Unavailable,
+                    ) {
                     when (summaryState) {
                         GameSummaryUiState.Unavailable -> Unit
                         is GameSummaryUiState.Hidden -> {
@@ -341,21 +354,50 @@ fun GameScreen(
                         }
                         is GameSummaryUiState.Fallback -> {
                             val fallback = (summaryState as GameSummaryUiState.Fallback)
+                            // B17: same three designed states as the coach panel. A silent
+                            // substitution reads as an ordinary summary — no label, no retry.
+                            val presentation = FallbackPresentation.of(fallback.reason)
                             Column(modifier = Modifier.padding(8.dp)) {
                                 Text("Coach Summary", fontWeight = FontWeight.Bold)
+                                when (presentation) {
+                                    is FallbackPresentation.Labeled -> Text(
+                                        presentation.label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                    is FallbackPresentation.Retryable -> Text(
+                                        presentation.label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                    FallbackPresentation.Silent -> Unit
+                                }
                                 Text(fallback.text, style = MaterialTheme.typography.bodyMedium)
+                                if (presentation is FallbackPresentation.Retryable) {
+                                    TextButton(onClick = { gameSummaryManager.retry() }) {
+                                        Text("Retry")
+                                    }
+                                }
                             }
                         }
                         is GameSummaryUiState.Error -> {
                             Text("Error: ${(summaryState as GameSummaryUiState.Error).message}", color = Color.Red, style = MaterialTheme.typography.bodySmall)
                         }
                     }
+                    }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
+                ProGate(
+                    featureName = "Opening Explainer",
+                    pitch = "See what opening you played and the ideas behind it.",
+                    onOpenPaywall = onOpenPaywall,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    // No base URL → the panel can only ever show its offline sentence.
+                    available = cloudCoachConfigured,
+                ) {
                 OpeningExplainerPanel(
                     state = openingExplainerState,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                 )
+                }
             }
         }
 
@@ -482,7 +524,8 @@ fun GameScreen(
                 if (coachState !is MoveCoachUiState.Hidden) {
                     MoveCoachPanel(
                         state = coachState,
-                        modifier = Modifier.weight(1f, fill = false)
+                        modifier = Modifier.weight(1f, fill = false),
+                        onRetry = moveCoachManager?.let { { it.retry() } },
                     )
                 }
             }
@@ -533,7 +576,8 @@ fun GameScreen(
                     if (coachVisible) {
                         MoveCoachPanel(
                             state = coachState,
-                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                            onRetry = moveCoachManager?.let { { it.retry() } },
                         )
                     }
                 }

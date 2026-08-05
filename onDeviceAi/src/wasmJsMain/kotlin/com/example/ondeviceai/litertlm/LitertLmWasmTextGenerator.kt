@@ -4,6 +4,7 @@ import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.AiGenerationRequest
 import com.example.ondeviceai.AiInferenceMetrics
 import com.example.ondeviceai.AiRoute
+import com.example.ondeviceai.AiRoutePolicyDecider
 import com.example.ondeviceai.AiTokenOrFinal
 import com.example.ondeviceai.OnDeviceTextGenerator
 import kotlinx.coroutines.channels.Channel
@@ -127,7 +128,7 @@ class LitertLmWasmTextGenerator(
                                 completeMs = nowMs() - started,
                                 tokenCount = 0,
                                 route = AiRoute.OnDevice,
-                                fallbackReason = msg.message,
+                                fallbackReason = AiRoutePolicyDecider.FallbackReason.Other(msg.message),
                             ),
                         ),
                     )

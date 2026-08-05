@@ -7,15 +7,15 @@ import kotlin.test.assertTrue
 class SeedCorpusTest {
     @Test
     fun `checked in corpus contains all five ECO volumes and concept notes`() {
-        val passages = SeedMain.loadCorpus(Path.of("corpus"))
+        val entries = SeedMain.loadCorpus(Path.of("corpus"))
 
-        assertTrue(passages.size > 3_800, "Expected the complete Lichess corpus plus concept notes")
+        assertTrue(entries.size > 3_800, "Expected the complete Lichess corpus plus concept notes")
         ('a'..'e').forEach { volume ->
             assertTrue(
-                passages.any { it.sourceId.startsWith("lichess-$volume-") },
+                entries.any { it.passage.sourceId.startsWith("lichess-$volume-") },
                 "Missing ECO volume $volume",
             )
         }
-        assertTrue(passages.any { it.sourceId.startsWith("concept-") })
+        assertTrue(entries.any { it.passage.sourceId.startsWith("concept-") })
     }
 }

@@ -179,7 +179,7 @@ class AiRoutePolicyDeciderTest {
             ),
         )
         assertIs<AiRoutePolicyDecider.Decision.FallBack>(decision)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_BACKGROUND, decision.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.Background, decision.reason)
     }
 
     @Test
@@ -225,7 +225,7 @@ class AiRoutePolicyDeciderTest {
             cloudCapable,
         )
         assertIs<AiRoutePolicyDecider.Decision.FallBack>(decision)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL, decision.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.NoLocalModel, decision.reason)
     }
 
     @Test
@@ -236,7 +236,7 @@ class AiRoutePolicyDeciderTest {
             backgrounded,
         )
         assertIs<AiRoutePolicyDecider.Decision.FallBack>(decision)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_BACKGROUND, decision.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.Background, decision.reason)
     }
 
     @Test
@@ -295,7 +295,7 @@ class AiRoutePolicyDeciderTest {
         )
         val decision = AiRoutePolicyDecider.decide(policy, context)
         assertIs<AiRoutePolicyDecider.Decision.FallBack>(decision)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL, decision.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.NoLocalModel, decision.reason)
     }
 
     @Test
@@ -334,7 +334,7 @@ class AiRoutePolicyDeciderTest {
         )
         val decision = AiRoutePolicyDecider.decide(policy, context)
         assertIs<AiRoutePolicyDecider.Decision.FallBack>(decision)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_NO_NETWORK, decision.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.NoNetwork, decision.reason)
     }
 
     @Test
@@ -363,7 +363,7 @@ class AiRoutePolicyDeciderTest {
         val context = moveCoachContext.copy(thermalState = ThermalState.CRITICAL)
         val decision = AiRoutePolicyDecider.decide(policy, context)
         assertIs<AiRoutePolicyDecider.Decision.FallBack>(decision)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_THERMAL, decision.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.Thermal, decision.reason)
     }
 
     @Test
@@ -488,7 +488,7 @@ class AiRoutePolicyDeciderTest {
         listOf(AiRoutePolicies.moveCoachOffline, AiRoutePolicies.rulesQaOffline).forEach { policy ->
             val decision = AiRoutePolicyDecider.decide(policy, cloudReachableContext)
             assertIs<AiRoutePolicyDecider.Decision.FallBack>(decision)
-            assertEquals(AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL, decision.reason)
+            assertEquals(AiRoutePolicyDecider.FallbackReason.NoLocalModel, decision.reason)
         }
     }
 
@@ -540,7 +540,7 @@ class AiRoutePolicyDeciderTest {
             ),
         )
         assertIs<AiRoutePolicyDecider.Decision.FallBack>(decision)
-        assertEquals(AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL, decision.reason)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.NoLocalModel, decision.reason)
     }
 
     // --- allowLocal: the cloud-only guarantee, independent of vendor availability ---------------

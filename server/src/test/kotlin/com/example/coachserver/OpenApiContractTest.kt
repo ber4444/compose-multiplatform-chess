@@ -25,8 +25,19 @@ class OpenApiContractTest {
         val dependencies = ServerDependencies(
             embedder = Embedder { FloatArray(384) },
             passageRepository = object : PassageRepository {
-                override fun retrieve(embedding: FloatArray, limit: Int) = listOf(passage)
-                override fun upsert(passage: Passage, embedding: FloatArray) = Unit
+                override fun retrieve(
+                    embedding: FloatArray,
+                    limit: Int,
+                    movesSan: List<String>,
+                    eco: String?,
+                ) = RetrievalResult(listOf(passage), eco)
+
+                override fun upsert(
+                    passage: Passage,
+                    embedding: FloatArray,
+                    eco: String?,
+                    moves: String?,
+                ) = Unit
             },
             composer = TemplateComposer(),
         )

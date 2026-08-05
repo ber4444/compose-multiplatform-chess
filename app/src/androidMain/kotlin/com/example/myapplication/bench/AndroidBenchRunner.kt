@@ -91,7 +91,11 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
             override fun onGenerateStart() { genStart = System.currentTimeMillis() }
             override fun onFirstToken() { firstToken = System.currentTimeMillis() }
             override fun onGenerateComplete(tokenCount: Int) { completeMs = System.currentTimeMillis(); tokens = tokenCount }
-            override fun onFallback(reason: String) { fallback = true; fallbackReason = reason }
+            // Store the description, not the sealed object: the JSONL line below is consumed by
+            // docs/benchmarks/on-device-ai/, and description preserves the exact prior strings.
+            override fun onFallback(reason: com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason) {
+                fallback = true; fallbackReason = reason.description
+            }
             override fun onRawOutput(text: String) { rawOutput = text }
         }
         

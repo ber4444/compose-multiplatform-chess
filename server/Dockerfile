@@ -25,6 +25,11 @@ ENV PORT=8080
 
 WORKDIR /opt/coach-server
 COPY --from=build /workspace/server/build/install/server/ ./
+# The corpus is NOT part of installDist output, so without this the runtime image ships no TSVs and
+# the documented in-container seed (`java -cp "lib/*" SeedMain`) dies on NoSuchFileException for
+# ./corpus. That is the only seed path that works on Fly — `.flycast` is unreachable from outside
+# the private network — so omitting it made the documented procedure impossible to run.
+COPY --from=build /workspace/server/corpus/ ./corpus/
 
 EXPOSE 8080
 ENTRYPOINT ["bin/server"]

@@ -50,6 +50,14 @@ class KtorOpeningExplainerClient(
 
 internal expect fun openingExplainerHttpClientEngine(): HttpClientEngine
 
+/**
+ * Whether this build has a cloud coach base URL at all (`CHESS_COACH_BASE_URL` env →
+ * `coach.baseUrl` in `local.properties` → empty). Both cloud surfaces — Opening Explainer and
+ * Position Chat — degrade to a fixed offline sentence without it, so this is what their `ProGate`
+ * passes as `available`: an unconfigured build must not sell them.
+ */
+val cloudCoachConfigured: Boolean get() = OPENING_EXPLAINER_BASE_URL.isNotBlank()
+
 fun createOpeningExplainer(): OpeningExplainer {
     val baseUrl = OPENING_EXPLAINER_BASE_URL.trim()
     val client = baseUrl.takeIf(String::isNotEmpty)?.let {

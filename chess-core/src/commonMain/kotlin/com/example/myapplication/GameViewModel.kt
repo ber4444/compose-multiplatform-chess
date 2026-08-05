@@ -5,11 +5,15 @@ import com.example.myapplication.GameSnapshotMapper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 class GameViewModel(
     gameState: GameUiState = GameUiState(),
@@ -41,6 +45,16 @@ class GameViewModel(
     private var hintJob: Job? = null
 
     /**
+     * Guards the engine's *global* skill level, which is process-wide state on a single UCI
+     * process: `setoption name Skill Level` applies to every subsequent search, not to one call.
+     * `BaseStockfishEngine`'s own mutex serializes individual UCI exchanges but knows nothing about
+     * this, so without the lock a hint (which raises the engine to HARD) overlapping the idle
+     * analysis makes `evaluatePositionCp` return a full-strength evaluation that is then compared
+     * against a weak-engine move — producing the wrong quality bracket on the coached move.
+     */
+    private val engineStrengthMutex = Mutex()
+
+    /**
      * Computes a full-strength Stockfish move hint for the player's turn (B5).
      * Requires an attached engine, guards turn state, and cancels previous hint requests.
      */
@@ -59,14 +73,22 @@ class GameViewModel(
         val enemyPositions = if (current.turn == Set.WHITE) current.positionsBlack else current.positionsWhite
         val enemyPieces = if (current.turn == Set.WHITE) current.piecesBlack else current.piecesWhite
 
-        try {
-            engine.configure(EngineDifficulty.HARD)
-            val move = pickMoveStockfish(engine, current, enemyPositions, enemyPieces, allyPositions, allyPieces)
-            val hint = formatHint(current, move, allyPositions, allyPieces, enemyPositions)
-            _hintText.value = hint
-            return hint
-        } finally {
-            engine.configure(engineDifficulty)
+        return engineStrengthMutex.withLock {
+            try {
+                engine.configure(EngineDifficulty.HARD)
+                val move = pickMoveStockfish(engine, current, enemyPositions, enemyPieces, allyPositions, allyPieces)
+                val hint = formatHint(current, move, allyPositions, allyPieces, enemyPositions)
+                _hintText.value = hint
+                hint
+            } finally {
+                // NonCancellable is load-bearing. `requestHint()` cancels the previous hintJob on
+                // every tap, and `ChessEngine.configure` is a *suspend* function: in a cancelled
+                // coroutine it throws CancellationException at its first suspension point, so the
+                // restore never reaches Stockfish. The engine would then stay at Skill Level 20 for
+                // the rest of the game — a player on Easy silently plays a full-strength opponent,
+                // with no error and nothing in the UI to explain it.
+                withContext(NonCancellable) { engine.configure(engineDifficulty) }
+            }
         }
     }
 
@@ -587,7 +609,11 @@ class GameViewModel(
         // Expensive call behind Mutex
         // Bound cpBest by movetime, not depth, as requested in RAG-1 B1a.4
         val stateBefore = FenConverter.fenToGameState(fenBefore)
-        val cpBest = evaluatePositionCp(engine, stateBefore, engineDifficulty.thinkTimeMs) ?: return
+        // Held across the evaluation so a concurrent hint can't leave the engine at HARD underneath
+        // it — see engineStrengthMutex.
+        val cpBest = engineStrengthMutex.withLock {
+            evaluatePositionCp(engine, stateBefore, engineDifficulty.thinkTimeMs)
+        } ?: return
 
         // Motif detection (fast)
         val stateBeforeObj = FenConverter.fenToGameState(fenBefore)

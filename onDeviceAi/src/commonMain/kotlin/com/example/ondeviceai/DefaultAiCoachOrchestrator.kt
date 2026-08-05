@@ -48,25 +48,31 @@ class DefaultAiCoachOrchestrator(
     private suspend fun runOnDevice(request: MoveCoachRequest, route: VendorRoute): MoveCoachEvent {
         val start = clock()
         val generator = runCatching { executor.execute(route) }.getOrElse {
-            return fallback(request, "generator factory failed: ${it.message}")
-        } ?: return fallback(request, AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL)
+            return fallback(
+                request,
+                AiRoutePolicyDecider.FallbackReason.Other("generator factory failed: ${it.message}"),
+            )
+        } ?: return fallback(request, AiRoutePolicyDecider.FallbackReason.NoLocalModel)
 
         return try {
             when (val status = generator.status()) {
                 is AiAvailability.Available -> runGeneration(request, generator, start)
-                is AiAvailability.Busy -> fallback(request, AiRoutePolicyDecider.FALLBACK_QUOTA)
+                is AiAvailability.Busy -> fallback(request, AiRoutePolicyDecider.FallbackReason.Quota)
                 is AiAvailability.Error ->
-                    fallback(request, "availability error: ${status.message}")
+                    fallback(
+                        request,
+                        AiRoutePolicyDecider.FallbackReason.Other("availability error: ${status.message}"),
+                    )
                 is AiAvailability.Downloadable,
                 is AiAvailability.Downloading,
                 AiAvailability.Unavailable ->
-                    fallback(request, AiRoutePolicyDecider.FALLBACK_NO_LOCAL_MODEL)
+                    fallback(request, AiRoutePolicyDecider.FallbackReason.NoLocalModel)
             }
         } catch (ce: CancellationException) {
             throw ce
         } catch (t: Throwable) {
             logger.w(t) { "On-device generation threw; falling back" }
-            fallback(request, "generation error: ${t.message}")
+            fallback(request, AiRoutePolicyDecider.FallbackReason.Other("generation error: ${t.message}"))
         } finally {
             runCatching { generator.close() }
         }
@@ -79,7 +85,7 @@ class DefaultAiCoachOrchestrator(
     ): MoveCoachEvent {
         val prompt = MoveCoachPromptBuilder.build(request)
         val outcome = collectGenerate(request, generator, prompt, startMs)
-            ?: return fallback(request, AiRoutePolicyDecider.FALLBACK_TIMEOUT)
+            ?: return fallback(request, AiRoutePolicyDecider.FallbackReason.Timeout)
         benchProbe.onRawOutput(outcome.rawText)
 
         val parsedExplanation = stripCodeFence(outcome.rawText).trim()
@@ -91,7 +97,7 @@ class DefaultAiCoachOrchestrator(
             is MoveCoachResponseValidator.Result.Valid -> success(request, parsedExplanation, outcome.metrics)
             is MoveCoachResponseValidator.Result.Invalid -> {
                 logger.w { "Validation failed: ${validation.reason}" }
-                fallback(request, AiRoutePolicyDecider.FALLBACK_VALIDATION)
+                fallback(request, AiRoutePolicyDecider.FallbackReason.Validation)
             }
         }
     }
@@ -155,7 +161,7 @@ class DefaultAiCoachOrchestrator(
         )
     )
 
-    private fun fallback(request: MoveCoachRequest, reason: String): MoveCoachEvent {
+    private fun fallback(request: MoveCoachRequest, reason: AiRoutePolicyDecider.FallbackReason): MoveCoachEvent {
         benchProbe.onFallback(reason)
         return complete(
             MoveCoachResult.FellBack(

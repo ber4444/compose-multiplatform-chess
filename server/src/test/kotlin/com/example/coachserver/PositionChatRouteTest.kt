@@ -309,6 +309,49 @@ class PositionChatRouteTest {
         assertEquals(text, PositionChatValidator.validate(text, listOf(passage)))
     }
 
+    // --- B4b: strip before validating, and never stream the fence to the user -----------------
+
+    @Test
+    fun `a fenced stream both validates and reaches the user without the fence`() {
+        // B4b end-to-end at the composer's two exit points. Note the validator is permissive
+        // enough to accept fenced text as-is (the citation survives), so stripping before
+        // validating is defensive; what it definitely fixes is the fence being *streamed*.
+        val inner = "The king pawns contest the center [lichess-c20]."
+        val stripper = LlmChatComposer.CodeFenceStripper()
+        val emitted = stripper.push("```json\n$inner\n```") + stripper.flush()
+
+        assertEquals(false, emitted.contains("```"))
+        assertEquals(inner, PositionChatValidator.validate(emitted, listOf(passage)))
+    }
+
+    @Test
+    fun `stripper removes an opening fence with a language tag`() {
+        val stripper = LlmChatComposer.CodeFenceStripper()
+        val out = stripper.push("```json\nThe center [lichess-c20].\n```") + stripper.flush()
+        assertEquals("The center [lichess-c20].\n", out)
+    }
+
+    @Test
+    fun `stripper passes unfenced prose through unchanged`() {
+        val stripper = LlmChatComposer.CodeFenceStripper()
+        val out = stripper.push("The center [lichess-c20].") + stripper.flush()
+        assertEquals("The center [lichess-c20].", out)
+    }
+
+    @Test
+    fun `stripper holds back a fence split across token boundaries`() {
+        // The real failure mode: tokens arrive as "``", "`js", "\n", … so a whole-string regex
+        // never sees a fence and the user watches one render character by character.
+        val stripper = LlmChatComposer.CodeFenceStripper()
+        val emitted = buildString {
+            listOf("``", "`", "json", "\n", "The center ", "[lichess-c20].", "\n``", "`")
+                .forEach { append(stripper.push(it)) }
+            append(stripper.flush())
+        }
+        assertEquals(false, emitted.contains("`"))
+        assertEquals("The center [lichess-c20].", emitted.trim())
+    }
+
     @Test
     fun `validator rejects forbidden engine phrases`() {
         val text = "I think Stockfish probably depth 30 likes the center [lichess-c20]."
@@ -342,8 +385,19 @@ class PositionChatRouteTest {
     }
 
     private fun inMemoryRepo(passages: List<Passage>) = object : PassageRepository {
-        override fun retrieve(embedding: FloatArray, limit: Int): List<Passage> = passages.take(limit)
-        override fun upsert(passage: Passage, embedding: FloatArray) = Unit
+        override fun retrieve(
+            embedding: FloatArray,
+            limit: Int,
+            movesSan: List<String>,
+            eco: String?,
+        ) = RetrievalResult(passages.take(limit), eco)
+
+        override fun upsert(
+            passage: Passage,
+            embedding: FloatArray,
+            eco: String?,
+            moves: String?,
+        ) = Unit
     }
 
     private val sseJson = Json { ignoreUnknownKeys = true }

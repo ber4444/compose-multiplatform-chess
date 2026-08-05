@@ -13,7 +13,6 @@ jobs:
     name: Analyze (${{ matrix.language }})
     runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
     timeout-minutes: ${{ (matrix.language == 'swift' && 120) || 360 }}
-    if: matrix.language != 'swift' || github.event_name != 'pull_request'
     permissions:
       security-events: write
       packages: read
@@ -23,17 +22,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-        - language: actions
-          build-mode: none
-        - language: c-cpp
-          build-mode: none
-        - language: java-kotlin
-          build-mode: manual
-        - language: javascript-typescript
-          build-mode: none
-        - language: swift
-          build-mode: manual
+        # Swift analysis needs a macOS runner and ~2h, so it is skipped on pull_request and left to
+        # the push-to-main and weekly scheduled runs.
+        #
+        # This selection lives in the matrix, NOT in a job-level `if:`. `jobs.<job_id>.if` is
+        # evaluated before the matrix expands and therefore has no `matrix` context — referencing it
+        # there makes the entire workflow file invalid, which GitHub reports as a 0-second run named
+        # after the file path rather than the workflow. (`runs-on`, `timeout-minutes`, `name` and
+        # `steps` below *do* have matrix context; `if` at job level is the exception.)
+        #
+        # `build-mode` is derived per step rather than via `include:`, because an `include` entry
+        # whose `language` is absent from the list creates a *new* combination instead of annotating
+        # one — which would silently add Swift back on pull requests.
+        language: ${{ fromJSON(github.event_name == 'pull_request' && '["actions","c-cpp","java-kotlin","javascript-typescript"]' || '["actions","c-cpp","java-kotlin","javascript-typescript","swift"]') }}
 
     steps:
     - name: Checkout repository
@@ -94,7 +95,7 @@ jobs:
       uses: github/codeql-action/init@v3
       with:
         languages: ${{ matrix.language }}
-        build-mode: ${{ matrix.build-mode }}
+        build-mode: ${{ (matrix.language == 'java-kotlin' || matrix.language == 'swift') && 'manual' || 'none' }}
         # Trim vendored Filament/Stockfish payloads, build output, and test
         # sources from analysis — see .github/codeql-config.yml.
         config-file: .github/codeql-config.yml

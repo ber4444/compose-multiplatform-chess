@@ -29,7 +29,7 @@ data class AiInferenceMetrics(
     val completeMs: Long?,
     val tokenCount: Int,
     val route: AiRoute,
-    val fallbackReason: String? = null,
+    val fallbackReason: AiRoutePolicyDecider.FallbackReason? = null,
 )
 
 interface OnDeviceTextGenerator {

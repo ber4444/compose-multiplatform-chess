@@ -33,6 +33,6 @@ data class MoveCoachExplanation(
 
 sealed interface MoveCoachResult {
     data class Success(val explanation: MoveCoachExplanation) : MoveCoachResult
-    data class FellBack(val text: String, val reason: String) : MoveCoachResult
+    data class FellBack(val text: String, val reason: AiRoutePolicyDecider.FallbackReason) : MoveCoachResult
     data class Failed(val message: String) : MoveCoachResult
 }

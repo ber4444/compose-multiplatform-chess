@@ -74,11 +74,25 @@ class AppSettings(private val settings: Settings) {
 
     private fun readPlayerSide(): String = settings.getString(KEY_PLAYER_SIDE, "WHITE")
 
+    /**
+     * Locally-granted Pro on the **storeless** targets only (desktop, wasm), read once at the entry
+     * point to seed `NoOpEntitlements` and written back when the free unlock happens.
+     *
+     * Not a general entitlement store, and never read on Android/iOS: those get their state from
+     * RevenueCat, and a device-writable settings key would be a trivial paywall bypass there.
+     */
+    val proUnlocked: Boolean get() = settings.getBoolean(KEY_PRO_UNLOCKED, false)
+
+    fun setProUnlocked(unlocked: Boolean) {
+        settings.putBoolean(KEY_PRO_UNLOCKED, unlocked)
+    }
+
     companion object {
         const val KEY_BOARD_3D = "settings.board_3d_enabled"
         const val KEY_ENGINE_DIFFICULTY = "settings.engine_difficulty"
         const val KEY_AI_COACH = "settings.ai_coach_enabled"
         const val KEY_PLAYER_SIDE = "settings.player_side"
+        const val KEY_PRO_UNLOCKED = "settings.pro_unlocked"
     }
 }
 

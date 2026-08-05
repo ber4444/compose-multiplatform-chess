@@ -19,7 +19,7 @@ data class GameSummaryExplanation(
 
 sealed interface GameSummaryResult {
     data class Success(val explanation: GameSummaryExplanation) : GameSummaryResult
-    data class FellBack(val text: String, val reason: String) : GameSummaryResult
+    data class FellBack(val text: String, val reason: AiRoutePolicyDecider.FallbackReason) : GameSummaryResult
     data class Failed(val message: String) : GameSummaryResult
 }
 

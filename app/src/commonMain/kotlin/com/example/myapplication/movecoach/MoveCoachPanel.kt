@@ -1,5 +1,7 @@
 package com.example.myapplication.movecoach
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,8 +34,21 @@ import kotlinx.coroutines.delay
 fun MoveCoachPanel(
     state: MoveCoachUiState,
     modifier: Modifier = Modifier,
+    onRetry: (() -> Unit)? = null,
 ) {
     if (state is MoveCoachUiState.Hidden) return
+
+    // B17: a fallback is not one state. Silent substitutions render exactly like a normal coach
+    // line (no label, no chrome) because the deterministic text is the product; only quota and
+    // timeout earn an explanation, and only timeout earns a retry.
+    val presentation = (state as? MoveCoachUiState.Fallback)?.let {
+        FallbackPresentation.of(it.reason)
+    }
+    val label: String? = when (presentation) {
+        is FallbackPresentation.Labeled -> presentation.label
+        is FallbackPresentation.Retryable -> presentation.label
+        FallbackPresentation.Silent, null -> null
+    }
 
     val text: String = when (state) {
         is MoveCoachUiState.Ready -> state.explanation.explanation
@@ -79,10 +95,29 @@ fun MoveCoachPanel(
             )
             Spacer(modifier = Modifier.size(8.dp))
         }
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodySmall,
-            color = Color.White,
-        )
+        Column {
+            if (label != null) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.testTag("move_coach_fallback_label"),
+                )
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White,
+            )
+            if (presentation is FallbackPresentation.Retryable && onRetry != null) {
+                TextButton(
+                    onClick = onRetry,
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    modifier = Modifier.testTag("move_coach_retry"),
+                ) {
+                    Text(text = "Retry", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
     }
 }

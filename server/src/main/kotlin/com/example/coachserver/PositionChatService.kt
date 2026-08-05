@@ -140,6 +140,10 @@ class LlmChatComposer(
         val accumulated = StringBuilder()
         var insideThink = false
         var buffer = StringBuilder()
+        // Stripping the fence only from the copy handed to the validator fixes the rejection but
+        // still streams ```json to the user. Both the emitted tokens and the validated text go
+        // through this, so what the judge sees and what the validator sees are the same string.
+        val fence = CodeFenceStripper()
         
         try {
             client.streamGenerate(SYSTEM_PROMPT, prompt, request.history, maxOutputTokens).collect { delta ->
@@ -161,13 +165,15 @@ class LlmChatComposer(
                                     break // Wait for more tokens
                                 }
                                 // No <think> started, emit everything
-                                val toEmit = buffer.substring(i)
-                                accumulated.append(toEmit)
-                                emit(ChatChunk.Token(toEmit))
+                                val toEmit = fence.push(buffer.substring(i))
+                                if (toEmit.isNotEmpty()) {
+                                    accumulated.append(toEmit)
+                                    emit(ChatChunk.Token(toEmit))
+                                }
                                 i = buffer.length
                             } else {
                                 // Emit up to <think>
-                                val toEmit = buffer.substring(i, thinkIdx)
+                                val toEmit = fence.push(buffer.substring(i, thinkIdx))
                                 if (toEmit.isNotEmpty()) {
                                     accumulated.append(toEmit)
                                     emit(ChatChunk.Token(toEmit))
@@ -199,9 +205,16 @@ class LlmChatComposer(
                 }
             }
             if (!insideThink && buffer.isNotEmpty()) {
-                val toEmit = buffer.toString()
-                accumulated.append(toEmit)
-                emit(ChatChunk.Token(toEmit))
+                val toEmit = fence.push(buffer.toString())
+                if (toEmit.isNotEmpty()) {
+                    accumulated.append(toEmit)
+                    emit(ChatChunk.Token(toEmit))
+                }
+            }
+            // Releases whatever was held back pending a possible closing fence.
+            fence.flush().takeIf { it.isNotEmpty() }?.let {
+                accumulated.append(it)
+                emit(ChatChunk.Token(it))
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             // CancellationException is an Exception subtype, so a bare `catch (_: Exception)` below
@@ -210,12 +223,22 @@ class LlmChatComposer(
             // again, uncaught, which is what turns an ordinary disconnect into an unclean connection
             // reset instead of the graceful fallback this composer intends. Must propagate untouched.
             throw e
-        } catch (_: Exception) {
-            // Provider failure mid-stream → downgrade to deterministic fallback text.
+        } catch (e: Exception) {
+            // Provider failure mid-stream → downgrade to deterministic fallback text. Logged
+            // because the downgrade is otherwise invisible: the client sees a normal answer with
+            // `composerId = template-chat-v1` and no way to tell a provider outage from a
+            // deliberately deterministic deployment. The most common cause is the provider
+            // exceeding CHAT_PROVIDER_TIMEOUT_MS, which produces boilerplate after a long wait —
+            // worse UX than an error, so it has to be visible in the logs to be tuned.
+            println(
+                "chat-provider-failed after ${accumulated.length} chars: " +
+                    "${e::class.simpleName}: ${e.message?.take(200)}"
+            )
             fallback.streamCompose(request, passages).collect { emit(it) }
             return@flow
         }
-        val valid = PositionChatValidator.validate(accumulated.toString(), passages)
+        val parsedExplanation = stripCodeFence(accumulated.toString()).trim()
+        val valid = PositionChatValidator.validate(parsedExplanation, passages)
         if (valid != null) {
             emit(ChatChunk.Done(ID))
         } else {
@@ -223,7 +246,7 @@ class LlmChatComposer(
             // bubble with no way to tell a provider outage from a validator veto.
             println(
                 "chat-validation-rejected ids=${passages.map(Passage::sourceId)} " +
-                    "text=${accumulated.toString().take(400)}"
+                    "text=${parsedExplanation.take(400)}"
             )
             emit(ChatChunk.Fallback(fallbackText(request, passages)))
         }
@@ -262,6 +285,68 @@ class LlmChatComposer(
         return base.take(PositionChatValidator.MAX_OUTPUT_CHARS).trim()
     }
 
+    private fun stripCodeFence(text: String): String {
+        val trimmed = text.trim()
+        val match = CODE_FENCE.matchEntire(trimmed) ?: return trimmed
+        return match.groupValues[1].trim()
+    }
+
+    /**
+     * Removes a markdown code fence from a *stream*, where [stripCodeFence]'s whole-string regex
+     * can't be applied because neither end has arrived yet.
+     *
+     * Two hold-backs, both minimal:
+     * - **Opening fence.** Until the first non-blank text arrives, output is withheld: if it opens
+     *   with ``` the whole opener line (``` plus any language tag) is dropped; otherwise everything
+     *   is released unchanged and the stripper becomes a pass-through for the rest of the stream.
+     * - **Closing fence.** A trailing run of up to three backticks is always withheld, since it may
+     *   be the start of the closer. [flush] releases it if the stream ended without one.
+     *
+     * Consequence worth knowing: a reply legitimately ending in a backtick loses it. Chess prose
+     * doesn't, and rendering ```json to the user is the worse failure.
+     */
+    internal class CodeFenceStripper {
+        private var resolvedOpening = false
+        private val pending = StringBuilder()
+
+        fun push(text: String): String {
+            pending.append(text)
+            if (!resolvedOpening) {
+                val lead = pending.toString().trimStart()
+                if (lead.isEmpty()) return ""
+                if (lead.length < 3 && "```".startsWith(lead)) return "" // still ambiguous
+                if (lead.startsWith("```")) {
+                    val newline = lead.indexOf('\n')
+                    if (newline == -1) return "" // opener line incomplete, e.g. "```js"
+                    pending.setLength(0)
+                    pending.append(lead.substring(newline + 1))
+                } else {
+                    pending.setLength(0)
+                    pending.append(lead)
+                }
+                resolvedOpening = true
+            }
+            val held = trailingBacktickRun()
+            val out = pending.substring(0, pending.length - held)
+            val tail = pending.substring(pending.length - held)
+            pending.setLength(0)
+            pending.append(tail)
+            return out
+        }
+
+        fun flush(): String {
+            val remainder = pending.toString()
+            pending.setLength(0)
+            return if (remainder.all { it == '`' }) "" else remainder
+        }
+
+        private fun trailingBacktickRun(): Int {
+            var count = 0
+            while (count < 3 && count < pending.length && pending[pending.length - 1 - count] == '`') count++
+            return count
+        }
+    }
+
     companion object {
         private const val ID = "llm-chat-v1"
         private const val MAX_PROVIDER_INPUT_CHARS = 8_000
@@ -270,6 +355,10 @@ class LlmChatComposer(
         private const val SYSTEM_PROMPT =
             "You are a chess position coach answering the player's question. " +
                 "Use only the supplied passages. Do not mention engine depth, ratings, or unsupported claims."
+        private val CODE_FENCE = Regex(
+            "^```(?:json)?\\s*\\n?([\\s\\S]*?)\\n?```\\s*$",
+            RegexOption.IGNORE_CASE,
+        )
     }
 }
 
@@ -473,15 +562,25 @@ class PositionChatService(
     private val dependencies: ChatServerDependencies,
 ) {
     suspend fun chat(request: PositionChatRequest): Flow<ChatChunk> {
-        val passages = withContext(Dispatchers.IO) {
+        val retrieval = withContext(Dispatchers.IO) {
             validateRequest(request)
             val embedding = dependencies.embedder.embed(PositionChatQueryBuilder.build(request))
             require(embedding.size == OpeningService.EMBEDDING_DIMENSIONS) {
                 "embedder returned ${embedding.size} values; expected ${OpeningService.EMBEDDING_DIMENSIONS}"
             }
-            dependencies.passageRepository.retrieve(embedding, RETRIEVAL_LIMIT)
+            dependencies.passageRepository.retrieve(
+                embedding = embedding,
+                limit = RETRIEVAL_LIMIT,
+                movesSan = request.movesSan,
+                eco = request.eco,
+            )
         }
-        return dependencies.streamingChatComposer.streamCompose(request, passages)
+        return dependencies.streamingChatComposer.streamCompose(
+            // Same reason as the opening route: clients send eco = null, so the composer's ECO line
+            // is "unknown" unless the server hands back the one it resolved from the move prefix.
+            request.copy(eco = retrieval.resolvedEco ?: request.eco),
+            retrieval.passages,
+        )
     }
 
     private fun validateRequest(request: PositionChatRequest) {
