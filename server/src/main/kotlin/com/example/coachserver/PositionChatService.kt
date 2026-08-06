@@ -632,12 +632,6 @@ object PositionChatValidator {
                 val sourceText = cited.joinToString(" ") { id ->
                     byId.getValue(id).let { "${it.title} ${it.text}" }
                 }.lowercase()
-                val sourceTokens = words.findAll(sourceText).map { it.value }.filter { it !in stopWords }.toSet()
-                val claimTokens = words.findAll(sentence.lowercase())
-                    .map { it.value }
-                    .filter { it.length >= 4 && it !in stopWords }
-                    .filterNot { token -> cited.any { id -> token in id.lowercase() } }
-                    .toSet()
                 unsupportedCertainty.any { phrase -> phrase in sentence.lowercase() && phrase !in sourceText }
             }) return null
         return text
