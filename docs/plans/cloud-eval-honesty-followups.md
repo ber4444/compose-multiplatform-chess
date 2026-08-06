@@ -40,11 +40,6 @@ must include both Opening Explainer and Position Chat, including adversarial que
 - [ ] Review both routes against the acceptance bar and record representative failures.
 - [ ] Re-run the deployed 8-opening retrieval probe and the server test suite.
 
-If reseeding cannot finish reliably, batch `PostgresPassageRepository.upsert` before treating the
-deployment as complete. One connection per row is not acceptable for thousands of rows; the seed
-must use a bounded batch/transaction, report progress, and expose a deterministic completeness
-check.
-
 ## R-1 implementation strategy
 
 ### 1. Retrieve the most specific line
