@@ -35,9 +35,8 @@ must include both Opening Explainer and Position Chat, including adversarial que
 - [ ] Verify corpus completeness by database row count and seed version; do not infer completeness
       from API text. The seed input is walked in sorted order, so the final file's inserted rows can
       be used as an additional coverage check.
-- [ ] Run `tools/collect_cloud_samples.sh` and retain the raw output, response metadata, composer id,
-      finish reason, fallback reason, and retrieved passage identifiers.
-- [ ] Review both routes against the acceptance bar and record representative failures.
+- [ ] Run `tools/collect_cloud_samples.sh <base-url> <output-directory>` and retain the generated directory containing the raw JSON payloads, raw chat SSE, and `summary.json`.
+- [ ] Review the `summary.json` against the acceptance bar and record representative failures.
 - [ ] Re-run the deployed 8-opening retrieval probe and the server test suite.
 
 ## R-1 implementation strategy

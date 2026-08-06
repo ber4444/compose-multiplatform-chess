@@ -502,15 +502,19 @@ curl https://compose-chess-opening-coach.fly.dev/health
 # 6a. Verify the database is seeded from this image's corpus rather than inferring it from API prose.
 DATABASE_URL=… ./gradlew :server:verifyCorpus
 
-# 7. Point the app at it (local dev via local.properties, or CI/deploy via env var):
+# 7. Collect diagnostics for R-1 hand-review (before testing with the app):
+tools/collect_cloud_samples.sh https://compose-chess-opening-coach.fly.dev
+# → inspect the written samples directory and record the verdict in docs/plans/cloud-eval-honesty-followups.md
+
+# 8. Point the app at it (local dev via local.properties, or CI/deploy via env var):
 echo "coach.baseUrl=https://compose-chess-opening-coach.fly.dev" >> local.properties
 # or: export CHESS_COACH_BASE_URL=https://compose-chess-opening-coach.fly.dev
 
-# 8. Verify retrieval end to end (eight real openings; sends eco = null like the real clients):
+# 9. Verify retrieval end to end (eight real openings; sends eco = null like the real clients):
 tools/verify_opening_retrieval.sh
 # → each row should show the expected ECO and `wrong ECO retrieved: 0/8`
 
-# 9. (Optional) Enable the paid LLM composer for richer prose. Set the cost cap explicitly,
+# 10. (Optional) Enable the paid LLM composer for richer prose. Set the cost cap explicitly,
 #    sized as described below:
 fly secrets set --app compose-chess-opening-coach \
   COACH_LLM_API_KEY=… \
