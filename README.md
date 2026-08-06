@@ -497,7 +497,10 @@ fly ssh console --app compose-chess-opening-coach --command \
 
 # 6. Verify the service is live
 curl https://compose-chess-opening-coach.fly.dev/health
-# → ok
+# → {"status":"ok","releaseVersion":"…","corpus":{"ready":true,…}}
+
+# 6a. Verify the database is seeded from this image's corpus rather than inferring it from API prose.
+DATABASE_URL=… ./gradlew :server:verifyCorpus
 
 # 7. Point the app at it (local dev via local.properties, or CI/deploy via env var):
 echo "coach.baseUrl=https://compose-chess-opening-coach.fly.dev" >> local.properties
