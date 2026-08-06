@@ -96,9 +96,6 @@ composer.
 - Make label/title ownership explicit so only one layer renders an opening label.
 - Preserve spaces and sentence boundaries through SSE chunking and final assembly.
 - Keep word-boundary truncation and deliberation cleanup covered by tests.
-- Make the collector print `composerId`, fallback/validator reason, finish reason, and `done`.
-- Ensure terminal composer/fallback output is distinguishable from a stream that simply ended.
-- Capture raw provider output for successful and rejected responses.
 
 ## Evaluation and monitoring
 
@@ -107,8 +104,6 @@ composer.
   rates.
 - Add sampled human usefulness review using the acceptance bar above. A high validator rate cannot
   close R-1 by itself.
-- Track provider, model, prompt version, retrieval ids, token usage, latency, finish reason, and
-  fallback category.
 - Treat the server's request cap as per-request estimation, not cumulative spend; keep policy and
   enforcement values visible and tested.
 - Keep cloud CI coverage enabled for server, eval, and corpus changes. A skipped retrieval gate is
