@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.coachserver.OpeningRetrievalGroundingTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-08-06T03:25:58.131Z" hostname="runnervmvrwv9" time="8.925">
+  <properties/>
+  <testcase name="retrieved passages say something beyond restating the ECO code()" classname="com.example.coachserver.OpeningRetrievalGroundingTest" time="0.009"/>
+  <testcase name="a position with no move history falls back to vector search()" classname="com.example.coachserver.OpeningRetrievalGroundingTest" time="0.014"/>
+  <testcase name="a line deeper than the book still resolves to the family it belongs to()" classname="com.example.coachserver.OpeningRetrievalGroundingTest" time="0.007"/>
+  <testcase name="the offline book index resolves exactly what the SQL book tier resolves()" classname="com.example.coachserver.OpeningRetrievalGroundingTest" time="0.196"/>
+  <testcase name="each opening retrieves a passage from its own ECO()" classname="com.example.coachserver.OpeningRetrievalGroundingTest" time="0.019"/>
+  <testcase name="the longest matching line wins over its shorter prefix()" classname="com.example.coachserver.OpeningRetrievalGroundingTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

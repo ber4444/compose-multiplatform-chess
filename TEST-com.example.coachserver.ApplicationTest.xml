@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.coachserver.ApplicationTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-08-06T03:25:51.922Z" hostname="runnervmvrwv9" time="0.849">
+  <properties/>
+  <testcase name="opening route rejects blank fen()" classname="com.example.coachserver.ApplicationTest" time="0.728"/>
+  <testcase name="opening route rate limits repeated callers()" classname="com.example.coachserver.ApplicationTest" time="0.026"/>
+  <testcase name="chunked body over streaming limit is rejected()" classname="com.example.coachserver.ApplicationTest" time="0.014"/>
+  <testcase name="configured web origin can preflight the opening route()" classname="com.example.coachserver.ApplicationTest" time="0.016"/>
+  <testcase name="opening route round trips shared wire models()" classname="com.example.coachserver.ApplicationTest" time="0.011"/>
+  <testcase name="fly deployment keys limiter by trusted client header()" classname="com.example.coachserver.ApplicationTest" time="0.009"/>
+  <testcase name="health endpoint responds()" classname="com.example.coachserver.ApplicationTest" time="0.012"/>
+  <testcase name="opening route rejects malformed SAN before retrieval()" classname="com.example.coachserver.ApplicationTest" time="0.009"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+]]></system-err>
+</testsuite>

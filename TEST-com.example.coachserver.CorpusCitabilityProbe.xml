@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.coachserver.CorpusCitabilityProbe" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-08-06T03:25:52.850Z" hostname="runnervmvrwv9" time="0.596">
+  <properties/>
+  <testcase name="the old passage shape would fail this floor()" classname="com.example.coachserver.CorpusCitabilityProbe" time="0.002"/>
+  <testcase name="every corpus passage carries enough distinctive vocabulary to cite twice()" classname="com.example.coachserver.CorpusCitabilityProbe" time="0.592"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

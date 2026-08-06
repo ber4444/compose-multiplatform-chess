@@ -1,0 +1,6 @@
+data: {"type":"token","text":"By playing this defense, Black aims to exchange a flank pawn for one of White's central pawns [lichess-b-373-b20]. This trade allows Black to generate active counterplay on the queenside [lichess-b-373-b20]."}
+
+data: {"type":"done","composerId":"llm-chat-v1"}
+
+data: {"type":"diagnostics","diagnostics":{"releaseVersion":"registry.fly.io/compose-chess-opening-coach:deployment-01KZBYDRAW8Q6V19A3ZZAAA3RN","corpus":{"ready":true,"seedVersion":"eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660","rowCount":3807,"finalSourceId":"lichess-e-357-e99"},"retrievedPassageIds":["lichess-b-373-b20","lichess-b-381-b20","lichess-b-383-b20","lichess-b-398-b20"],"composerId":"llm-chat-v1","finishReason":"completed","latencyMs":4387}}
+

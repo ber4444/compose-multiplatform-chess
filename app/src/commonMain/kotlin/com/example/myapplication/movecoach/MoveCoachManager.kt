@@ -38,6 +38,9 @@ class MoveCoachManager(
     /** The last request built by [triggerCoach], replayed by [retry]. */
     private var lastRequest: com.example.ondeviceai.MoveCoachRequest? = null
 
+    /** Maintains a short history of recent opening frames to prevent repetitive phrasing. */
+    private val recentOpeningFrames = ArrayDeque<String>(3)
+
     /**
      * Whether the model-phrased coach is unlocked (§0.4). Bridged from `Entitlements.isProUnlocked`
      * by `AppRoot`, mirroring how `AppSettings.aiCoachEnabled` reaches `GameViewModel`.
@@ -93,6 +96,7 @@ class MoveCoachManager(
             deterministicHeadline = DeterministicCoach.buildHeadline(moveRecord),
             deterministicExplanation = DeterministicCoach.buildExplanation(moveRecord),
             engineDifficultyName = engineDifficultyName,
+            bannedOpeningFrames = recentOpeningFrames.toList(),
         )
         lastRequest = request
         launchCoach(request)
@@ -144,13 +148,20 @@ class MoveCoachManager(
                                 text = CitationSanitizer.sanitizeStreaming(event.partialText),
                             )
                         is MoveCoachEvent.Complete -> when (val result = event.result) {
-                            is MoveCoachResult.Success ->
+                            is MoveCoachResult.Success -> {
                                 _coachUiState.value = MoveCoachUiState.Ready(
                                     result.explanation.copy(
                                         headline = CitationSanitizer.sanitize(result.explanation.headline),
                                         explanation = CitationSanitizer.sanitize(result.explanation.explanation),
                                     )
                                 )
+                                val words = result.explanation.explanation.split(Regex("\\s+")).filter { it.isNotBlank() }
+                                if (words.size >= 3) {
+                                    val frame = words.take(3).joinToString(" ")
+                                    if (recentOpeningFrames.size >= 3) recentOpeningFrames.removeFirst()
+                                    recentOpeningFrames.addLast(frame)
+                                }
+                            }
                             is MoveCoachResult.FellBack ->
                                 _coachUiState.value = MoveCoachUiState.Fallback(
                                     CitationSanitizer.sanitize(result.text),

@@ -1,0 +1,18 @@
+: keep-alive
+
+data: {"type":"token","text":"Caro-Kann Defence: "}
+
+data: {"type":"token","text":"Black supports the d5 "}
+
+data: {"type":"token","text":"push with c6, keeping a "}
+
+data: {"type":"token","text":"sound pawn structure "}
+
+data: {"type":"token","text":"and a healthy "}
+
+data: {"type":"token","text":"light-squared bishop."}
+
+data: {"type":"done","composerId":"template-chat-v1"}
+
+data: {"type":"diagnostics","diagnostics":{"releaseVersion":"registry.fly.io/compose-chess-opening-coach:deployment-01KZBWKE3HJKKTXTJ8BFDBME7B","corpus":{"ready":true,"seedVersion":"eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660","rowCount":3807,"finalSourceId":"lichess-e-357-e99"},"retrievedPassageIds":["lichess-b-263-b10","lichess-b-269-b10","lichess-b-272-b10","lichess-b-268-b10"],"composerId":"template-chat-v1","finishReason":"completed","latencyMs":21033}}
+

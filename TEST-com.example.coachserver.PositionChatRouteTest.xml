@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.coachserver.PositionChatRouteTest" tests="20" skipped="0" failures="0" errors="0" timestamp="2026-08-06T03:26:07.263Z" hostname="runnervmvrwv9" time="0.105">
+  <properties/>
+  <testcase name="stripper holds back a fence split across token boundaries()" classname="com.example.coachserver.PositionChatRouteTest" time="0.0"/>
+  <testcase name="LlmChatComposer forwards a custom maxOutputTokens to the provider call()" classname="com.example.coachserver.PositionChatRouteTest" time="0.002"/>
+  <testcase name="stripper removes an opening fence with a language tag()" classname="com.example.coachserver.PositionChatRouteTest" time="0.001"/>
+  <testcase name="stripper passes unfenced prose through unchanged()" classname="com.example.coachserver.PositionChatRouteTest" time="0.0"/>
+  <testcase name="validator rejects over-length output()" classname="com.example.coachserver.PositionChatRouteTest" time="0.001"/>
+  <testcase name="chat stream template composer emits tokens and a done event()" classname="com.example.coachserver.PositionChatRouteTest" time="0.026"/>
+  <testcase name="parseChatMaxOutputTokens defaults on a non-positive or malformed value()" classname="com.example.coachserver.PositionChatRouteTest" time="0.001"/>
+  <testcase name="a fenced stream both validates and reaches the user without the fence()" classname="com.example.coachserver.PositionChatRouteTest" time="0.001"/>
+  <testcase name="template chat is honest when retrieved material has no plan answer()" classname="com.example.coachserver.PositionChatRouteTest" time="0.002"/>
+  <testcase name="chat stream rejects an over-long user message()" classname="com.example.coachserver.PositionChatRouteTest" time="0.019"/>
+  <testcase name="validator rejects uncited sentences()" classname="com.example.coachserver.PositionChatRouteTest" time="0.001"/>
+  <testcase name="validator accepts prose quoting a piece move sequence()" classname="com.example.coachserver.PositionChatRouteTest" time="0.002"/>
+  <testcase name="validator rejects forbidden engine phrases()" classname="com.example.coachserver.PositionChatRouteTest" time="0.001"/>
+  <testcase name="parseChatMaxOutputTokens defaults when the env var is unset()" classname="com.example.coachserver.PositionChatRouteTest" time="0.0"/>
+  <testcase name="chat stream emits token events then a done event()" classname="com.example.coachserver.PositionChatRouteTest" time="0.014"/>
+  <testcase name="validator accepts prose quoting a pawn move sequence()" classname="com.example.coachserver.PositionChatRouteTest" time="0.007"/>
+  <testcase name="chat stream downgrades unvalidated provider prose to a fallback event()" classname="com.example.coachserver.PositionChatRouteTest" time="0.013"/>
+  <testcase name="chat stream carries multi-turn history to the composer()" classname="com.example.coachserver.PositionChatRouteTest" time="0.008"/>
+  <testcase name="parseChatMaxOutputTokens honors a valid positive override()" classname="com.example.coachserver.PositionChatRouteTest" time="0.0"/>
+  <testcase name="validator accepts grounded cited prose()" classname="com.example.coachserver.PositionChatRouteTest" time="0.001"/>
+  <system-out><![CDATA[chat-validation-rejected ids=[lichess-c20] text=The center is contested [lichess-c20].
+chat-validation-rejected ids=[lichess-c20] text=I think Stockfish probably depth 30 likes this [lichess-c20].
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

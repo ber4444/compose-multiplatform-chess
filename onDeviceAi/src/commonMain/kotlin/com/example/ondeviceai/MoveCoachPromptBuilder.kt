@@ -16,13 +16,19 @@ object MoveCoachPromptBuilder {
         appendLine("Do not mention openings by name, engine depth, or ratings.")
     }
 
-    fun build(request: MoveCoachRequest): AiGenerationRequest =
-        AiGenerationRequest(
-            systemPrompt = SYSTEM_PROMPT,
+    fun build(request: MoveCoachRequest): AiGenerationRequest {
+        var sysPrompt = SYSTEM_PROMPT
+        if (request.bannedOpeningFrames.isNotEmpty()) {
+            sysPrompt += "\nDo not start your explanation with these phrases: " + request.bannedOpeningFrames.joinToString { "'$it'" }
+        }
+        return AiGenerationRequest(
+            systemPrompt = sysPrompt,
             userPrompt = userPrompt(request),
             maxOutputTokens = MAX_OUTPUT_TOKENS_STRICT,
             temperature = 0.3,
+            bannedOpeningFrames = request.bannedOpeningFrames,
         )
+    }
 
     internal fun userPrompt(request: MoveCoachRequest): String = buildString {
         appendLine("Rewrite this explanation in 1-2 short, conversational sentences:")

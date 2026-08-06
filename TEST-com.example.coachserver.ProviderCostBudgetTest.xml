@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.coachserver.ProviderCostBudgetTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-08-06T03:26:08.725Z" hostname="runnervmvrwv9" time="0.009">
+  <properties/>
+  <testcase name="a frontier-priced model is refused at the default cap()" classname="com.example.coachserver.ProviderCostBudgetTest" time="0.0"/>
+  <testcase name="a realistic opening request is admitted at the documented default cap()" classname="com.example.coachserver.ProviderCostBudgetTest" time="0.001"/>
+  <testcase name="expected output is priced below the ceiling, not at it()" classname="com.example.coachserver.ProviderCostBudgetTest" time="0.001"/>
+  <testcase name="the measured gemini pricing is admitted at the documented default()" classname="com.example.coachserver.ProviderCostBudgetTest" time="0.0"/>
+  <testcase name="the composer actually calls the provider at the documented default()" classname="com.example.coachserver.ProviderCostBudgetTest" time="0.002"/>
+  <testcase name="an absurd token ceiling is refused by the worst-case hard stop()" classname="com.example.coachserver.ProviderCostBudgetTest" time="0.001"/>
+  <testcase name="a realistic chat request is admitted at the documented default cap()" classname="com.example.coachserver.ProviderCostBudgetTest" time="0.0"/>
+  <testcase name="raising the cap re-admits the expensive model()" classname="com.example.coachserver.ProviderCostBudgetTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

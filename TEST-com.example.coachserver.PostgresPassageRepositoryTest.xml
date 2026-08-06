@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.coachserver.PostgresPassageRepositoryTest" tests="2" skipped="0" failures="1" errors="0" timestamp="2026-08-06T03:26:07.369Z" hostname="runnervmvrwv9" time="1.177">
+  <properties/>
+  <testcase name="replaceCorpus batches rows records a manifest and removes stale passages()" classname="com.example.coachserver.PostgresPassageRepositoryTest" time="0.056"/>
+  <testcase name="retrieves nearest passage by cosine distance()" classname="com.example.coachserver.PostgresPassageRepositoryTest" time="0.036">
+    <failure message="org.opentest4j.AssertionFailedError: expected: &lt;[near]&gt; but was: &lt;[z-first]&gt;" type="org.opentest4j.AssertionFailedError">org.opentest4j.AssertionFailedError: expected: &lt;[near]&gt; but was: &lt;[z-first]&gt;
+	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+	at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:182)
+	at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:1156)
+	at kotlin.test.junit5.JUnit5Asserter.assertEquals(JUnitSupport.kt:32)
+	at kotlin.test.AssertionsKt__AssertionsKt.assertEquals(Assertions.kt:63)
+	at kotlin.test.AssertionsKt.assertEquals(Unknown Source)
+	at kotlin.test.AssertionsKt__AssertionsKt.assertEquals$default(Assertions.kt:62)
+	at kotlin.test.AssertionsKt.assertEquals$default(Unknown Source)
+	at com.example.coachserver.PostgresPassageRepositoryTest.retrieves nearest passage by cosine distance(PostgresPassageRepositoryTest.kt:32)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+</failure>
+  </testcase>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

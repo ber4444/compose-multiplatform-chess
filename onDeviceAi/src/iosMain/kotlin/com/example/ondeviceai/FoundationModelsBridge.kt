@@ -35,9 +35,11 @@ class FoundationModelsTextGenerator(
                     tokenCount = text.split(Regex("\\s+")).count { it.isNotBlank() },
                     route = AiRoute.OnDevice,
                 )
-            )
         )
-    }
+    }.withAntiRepetitionGuard(
+        ngramSize = request.noRepeatNgramSize,
+        stopSequences = request.stopSequences,
+    )
 
     override suspend fun close() = bridge.close()
 }

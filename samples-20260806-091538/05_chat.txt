@@ -1,0 +1,4 @@
+data: {"type":"fallback","text":"A04 — Zukertort Opening: Sicilian Invitation: Flank and irregular first moves that delay the central clash and steer play away from mainstream theory. Zukertort Opening: S","composerId":"template-chat-v1"}
+
+data: {"type":"diagnostics","diagnostics":{"releaseVersion":"registry.fly.io/compose-chess-opening-coach:deployment-01KZBWKE3HJKKTXTJ8BFDBME7B","corpus":{"ready":true,"seedVersion":"eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660","rowCount":3807,"finalSourceId":"lichess-e-357-e99"},"retrievedPassageIds":["lichess-a-210-a04","lichess-a-208-a04","lichess-a-214-a04","lichess-a-194-a04"],"composerId":"template-chat-v1","finishReason":"completed","latencyMs":12637}}
+

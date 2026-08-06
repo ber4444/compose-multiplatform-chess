@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.coachserver.ChatStreamingChunkCountTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-08-06T03:25:52.773Z" hostname="runnervmvrwv9" time="0.068">
+  <properties/>
+  <testcase name="template chat does not repeat a title already named by the passage()" classname="com.example.coachserver.ChatStreamingChunkCountTest" time="0.011"/>
+  <testcase name="a multi-delta provider response reaches the client as multiple chunks()" classname="com.example.coachserver.ChatStreamingChunkCountTest" time="0.031"/>
+  <testcase name="a provider that answers with one whole completion produces exactly one chunk()" classname="com.example.coachserver.ChatStreamingChunkCountTest" time="0.004"/>
+  <testcase name="a fenced response still streams in pieces()" classname="com.example.coachserver.ChatStreamingChunkCountTest" time="0.004"/>
+  <testcase name="deliberation is stripped without holding the answer back to the end()" classname="com.example.coachserver.ChatStreamingChunkCountTest" time="0.003"/>
+  <testcase name="template chat sentence cap stops at a word boundary()" classname="com.example.coachserver.ChatStreamingChunkCountTest" time="0.002"/>
+  <testcase name="untagged deliberation never reaches the client()" classname="com.example.coachserver.ChatStreamingChunkCountTest" time="0.003"/>
+  <testcase name="the deterministic fallback is cut on a word boundary()" classname="com.example.coachserver.ChatStreamingChunkCountTest" time="0.001"/>
+  <testcase name="template chat chunks preserve the spaces in its answer()" classname="com.example.coachserver.ChatStreamingChunkCountTest" time="0.002"/>
+  <system-out><![CDATA[chat-validation-rejected ids=[lichess-c20] text=Both king pawns contest the center for development [lichess-c20]. Castling keeps the king safe [lichess-c20].
+chat-validation-rejected ids=[lichess-c20] text=Both king pawns contest the center with development [lichess-c20]. Castling early keeps the king safe [lichess-c20].
+chat-validation-rejected ids=[lichess-c20] text=Both king pawns contest the center for development [lichess-c20]. Castling early keeps the king safe [lichess-c20].
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

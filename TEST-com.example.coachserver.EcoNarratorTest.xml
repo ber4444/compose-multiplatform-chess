@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.coachserver.EcoNarratorTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-08-06T03:25:53.447Z" hostname="runnervmvrwv9" time="0.351">
+  <properties/>
+  <testcase name="unparseable codes return null rather than inventing content()" classname="com.example.coachserver.EcoNarratorTest" time="0.0"/>
+  <testcase name="no characterization contains a period except its last character()" classname="com.example.coachserver.EcoNarratorTest" time="0.011"/>
+  <testcase name="characterizations fit the sentence truncation the composers apply()" classname="com.example.coachserver.EcoNarratorTest" time="0.007"/>
+  <testcase name="seeded passage text leads with content rather than the ECO restatement()" classname="com.example.coachserver.EcoNarratorTest" time="0.166"/>
+  <testcase name="every ECO code in the checked in corpus is characterized()" classname="com.example.coachserver.EcoNarratorTest" time="0.164"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

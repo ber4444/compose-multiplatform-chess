@@ -1,0 +1,6 @@
+data: {"type":"token","text":"In the Caro-Kann, Black supports the d5 push with the c6 pawn [lichess-b-263-b10]. This setup allows Black to maintain a sound pawn structure while keeping the light-squared bishop healthy [lichess-b-268-b10]."}
+
+data: {"type":"done","composerId":"llm-chat-v1"}
+
+data: {"type":"diagnostics","diagnostics":{"releaseVersion":"registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8","corpus":{"ready":true,"seedVersion":"eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660","rowCount":3807,"finalSourceId":"lichess-e-357-e99"},"retrievedPassageIds":["lichess-b-263-b10","lichess-b-269-b10","lichess-b-272-b10","lichess-b-268-b10"],"composerId":"llm-chat-v1","finishReason":"completed","latencyMs":7102}}
+

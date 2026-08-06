@@ -14,6 +14,10 @@ data class AiGenerationRequest(
     val userPrompt: String,
     val maxOutputTokens: Int,
     val temperature: Double = 0.2,
+    val repetitionPenalty: Double? = 1.15,
+    val noRepeatNgramSize: Int? = 4,
+    val stopSequences: List<String> = emptyList(),
+    val bannedOpeningFrames: List<String> = emptyList(),
 )
 
 sealed interface AiTokenOrFinal {

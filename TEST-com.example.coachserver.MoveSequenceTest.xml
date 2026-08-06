@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.coachserver.MoveSequenceTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-08-06T03:25:54.818Z" hostname="runnervmvrwv9" time="0.006">
+  <properties/>
+  <testcase name="move numbers results and annotations are stripped()" classname="com.example.coachserver.MoveSequenceTest" time="0.001"/>
+  <testcase name="castling and promotion survive normalization()" classname="com.example.coachserver.MoveSequenceTest" time="0.001"/>
+  <testcase name="prefix matching is token aligned()" classname="com.example.coachserver.MoveSequenceTest" time="0.001"/>
+  <testcase name="corpus pgn and request san normalize to the same string()" classname="com.example.coachserver.MoveSequenceTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

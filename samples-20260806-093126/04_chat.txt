@@ -1,0 +1,6 @@
+data: {"type":"token","text":"Black gives up the center so they can castle quickly and prepare to strike back with the e5 or c5 pawns [lichess-e-237-e60]. This setup ultimately allows Black to launch an offensive attack on the kingside [lichess-e-235-e60]."}
+
+data: {"type":"done","composerId":"llm-chat-v1"}
+
+data: {"type":"diagnostics","diagnostics":{"releaseVersion":"registry.fly.io/compose-chess-opening-coach:deployment-01KZBYDRAW8Q6V19A3ZZAAA3RN","corpus":{"ready":true,"seedVersion":"eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660","rowCount":3807,"finalSourceId":"lichess-e-357-e99"},"retrievedPassageIds":["lichess-e-237-e60","lichess-e-235-e60","lichess-e-236-e60","lichess-e-231-e60"],"composerId":"llm-chat-v1","finishReason":"completed","latencyMs":4266}}
+

@@ -1,0 +1,524 @@
+{
+  "samples": [
+    {
+      "request": {
+        "name": "Sicilian Defence",
+        "movesSan": "[\"e4\",\"c5\"]",
+        "question": "Why is this popular for Black?"
+      },
+      "opening": {
+        "visibleText": "In the Sicilian Defence, Black answers 1. e4 with c5 to trade a flank pawn for a centre pawn. White can play King David's Opening with 2. Ke2, moving the king to e2.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-b-373-b20",
+            "lichess-b-384-b20",
+            "lichess-b-381-b20",
+            "lichess-b-398-b20"
+          ],
+          "composerId": "llm-v1",
+          "finishReason": "completed",
+          "latencyMs": 5818,
+          "completionTokens": 1256,
+          "rawProviderOutput": "In the Sicilian Defence, Black answers 1. e4 with c5 to trade a flank pawn for a centre pawn [lichess-b-373-b20]. White can play King David's Opening with 2. Ke2, moving the king to e2 [lichess-b-384-b20]."
+        }
+      },
+      "chat": {
+        "terminalEvent": "done",
+        "visibleText": "Black plays this opening to trade a flank pawn for one of White's center pawns. This exchange allows Black to generate counterplay on the queenside.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-b-373-b20",
+            "lichess-b-381-b20",
+            "lichess-b-383-b20",
+            "lichess-b-398-b20"
+          ],
+          "composerId": "llm-chat-v1",
+          "finishReason": "completed",
+          "latencyMs": 5862
+        }
+      }
+    },
+    {
+      "request": {
+        "name": "Italian Game",
+        "movesSan": "[\"e4\",\"e5\",\"Nf3\",\"Nc6\",\"Bc4\"]",
+        "question": "What is White trying to do with the bishop on c4?"
+      },
+      "opening": {
+        "visibleText": "The Italian Game begins with 1. e4 e5 2. Nf3 Nc6 3. Bc4, where bishops aim at f7. Black can choose the Blackburne-Kosti\u0107 Gambit by bringing the knight to d4 at move 3.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-c-829-c50",
+            "lichess-c-831-c50",
+            "lichess-c-833-c50",
+            "lichess-c-828-c50"
+          ],
+          "composerId": "llm-v1",
+          "finishReason": "completed",
+          "latencyMs": 8714,
+          "completionTokens": 1964,
+          "rawProviderOutput": "The Italian Game begins with 1. e4 e5 2. Nf3 Nc6 3. Bc4, where bishops aim at f7 [lichess-c-829-c50]. Black can choose the Blackburne-Kosti\u0107 Gambit by bringing the knight to d4 at move 3 [lichess-c-831-c50]."
+        }
+      },
+      "chat": {
+        "terminalEvent": "fallback",
+        "visibleText": "",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-c-829-c50",
+            "lichess-c-831-c50",
+            "lichess-c-846-c50",
+            "lichess-c-833-c50"
+          ],
+          "composerId": "template-chat-v1",
+          "finishReason": "completed",
+          "latencyMs": 7564
+        }
+      }
+    },
+    {
+      "request": {
+        "name": "Ruy Lopez",
+        "movesSan": "[\"e4\",\"e5\",\"Nf3\",\"Nc6\",\"Bb5\"]",
+        "question": "Should Black be worried about losing the e5 pawn?"
+      },
+      "opening": {
+        "visibleText": "C60 \u2014 Ruy Lopez: Ruy Lopez: Bb5 pressures the knight defending e5, and the game turns on the centre and White's queenside pawn advance. C60 \u2014 Ruy Lopez: Fianchetto Defense, Kevitz Gambit: This line is defined by f5 at move 4.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-c-1013-c60",
+            "lichess-c-1022-c60",
+            "lichess-c-1018-c60",
+            "lichess-c-1017-c60"
+          ],
+          "composerId": "template-v1",
+          "finishReason": "validator_rejected",
+          "latencyMs": 10272,
+          "completionTokens": 2044,
+          "rawProviderOutput": "n-g- -t-h-e- -k-n-i-g-h-t- -t-o- -e-7- -a-t- -m-o-v-e- -3- -[-l-i-c-h-e-s-s---c---1-0-1-8---c-6"
+        }
+      },
+      "chat": {
+        "terminalEvent": "done",
+        "visibleText": "Black needs to be cautious because White's bishop on b5 exerts pressure on the knight defending the e5 pawn. This tension ensures that the upcoming play will revolve around the center and White's queenside pawn expansion.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-c-1013-c60",
+            "lichess-c-1014-c60",
+            "lichess-c-1017-c60",
+            "lichess-c-1026-c60"
+          ],
+          "composerId": "llm-chat-v1",
+          "finishReason": "completed",
+          "latencyMs": 5504
+        }
+      }
+    },
+    {
+      "request": {
+        "name": "Queens Gambit",
+        "movesSan": "[\"d4\",\"d5\",\"c4\"]",
+        "question": "Is the gambit pawn really free?"
+      },
+      "opening": {
+        "visibleText": "In the Queen's Gambit, White offers the c-pawn to deflect Black's d5. In the Argentinian Gambit, Black captures with Nxc6 on move 5. In the Pseudo-Chigorin, Black brings the knight to c6 at move 4.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-d-137-d06",
+            "lichess-d-143-d06",
+            "lichess-d-144-d06",
+            "lichess-d-146-d06"
+          ],
+          "composerId": "llm-v1",
+          "finishReason": "completed",
+          "latencyMs": 6957,
+          "completionTokens": 1854,
+          "rawProviderOutput": "In the Queen's Gambit, White offers the c-pawn to deflect Black's d5 [lichess-d-137-d06]. In the Argentinian Gambit, Black captures with Nxc6 on move 5 [lichess-d-143-d06]. In the Pseudo-Chigorin, Black brings the knight to c6 at move 4 [lichess-d-144-d06]."
+        }
+      },
+      "chat": {
+        "terminalEvent": "done",
+        "visibleText": "White offers the c-pawn as a strategic deflection to draw Black's d5 pawn away from the center. Instead of simply taking it, Black can choose how to defend the center or even respond with their own gambits.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-d-137-d06",
+            "lichess-d-143-d06",
+            "lichess-d-149-d06",
+            "lichess-d-148-d06"
+          ],
+          "composerId": "llm-chat-v1",
+          "finishReason": "completed",
+          "latencyMs": 6310
+        }
+      }
+    },
+    {
+      "request": {
+        "name": "Kings Indian",
+        "movesSan": "[\"d4\",\"Nf6\",\"c4\",\"g6\"]",
+        "question": "Why does Black give up the centre?"
+      },
+      "opening": {
+        "visibleText": "The West Indian Defense begins with 1. d4 Nf6 2. c4 g6. White can play the Basman-Williams Attack with 3. h4. Alternatively, the Advance Variation features 3. d5.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-e-237-e60",
+            "lichess-e-236-e60",
+            "lichess-e-233-e60",
+            "lichess-e-235-e60"
+          ],
+          "composerId": "llm-v1",
+          "finishReason": "completed",
+          "latencyMs": 6945,
+          "completionTokens": 1758,
+          "rawProviderOutput": "The West Indian Defense begins with 1. d4 Nf6 2. c4 g6 [lichess-e-237-e60]. White can play the Basman-Williams Attack with 3. h4 [lichess-e-236-e60]. Alternatively, the Advance Variation features 3. d5 [lichess-e-233-e60]."
+        }
+      },
+      "chat": {
+        "terminalEvent": "done",
+        "visibleText": "Black gives up the center to prioritize castling quickly. Once safe, Black strikes back with the e5 or c5 pawns and initiates a kingside attack.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-e-237-e60",
+            "lichess-e-235-e60",
+            "lichess-e-236-e60",
+            "lichess-e-231-e60"
+          ],
+          "composerId": "llm-chat-v1",
+          "finishReason": "completed",
+          "latencyMs": 5461
+        }
+      }
+    },
+    {
+      "request": {
+        "name": "Zukertort",
+        "movesSan": "[\"Nf3\",\"c5\"]",
+        "question": "What structure is this heading for?"
+      },
+      "opening": {
+        "visibleText": "The move sequence 1. Nf3 c5 represents the Zukertort Opening: Sicilian Invitation. This opening uses flank and irregular first moves that delay the central clash and steer play away from mainstream theory.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-a-210-a04",
+            "lichess-a-208-a04",
+            "lichess-a-195-a04",
+            "lichess-a-200-a04"
+          ],
+          "composerId": "llm-v1",
+          "finishReason": "completed",
+          "latencyMs": 6292,
+          "completionTokens": 1596,
+          "rawProviderOutput": "The move sequence 1. Nf3 c5 represents the Zukertort Opening: Sicilian Invitation [lichess-a-210-a04]. This opening uses flank and irregular first moves that delay the central clash and steer play away from mainstream theory [lichess-a-210-a04]."
+        }
+      },
+      "chat": {
+        "terminalEvent": "done",
+        "visibleText": "This position initiates the Zukertort Opening: Sicilian Invitation, which relies on flank and irregular first moves. This setup aims to delay a clash in the center and steer the game away from mainstream theoretical lines.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-a-210-a04",
+            "lichess-a-208-a04",
+            "lichess-a-214-a04",
+            "lichess-a-194-a04"
+          ],
+          "composerId": "llm-chat-v1",
+          "finishReason": "completed",
+          "latencyMs": 4132
+        }
+      }
+    },
+    {
+      "request": {
+        "name": "Open Game",
+        "movesSan": "[\"e4\",\"e5\"]",
+        "question": "What are the main plans here?"
+      },
+      "opening": {
+        "visibleText": "The King's Pawn Game features open-game sidelines where White develops quickly. In the Alapin Opening, White brings the knight to e2 at move 2. The Portuguese Opening begins with 2. Bb5.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-c-218-c20",
+            "lichess-c-243-c20",
+            "lichess-c-241-c20",
+            "lichess-c-219-c20"
+          ],
+          "composerId": "llm-v1",
+          "finishReason": "completed",
+          "latencyMs": 6904,
+          "completionTokens": 1655,
+          "rawProviderOutput": "The King's Pawn Game features open-game sidelines where White develops quickly [lichess-c-218-c20]. In the Alapin Opening, White brings the knight to e2 at move 2 [lichess-c-219-c20]. The Portuguese Opening begins with 2. Bb5 [lichess-c-241-c20]."
+        }
+      },
+      "chat": {
+        "terminalEvent": "done",
+        "visibleText": "White's main plan in these sidelines is to focus on rapid development instead of entering the Italian or Spanish openings. To do this, White can immediately push the d-pawn on move two, or develop the bishop to b5 to set up a d4 gambit on move three.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-c-218-c20",
+            "lichess-c-243-c20",
+            "lichess-c-241-c20",
+            "lichess-c-216-c20"
+          ],
+          "composerId": "llm-chat-v1",
+          "finishReason": "completed",
+          "latencyMs": 6597
+        }
+      }
+    },
+    {
+      "request": {
+        "name": "Scandinavian",
+        "movesSan": "[\"e4\",\"d5\"]",
+        "question": "Is recapturing with the queen bad?"
+      },
+      "opening": {
+        "visibleText": "B01 \u2014 Scandinavian Defense: Alekhine, Pirc, Modern and other king's-pawn replies where Black invites a broad white centre in order to attack it. B01 \u2014 Van Geet Opening: Gr\u00fcnfeld Defense: Black advances the pawn to e5 at move 3, the move this line is named for.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-b-84-b01",
+            "lichess-b-129-b01",
+            "lichess-b-100-b01",
+            "lichess-b-86-b01"
+          ],
+          "composerId": "template-v1",
+          "finishReason": "validator_rejected",
+          "latencyMs": 10874,
+          "completionTokens": 2044,
+          "rawProviderOutput": "The Scandinavian Defense (1. e4 d5) invites a broad white centre for Black to attack [lichess-b-84-b01]. In the Anderssen Counterattack, Black advances the pawn to e5 at move 4 [lichess-b-86-b01]. The K\u00e1das Gambit also features this e5 advance at move 4 [lichess-"
+        }
+      },
+      "chat": {
+        "terminalEvent": "done",
+        "visibleText": "Recapturing with the queen is a standard continuation in the Scandinavian Defense, leading to the Main Line where the queen moves to a5. This recapture is also featured in the Gubinsky-Melts Defense, where the queen is successfully brought out to d6 on the third move.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-b-84-b01",
+            "lichess-b-102-b01",
+            "lichess-b-129-b01",
+            "lichess-b-96-b01"
+          ],
+          "composerId": "llm-chat-v1",
+          "finishReason": "completed",
+          "latencyMs": 7277
+        }
+      }
+    },
+    {
+      "request": {
+        "name": "Caro-Kann",
+        "movesSan": "[\"e4\",\"c6\"]",
+        "question": "How does this differ from the French?"
+      },
+      "opening": {
+        "visibleText": "With 1. e4 c6, Black supports the d5 push to keep a sound pawn structure and a healthy light-squared bishop. White can play the Apocalypse Attack by bringing the knight to e5 at move 4.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-b-263-b10",
+            "lichess-b-272-b10",
+            "lichess-b-269-b10",
+            "lichess-b-276-b10"
+          ],
+          "composerId": "llm-v1",
+          "finishReason": "completed",
+          "latencyMs": 10091,
+          "completionTokens": 1766,
+          "rawProviderOutput": "With 1. e4 c6, Black supports the d5 push to keep a sound pawn structure and a healthy light-squared bishop [lichess-b-263-b10]. White can play the Apocalypse Attack by bringing the knight to e5 at move 4 [lichess-b-272-b10]."
+        }
+      },
+      "chat": {
+        "terminalEvent": "done",
+        "visibleText": "In the Caro-Kann, Black supports the d5 push with the c6 pawn. This setup allows Black to maintain a sound pawn structure while keeping the light-squared bishop healthy.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-b-263-b10",
+            "lichess-b-269-b10",
+            "lichess-b-272-b10",
+            "lichess-b-268-b10"
+          ],
+          "composerId": "llm-chat-v1",
+          "finishReason": "completed",
+          "latencyMs": 7102
+        }
+      }
+    },
+    {
+      "request": {
+        "name": "French Defence",
+        "movesSan": "[\"e4\",\"e6\"]",
+        "question": "What is the problem piece for Black?"
+      },
+      "opening": {
+        "visibleText": "In the French Defense, the e6 and d5 pawns build a solid chain, and Black's counterplay comes from the c5 break. In the Alapin Gambit, White brings the bishop to e3 at move 3.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-c-1-c00",
+            "lichess-c-15-c00",
+            "lichess-c-3-c00",
+            "lichess-c-6-c00"
+          ],
+          "composerId": "llm-v1",
+          "finishReason": "completed",
+          "latencyMs": 5601,
+          "completionTokens": 1533,
+          "rawProviderOutput": "In the French Defense, the e6 and d5 pawns build a solid chain, and Black's counterplay comes from the c5 break [lichess-c-1-c00]. In the Alapin Gambit, White brings the bishop to e3 at move 3 [lichess-c-3-c00]."
+        }
+      },
+      "chat": {
+        "terminalEvent": "done",
+        "visibleText": "The provided sources do not mention a specific problem piece for Black in this defense. They only note that Black builds a solid pawn chain with e6 and d5, finding counterplay through the c5 break.",
+        "diagnostics": {
+          "releaseVersion": "registry.fly.io/compose-chess-opening-coach:deployment-01KZBYZRYC7DH47SXH2QCPEGC8",
+          "corpus": {
+            "ready": true,
+            "seedVersion": "eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660",
+            "rowCount": 3807,
+            "finalSourceId": "lichess-e-357-e99"
+          },
+          "retrievedPassageIds": [
+            "lichess-c-1-c00",
+            "lichess-c-15-c00",
+            "lichess-c-3-c00",
+            "lichess-c-8-c00"
+          ],
+          "composerId": "llm-chat-v1",
+          "finishReason": "completed",
+          "latencyMs": 6248
+        }
+      }
+    }
+  ]
+}
