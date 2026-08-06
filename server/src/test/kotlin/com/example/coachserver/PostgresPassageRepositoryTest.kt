@@ -23,6 +23,7 @@ class PostgresPassageRepositoryTest {
             },
         ).use { dataSource ->
             applySchema(dataSource)
+            dataSource.connection.use { it.prepareStatement("TRUNCATE passages, corpus_seed_state").execute() }
             val repository = PostgresPassageRepository(dataSource)
             repository.upsert(Passage("near", "Near", "Nearest vector"), vector(first = 1f))
             repository.upsert(Passage("far", "Far", "Farther vector"), vector(first = -1f))
@@ -44,6 +45,7 @@ class PostgresPassageRepositoryTest {
             },
         ).use { dataSource ->
             applySchema(dataSource)
+            dataSource.connection.use { it.prepareStatement("TRUNCATE passages, corpus_seed_state").execute() }
             val repository = PostgresPassageRepository(dataSource)
             repository.upsert(Passage("stale", "Stale", "Old corpus row"), vector(first = -1f))
             val entries = listOf(
