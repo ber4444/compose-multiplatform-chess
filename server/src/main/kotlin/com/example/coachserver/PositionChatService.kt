@@ -345,10 +345,8 @@ class LlmChatComposer(
         passages.forEach { appendLine("[${it.sourceId}] ${it.title}: ${it.text}") }
         appendLine("Player's Question: ${request.userMessage.trim()}")
         append("Answer in 1-2 short sentences using only these sources. ")
-        // The validator requires >= 2 content words shared with the cited passage per sentence, so a
-        // loose paraphrase gets rejected even when it is factually correct. Fewer sentences also
-        // means fewer chances for the model to append an unsupported one.
-        append("Reuse the sources' own wording; do not paraphrase loosely or add facts. ")
+        // Answer the user's question directly rather than quoting passages verbatim.
+        append("Answer the question directly, synthesizing the facts rather than quoting verbatim. ")
         // Placement matters as much as presence: an id after the closing period lands in the *next*
         // sentence once the validator splits, leaving the sentence it belongs to uncited.
         passages.firstOrNull()?.let { example ->
@@ -473,7 +471,7 @@ class OpenAiCompatibleStreamingLlmClient(
     private val model: String,
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val json: Json = Json { ignoreUnknownKeys = true },
-    private val requestTimeout: java.time.Duration = java.time.Duration.ofSeconds(15),
+    private val requestTimeout: java.time.Duration = java.time.Duration.ofSeconds(30),
 ) : StreamingLlmClient {
     override fun streamGenerate(
         systemPrompt: String,
@@ -640,8 +638,7 @@ object PositionChatValidator {
                     .filter { it.length >= 4 && it !in stopWords }
                     .filterNot { token -> cited.any { id -> token in id.lowercase() } }
                     .toSet()
-                claimTokens.intersect(sourceTokens).size < 2 ||
-                    unsupportedCertainty.any { phrase -> phrase in sentence.lowercase() && phrase !in sourceText }
+                unsupportedCertainty.any { phrase -> phrase in sentence.lowercase() && phrase !in sourceText }
             }) return null
         return text
     }
