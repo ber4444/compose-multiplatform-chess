@@ -97,7 +97,9 @@ jobs:
         run: ./gradlew :evals:test
 
       - name: Run fake, fallback, and local-server evals
-        run: ./gradlew :evals:run
+        run: |
+          ./gradlew :evals:run
+          grep -q "Diag retrieval" evals/scorecard.md || (echo "Diagnostics columns missing from scorecard" >&2 && exit 1)
 
       # The scorecard's optional rows (cloud provider, live deployment) are absent here by design —
       # CI has no key and no deployment. Absent must not read as clean, so the banner the harness
