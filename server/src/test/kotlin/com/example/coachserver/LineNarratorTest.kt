@@ -17,12 +17,38 @@ import kotlin.test.assertTrue
 class LineNarratorTest {
 
     @Test
-    fun `a king move is described by the right it gives up`() {
+    fun `a king move states only the move it proves`() {
         val sentence = LineNarrator.describe(listOf("e4", "c5", "Ke2"))
 
         assertNotNull(sentence)
         assertTrue(sentence.contains("Ke2"), sentence)
-        assertTrue(sentence.contains("castle"), sentence)
+        assertTrue(sentence.contains("king to e2"), sentence)
+        assertTrue("castle" !in sentence, sentence)
+    }
+
+    @Test
+    fun `a later king move does not claim to newly give up castling`() {
+        val sentence = LineNarrator.describe(
+            listOf(
+                "e4", "e5", "Nf3", "Nc6", "Bc4", "Bc5", "c3", "Nf6", "d4", "exd4",
+                "cxd4", "Bb4+", "Nc3", "Nxe4", "O-O", "Nxc3", "bxc3", "Bxc3", "Qb3", "d5",
+                "Ne5+", "Kf6",
+            ),
+        )
+
+        assertNotNull(sentence)
+        assertTrue(sentence.contains("Kf6"), sentence)
+        assertTrue("giving up the right to castle" !in sentence, sentence)
+        assertTrue("keeping the king in the centre" !in sentence, sentence)
+    }
+
+    @Test
+    fun `castling after a central exchange does not claim the centre is closed`() {
+        val sentence = LineNarrator.describe(listOf("e4", "e5", "Nf3", "Nc6", "Bc4", "Nf6", "d4", "exd4", "O-O"))
+
+        assertNotNull(sentence)
+        assertTrue(sentence.contains("castles kingside"), sentence)
+        assertTrue("before the centre opens" !in sentence, sentence)
     }
 
     @Test

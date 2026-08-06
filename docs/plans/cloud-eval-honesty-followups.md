@@ -91,6 +91,18 @@ Graded against it, with the owner's own examples:
 
 Derived work (not yet started, ordered by ratio of user-visible improvement to effort):
 
+- [ ] **PR #121 merge gate — keep seeded `LineNarrator` claims literally true.** A review found
+      that a later king move could be described as newly losing castling rights, and castling after
+      `...exd4` as happening before the centre opened. Both are false claims seeded as source text.
+      Restrict every SAN-only branch to its literal move fact unless the context is mechanically
+      replayed; add regressions for those corpus shapes. This must land, deploy and reseed before
+      treating the corpus as current.
+- [ ] **PR #121 merge gate — fix template-chat rendering.** Its title-plus-passage composition
+      duplicates opening names, its second passage repeats parent-opening taxonomy, its chunker
+      can glue words at chunk boundaries, and its 125-character quote path can still cut a word.
+      Render the top passage sentence without a repeated title or second passage, preserve every
+      whitespace character across chunks, and apply word-boundary truncation before emitting it.
+      Add regression tests for each shape, then deploy before the next sample review.
 - [ ] **Stop printing the name twice** — confirmed still live after the reseed (`"Ruy Lopez: Ruy
       Lopez"`), and the R-1 second pass puts duplicate labels in the *actively harmful* tier. Either drop the title prefix in `TemplateComposer` or stop
       leading `EcoNarrator` strings with the opening name. One of the two, not both — the composers
@@ -104,6 +116,37 @@ Derived work (not yet started, ordered by ratio of user-visible improvement to e
       `PositionChatValidator`'s ≥2-content-word overlap, so relaxing one requires re-checking the
       other. See the fence: fix the measurement, not the threshold — but here the *instruction* is
       the thing distorting the output.
+- [ ] **Product-blocking: route Position Chat by answer shape before composing.** The post-reseed
+      sample shows related facts that do not answer the question: Scandinavian "is recapturing with
+      the queen bad?", Queen's Gambit "is the pawn free?", and Ruy Lopez "should Black worry?"
+      need a direct answer first, then the condition/trade-off and usual response. Define a typed
+      question shape and a minimum response contract: `WHY` requires a benefit plus trade-off;
+      `PIECE_PURPOSE` requires target/role/follow-up; `YES_NO` requires explicit first-clause
+      polarity plus condition; `PAWN_FREE` requires cost and likely continuation; `COMPARISON`
+      requires both openings/structures and their resulting trade-off; `PROBLEM_PIECE` requires the
+      piece, restriction and standard remedy; `PLAN` requires a future pawn break, manoeuvre,
+      target or condition. The composer must be unable to emit a generic opening sentence when the
+      selected shape requires one of those fields. Test each shape with a positive answer and an
+      otherwise-grounded non-answer that the contract rejects.
+- [ ] **Product-blocking: make chat retrieval specificity-aware.** After resolving the longest
+      prefix, retrieve the exact line and a line-specific plan/idea passage; include a same-family
+      contrast only when it directly answers the question. Suppress strict-prefix ancestors and
+      broad sibling taxonomy by default (`B00` after the Sicilian, `C44` after the Italian, and the
+      Zukertort family list); allow them only for an explicit family-level question. This strengthens
+      the shorter-prefix retrieval item above with the query-aware policy and exact bad cases.
+- [ ] **Make the corpus unit a sourced player insight, not an ECO-row characterization.** Store
+      line-specific plans, trade-offs and non-obvious consequences with a move-prefix and
+      provenance; use board-replayed facts only as supporting evidence or ranking signals. A
+      `LineNarrator` that sees SAN can make rows distinct, but cannot author why the Caro-Kann keeps
+      the c8 bishop free or why Black accepts less space. The composer must select at least one
+      non-obvious insight rather than make visible board geometry the whole answer.
+- [ ] **Make player insights answerable by question shape.** In addition to the line prefix and
+      provenance, curate fields such as `choice_reason`, `central_tradeoff`, `white_plan`,
+      `black_plan`, `piece_purpose`, `common_misconception`, `comparison_to`, and
+      `typical_response`. A French "problem piece" request must retrieve an explicit c8-bishop
+      fact, not infer an answer from generic `...c5` counterplay prose. Board-description sentences
+      ("the bishop goes to c4", "the queen goes to a5") are metadata only unless paired with a
+      sourced implication, risk or plan.
 - [x] **Give the corpus more than one claim per ECO** — *in progress, see below.*
 
 #### Per-line claims (`LineNarrator`) — the R-1 fix being implemented
@@ -203,6 +246,9 @@ partly answer R-2 already.
       re-review — R-1's verdict stands until that happens.
 - [ ] `tools/collect_cloud_samples.sh` **duplicates `CitationSanitizer`'s rules in Python**. Keep the
       two in step, or the review sample stops matching what the app shows.
+- [ ] Make `tools/collect_cloud_samples.sh` print each chat turn's terminal `composerId` and whether
+      it ended in `done` or `fallback`. Without it, a sample cannot distinguish a provider answer
+      from `TemplateChatComposer`, which obscured the duplicate-label and glued-word failures.
 
 1. **Raw model deliberation reached the wire, and the validator passed it.** The Scandinavian chat
    turn streamed:
@@ -389,10 +435,43 @@ head.
 
 | Item | Owed | Why |
 |---|---|---|
-| P1-2 chat streaming | **Correction** to *Routing Modes Are Not a Routing Policy* | The article states tokens reach the UI immediately, token-by-token, and justifies validating the accumulated stream on that basis. Measured: one event, 10.9 s TTFT. Wrong, not stale. In-repo docs are corrected; the published piece is not. |
+| P1-1 cloud retrieval gate | **Correction** to *Routing Modes Are Not a Routing Policy* | The article says the 100-case golden set covered on-device routes while the cloud routes had no equivalent gate. That is now false: the offline `book-retrieval` row checks all 100 golden cases in CI and is cross-checked against the production SQL book tier. |
+| P1-2 chat streaming | **Correction** to *Routing Modes Are Not a Routing Policy* | The article states tokens reach the UI immediately, token-by-token, and justifies validating the accumulated stream on that basis. Measured deployment behaviour: one whole-answer event after 10.9 s TTFT. The endpoint and client support streaming, but the provider currently batches. Wrong, not stale. |
 | P0-1 + P0-2 | **Update** to *I Stopped Eyeballing LLM Output* | Its "A Fallback Rate Is Not a Finding" section leaves this open and quotes the 0% → 42% jump. Honest replacement: with the validator unchanged, the provider composer is accepted on **99 of 100** cases, and the "ungrounded" figure was the scorer rewarding verbatim copying. The thesis survives — it was the harness again — but the verdict inverts. |
-| P1-3 | Minor edit | The per-request estimate now prices measured expected output (1400 tokens), not the 2048 ceiling; default cap 1.5¢. |
-| P2-1 | Optional aside | Ids cost 21% of the instruction budget *and that is not what causes rejections* — a compact worked example of the article's own thesis. |
+| P1-3 | **Correction** to *Routing Modes Are Not a Routing Policy* | The article repeatedly calls 0.2¢ the enforced cloud ceiling. The server's default is now **1.5¢**, priced from 1,400 measured expected output tokens; the client-side 0.2 value only decides whether cloud is permitted, not what a request may cost. |
+| R-1 prose review | **Addendum** to *Routing Modes Are Not a Routing Policy* | The article's retrieval section reads like an ending. The stronger result is that 8/8 retrieval, a 99/100 validator pass rate, and CI grounding gates still did not make the prose worth showing: post-reseed human review rejected duplicate labels, parent/sibling-opening prose, explainer-echoing chat, and mostly move-describing line claims. |
+
+### Suggested edits — *Routing Modes Are Not a Routing Policy*
+
+These are corrections to the published piece, not a retroactive claim that its original design was
+wrong.
+
+1. **Five Surfaces, Three Privacy Classes** and **The Cloud Route** — replace each statement that
+   the cloud surfaces have a "0.2¢ ceiling" with: *"The client policy's 0.2 value only permits the
+   cloud route; the server enforces a separate per-request default of 1.5¢, estimated from 1,400
+   measured expected output tokens."* Do not imply the two values are still linked.
+2. **The Benchmark That Changed the Conclusion** — replace *"That covered the on-device surfaces.
+   It did not cover the two cloud ones, which had no equivalent gate at all"* with: *"It initially
+   covered only the on-device surfaces. The cloud path now has an offline `book-retrieval` CI row:
+   all 100 golden cases must resolve from their move prefix, and the offline index is cross-checked
+   against the production SQL tier."*
+3. **From One-Shot to Streaming** — replace the claim that tokens "reach the UI immediately" and
+   "token-by-token" with: *"The protocol and client support incremental SSE, and validation still
+   runs on the accumulated response at turn end. The deployed provider currently batches: measured
+   behaviour was about 10.9 s to first visible text, then one whole-answer event. That is a
+   provider limitation, not evidence that the UI is delivering token-by-token."* Keep the
+   cancellation claim only if it remains tested against an actual in-flight provider request.
+4. **After Retrieval Is Arithmetic, Not Similarity** — add: *"This fixed retrieval correctness,
+   not usefulness. After deployment and reseeding, a human review still rejected the output:
+   duplicate labels, parent and sibling-opening prose, chat echoing the explainer, and line text
+   that described moves rather than offering a plan, trade-off, or decision rule. Retrieval,
+   validator acceptance and grounding CI are necessary evidence, not evidence that the player
+   learned anything."*
+5. **Optional but candid production footnote** — add that a reader sample exposed untagged model
+   scratchpad prose that passed the chat validator. The live route now withholds leading note-shaped
+   lines before they reach the UI; this is why raw-output inspection remains necessary even after
+   validation. A fallback truncation was also changed to stop at word boundaries. The latter need
+   not enter the article unless discussing fallback UX specifically.
 
 **New material, and R-1 supplied the ending.** The thesis is no longer hypothetical: this pipeline
 reached 8/8 retrieval accuracy, a 99/100 validator pass rate, a grounding scorer that survives

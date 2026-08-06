@@ -57,25 +57,25 @@ object LineNarrator {
         val opponent = if (byWhite) "Black" else "White"
 
         kingMove(defining)?.let {
-            return "$side plays $defining, giving up the right to castle and keeping the king in the centre."
+            return "$side plays $defining on move $moveNumber, moving the king to ${defining.trimEnd('+', '#').takeLast(2)}."
         }
         fianchettoBishop(moves)?.let { (colour, bishop) ->
             if (colour == side) {
-                return "$side fianchettoes with $bishop, aiming the bishop along the long diagonal."
+                return "$side fianchettoes with $bishop, placing the bishop on the long diagonal."
             }
         }
         if (defining.startsWith("Q") && moveNumber <= 4) {
-            return "$side brings the queen out on move $moveNumber with $defining, ahead of the minor pieces."
+            return "$side brings the queen out on move $moveNumber with $defining."
         }
         if (defining.contains('x')) {
-            return "The line resolves the tension on move $moveNumber: $side captures with $defining."
+            return "$side captures with $defining on move $moveNumber."
         }
         flankPawnPush(defining)?.let {
-            return "$side pushes $defining on the wing at move $moveNumber, before completing development."
+            return "$side pushes $defining on the wing at move $moveNumber."
         }
         if (defining.startsWith("O-O")) {
             val castle = if (defining == "O-O-O") "queenside" else "kingside"
-            return "$side castles $castle on move $moveNumber, settling the king before the centre opens."
+            return "$side castles $castle on move $moveNumber."
         }
         if (defining.endsWith("+")) {
             return "$side checks with $defining on move $moveNumber, forcing $opponent to respond at once."
@@ -90,9 +90,9 @@ object LineNarrator {
             return "$side brings the $piece to ${square.takeLast(2)} at move $moveNumber, the move this line is named for."
         }
         if (square.length == 2 && square[0] in "de") {
-            return "$side claims central space with $square at move $moveNumber, the move this line is named for."
+            return "$side advances the pawn to $square at move $moveNumber, the move this line is named for."
         }
-        return "This line is defined by $defining at move $moveNumber, branching off from the main path."
+        return "This line is defined by $defining at move $moveNumber."
     }
 
     private val PIECE_NAMES = mapOf('N' to "knight", 'B' to "bishop", 'R' to "rook", 'Q' to "queen")

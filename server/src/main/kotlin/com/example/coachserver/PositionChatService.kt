@@ -75,19 +75,15 @@ class TemplateChatComposer : StreamingChatComposer {
         val moveLine = request.movesSan.takeLast(4).joinToString(" ").ifBlank { "this position" }
         val grounded = when {
             passages.isEmpty() -> "After $moveLine, focus on central control, piece development, and king safety."
-            else -> {
-                val top = passages.first()
-                val tail = if (passages.size > 1) " ${passages[1].title}: ${sentence(passages[1].text)}" else ""
-                "${top.title}: ${sentence(top.text)}$tail"
-            }
+            else -> sentence(passages.first().text)
         }
         return grounded.truncateAtWord(PositionChatValidator.MAX_OUTPUT_CHARS)
     }
 
     private fun sentence(text: String): String {
         val compact = text.replace(Regex("\\s+"), " ").trim()
-        val first = compact.substringBefore('.').trim().take(125)
-        return if (first.lastOrNull() in setOf('!', '?', '.')) first else "$first."
+        val first = compact.substringBefore('.').trim().truncateAtWord(125)
+        return if (first.endsWith('\u2026') || first.lastOrNull() in setOf('!', '?', '.')) first else "$first."
     }
 
     companion object {
@@ -104,7 +100,8 @@ internal fun String.truncateAtWord(limit: Int): String {
     val trimmed = trim()
     if (trimmed.length <= limit) return trimmed
     val cut = trimmed.take(limit)
-    return (cut.substringBeforeLast(' ', cut).trimEnd(',', ';', ':', ' ') + "\u2026").trim()
+    val boundary = cut.lastIndexOfAny(charArrayOf(' ', '\t', '\n'))
+    return if (boundary <= 0) "\u2026" else (cut.take(boundary).trimEnd(',', ';', ':', ' ') + "\u2026").trim()
 }
 
 /**
@@ -162,17 +159,16 @@ internal class LeadingNoteGate {
 
 private fun String.splitIntoChunks(): List<String> {
     if (isEmpty()) return emptyList()
-    // Split on word boundaries into ~24-char chunks; keeps tests deterministic without re-implementing
-    // a real tokenizer (the provider path emits real tokens, this only paces the template fallback).
-    val words = this.split(" ")
+    // Preserve every separator at the chunk boundary. Splitting on spaces and putting them back into
+    // a new chunk used to turn "Black answers" into "Blackanswers" in the UI.
+    val words = Regex("\\S+\\s*").findAll(this).map { it.value }.toList()
     val chunks = mutableListOf<String>()
     val current = StringBuilder()
     for (word in words) {
-        if (current.isNotEmpty() && current.length + 1 + word.length > 24) {
+        if (current.isNotEmpty() && current.length + word.length > 24) {
             chunks.add(current.toString())
             current.setLength(0)
         }
-        if (current.isNotEmpty()) current.append(' ')
         current.append(word)
     }
     if (current.isNotEmpty()) chunks.add(current.toString())

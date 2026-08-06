@@ -137,6 +137,56 @@ class ChatStreamingChunkCountTest {
     }
 
     @Test
+    fun `template chat does not repeat a title already named by the passage`() = runBlocking {
+        val passage = Passage(
+            sourceId = "lichess-b20",
+            title = "B20 — Sicilian Defense",
+            text = "Sicilian Defence: Black answers the king's pawn with c5, trading a flank pawn for a centre pawn.",
+        )
+
+        val text = TemplateChatComposer().streamCompose(request, listOf(passage)).toList()
+            .filterIsInstance<ChatChunk.Token>()
+            .joinToString("") { it.text }
+
+        assertEquals("Sicilian Defence: Black answers the king's pawn with c5, trading a flank pawn for a centre pawn.", text)
+    }
+
+    @Test
+    fun `template chat chunks preserve the spaces in its answer`() = runBlocking {
+        val passage = Passage(
+            sourceId = "lichess-c20",
+            title = "C20 — King's Pawn Game",
+            text = "Both king pawns contest the center and open lines for piece development and king safety.",
+        )
+
+        val chunks = TemplateChatComposer().streamCompose(request, listOf(passage)).toList()
+            .filterIsInstance<ChatChunk.Token>()
+            .map(ChatChunk.Token::text)
+
+        assertTrue(chunks.size > 1, "fixture must cross a chunk boundary")
+        assertEquals(
+            "Both king pawns contest the center and open lines for piece development and king safety.",
+            chunks.joinToString(""),
+        )
+    }
+
+    @Test
+    fun `template chat sentence cap stops at a word boundary`() = runBlocking {
+        val passage = Passage(
+            sourceId = "lichess-a00",
+            title = "A00 — Long line",
+            text = "word ".repeat(30) + "finalwordthatmustnotbehalved when the chat template limits its quoted source sentence to a safe display length.",
+        )
+
+        val text = TemplateChatComposer().streamCompose(request, listOf(passage)).toList()
+            .filterIsInstance<ChatChunk.Token>()
+            .joinToString("") { it.text }
+
+        assertTrue(text.endsWith("…"), text)
+        assertTrue("finalwordthatmustnotbehalved" !in text, text)
+    }
+
+    @Test
     fun `a provider that answers with one whole completion produces exactly one chunk`() {
         // Not a bug in this class — it is the shape the live deployment is in, pinned so the
         // distinction stays legible: one chunk here means the provider batched, never that the
