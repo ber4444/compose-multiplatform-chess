@@ -28,12 +28,13 @@ sealed interface MoveCoachUiState {
 
     data class Loading(val move: String) : MoveCoachUiState
     data class Streaming(val move: String, val text: String) : MoveCoachUiState
-    data class Ready(val explanation: MoveCoachExplanation) : MoveCoachUiState
+    data class Ready(val explanation: MoveCoachExplanation, val route: com.example.ondeviceai.AiRoute) : MoveCoachUiState
     /** [reason] stays typed so the panel can pick a designed state via [FallbackPresentation];
      *  flattening it to a string here is what made every fallback render identically (B17). */
     data class Fallback(
         val text: String,
         val reason: com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason,
+        val route: com.example.ondeviceai.AiRoute,
     ) : MoveCoachUiState
     data class Error(val message: String) : MoveCoachUiState
 }

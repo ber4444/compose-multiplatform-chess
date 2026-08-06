@@ -86,14 +86,16 @@ class GameSummaryManager {
                         is GameSummaryEvent.Complete -> when (val result = event.result) {
                             is GameSummaryResult.Success ->
                                 _uiState.value = GameSummaryUiState.Ready(
-                                    result.explanation.copy(
+                                    explanation = result.explanation.copy(
                                         explanation = CitationSanitizer.sanitize(result.explanation.explanation),
-                                    )
+                                    ),
+                                    route = result.explanation.route
                                 )
                             is GameSummaryResult.FellBack ->
                                 _uiState.value = GameSummaryUiState.Fallback(
                                     CitationSanitizer.sanitize(result.text),
                                     result.reason,
+                                    route = com.example.ondeviceai.AiRoute.Fallback(result.reason)
                                 )
                             is GameSummaryResult.Failed ->
                                 _uiState.value = GameSummaryUiState.Error(result.message)

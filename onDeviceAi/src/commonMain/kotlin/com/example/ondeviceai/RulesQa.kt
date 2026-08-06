@@ -19,11 +19,13 @@ sealed interface RulesQaResult {
     data class Success(
         val text: String,
         val passageIds: List<String>,
+        val route: AiRoute,
     ) : RulesQaResult
 
     data class FellBack(
         val text: String,
         val reason: AiRoutePolicyDecider.FallbackReason,
+        val route: AiRoute = AiRoute.Fallback(reason),
     ) : RulesQaResult
 }
 
@@ -107,6 +109,7 @@ class DefaultRulesQaOrchestrator(
             is RulesQaResponseValidator.Result.Valid -> RulesQaResult.Success(
                 text = validation.text,
                 passageIds = validation.citedPassageIds,
+                route = AiRoute.OnDevice,
             )
             // The specific broken rule is a diagnostic; the product state is the same either way.
             // Mirrors DefaultAiCoachOrchestrator: log the detail, fall back with Validation.

@@ -24,8 +24,9 @@ sealed interface OpeningExplainerResult {
     ) : OpeningExplainerResult
 
     data class Fallback(
-        val response: OpeningExplainResponse,
+        val response: com.example.coachapi.OpeningExplainResponse,
         val reason: AiRoutePolicyDecider.FallbackReason,
+        val route: AiRoute = AiRoute.Fallback(reason),
     ) : OpeningExplainerResult
 }
 

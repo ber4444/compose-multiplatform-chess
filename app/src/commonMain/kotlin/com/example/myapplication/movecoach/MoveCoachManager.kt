@@ -123,20 +123,20 @@ class MoveCoachManager(
             // Free tier: render the deterministic line as a finished answer, not a Fallback. It is
             // a complete, correct explanation — labelling it a fallback would tell the user their
             // own product tier is a degraded state.
-            _coachUiState.value = MoveCoachUiState.Ready(
-                com.example.ondeviceai.MoveCoachExplanation(
-                    headline = request.deterministicHeadline,
-                    explanation = request.deterministicExplanation,
-                    confidence = com.example.ondeviceai.ExplanationConfidence.HIGH,
-                    route = com.example.ondeviceai.AiRoute.OnDevice,
-                    metrics = com.example.ondeviceai.AiInferenceMetrics(
-                        firstTokenMs = null,
-                        completeMs = 0L,
-                        tokenCount = 0,
-                        route = com.example.ondeviceai.AiRoute.OnDevice,
-                    ),
+                _coachUiState.value = MoveCoachUiState.Ready(
+                    com.example.ondeviceai.MoveCoachExplanation(
+                        headline = request.deterministicHeadline,
+                        explanation = request.deterministicExplanation,
+                        confidence = com.example.ondeviceai.ExplanationConfidence.HIGH,
+                        route = com.example.ondeviceai.AiRoute.Fallback(com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.NoLocalModel),
+                        metrics = com.example.ondeviceai.AiInferenceMetrics(
+                            firstTokenMs = null,
+                            completeMs = 0L,
+                            tokenCount = 0,
+                            route = com.example.ondeviceai.AiRoute.Fallback(com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.NoLocalModel),
+                        ),
+                    )
                 )
-            )
             return
         }
 
@@ -154,7 +154,7 @@ class MoveCoachManager(
                             is MoveCoachResult.Success -> {
                                 val shown = CitationSanitizer.sanitize(result.explanation.explanation)
                                 _coachUiState.value = MoveCoachUiState.Ready(
-                                    result.explanation.copy(
+                                    explanation = result.explanation.copy(
                                         headline = CitationSanitizer.sanitize(result.explanation.headline),
                                         explanation = shown,
                                     )

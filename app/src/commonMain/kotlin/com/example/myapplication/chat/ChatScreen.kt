@@ -143,11 +143,10 @@ private fun MessageRow(message: ChatMessage) {
             color = MaterialTheme.colorScheme.primary,
         )
         Text(text = message.text, style = MaterialTheme.typography.bodyMedium)
-        if (message.isFallback) {
-            Text(
-                "fallback reply",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
+        if (message.role == "assistant") {
+            com.example.myapplication.ui.ProvenanceBadge(
+                route = message.route ?: com.example.ondeviceai.AiRoute.Cloud,
+                modifier = Modifier.testTag("chat_provenance")
             )
         }
     }
@@ -157,6 +156,10 @@ private fun MessageRow(message: ChatMessage) {
 private fun StreamingRow(partialText: String, firstTokenReceived: Boolean) {
     Column(modifier = Modifier.fillMaxWidth().testTag("chat_streaming_row")) {
         Text("Coach", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+        com.example.myapplication.ui.ProvenanceBadge(
+            route = com.example.ondeviceai.AiRoute.Cloud,
+            modifier = Modifier.testTag("chat_provenance")
+        )
         if (!firstTokenReceived) {
             // Typing indicator while awaiting the first token.
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

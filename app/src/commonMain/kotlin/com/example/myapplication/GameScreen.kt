@@ -346,9 +346,15 @@ fun GameScreen(
                             )
                         }
                         is GameSummaryUiState.Ready -> {
-                            val exp = (summaryState as GameSummaryUiState.Ready).explanation
+                            val state = summaryState as GameSummaryUiState.Ready
+                            val exp = state.explanation
                             Column(modifier = Modifier.padding(8.dp)) {
                                 Text("Coach Summary", fontWeight = FontWeight.Bold)
+                                com.example.myapplication.ui.ProvenanceBadge(
+                                    route = state.route,
+                                    modifier = Modifier.testTag("game_summary_provenance")
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
                                 Text(exp.explanation, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
@@ -370,6 +376,11 @@ fun GameScreen(
                                     )
                                     FallbackPresentation.Silent -> Unit
                                 }
+                                com.example.myapplication.ui.ProvenanceBadge(
+                                    route = fallback.route,
+                                    modifier = Modifier.testTag("game_summary_provenance")
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
                                 Text(fallback.text, style = MaterialTheme.typography.bodyMedium)
                                 if (presentation is FallbackPresentation.Retryable) {
                                     TextButton(onClick = { gameSummaryManager.retry() }) {

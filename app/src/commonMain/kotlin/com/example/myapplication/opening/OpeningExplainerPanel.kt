@@ -54,12 +54,9 @@ private fun OpeningExplainerReadyPanel(
                 style = MaterialTheme.typography.labelSmall,
             )
         }
-        if (state.isFallback) {
-            Text(
-                text = "Offline opening guidance",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        com.example.myapplication.ui.ProvenanceBadge(
+            route = state.route,
+            modifier = Modifier.testTag("opening_explainer_provenance")
+        )
     }
 }

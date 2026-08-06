@@ -23,6 +23,7 @@ data class ChatMessage(
     val text: String,
     /** `true` if this assistant turn arrived as a validation fallback rather than a cloud-validated reply. */
     val isFallback: Boolean = false,
+    val route: com.example.ondeviceai.AiRoute? = null,
 )
 
 /**
@@ -98,6 +99,7 @@ class ChatViewModel(
                 "assistant",
                 CitationSanitizer.sanitize(current.partialText),
                 isFallback = true,
+                route = com.example.ondeviceai.AiRoute.Fallback(com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.Timeout) // Stop is effectively a timeout fallback
             ),
             partialText = "",
             error = true,
@@ -178,8 +180,9 @@ class ChatViewModel(
     private fun finalizeAssistant(text: String, isFallback: Boolean) {
         val current = mutableState.value
         val sanitizedText = CitationSanitizer.sanitize(text)
+        val route = if (isFallback) com.example.ondeviceai.AiRoute.Fallback(com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.Validation) else com.example.ondeviceai.AiRoute.Cloud
         mutableState.value = current.copy(
-            messages = current.messages + ChatMessage("assistant", sanitizedText, isFallback = isFallback),
+            messages = current.messages + ChatMessage("assistant", sanitizedText, isFallback = isFallback, route = route),
             partialText = "",
             streaming = false,
             error = false,
