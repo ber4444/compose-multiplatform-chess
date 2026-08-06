@@ -185,7 +185,7 @@ class LlmComposer(
         val prompt = userPrompt(request, passages)
         if (prompt.length > MAX_PROVIDER_INPUT_CHARS || !budget.admits(prompt.length, maxOutputTokens)) {
             probe(ComposeAttempt.BudgetRejected(prompt.length))
-            return fallback.compose(request, passages)
+            return fallback.compose(request, passages).copy(finishReason = "budget_rejected")
         }
         // The exception is captured rather than discarded: an auth failure, a bad model id and a
         // model that simply wrote badly all produced the identical "fell back" row before this.
@@ -210,7 +210,18 @@ class LlmComposer(
                 else -> ComposeAttempt.Accepted(valid, completion.completionTokens)
             },
         )
-        return if (valid != null) ComposedText(valid, ID) else fallback.compose(request, passages)
+        return if (valid != null) {
+            ComposedText(valid, ID, completionTokens = completion.completionTokens, rawProviderOutput = completion.text)
+        } else {
+            fallback.compose(request, passages).copy(
+                finishReason = when {
+                    attempt.isFailure || candidate == null -> "provider_error"
+                    else -> "validator_rejected"
+                },
+                completionTokens = completion?.completionTokens,
+                rawProviderOutput = completion?.text,
+            )
+        }
     }
 
     private fun userPrompt(request: OpeningExplainRequest, passages: List<Passage>): String = buildString {

@@ -163,4 +163,28 @@ class OpeningServiceTest {
         assertEquals(0, calls)
         assertEquals("template-v1", result.composerId)
     }
+
+    @Test
+    fun openingDiagnosticsNameRetrievalAndDeterministicOutcome() = runBlocking {
+        val passage = Passage("lichess-c20", "Title", "Text")
+        val request = OpeningExplainRequest(fen = "fen", movesSan = listOf("e4", "e5"), eco = "C20")
+        val service = OpeningService(
+            ServerDependencies(
+                embedder = { FloatArray(384) },
+                passageRepository = object : PassageRepository {
+                    override fun retrieve(
+                        embedding: FloatArray, limit: Int, movesSan: List<String>, eco: String?
+                    ) = RetrievalResult(listOf(passage), eco)
+                    override fun upsert(
+                        passage: Passage, embedding: FloatArray, eco: String?, moves: String?
+                    ) = Unit
+                },
+                composer = TemplateComposer(),
+            )
+        )
+        val body = service.explain(request)
+        assertEquals(listOf("lichess-c20"), body.diagnostics!!.retrievedPassageIds)
+        assertEquals("template-v1", body.diagnostics!!.composerId)
+        assertEquals("completed", body.diagnostics!!.finishReason)
+    }
 }
