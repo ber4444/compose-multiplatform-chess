@@ -70,8 +70,9 @@ class PositionChatRouteTest {
         // Three token deltas…
         assertEquals(3, events.count { it.type == "token" })
         assertEquals("The center ", events.first { it.type == "token" }.text)
-        // …then a terminal done event.
-        assertEquals("done", events.last().type)
+        // …then a terminal done event, followed by diagnostics.
+        assertEquals("done", events[events.lastIndex - 1].type)
+        assertEquals("diagnostics", events.last().type)
     }
 
     @Test
@@ -104,9 +105,10 @@ class PositionChatRouteTest {
         assertEquals(HttpStatusCode.OK, response.status)
         val events = parseSseEvents(response.body<String>())
         assertTrue(events.any { it.type == "token" })
-        assertEquals("done", events.last().type)
+        assertEquals("done", events[events.lastIndex - 1].type)
         // Template composer id is exposed via the done event.
-        assertEquals("template-chat-v1", events.last().composerId)
+        assertEquals("template-chat-v1", events[events.lastIndex - 1].composerId)
+        assertEquals("diagnostics", events.last().type)
     }
 
     @Test
@@ -167,12 +169,13 @@ class PositionChatRouteTest {
 
         assertEquals(HttpStatusCode.OK, response.status)
         val events = parseSseEvents(response.body<String>())
-        // No `done` — the turn failed validation and downgraded to fallback.
-        assertEquals("fallback", events.last().type)
+        // No `done` — the turn failed validation and downgraded to fallback, then diagnostics.
+        assertEquals("fallback", events[events.lastIndex - 1].type)
         assertTrue(events.none { it.type == "done" })
         // The fallback carries deterministic text + the template composer id.
-        assertTrue(events.last().text!!.isNotBlank())
-        assertEquals("template-chat-v1", events.last().composerId)
+        assertTrue(events[events.lastIndex - 1].text!!.isNotBlank())
+        assertEquals("template-chat-v1", events[events.lastIndex - 1].composerId)
+        assertEquals("diagnostics", events.last().type)
     }
 
     /**
@@ -384,6 +387,28 @@ class PositionChatRouteTest {
     fun `validator rejects uncited sentences`() {
         val text = "The king pawns contest the center. Development follows naturally from the central pawn structure."
         assertEquals(null, PositionChatValidator.validate(text, listOf(passage)))
+    }
+
+    @Test
+    fun chatDiagnosticsFollowsDoneAndIdentifiesComposer() = runBlocking {
+        val request = PositionChatRequest(
+            fen = "fen", movesSan = listOf("e4", "e5"), eco = "C20", userMessage = "Q?"
+        )
+        val service = PositionChatService(
+            ChatServerDependencies(
+                embedder = Embedder { FloatArray(384) { 0.25f } },
+                passageRepository = inMemoryRepo(listOf(passage)),
+                streamingChatComposer = TemplateChatComposer(),
+                releaseVersion = "git-abc123"
+            )
+        )
+        val chunks = service.chat(request).toList()
+        
+        assertEquals(ChatChunk.Done("template-chat-v1"), chunks[chunks.lastIndex - 1])
+        val diag = chunks.last() as ChatChunk.Diagnostics
+        assertEquals("template-chat-v1", diag.diagnostics.composerId)
+        assertEquals(listOf("lichess-c20"), diag.diagnostics.retrievedPassageIds)
+        assertEquals("git-abc123", diag.diagnostics.releaseVersion)
     }
 
     /** Minimal opening-explainer deps so the module mounts; the chat route is what's under test. */

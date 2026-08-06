@@ -250,7 +250,13 @@ fun defaultChatDependencies(environment: Map<String, String>): PositionChatServi
     )
     val composer = selectChatComposer(environment, TemplateChatComposer())
     return PositionChatService(
-        ChatServerDependencies(embedder, PostgresPassageRepository(dataSource), composer),
+        ChatServerDependencies(
+            embedder = embedder,
+            passageRepository = PostgresPassageRepository(dataSource),
+            streamingChatComposer = composer,
+            releaseVersion = environment["RELEASE_VERSION"] ?: environment["FLY_IMAGE_REF"] ?: "unknown",
+            corpusStatusReader = PostgresCorpusStatusReader(dataSource)
+        ),
     )
 }
 
