@@ -109,9 +109,13 @@ class PostgresPassageRepository(
     ): List<Pair<Passage, String?>> = connection.prepareStatement(
         """
         SELECT source_id, title, text, eco FROM passages
-        WHERE moves IS NOT NULL AND moves <> ''
-          AND (moves = ? OR ? LIKE moves || ' %')
-        ORDER BY length(moves) DESC
+        WHERE moves = (
+            SELECT moves FROM passages
+            WHERE moves IS NOT NULL AND moves <> ''
+              AND (moves = ? OR ? LIKE moves || ' %')
+            ORDER BY length(moves) DESC
+            LIMIT 1
+        )
         LIMIT ?
         """.trimIndent(),
     ).use { statement ->
@@ -184,11 +188,121 @@ class PostgresPassageRepository(
         }
     }
 
+    /**
+     * Replaces the searchable corpus atomically using bounded JDBC batches on one connection.
+     *
+     * The final count, final sorted source id, and manifest version are checked before commit.
+     * A failed embedding, write, or check rolls the transaction back, leaving the last known-good
+     * corpus and its `corpus_seed_state` row intact.
+     */
+    fun replaceCorpus(
+        rows: List<SeededPassage>,
+        manifest: CorpusSeedManifest,
+        batchSize: Int = DEFAULT_SEED_BATCH_SIZE,
+        onProgress: (completed: Int, total: Int) -> Unit = { _, _ -> },
+    ) {
+        require(rows.size == manifest.expectedRowCount) { "Seed row count does not match manifest" }
+        require(rows.isNotEmpty()) { "Cannot seed an empty corpus" }
+        require(batchSize > 0) { "batchSize must be positive" }
+        require(rows.last().passage.sourceId == manifest.finalSourceId) { "Seed order does not match manifest" }
+        rows.forEach { require(it.embedding.size == OpeningService.EMBEDDING_DIMENSIONS) }
+
+        dataSource.connection.use { connection ->
+            PGvector.registerTypes(connection)
+            val originalAutoCommit = connection.autoCommit
+            connection.autoCommit = false
+            try {
+                connection.prepareStatement(UPSERT_SEEDED_PASSAGE).use { statement ->
+                    rows.forEachIndexed { index, row ->
+                        statement.setString(1, row.passage.sourceId)
+                        statement.setString(2, row.passage.title)
+                        statement.setString(3, row.passage.text)
+                        statement.setObject(4, PGvector(row.embedding))
+                        statement.setString(5, row.eco?.uppercase())
+                        statement.setString(6, row.moves)
+                        statement.setString(7, manifest.version)
+                        statement.addBatch()
+                        if ((index + 1) % batchSize == 0 || index == rows.lastIndex) {
+                            statement.executeBatch()
+                            onProgress(index + 1, rows.size)
+                        }
+                    }
+                }
+                // A replacement seed must not leave deleted or renamed old passages searchable.
+                connection.prepareStatement("DELETE FROM passages WHERE seed_version IS DISTINCT FROM ?").use { statement ->
+                    statement.setString(1, manifest.version)
+                    statement.executeUpdate()
+                }
+                val insertedCount = connection.prepareStatement(
+                    "SELECT COUNT(*) FROM passages WHERE seed_version = ?",
+                ).use { statement ->
+                    statement.setString(1, manifest.version)
+                    statement.executeQuery().use { results -> results.next(); results.getInt(1) }
+                }
+                check(insertedCount == manifest.expectedRowCount) {
+                    "Seed row count mismatch: expected ${manifest.expectedRowCount}, found $insertedCount"
+                }
+                val containsFinalSource = connection.prepareStatement(
+                    "SELECT EXISTS(SELECT 1 FROM passages WHERE seed_version = ? AND source_id = ?)",
+                ).use { statement ->
+                    statement.setString(1, manifest.version)
+                    statement.setString(2, manifest.finalSourceId)
+                    statement.executeQuery().use { results -> results.next(); results.getBoolean(1) }
+                }
+                check(containsFinalSource) {
+                    "Seed is missing final source ${manifest.finalSourceId}"
+                }
+                connection.prepareStatement(
+                    """
+                    INSERT INTO corpus_seed_state(singleton, seed_version, row_count, final_source_id)
+                    VALUES (TRUE, ?, ?, ?)
+                    ON CONFLICT (singleton) DO UPDATE SET
+                        seed_version = EXCLUDED.seed_version,
+                        row_count = EXCLUDED.row_count,
+                        final_source_id = EXCLUDED.final_source_id,
+                        seeded_at = NOW()
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setString(1, manifest.version)
+                    statement.setInt(2, manifest.expectedRowCount)
+                    statement.setString(3, manifest.finalSourceId)
+                    statement.executeUpdate()
+                }
+                connection.commit()
+            } catch (error: Throwable) {
+                connection.rollback()
+                throw error
+            } finally {
+                connection.autoCommit = originalAutoCommit
+            }
+        }
+    }
+
     private companion object {
         /** Book hits are capped so the vector tiers still contribute related material. */
         const val BOOK_LIMIT = 2
+        const val DEFAULT_SEED_BATCH_SIZE = 200
+        val UPSERT_SEEDED_PASSAGE =
+            """
+            INSERT INTO passages(source_id, title, text, embedding, eco, moves, seed_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (source_id) DO UPDATE SET
+                title = EXCLUDED.title,
+                text = EXCLUDED.text,
+                embedding = EXCLUDED.embedding,
+                eco = EXCLUDED.eco,
+                moves = EXCLUDED.moves,
+                seed_version = EXCLUDED.seed_version
+            """.trimIndent()
     }
 }
+
+data class SeededPassage(
+    val passage: Passage,
+    val embedding: FloatArray,
+    val eco: String?,
+    val moves: String?,
+)
 
 private data class DatabaseUrl(
     val jdbcUrl: String,

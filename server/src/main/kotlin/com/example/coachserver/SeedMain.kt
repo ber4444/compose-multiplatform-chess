@@ -19,18 +19,25 @@ object SeedMain {
         val repository = PostgresPassageRepository(dataSource)
         val corpusDirectory = Path.of(environment["COACH_CORPUS_DIR"] ?: "corpus")
         val passages = loadCorpus(corpusDirectory)
+        val manifest = CorpusSeedManifest.from(passages)
         embedder.use { embedding ->
-            passages.forEach { entry ->
-                repository.upsert(
+            val rows = passages.map { entry ->
+                SeededPassage(
                     passage = entry.passage,
                     embedding = embedding.embed("${entry.passage.title}. ${entry.passage.text}"),
                     eco = entry.eco,
                     moves = entry.moves,
                 )
             }
+            repository.replaceCorpus(rows, manifest) { completed, total ->
+                println("Seeded $completed/$total passages")
+            }
         }
         dataSource.close()
-        println("Seeded ${passages.size} opening passages from $corpusDirectory")
+        println(
+            "Seed complete: version=${manifest.version} rows=${manifest.expectedRowCount} " +
+                "finalSourceId=${manifest.finalSourceId} corpus=$corpusDirectory",
+        )
     }
 
     /**
