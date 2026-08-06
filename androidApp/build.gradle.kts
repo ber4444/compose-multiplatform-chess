@@ -15,6 +15,7 @@ val sharedComposeAssetsDir = project(":app").layout.buildDirectory
 android {
     namespace = "com.example.myapplication.app"
     compileSdk = 36
+    assetPacks += listOf(":stockfish-assets")
 
     defaultConfig {
         applicationId = "io.github.ber4444.chess"

@@ -23,7 +23,18 @@ class StockfishEngine(
     /** Always true — embedded CPU fallback is always available. */
     fun isAvailable(): Boolean = true
 
-    override fun resolveExecutablePath(): String? = resolveEngineFile()?.absolutePath
+    private var nnueFile: File? = null
+
+    override fun resolveExecutablePath(): String? {
+        // Always try to extract NNUE from assets.
+        nnueFile = extractAssetFile("stockfish/nn-ab28990d4ea3.nnue", "nn-ab28990d4ea3.nnue")
+        return resolveEngineFile()?.absolutePath
+    }
+
+    override fun getInitCommands(): List<String> {
+        val path = nnueFile?.absolutePath
+        return if (path != null) listOf("setoption name EvalFile value $path") else emptyList()
+    }
 
     private fun resolveEngineFile(): File? {
         executableFile?.let { if (it.exists() && it.canExecute()) return it }
@@ -72,6 +83,26 @@ class StockfishEngine(
 
     private fun assetExists(path: String): Boolean =
         try { assetManager.open(path).use { true } } catch (_: IOException) { false }
+
+    private fun extractAssetFile(assetPath: String, outputName: String): File? {
+        val outputDir = File(filesDir, ASSET_DIRECTORY)
+        if (!outputDir.exists() && !outputDir.mkdirs()) {
+            logger.e { "Failed to create extraction directory: ${outputDir.absolutePath}" }
+            return null
+        }
+        val outputFile = File(outputDir, outputName)
+        if (outputFile.exists()) return outputFile
+
+        return try {
+            assetManager.open(assetPath).use { input ->
+                outputFile.outputStream().use { input.copyTo(it) }
+            }
+            outputFile
+        } catch (e: IOException) {
+            logger.e(e) { "Failed to extract asset: $assetPath" }
+            null
+        }
+    }
 
     private fun extractAssetExecutable(assetPath: String, abi: String, fileName: String): File? {
         val outputDir = if (abi.isBlank()) File(filesDir, ASSET_DIRECTORY)

@@ -77,6 +77,8 @@ abstract class BaseStockfishEngine : ChessEngine {
     /** Return the command or absolute path to launch the engine, or null to use embedded fallback. */
     protected abstract fun resolveExecutablePath(): String?
 
+    protected open fun getInitCommands(): List<String> = emptyList()
+
     fun start(): Boolean {
         if (process != null) {
             logger.i { "Stockfish engine already running" }
@@ -123,6 +125,9 @@ abstract class BaseStockfishEngine : ChessEngine {
             // Apply any difficulty configured before start once the engine is up but before isReady
             // flips, so the first move uses the configured skill + movetime.
             skillLevel?.let { sendSkillLevel(it) }
+
+            val initCommands = getInitCommands()
+            initCommands.forEach { sendCommand(it) }
 
             sendCommand("isready")
             if (!waitForLine("readyok", timeoutMs = 5000)) {
