@@ -109,9 +109,13 @@ class PostgresPassageRepository(
     ): List<Pair<Passage, String?>> = connection.prepareStatement(
         """
         SELECT source_id, title, text, eco FROM passages
-        WHERE moves IS NOT NULL AND moves <> ''
-          AND (moves = ? OR ? LIKE moves || ' %')
-        ORDER BY length(moves) DESC
+        WHERE moves = (
+            SELECT moves FROM passages
+            WHERE moves IS NOT NULL AND moves <> ''
+              AND (moves = ? OR ? LIKE moves || ' %')
+            ORDER BY length(moves) DESC
+            LIMIT 1
+        )
         LIMIT ?
         """.trimIndent(),
     ).use { statement ->

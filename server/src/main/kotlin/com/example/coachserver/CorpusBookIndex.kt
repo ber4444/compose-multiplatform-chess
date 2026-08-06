@@ -49,12 +49,20 @@ class CorpusBookIndex(entries: List<SeedMain.CorpusEntry>) {
         return Match(eco = row.eco, passage = row.passage, matchedMoves = row.moves)
     }
 
-    /** Book passages for [movesSan], longest match first, mirroring the SQL's `LIMIT`. */
+    /**
+     * Book passages for [movesSan] at the resolved line only.
+     *
+     * A shorter matching row describes an ancestor, not the current line. Returning it alongside
+     * the deepest match caused the composers to dilute a line-specific answer with family prose.
+     */
     fun retrieve(movesSan: List<String>, limit: Int): List<Passage> {
         val normalized = MoveSequence.normalizeSan(movesSan)
         if (normalized.isEmpty()) return emptyList()
+        val matchedMoves = book.firstOrNull { normalized == it.moves || normalized.startsWith("${it.moves} ") }
+            ?.moves
+            ?: return emptyList()
         return book.asSequence()
-            .filter { normalized == it.moves || normalized.startsWith("${it.moves} ") }
+            .filter { it.moves == matchedMoves }
             .map(BookRow::passage)
             .distinctBy(Passage::sourceId)
             .take(limit)

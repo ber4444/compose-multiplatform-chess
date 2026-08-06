@@ -3,15 +3,9 @@
 This is the forward-looking work list for the opening explainer and position chat. It records the
 agreed strategy and acceptance criteria; implementation history belongs in commits and the PR.
 
-## Current state
+## Remaining state
 
-- PR #121 contains the current server changes and is pushed from `fix/cloud-eval-honesty-followups`.
-- Fly release v28 is serving and `/health` returns `ok`; the production database has **not** yet
-  been reseeded with this image.
-- `:server:test` passes locally.
-- `LineNarrator` no longer invents unsupported chess claims.
-- Template chat no longer repeats the passage title, loses spaces between stream chunks, or cuts a
-  sentence in the middle of a word.
+- The production database has **not** yet been reseeded with the deployed image.
 - The deployed service must be health-checked, reseeded with the current corpus, and sampled again
   before the new prose can be evaluated. A sample is not evidence until the response is known to
   come from the current image and corpus.
@@ -55,13 +49,9 @@ check.
 
 ### 1. Retrieve the most specific line
 
-- Resolve the longest matching SAN move prefix first.
 - Retrieve line-specific plan/idea material next.
 - Permit one same-family contrast only when it directly answers the question.
-- Suppress strict-prefix ancestors by default. Permit a family passage only for an explicit
-  family-level question.
-- Keep vector retrieval as a backfill after exact-prefix and ECO-scoped candidates; never let
-  similarity override an exact line identity.
+- Permit a family passage only for an explicit family-level question.
 
 ### 2. Store answerable player insights
 
@@ -136,11 +126,6 @@ composer.
 - In **Routing Modes Are Not a Routing Policy**, state the enforced server cap and distinguish it
   from the client policy declaration; describe provider-batched streaming and the remaining
   usefulness limitation. Do not claim the cloud prose is user-ready until R-1 closes.
-- In **I Stopped Eyeballing LLM Output and Started Scoring It Like a Unit Test**, retain the
-  distinction between validator success and usefulness. Add the limitation that retrieval can be
-  correct and validator acceptance high while answers still duplicate labels, cite taxonomy, or
-  describe moves without a plan; deterministic scoring is a regression net, not a substitute for
-  human usefulness review.
 
 ## Explicitly out of scope for this PR
 
