@@ -11,10 +11,9 @@ paths:
         '200':
           description: Service is running.
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-                example: ok
+                $ref: '#/components/schemas/HealthReport'
   /v1/openings/explain:
     post:
       operationId: explainOpening
@@ -108,6 +107,40 @@ components:
         composerId:
           type: string
           enum: [template-v1, llm-v1]
+        diagnostics:
+          $ref: '#/components/schemas/CloudDiagnostics'
+    HealthReport:
+      type: object
+      additionalProperties: false
+      required: [status, releaseVersion, corpus]
+      properties:
+        status: { type: string, example: ok }
+        releaseVersion: { type: string }
+        corpus: { $ref: '#/components/schemas/CorpusDiagnostics' }
+    CorpusDiagnostics:
+      type: object
+      additionalProperties: false
+      required: [ready]
+      properties:
+        ready: { type: boolean }
+        seedVersion: { type: string, nullable: true }
+        rowCount: { type: integer, nullable: true }
+        finalSourceId: { type: string, nullable: true }
+    CloudDiagnostics:
+      type: object
+      additionalProperties: false
+      required: [releaseVersion, corpus, retrievedPassageIds, composerId, finishReason, latencyMs]
+      properties:
+        releaseVersion: { type: string }
+        corpus: { $ref: '#/components/schemas/CorpusDiagnostics' }
+        retrievedPassageIds:
+          type: array
+          items: { type: string }
+        composerId: { type: string }
+        finishReason: { type: string }
+        latencyMs: { type: integer, format: int64 }
+        completionTokens: { type: integer, nullable: true }
+        rawProviderOutput: { type: string, nullable: true }
     ApiError:
       type: object
       additionalProperties: false

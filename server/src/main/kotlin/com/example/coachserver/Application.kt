@@ -2,6 +2,7 @@ package com.example.coachserver
 
 import com.example.coachapi.ApiError
 import com.example.coachapi.ChatStreamEvent
+import com.example.coachapi.CorpusDiagnostics
 import com.example.coachapi.OpeningExplainRequest
 import com.example.coachapi.PositionChatRequest
 import io.ktor.http.ContentType
@@ -21,7 +22,6 @@ import io.ktor.server.request.contentLength
 import io.ktor.server.request.receiveChannel
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytesWriter
-import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
@@ -83,6 +83,8 @@ fun Application.openingCoachModule(
     allowedOrigins: Set<String> = emptySet(),
     rateLimiter: RequestRateLimiter = FixedWindowRateLimiter(),
     trustFlyClientIp: Boolean = false,
+    releaseVersion: String = dependencies.releaseVersion,
+    corpusStatusReader: CorpusStatusReader = dependencies.corpusStatusReader,
 ) {
     val logger = environment.log
     install(ContentNegotiation) {
@@ -111,7 +113,7 @@ fun Application.openingCoachModule(
     val service = OpeningService(dependencies)
     routing {
         get("/health") {
-            call.respondText("ok", ContentType.Text.Plain, HttpStatusCode.OK)
+            call.respond(HealthReport("ok", releaseVersion, corpusStatusReader.readOrUnavailable()))
         }
         post("/v1/openings/explain") {
             if ((call.request.contentLength() ?: 0L) > MAX_REQUEST_BYTES) {
@@ -224,7 +226,13 @@ fun defaultDependencies(environment: Map<String, String>): ServerDependencies {
             is ComposeAttempt.Accepted -> Unit
         }
     }
-    return ServerDependencies(embedder, PostgresPassageRepository(dataSource), composer)
+    return ServerDependencies(
+        embedder = embedder,
+        passageRepository = PostgresPassageRepository(dataSource),
+        composer = composer,
+        releaseVersion = environment["RELEASE_VERSION"] ?: environment["FLY_IMAGE_REF"] ?: "unknown",
+        corpusStatusReader = PostgresCorpusStatusReader(dataSource),
+    )
 }
 
 /**

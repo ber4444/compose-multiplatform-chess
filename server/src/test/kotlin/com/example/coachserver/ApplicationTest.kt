@@ -8,6 +8,7 @@ import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.get
 import io.ktor.client.request.options
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -23,6 +24,7 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 class ApplicationTest {
     private val passage = Passage(
@@ -31,14 +33,31 @@ class ApplicationTest {
         text = "Both sides use a king-pawn advance to contest the center and open development lines.",
     )
 
-    @Test
-    fun `health endpoint responds`() = testApplication {
-        application { openingCoachModule(testDependencies(listOf(passage))) }
 
-        val response = client.get("/health")
+    @Test
+    fun healthReportsConfiguredReleaseAndUnavailableCorpus() = testApplication {
+        application {
+            openingCoachModule(
+                dependencies = testDependencies(listOf(passage)),
+                releaseVersion = "git-abc123",
+            )
+        }
+        val jsonClient = createClient { install(ContentNegotiation) { json() } }
+
+        val response = jsonClient.get("/health")
+        val body = response.body<HealthReport>()
 
         assertEquals(HttpStatusCode.OK, response.status)
-        assertEquals("ok", response.body<String>())
+        assertEquals("ok", body.status)
+        assertEquals("git-abc123", body.releaseVersion)
+        assertFalse(body.corpus.ready)
+    }
+
+    @Test
+    fun legacyOpeningResponseWithoutDiagnosticsDeserializes() {
+        val legacyJson = """{"text":"Some text","passages":[],"composerId":"template-v1"}"""
+        val REQUEST_JSON = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        assertEquals(null, REQUEST_JSON.decodeFromString<OpeningExplainResponse>(legacyJson).diagnostics)
     }
 
     @Test

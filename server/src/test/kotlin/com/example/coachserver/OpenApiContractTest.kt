@@ -50,7 +50,7 @@ class OpenApiContractTest {
         val healthReport = validator.validate(
             SimpleRequest.Builder.get("/health").build(),
             SimpleResponse.Builder.ok()
-                .withContentType("text/plain; charset=UTF-8")
+                .withContentType("application/json")
                 .withBody(healthResponse.bodyAsText())
                 .build(),
         )
