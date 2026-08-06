@@ -50,7 +50,42 @@ class LlmClientResponseShapeTest {
             """{"id":"x","usage":{"total_tokens":9},"choices":[{"index":0,"message":{"role":"assistant","content":"Fine."},"logprobs":null}]}""",
         )
 
-        assertEquals("Fine.", client.generate("sys", "user", 90))
+        assertEquals("Fine.", client.generate("sys", "user", 90)?.text)
+    }
+
+    @Test
+    fun `reported usage is carried out of the client`() {
+        // completion_tokens is the only observable that includes reasoning tokens, and
+        // ProviderCostBudget.expectedOutputTokens is calibrated from it. Dropping it during
+        // decoding would leave the budget's central constant permanently unmeasurable.
+        val client = clientReturning(
+            """{"usage":{"prompt_tokens":412,"completion_tokens":733},""" +
+                """"choices":[{"message":{"role":"assistant","content":"Fine."}}]}""",
+        )
+
+        assertEquals(733, client.generate("sys", "user", 2048)?.completionTokens)
+    }
+
+    @Test
+    fun `reasoning tokens outside completion_tokens are still counted as billed output`() {
+        // Gemini, measured 2026-08-05: the deliberation lands in total_tokens and nowhere else, so
+        // reading completion_tokens alone prices the dominant cost component at zero.
+        val client = clientReturning(
+            """{"usage":{"prompt_tokens":400,"completion_tokens":0,"total_tokens":1600},""" +
+                """"choices":[{"message":{"role":"assistant","content":"Fine."}}]}""",
+        )
+
+        assertEquals(1_200, client.generate("sys", "user", 2048)?.completionTokens)
+    }
+
+    @Test
+    fun `a provider that reports no usage still returns its text`() {
+        val client = clientReturning("""{"choices":[{"message":{"role":"assistant","content":"Fine."}}]}""")
+
+        val completion = client.generate("sys", "user", 2048)
+
+        assertEquals("Fine.", completion?.text)
+        assertEquals(null, completion?.completionTokens)
     }
 
     @Test

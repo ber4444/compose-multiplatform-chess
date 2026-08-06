@@ -30,9 +30,17 @@ import androidx.compose.ui.unit.dp
 import com.example.myapplication.GameUiState
 
 /**
- * Interactive position-chat screen. Streams the assistant reply token-by-token; Stop cancels the
+ * Interactive position-chat screen. Renders each `token` event as it arrives; Stop cancels the
  * in-flight stream, Retry re-issues the last turn. The message list uses stable keys so a token
  * arrival only recomposes the in-flight row, not the whole transcript.
+ *
+ * **The UI is incremental; the wire currently is not.** Measured against the deployment on
+ * 2026-08-05, a turn arrives as one `token` event 10.9 s after the request, immediately followed by
+ * `done` — the provider answers `stream: true` with a whole completion, so there is nothing for
+ * this screen to reveal gradually. The per-token rendering is not dead code (the template composer
+ * and any genuinely streaming provider do arrive in pieces) but do not describe the shipped
+ * experience as token-by-token. See `docs/plans/cloud-eval-honesty-followups.md` § P1-2 and the
+ * `chat-provider-oneshot` log line in `:server`.
  */
 @Composable
 fun ChatScreen(

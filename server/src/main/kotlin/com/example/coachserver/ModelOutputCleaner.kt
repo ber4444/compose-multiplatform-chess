@@ -33,6 +33,11 @@ object ModelOutputCleaner {
      */
     private val NOTE_LINE = Regex("""^\s*(?:[-*+•]\s|\d+[.)]\s|["']?\s*(?:->|=>|→))|(?:->|=>|→)\s*(?:wait|hmm|actually|no,)""", RegexOption.IGNORE_CASE)
 
+    /** Whether [line] is note-shaped. Shared with `LeadingNoteGate`, which must make the same call
+     * mid-stream that [clean] makes on a whole answer — two different answers to "is this a note?"
+     * would show the user text the validator never sees. */
+    internal fun isNoteLine(line: String): Boolean = NOTE_LINE.containsMatchIn(line)
+
     fun clean(rawText: String): String {
         val withoutThink = THINK_BLOCK.replace(rawText, " ")
         val unfenced = stripCodeFence(withoutThink.trim())

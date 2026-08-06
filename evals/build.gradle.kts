@@ -30,6 +30,33 @@ application {
     mainClass.set("com.example.evals.EvalMainKt")
 }
 
+/**
+ * Forward the harness's configuration variables from the *client* environment.
+ *
+ * A JavaExec fork inherits the long-lived Gradle daemon's environment, which was captured when the
+ * daemon started — so `COACH_LLM_API_KEY=… ./gradlew :evals:run` can silently reach a run that
+ * never sees the key, and the scorecard then reports the provider row as "not configured". That is
+ * the same class of failure this module exists to catch: a result that names the wrong cause.
+ * `providers.environmentVariable` reads the invoking shell's value, not the daemon's.
+ */
+tasks.named<JavaExec>("run") {
+    listOf(
+        "COACH_LLM_API_KEY",
+        "COACH_LLM_API_URL",
+        "COACH_LLM_MODEL",
+        "COACH_LLM_INPUT_USD_PER_MILLION",
+        "COACH_LLM_OUTPUT_USD_PER_MILLION",
+        "COACH_LLM_MAX_USD_CENTS",
+        "COACH_LLM_MAX_OUTPUT_TOKENS",
+        "COACH_LLM_TIMEOUT_MS",
+        "COACH_DEPLOYED_URL",
+        "EVAL_CALIBRATION",
+        "EVAL_PROVIDER_CONCURRENCY",
+    ).forEach { name ->
+        providers.environmentVariable(name).orNull?.let { environment(name, it) }
+    }
+}
+
 tasks.test {
     useJUnitPlatform()
 }

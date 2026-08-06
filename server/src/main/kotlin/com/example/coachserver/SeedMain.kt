@@ -38,13 +38,13 @@ object SeedMain {
      * makes opening identification an exact lookup; `null` for concept passages, which have no
      * move sequence and are only ever reachable through the vector tier.
      */
-    internal data class CorpusEntry(
+    data class CorpusEntry(
         val passage: Passage,
         val eco: String? = null,
         val moves: String? = null,
     )
 
-    internal fun loadCorpus(directory: Path): List<CorpusEntry> = Files.list(directory).use { paths ->
+    fun loadCorpus(directory: Path): List<CorpusEntry> = Files.list(directory).use { paths ->
         paths.sorted().flatMap { path ->
             when (path.extension.lowercase()) {
                 "tsv" -> loadTsv(path).stream()
@@ -54,30 +54,50 @@ object SeedMain {
         }.toList()
     }
 
-    private fun loadTsv(path: Path): List<CorpusEntry> = Files.readAllLines(path)
-        .drop(1)
-        .mapIndexedNotNull { index, line ->
+    private fun loadTsv(path: Path): List<CorpusEntry> {
+        val rows = Files.readAllLines(path).drop(1).mapIndexedNotNull { index, line ->
             val columns = line.split('\t')
             if (columns.size < 3) return@mapIndexedNotNull null
-            val eco = columns[0].trim()
-            val name = columns[1].trim()
-            val pgn = columns[2].trim()
-            // The ECO characterization leads because both composers quote the *first* sentence of
-            // the top passage. Without it that sentence is "X is classified as ECO Y", which tells
-            // the reader nothing they cannot see on the board.
-            val body = EcoNarrator.characterize(eco)
-                ?.let { "$it $name is classified as ECO $eco." }
-                ?: "$name is classified as ECO $eco."
-            CorpusEntry(
-                passage = Passage(
-                    sourceId = "lichess-${path.nameWithoutExtension}-${index + 1}-${eco.lowercase()}",
-                    title = "$eco — $name",
-                    text = "$body A representative move sequence is $pgn.",
-                ),
-                eco = eco.uppercase(),
-                moves = MoveSequence.normalizePgn(pgn),
+            TsvRow(
+                index = index,
+                eco = columns[0].trim(),
+                name = columns[1].trim(),
+                pgn = columns[2].trim(),
             )
         }
+        // The shortest line in each ECO is that family's base line, and for it the family claim is
+        // the best available sentence ("Sicilian Defence: Black answers the king's pawn with c5…").
+        // Deeper rows share that same claim, which is what made four B20 passages read identically,
+        // so they lead with what distinguishes them instead. See LineNarrator.
+        val basePlyByEco = rows.groupBy { it.eco.uppercase() }
+            .mapValues { (_, group) -> group.minOf { MoveSequence.normalizePgn(it.pgn).plyCount() } }
+
+        return rows.map { row ->
+            val moves = MoveSequence.normalizePgn(row.pgn)
+            val isBaseLine = moves.plyCount() <= (basePlyByEco[row.eco.uppercase()] ?: 0)
+            val lineClaim = if (isBaseLine) null else LineNarrator.describe(moves.split(' ').filter(String::isNotBlank))
+            // Order is the mechanism, not a style choice: both composers quote the *first* sentence
+            // of the top passage, so whichever claim leads is the only one most users ever read.
+            val body = listOfNotNull(
+                lineClaim,
+                EcoNarrator.characterize(row.eco),
+                "${row.name} is classified as ECO ${row.eco}.",
+            ).joinToString(" ")
+            CorpusEntry(
+                passage = Passage(
+                    sourceId = "lichess-${path.nameWithoutExtension}-${row.index + 1}-${row.eco.lowercase()}",
+                    title = "${row.eco} — ${row.name}",
+                    text = "$body A representative move sequence is ${row.pgn}.",
+                ),
+                eco = row.eco.uppercase(),
+                moves = moves,
+            )
+        }
+    }
+
+    private data class TsvRow(val index: Int, val eco: String, val name: String, val pgn: String)
+
+    private fun String.plyCount(): Int = split(' ').count(String::isNotBlank)
 
     private fun loadMarkdown(path: Path): List<CorpusEntry> {
         val chunks = Files.readString(path).split(Regex("\\n(?=## )"))

@@ -24,16 +24,60 @@ object EvalScorer {
         )
     }
 
-    fun scoreOpening(case: GoldenCase, text: String): OutputScore {
-        val lower = text.lowercase()
+    /**
+     * Scores an opening explanation for grounding.
+     *
+     * **This used to be `expectedConcepts.all { text.contains(it) }` — verbatim containment — and
+     * that measured copying, not grounding.** 97 of the 100 golden cases demand the literal string
+     * `"development"` and 92 demand `"center"`; `TemplateComposer` quotes its source passage, which
+     * contains both, so the deterministic template scored 0% violations *by construction* while any
+     * paraphrase failed. Measured on 2026-08-05 against a real provider: 99 of 100 outputs passed
+     * the production validator and 90 of them were scored ungrounded — a hand read of 12 found
+     * 12 correct paraphrases ("developing minor pieces", "contesting the center") and zero answers
+     * about the wrong position. The column named grounding was ranking composers by how literally
+     * they copied.
+     *
+     * Two conditions replace it, because grounding is two claims and the old check tested neither:
+     * - **Concept coverage**, paraphrase-tolerant ([ConceptVocabulary]) — does the answer discuss
+     *   what this position is about?
+     * - **Passage anchoring**, when the caller knows which passage was retrieved — does the answer
+     *   share content with its own source, so that fluent text about a *different* opening fails?
+     *   Optional because the deployed-cloud route retrieves from the live corpus and cannot know
+     *   which passage came back; that route is scored on coverage alone, and says so.
+     */
+    fun scoreOpening(case: GoldenCase, text: String, passageText: String? = null): OutputScore {
         val fluency = FluencyScorer.evaluate(text, FluencyScorer.FluencySurface.OPENING)
+        val covers = case.expectedConcepts.all { ConceptVocabulary.isCovered(it, text) }
+        val anchored = passageText == null || sharesContentWords(text, passageText)
         return OutputScore(
-            grounded = case.expectedConcepts.all { lower.contains(it.lowercase()) },
+            grounded = covers && anchored,
             lengthViolation = text.trim().length > MoveCoachPromptBuilder.MAX_OUTPUT_CHARS,
             fluencyCompliant = fluency.isCompliant,
             readingGrade = fluency.gradeLevel,
         )
     }
+
+    /**
+     * Whether [text] shares at least [minimum] substantial content words with [source]. Mirrors the
+     * per-sentence rule in `OpeningExplanationValidator`, applied to the whole answer: an
+     * explanation of a different position reuses almost nothing of the passage it claims to be
+     * grounded in.
+     */
+    internal fun sharesContentWords(text: String, source: String, minimum: Int = MIN_PASSAGE_OVERLAP): Boolean {
+        fun contentWords(value: String) = WORDS.findAll(value.lowercase())
+            .map { it.value }
+            .filter { it.length >= 4 && it !in STOP_WORDS }
+            .toSet()
+        return contentWords(text).intersect(contentWords(source)).size >= minimum
+    }
+
+    private val WORDS = Regex("[a-z0-9]+")
+    private val STOP_WORDS = setOf(
+        "this", "that", "with", "from", "they", "them", "their", "there", "here", "have", "into",
+        "both", "each", "when", "then", "than", "also", "more", "most", "some", "such", "your",
+        "while", "which", "these", "those", "will", "would", "should", "about", "after", "before",
+    )
+    private const val MIN_PASSAGE_OVERLAP = 2
 
     /**
      * Scores one turn of a multi-turn chat. Grounding passes when the accumulated turn output still

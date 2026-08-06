@@ -179,8 +179,8 @@ where inference runs, what leaves the device, and what the free tier gets:
 | **Move Coach** | Panel below the board, after your move is answered | On-device; `AiRoutePolicies.moveCoachOffline` — `LOCAL_ONLY`, 0¢ | The deterministic explanation of that ply's `MoveAssessment`, rendered as ordinary coach text | The same assessment, phrased by the model |
 | **Game Summary** | *Get Coach Summary* in the game-over popup | On-device; reuses `moveCoachOffline` | Upsell card | Full feature |
 | **Rules Q&A** | **Rules** screen | On-device retrieval **and** generation; `AiRoutePolicies.rulesQaOffline` — `LOCAL_ONLY`, 0¢ | Upsell card | Full feature |
-| **Opening Explainer** | Post-game panel, once per finished game | Cloud; `AiRoutePolicies.openingExplainer` — `PUBLIC_OR_SYNTHETIC`, 0.2¢ ceiling | Upsell card | Full feature |
-| **Position Chat** | **Chat** screen, any number of turns mid-game | Cloud, token-streaming; `AiRoutePolicies.positionChat` — `PUBLIC_OR_SYNTHETIC`, 0.2¢ ceiling | Upsell card | Full feature |
+| **Opening Explainer** | Post-game panel, once per finished game | Cloud; `AiRoutePolicies.openingExplainer` — `PUBLIC_OR_SYNTHETIC`; server cost cap defaults to 1.5¢ | Upsell card | Full feature |
+| **Position Chat** | **Chat** screen, any number of turns mid-game | Cloud SSE; `AiRoutePolicies.positionChat` — `PUBLIC_OR_SYNTHETIC`; server cost cap defaults to 1.5¢ | Upsell card | Full feature |
 
 Pro is the entitlement described under [Monetization & entitlements](#monetization--entitlements);
 free play is unlimited and keeps both boards, the full engine-difficulty range, the deterministic
@@ -273,7 +273,8 @@ off-device at all."
 - **Position Chat** — cloud-only by design: there is no on-device chat generator, and an on-device
   route decision is treated as "no route". `KtorStreamingChatClient` uses `preparePost{}.execute{}` +
   `bodyAsChannel()`, so cancelling the collecting job closes the TCP connection immediately and
-  leaves no orphaned server-side stream; **Stop** cancels mid-token and **Retry** re-sends the turn,
+  leaves no orphaned server-side stream; **Stop** cancels an in-flight request (mid-token when the
+  provider delivers incrementally) and **Retry** re-sends the turn,
   with `ChatViewModel` holding a single `streamJob` so at most one stream is live. It sends the last
   6 turns (`MAX_HISTORY_TURNS`) plus at most 20 SAN plies; the server caps history independently and
   re-pins retrieval every turn, so trimming old turns cannot let the grounding drift. A slow first
@@ -320,7 +321,9 @@ fallback text is always non-blank, which `DefaultAiCoachOrchestratorTest` pins. 
 
 The position-chat streaming endpoint is part of the same `:server` Ktor service as the opening
 explainer. It is the interactive counterpart: where the explainer answers *once* at game-end, the
-chat answers *repeatedly* during a game, streaming tokens back as they are generated.
+chat answers *repeatedly* during a game over SSE. The endpoint and client support incremental
+tokens, but the deployed provider currently batches: measured behaviour was about 10.9 s to first
+visible text, then one whole-answer event.
 
 **Endpoint** — `POST /v1/positions/chat/stream` (SSE)
 
@@ -338,8 +341,10 @@ SSE records, each a `ChatStreamEvent`:
 **Architecture** — `StreamingChatComposer` → `LlmChatComposer` (provider) → `PositionChatValidator`
 → SSE. The provider call uses `stream: true`; the parser handles both streamed
 `choices[].delta.content` SSE lines (terminated by `data: [DONE]`) and one-shot
-`choices[].message.content` completions (some providers respond to a `stream: true` request this
-way on cache hits). The validator runs the same grounding rules as the opening explainer on the
+`choices[].message.content` completions (providers may respond to a `stream: true` request this
+way). The deployed provider currently yields one whole-answer event; `chat-provider-oneshot` and
+`chat-provider-single-delta` logs distinguish the two upstream shapes. The validator runs the same
+grounding rules as the opening explainer on the
 *accumulated* text at stream end; a veto emits a `fallback` event. `TemplateChatComposer` is the
 zero-cost deterministic fallback.
 
@@ -358,7 +363,7 @@ which must stay above both the heartbeat interval and a thinking model's time-to
 | Variable | Required | Purpose |
 |---|---|---|
 | `COACH_LLM_CHAT_MAX_OUTPUT_TOKENS` | no (default 2048) | Output-token budget for the chat composer, checked against `COACH_LLM_MAX_USD_CENTS` before calling the provider. Larger than the explainer's budget so a *thinking* provider model has room to reason before it emits visible content; a truncated, uncited fragment fails validation |
-| `COACH_LLM_MAX_USD_CENTS` | no (default 0.2) | Per-call cost ceiling in US cents — shared with the opening explainer; the chat route checks it independently against the token budget above |
+| `COACH_LLM_MAX_USD_CENTS` | no (default 1.5) | Per-call cost ceiling in US cents — shared with the opening explainer; the chat route checks it independently against the token budget above |
 
 Raising `COACH_LLM_CHAT_MAX_OUTPUT_TOKENS` without also raising `COACH_LLM_MAX_USD_CENTS` will
 silently push every turn over budget onto the template composer.
@@ -420,9 +425,9 @@ from the routing tree, since a contract generated from the implementation cannot
 | `COACH_LLM_API_KEY` | no | Enables the paid LLM composer when set (with the two price vars below) |
 | `COACH_LLM_API_URL` | no | OpenAI-compatible chat completions endpoint |
 | `COACH_LLM_MODEL` | no | Model name (default `gpt-4.1-mini`) |
-| `COACH_LLM_INPUT_USD_PER_MILLION` | no | Input token price — required to enforce the 0.2¢ ceiling |
-| `COACH_LLM_OUTPUT_USD_PER_MILLION` | no | Output token price — required to enforce the 0.2¢ ceiling |
-| `COACH_LLM_MAX_USD_CENTS` | no (default 0.2) | Per-call cost ceiling in US cents. Checked against the prices above *before* the request; over budget falls back to the template composer. Raise it if you raise the model's output-token budget |
+| `COACH_LLM_INPUT_USD_PER_MILLION` | no | Input token price — required to enforce the configured per-call ceiling |
+| `COACH_LLM_OUTPUT_USD_PER_MILLION` | no | Output token price — required to enforce the configured per-call ceiling |
+| `COACH_LLM_MAX_USD_CENTS` | no (default 1.5) | Per-call cost ceiling in US cents. Checked against the prices above *before* the request; over budget falls back to the template composer. Raise it if you raise the model's output-token budget |
 | `COACH_ALLOWED_ORIGINS` | no | Comma-separated hostnames for CORS (e.g. `chess.example.com`; schemes added by server) |
 | `COACH_CORPUS_DIR` | no (default `corpus`) | Seed-time only (`SeedMain`): directory holding the corpus TSVs to chunk, embed, and upsert |
 
@@ -507,16 +512,27 @@ fly secrets set --app compose-chess-opening-coach \
   COACH_LLM_MODEL=gpt-4.1-mini \
   COACH_LLM_INPUT_USD_PER_MILLION=0.40 \
   COACH_LLM_OUTPUT_USD_PER_MILLION=1.60 \
-  COACH_LLM_MAX_USD_CENTS=2.5
+  COACH_LLM_MAX_USD_CENTS=2.5   # see the sizing note below; 1.5 is the built-in default
 ```
 
-> **Size `COACH_LLM_MAX_USD_CENTS` against the token *ceiling*, not expected usage.**
-> `ProviderCostBudget.admits()` prices each request before calling out and charges the full
-> `maxOutputTokens` (2048), not the ~75 tokens an answer uses, so a cap below that estimate rejects
-> every call before the network and the composer serves template text
-> (`opening-provider-skipped budget` in the logs). Compute yours as
-> `2048 × output_price_per_M / 1e6 × 100` cents, plus input, and leave headroom; actual spend lands
-> roughly an order of magnitude below the cap.
+> **`COACH_LLM_MAX_USD_CENTS` is a per-request ceiling on *expected* cost.**
+> `ProviderCostBudget.admits()` prices each request before calling out, charging
+> `expectedOutputTokens` plus the input prompt. That constant is **1400**, measured — not the ~100
+> tokens of visible answer: `./gradlew :evals:run` against gemini-3.6-flash (100 opening calls,
+> 2026-08-05) billed p50 **1344**, p90 **2011**, max 2044 output tokens per call, because a thinking
+> model's deliberation is billed at the output rate and is roughly 13× the reply. Compute yours as
+> `(prompt_chars / 3 × input_price_per_M + 1400 × output_price_per_M) / 1e6 × 100` cents — about
+> 0.25¢ at the gpt-4.1-mini prices above, about 1.15¢ at gemini-3.6-flash's 1.50/7.50. The built-in
+> default is **1.5¢**, sized to admit both.
+>
+> It previously charged the full `maxOutputTokens` (2048) instead, ~11× an ordinary call, so the cap
+> had to be set an order of magnitude above intended spend before *any* call was permitted — at this
+> very default, every request was rejected before the network and the composer silently served
+> template text (`opening-provider-skipped budget` in the logs). The ceiling is still enforced: the
+> provider is sent `max_tokens`, and a configuration whose worst case exceeds
+> `ProviderCostBudget.WORST_CASE_MULTIPLE` × the cap is refused outright.
+> Recalibrate `expectedOutputTokens` from the `billed output tokens` figure that
+> `./gradlew :evals:run` writes into the `local-llm-compose` scorecard note.
 
 > **`COACH_LLM_API_URL` and `COACH_LLM_MODEL` must come from the same provider.** The URL defaults to
 > `api.openai.com`, so set it explicitly for any other host, and list what that host serves with

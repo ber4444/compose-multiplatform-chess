@@ -1,215 +1,152 @@
-# Follow-ups — cloud eval honesty and the two cloud surfaces
+# Cloud-eval follow-ups
 
-Scope: everything found while fixing the cloud retrieval path (commits `9b32f12`…`4947cc5`) that
-was deliberately **not** fixed at the time, plus the two items from the original branch review that
-are still open. Ordered by severity.
+This is the forward-looking work list for the opening explainer and position chat. It records the
+agreed strategy and acceptance criteria; implementation history belongs in commits and the PR.
 
-Context as of this revision. Book-first retrieval ships and scores 8/8 on the live corpus. The LLM
-composer's "100% fallback" turned out to be four bugs in our own pipeline (sentence counter, non-null
-`content`, a 90-token cap, and no way to tell the causes apart); after fixing them, **47 of the 48
-provider responses that arrived passed the validator**. The remaining 53% were provider timeouts and
-503s. `:server:test` now runs in CI with a skip-detector. See CLAUDE.md § *Cloud retrieval* and
-§ *Why the provider LLM "failed"*.
+## Current state
 
-The through-line in every item below: **an aggregate that cannot name its own cause is not
-evidence.** Each one is a number we currently quote that measures something other than what its name
-says.
+- PR #121 contains the current server changes and is pushed from `fix/cloud-eval-honesty-followups`.
+- Fly release v28 is serving and `/health` returns `ok`; the production database has **not** yet
+  been reseeded with this image.
+- `:server:test` passes locally.
+- `LineNarrator` no longer invents unsupported chess claims.
+- Template chat no longer repeats the passage title, loses spaces between stream chunks, or cuts a
+  sentence in the middle of a word.
+- The deployed service must be health-checked, reseeded with the current corpus, and sampled again
+  before the new prose can be evaluated. A sample is not evidence until the response is known to
+  come from the current image and corpus.
+- R-1 remains open until a fresh sample passes the usefulness review below. Grounding, citation
+  overlap, and validator acceptance are necessary but not sufficient.
 
-## Who can do what
+## Acceptance bar
 
-Not all of this is agent work, and the distinction is load-bearing rather than administrative. Two
-items require *human judgement about quality*, which is exactly the thing neither a model nor a
-validator can stand in for — an agent asked to "review prose quality" will produce confident prose
-about prose, which is the failure mode both of this project's eval articles exist to argue against.
+For every sampled answer, verify all of the following:
 
-| Item | Who | Blocked on |
-|---|---|---|
-| P0-1 scorer redesign | agent | P0-2's finding |
-| P0-2 adjudicate the 42% | agent | **human**: provider API key + ~20 min run (costs money) |
-| P1-1 gate cloud grounding in CI | agent | — |
-| P1-2 does chat actually stream? | agent | partly **human**: needs live calls against the deployment |
-| P1-3 cost budget prices the ceiling | agent | — |
-| P2-1 citation-id length | agent | — |
-| P2-2 eval runtime | agent | — |
-| **R-1 prose quality hand-review** | **human only** | — |
-| **R-2 chat composerId / TTFT** | **human only** | running the real app |
+1. It answers the user's question or the explainer's stated purpose.
+2. It adds an implication, intent, trade-off, plan, consequence, or condition—not only a board
+   observation or opening label.
+3. It is specific to the resolved line; strict-prefix ancestor and unrelated sibling material are
+   absent unless the question explicitly asks for family context.
+4. It is readable: no duplicate labels, repeated sentences, collapsed spaces, boilerplate, or
+   mid-word truncation.
+5. Every factual claim is supported by the retrieved passage or by a deterministic board feature.
 
-An agent picking this up should do P1-1, P1-3, P2-1 and P2-2 unblocked, and stop at the boundaries
-marked human rather than approximating them.
+The owner must re-read a fresh sample after each retrieval, corpus, or composer change. The sample
+must include both Opening Explainer and Position Chat, including adversarial questions.
 
----
+## Pre-merge / deployment checklist
 
-## P0 — a metric that cannot be won
+- [ ] Deploy the image and confirm `/health` and the running release version.
+- [ ] Reseed the corpus from the image that is serving traffic.
+- [ ] Verify corpus completeness by database row count and seed version; do not infer completeness
+      from API text. The seed input is walked in sorted order, so the final file's inserted rows can
+      be used as an additional coverage check.
+- [ ] Run `tools/collect_cloud_samples.sh` and retain the raw output, response metadata, composer id,
+      finish reason, fallback reason, and retrieved passage identifiers.
+- [ ] Review both routes against the acceptance bar and record representative failures.
+- [ ] Re-run the deployed 8-opening retrieval probe and the server test suite.
 
-### P0-1 `EvalScorer.scoreOpening` scores copying, not grounding
+If reseeding cannot finish reliably, batch `PostgresPassageRepository.upsert` before treating the
+deployment as complete. One connection per row is not acceptable for thousands of rows; the seed
+must use a bounded batch/transaction, report progress, and expose a deterministic completeness
+check.
 
-`grounded = case.expectedConcepts.all { lower.contains(it.lowercase()) }` — verbatim containment.
-97 of the 100 golden cases require the literal string `"development"`, 92 require `"center"`.
-`TemplateComposer` quotes its source passage, which contains both words, so it scores **0% violations
-by construction**; any paraphrase fails. The column is named for grounding and measures copying.
+## R-1 implementation strategy
 
-This is not academic: it is exactly the column that would be used to declare the deterministic
-template the winner over a model — the same conclusion `docs`/the article already reached once on
-numbers that turned out to be measuring the harness.
+### 1. Retrieve the most specific line
 
-- [ ] Decide what grounding should mean here. Candidate: concept **coverage** via a small synonym
-      set per concept (`center` ⊃ `centre`, `central`), or overlap against the retrieved passage
-      rather than a fixed keyword list.
-- [ ] Whatever replaces it, **prove it can fail and can pass**: add one fixture that is grounded and
-      paraphrased (must pass) and one that is fluent but off-position (must fail). A criterion never
-      observed failing is untested — see the article's own point about `tone_and_structure`.
-- [ ] Re-run `:evals:run` and record the honest number; the current 42% figure is uninterpretable.
+- Resolve the longest matching SAN move prefix first.
+- Retrieve line-specific plan/idea material next.
+- Permit one same-family contrast only when it directly answers the question.
+- Suppress strict-prefix ancestors by default. Permit a family passage only for an explicit
+  family-level question.
+- Keep vector retrieval as a backfill after exact-prefix and ECO-scoped candidates; never let
+  similarity override an exact line identity.
 
-**Do not** simply relax the check until the LLM row looks good. The failure mode being guarded
-against is real (a model citing a passage while discussing a different position); only the
-*measurement* of it is wrong.
+### 2. Store answerable player insights
 
-### P0-2 Adjudicate the 42% with the data we now capture — **needs a provider key**
+Change the primary retrieval unit from a generic ECO row to a sourced, line-specific insight card.
+Cards should support these fields where applicable:
 
-`ComposeAttempt.Accepted` carries its text as of `95fe26f`, so accepted outputs land in
-`evals/build/llm-compose-attempts.txt`. Nobody has read them.
+`choice_reason`, `central_tradeoff`, `white_plan`, `black_plan`, `piece_purpose`,
+`common_misconception`, `comparison_to`, `typical_response`, and provenance (line/ECO/source).
 
-- [ ] Run `:evals:run` with a provider key (see README step 9 for the cost-cap arithmetic — the
-      0.2¢ default rejects every call before the network at Gemini prices).
-- [ ] Read the accepted outputs and classify: genuinely off-concept, or correct paraphrase the
-      scorer cannot see? This determines whether P0-1 is purely a scorer fix or also a prompt issue.
-- [ ] Record the finding in this file before changing the scorer, so the fix is driven by observed
-      output rather than by what makes the number move.
+The generator may select one or two non-visible facts. Board-visible move narration is supporting
+metadata, never the complete answer. Missing fields must produce a deterministic, honest fallback;
+do not fill them with model guesses.
 
----
+### 3. Derive board facts by replay
 
-## P1 — numbers that mislead, and a claim we may not be able to make
+Use chess-core/SAN replay to derive facts such as material changes, gambits, castling rights,
+central-pawn structure and tension, space, open files, bishop scope, developed minor pieces,
+prepared pawn breaks, pins, and direct targets. Keep this deterministic layer separate from prose.
+Do not grow a second SAN-pattern heuristic system in the server.
 
-### P1-1 `local-llm-compose` is `OPTIONAL`, so cloud grounding never gates CI
+### 4. Route chat by answer shape
 
-`main()` fails the build only for `CollectionMode.AUTOMATED` rows with grounding violations. The
-cloud row is `OPTIONAL` because it needs a provider key, which CI does not have. Net effect: the
-on-device surfaces have a hard grounding gate and the two cloud surfaces have none — the precise gap
-that let 8/8 wrong retrieval ship unnoticed.
+Classify the question before composing and require the corresponding structure:
 
-- [ ] Gate what *can* be gated without a key: the deterministic `local-template` row already covers
-      composition, but nothing asserts retrieval correctness. Promote an offline retrieval-grounding
-      check (ECO resolved from moves) into the AUTOMATED set.
-- [ ] Keep the provider-dependent row optional, but make its absence **visible** in the scorecard
-      rather than silently blank — mirror the CI skip-detector added in `4947cc5`.
+| Shape | Minimum response |
+|---|---|
+| Why is X popular? | choice → trade-off → characteristic plan |
+| What is piece X doing? | immediate target → role → follow-up plan |
+| Should I worry about X? | direct yes/no → condition → response |
+| Is pawn X free? | direct answer → cost → likely continuation |
+| How does X differ from Y? | shared objective → structural difference → trade-off |
+| What is the problem piece? | piece → restriction → standard remedy |
+| What is the plan? | future action, target, or condition |
 
-### P1-2 The chat route may not actually stream
+Add deterministic minimum-shape checks before display: polarity in the first clause for yes/no
+questions; both sides/structures for comparisons; a future action for plan questions; and benefit
+plus trade-off for why questions. These checks reject non-answers; they do not claim that an answer
+is strategically correct.
 
-Four live calls to `/v1/positions/chat/stream` each returned the whole answer as a **single**
-`token` event, not token-by-token. The article describes token-by-token streaming as a user-facing
-property, and `ChatViewModel` renders per-token for exactly that reason.
+### 5. Keep chat query-aware
 
-- [ ] Determine whether this is the provider batching, `LlmChatComposer`'s think-stripping state
-      machine buffering to completion, or SSE flushing. The stripper holds text back while a
-      `<think>` prefix is ambiguous — check whether it releases incrementally in practice.
-- [ ] If it does not stream, either fix it or correct the claim. Do not leave both standing.
-- [ ] Add an assertion on chunk **count** (> 1 for a multi-sentence answer), not just accumulated
-      text — the existing tests would pass on a single-chunk stream.
+Position Chat must answer the user's question, not quote the Opening Explainer's first sentence.
+Provider prompts must not reward copying source wording merely to satisfy overlap checks. Preserve
+the grounding contract while making the retrieved insight and the question explicit inputs to the
+composer.
 
-### P1-3 `ProviderCostBudget.admits()` charges the token ceiling
+### 6. Keep presentation and observability correct
 
-It prices `maxOutputTokens` (2048) rather than expected output (~75 tokens for a compliant answer),
-overestimating by roughly 11×. Consequence: the cap must be set ~10× above intended spend to permit
-calls at all, so the configured number no longer communicates a budget. At $9/M output, the 0.2¢
-default rejects every request *before the network*.
+- Make label/title ownership explicit so only one layer renders an opening label.
+- Preserve spaces and sentence boundaries through SSE chunking and final assembly.
+- Keep word-boundary truncation and deliberation cleanup covered by tests.
+- Make the collector print `composerId`, fallback/validator reason, finish reason, and `done`.
+- Ensure terminal composer/fallback output is distinguishable from a stream that simply ended.
+- Capture raw provider output for successful and rejected responses.
 
-- [ ] Either price an expected-output estimate and keep the ceiling as a separate hard stop, or keep
-      the current behaviour and rename the constant to say it is a worst-case bound.
-- [ ] Whichever: add a test asserting a realistic request is admitted at the documented default, so
-      a future price change that silently disables the composer fails loudly.
+## Evaluation and monitoring
 
----
+- Keep faithfulness, retrieval correctness, and usefulness as separate dimensions.
+- Retain the deterministic grounding gate and mutation tests; do not weaken them to improve pass
+  rates.
+- Add sampled human usefulness review using the acceptance bar above. A high validator rate cannot
+  close R-1 by itself.
+- Track provider, model, prompt version, retrieval ids, token usage, latency, finish reason, and
+  fallback category.
+- Treat the server's request cap as per-request estimation, not cumulative spend; keep policy and
+  enforcement values visible and tested.
+- Keep cloud CI coverage enabled for server, eval, and corpus changes. A skipped retrieval gate is
+  not a passing gate.
 
-## P2 — smaller, but each one hides a real signal
+## Article updates to make after the next sample
 
-### P2-1 Citation ids consume ~60 of the 280-character budget
+- In **Routing Modes Are Not a Routing Policy**, state the enforced server cap and distinguish it
+  from the client policy declaration; describe provider-batched streaming and the remaining
+  usefulness limitation. Do not claim the cloud prose is user-ready until R-1 closes.
+- In **I Stopped Eyeballing LLM Output and Started Scoring It Like a Unit Test**, retain the
+  distinction between validator success and usefulness. Add the limitation that retrieval can be
+  correct and validator acceptance high while answers still duplicate labels, cite taxonomy, or
+  describe moves without a plan; deterministic scoring is a regression net, not a substitute for
+  human usefulness review.
 
-Source ids run ~20 chars (`lichess-b-373-b20`); three cited sentences spend ~60 characters on
-citations alone against a 280-char instruction and a 300-char validator cap. Plausibly behind the
-residual "uncited sentence" rejections, where the model appears to run out of room mid-citation.
+## Explicitly out of scope for this PR
 
-- [ ] Measure first: count rejections whose raw output ends mid-citation.
-- [ ] If confirmed, shorten the ids at seed time (a stable short key per passage) rather than
-      raising the caps — the 300-char limit exists because the panel sits under a chessboard.
-
-### P2-2 `:evals:run` takes ~20 minutes
-
-100 provider calls run sequentially, and `PROVIDER_TIMEOUT_MS` moved 5s → 20s (necessary: 5s was
-timing out legitimate thinking-model responses and reporting them as quality failures).
-
-- [ ] Parallelize the LLM route with bounded concurrency. It already runs outside `testApplication`,
-      so the 60s ceiling does not apply.
-- [ ] Keep ordering deterministic in the scorecard regardless of completion order.
-
----
-
-## From the original branch review — still open
-
-### R-1 Prose quality hand-review of the two cloud surfaces — **human only**
-
-The review asked for this and it has not been done. The corpus tautology is fixed (passages now lead
-with an `EcoNarrator` claim instead of "X is classified as ECO Y"), but **nobody has read the
-resulting output** for whether it is worth showing a user. Every automated check here verifies
-faithfulness, and content-free text is trivially faithful — no validator can catch "grounded and
-useless".
-
-- [ ] Read ~10 Opening Explainer responses and ~10 Position Chat turns end to end.
-- [ ] Judge usefulness, not correctness: does it tell the player something they could not see?
-- [ ] `tools/verify_opening_retrieval.sh` prints the first 70 chars of each; that is enough to spot
-      truncation but **not** enough for this review. Read full responses.
-
-### R-2 Chat monitoring: `composerId` and time-to-first-token — **human only**
-
-Related to P1-2 but distinct: the concern is a *silent* downgrade. A provider timeout drops to
-`TemplateChatComposer` and the user sees a plausible answer with no error, after a long wait.
-`CHAT_PROVIDER_TIMEOUT_MS` is now 20s (was 30s) and failures log `chat-provider-failed`.
-
-- [ ] Watch `composerId` and TTFT across ~10 real chat turns.
-- [ ] Confirm `chat-provider-failed` appears in `fly logs` when the template path fires.
-- [ ] A fallback that takes 20s to produce boilerplate is worse UX than an error — if that is what
-      happens in practice, surface it in the UI instead of silently substituting.
-
----
-
-## Article impact
-
-Two published articles describe this system, and several of their claims are *contingent on items in
-this plan*. Closing an item can therefore create an obligation outside the repo. Recorded here
-because that obligation otherwise lives only in the author's head.
-
-| Item | On close | Why |
-|---|---|---|
-| P1-2 chat streaming | **Correction** to *Routing Modes Are Not a Routing Policy* | The article states tokens reach the UI immediately, token-by-token, and justifies validating the accumulated stream on that basis. Live calls returned each answer as a single event. If that holds, a published user-facing claim is wrong — not stale, wrong. |
-| P0-1 + P0-2 grounding scorer | **Update** to *I Stopped Eyeballing LLM Output* | Its "A Fallback Rate Is Not a Finding" section says in as many words that this one is "still open" and quotes the 0% → 42% jump. Resolving it closes a thread the article deliberately leaves dangling and replaces 42% with a real number. |
-| P1-3 cost budget | Minor edit | The article describes how the per-request estimate works. Re-pricing or renaming the constant makes that description stale. |
-| P1-1, P2-1, P2-2, R-2 | None | Internal; no published claim rests on them. |
-
-**Possible new material — do not pre-commit.** P0-1 (a grounding metric that rewards verbatim
-copying) and R-1 (no automated check catches grounded-but-useless) are one problem from two sides:
-every guardrail here measures *faithfulness*, and faithfulness is trivially satisfied by text that
-copies its source or says nothing. Neither article answers how to score grounding so that a
-paraphrase passes and an off-position answer fails. If solving that takes real design, it is worth
-writing up.
-
-Deciding it will be an article *before* the measurement is the same error that produced the
-1%/11% verdict, which is why P0-2 is ordered before P0-1. If P0-2 shows those 42 outputs are
-genuinely off-concept rather than paraphrased, the finding inverts: the template's advantage becomes
-partly real, and the write-up is a different piece entirely.
-
-## Fences
-
-- **Do not weaken a validator to make a number improve.** Every gate here exists because of an
-  observed failure. Fix the measurement, not the threshold.
-- **Do not quote `tools/verify_opening_retrieval.sh` as a result.** n=8, one call each; repeat runs
-  on an unchanged build gave 5/8, 1/8, 2/8, 1/8 purely from provider flakiness. It is a wiring
-  check. `:evals:run` is the citable number.
-- **Change one thing per measurement.** A deliberation stripper and a prompt instruction shipped
-  together once here and the pair regressed 4/8 → 1/8; neither could be attributed until they were
-  separated (`ee1c7f2`, `94856e6`).
-- **Do not simulate the human-only items.** R-1 and R-2 are marked human because their output is a
-  judgement, not an artifact. An agent can produce a convincing "prose quality review" without
-  reading anything a user would see, and a convincing latency table without making a call. If the
-  key or the device is unavailable, leave the item open and say so — an unrun check recorded as
-  done is worse than one recorded as pending, because it stops anyone else from running it.
-- **`:server:test` runs only in `ai-coach-evals.yml`**, which triggers on `server/**` paths and on
-  PRs to `main`. Work on a branch is not covered until the PR is opened.
+- Full insight-card corpus migration and authoring.
+- Strict-prefix retrieval redesign and query-shape classifier implementation.
+- Replay-based feature extraction beyond the existing line-narration corrections.
+- A new LLM judge or a validator relaxation.
+- Article publication or external corrections; update those after the fresh sample supplies exact
+  measurements.
