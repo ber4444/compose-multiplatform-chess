@@ -12,6 +12,12 @@ data class OutputScore(
     val readingGrade: Double = 0.0,
 )
 
+data class DiagnosticScore(
+    val retrievalCorrect: Boolean,
+    val terminalCorrect: Boolean,
+    val corpusReady: Boolean,
+)
+
 object EvalScorer {
     fun scoreMove(case: GoldenCase, text: String): OutputScore {
         val result = MoveCoachResponseValidator.validate(text, case.toMoveCoachRequest())
@@ -101,6 +107,14 @@ object EvalScorer {
 
     /** Chat answers are allowed a slightly larger bounded length than the move coach's 300. */
     const val CHAT_OUTPUT_CAP = 400
+
+    fun scoreDiagnostics(expectedEco: String?, diagnostics: com.example.coachapi.CloudDiagnostics): DiagnosticScore {
+        val expectedPrefix = expectedEco?.let { "lichess-${it.lowercase()}" }
+        val retrievalCorrect = expectedPrefix == null || diagnostics.retrievedPassageIds.any { it.startsWith(expectedPrefix) }
+        val terminalCorrect = diagnostics.finishReason in listOf("completed", "budget_rejected", "provider_error", "validator_rejected", "done", "fallback")
+        val corpusReady = diagnostics.corpus.ready
+        return DiagnosticScore(retrievalCorrect, terminalCorrect, corpusReady)
+    }
 }
 
 internal fun GoldenCase.toMoveCoachRequest() = MoveCoachRequest(

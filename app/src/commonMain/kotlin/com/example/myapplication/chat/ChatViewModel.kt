@@ -136,9 +136,9 @@ class ChatViewModel(
                     userMessage = message,
                 )
                 chat.stream(request).collect { event -> handleEvent(event) }
-            } catch (_: kotlinx.coroutines.CancellationException) {
+            } catch (e: kotlinx.coroutines.CancellationException) {
                 // stop()/close() handle state; structured cancellation rethrows as expected.
-                throw kotlinx.coroutines.CancellationException()
+                throw e
             } catch (_: Throwable) {
                 mutableState.value = mutableState.value.copy(
                     streaming = false,

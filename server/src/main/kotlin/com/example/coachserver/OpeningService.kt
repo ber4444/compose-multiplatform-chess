@@ -3,6 +3,8 @@ package com.example.coachserver
 import com.example.coachapi.OpeningExplainRequest
 import com.example.coachapi.OpeningExplainResponse
 import com.example.coachapi.Passage
+import com.example.coachapi.CloudDiagnostics
+import com.example.coachapi.CorpusDiagnostics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -48,6 +50,9 @@ interface PassageRepository {
 data class ComposedText(
     val text: String,
     val composerId: String,
+    val finishReason: String = "completed",
+    val completionTokens: Int? = null,
+    val rawProviderOutput: String? = null,
 )
 
 fun interface TextComposer {
@@ -58,12 +63,15 @@ data class ServerDependencies(
     val embedder: Embedder,
     val passageRepository: PassageRepository,
     val composer: TextComposer,
+    val releaseVersion: String = "unknown",
+    val corpusStatusReader: CorpusStatusReader = CorpusStatusReader { CorpusDiagnostics(ready = false) },
 )
 
 class OpeningService(
     private val dependencies: ServerDependencies,
 ) {
     suspend fun explain(request: OpeningExplainRequest): OpeningExplainResponse = withContext(Dispatchers.IO) {
+        val startedAt = System.nanoTime()
         require(request.fen.isNotBlank() && request.fen.length <= MAX_FEN_LENGTH && FEN.matches(request.fen)) {
             "fen is malformed or too long"
         }
@@ -99,6 +107,16 @@ class OpeningService(
             text = composition.text,
             passages = passages,
             composerId = composition.composerId,
+            diagnostics = CloudDiagnostics(
+                releaseVersion = dependencies.releaseVersion,
+                corpus = dependencies.corpusStatusReader.readOrUnavailable(),
+                retrievedPassageIds = passages.map(Passage::sourceId),
+                composerId = composition.composerId,
+                finishReason = composition.finishReason,
+                latencyMs = ((System.nanoTime() - startedAt) / 1_000_000).coerceAtLeast(0),
+                completionTokens = composition.completionTokens,
+                rawProviderOutput = composition.rawProviderOutput,
+            ),
         )
     }
 

@@ -140,13 +140,13 @@ class EvalScorerTest {
         val embedding = dependencies.embedder.embed(OpeningQueryBuilder.build(second.toOpeningRequest()))
         val passages = dependencies.passageRepository.retrieve(embedding, 4).passages
 
-        assertEquals(listOf("eval-second"), passages.map { it.sourceId })
+        assertEquals(listOf("lichess-d00-second"), passages.map { it.sourceId })
         // Was `assertFalse(scoreOpening(first, secondsPassage).grounded)` — using the scorer as a
         // stand-in for retrieval isolation. That only held because the old scorer demanded the
         // literal string "center" and the shared passage backbone says "central control": the
         // assertion was riding on a wording accident, and the paraphrase-tolerant scorer correctly
         // reports that this passage does discuss the centre. Assert isolation directly instead.
-        assertTrue(passages.none { it.sourceId == "eval-first" })
+        assertTrue(passages.none { it.sourceId == "lichess-b00-first" })
     }
 
     /**

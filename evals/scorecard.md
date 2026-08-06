@@ -5,15 +5,15 @@
 
 > Candidate dataset: 100 total cases, 100 opening cases. Owner hand-review is still required before article publication.
 
-| Route | Cases | Grounding violation | Reading grade | Fluency violation | Retry | Fallback | Length violation | Collection |
-|---|---:|---:|---:|---:|---:|---:|---:|---|
-| route-selection | 724 | 0.0% | — | 0.0% | 0.0% | 0.0% | 0.0% | automated |
-| book-retrieval | 100 | 0.0% | — | 0.0% | 0.0% | 0.0% | 0.0% | automated (ECO resolved from moves for all 100 cases) |
-| fake-generator | 100 | 0.0% | 5.2 | 0.0% | 0.0% | 0.0% | 0.0% | automated |
-| local-template | 100 | 0.0% | 12.4 | 0.0% | 0.0% | 0.0% | 0.0% | automated |
-| local-template-chat | 200 | 0.0% | 12.5 | 5.0% | 0.0% | 0.0% | 0.0% | automated |
-| deployed-cloud | — | — | — | — | — | — | — | optional (COACH_DEPLOYED_URL not set) |
-| local-llm-compose | — | — | — | — | — | — | — | optional (COACH_LLM_API_KEY or token prices not set) |
+| Route | Cases | Grounding violation | Diag retrieval | Diag terminal | Diag corpus | Reading grade | Fluency violation | Retry | Fallback | Length violation | Collection |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| route-selection | 724 | 0.0% | 0.0% | 0.0% | 0.0% | — | 0.0% | 0.0% | 0.0% | 0.0% | automated |
+| book-retrieval | 100 | 0.0% | 0.0% | 0.0% | 0.0% | — | 0.0% | 0.0% | 0.0% | 0.0% | automated (ECO resolved from moves for all 100 cases) |
+| fake-generator | 100 | 0.0% | 0.0% | 0.0% | 0.0% | 5.2 | 0.0% | 0.0% | 0.0% | 0.0% | automated |
+| local-template | 100 | 0.0% | 0.0% | 0.0% | 0.0% | 12.4 | 0.0% | 0.0% | 0.0% | 0.0% | automated |
+| local-template-chat | 200 | 0.0% | 0.0% | 0.0% | 0.0% | 10.2 | 48.5% | 0.0% | 0.0% | 0.0% | automated |
+| deployed-cloud | — | — | — | — | — | — | — | — | — | — | optional (COACH_DEPLOYED_URL not set) |
+| local-llm-compose | — | — | — | — | — | — | — | — | — | — | optional (COACH_LLM_API_KEY or token prices not set) |
 | cactus-android | 10 | 0.0% | — | — | 0.0% | 0.0% | 0.0% | manual (Galaxy Z Fold3 + Pixel 10 Pro XL, gemma3-270m, 5 runs each, 2026-07-31 — was 60%/80% fallback until the JSON schema came out of the prompt; the model had been returning the schema's own placeholder strings as values) |
 | aicore-nano-fast | 10 | 0.0% | — | — | 0.0% | 100.0% | 100.0% | manual (Pixel 10 Pro XL, Gemini Nano via AICore developer preview, 2026-07-31 — TTFT ~170 ms, complete ~500 ms, ~125 MB peak. Every case is grounded and rejected on length: the model emits correct coaching text, then repeats it verbatim (314 chars against a 300 cap). A repetition loop, not a quality failure — the length gate fires first and masks that) |
 | foundation-models-ios | 1 | 0.0% | — | — | 0.0% | 0.0% | 0.0% | manual (iPhone 17 Simulator / iOS 26.5, n=1, 2026-07-29 — real success, 30 tokens. A Simulator on an M4 host, not a physical iPhone; draw no latency conclusions) |

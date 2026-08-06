@@ -61,6 +61,18 @@ class LlmComposerHttpTest {
         assertTrue(sent.contains("King's Pawn Game"))
     }
 
+    @Test
+    fun acceptedProviderTextIsRetained() {
+        val client = OpenAiCompatibleLlmClient.forTesting(
+            transport = LlmHttpTransport { groundedLlmResponse },
+        )
+        val result = LlmComposer(client, TemplateComposer()).compose(request, passages)
+        
+        val expectedText = "The king pawns contest the center and open development lines [c20]. " +
+            "Central control supports early piece development toward key squares [center]."
+        assertEquals(expectedText, result.rawProviderOutput)
+    }
+
     // (b) Validation failure — the LLM returns forbidden-phrase prose; falls back to template.
     @Test
     fun `llm response with a forbidden phrase falls back to the template`() {

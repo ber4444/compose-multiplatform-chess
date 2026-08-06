@@ -89,9 +89,9 @@ fun main() {
     Files.writeString(Path.of("scorecard.md"), scorecard)
 
     val regressions = stats.filter { it.available && it.collection == CollectionMode.AUTOMATED }
-        .filter { it.groundingViolations > 0 }
+        .filter { it.groundingViolations > 0 || it.diagRetrievalViolations > 0 || it.diagTerminalViolations > 0 || it.diagCorpusViolations > 0 }
     check(regressions.isEmpty()) {
-        "Grounding violations detected: ${regressions.joinToString { "${it.route}=${it.groundingViolations}" }}"
+        "Grounding/diagnostic violations detected: ${regressions.joinToString { "${it.route}=${it.groundingViolations}/${it.diagRetrievalViolations}/${it.diagTerminalViolations}/${it.diagCorpusViolations}" }}"
     }
 }
 
@@ -151,7 +151,7 @@ internal fun caseSpecificOpeningDependencies(
     }.toMap()
     val passages = cases.map { case ->
         Passage(
-            sourceId = "eval-${case.id}",
+            sourceId = "lichess-${case.eco?.lowercase() ?: "unknown"}-${case.id}",
             title = "${case.eco} opening concepts",
             // Prose, not bare tags. OpeningExplanationValidator grounds each output sentence by
             // requiring >=2 content-word overlaps with the cited passage's text; a passage whose
@@ -193,6 +193,7 @@ internal fun caseSpecificOpeningDependencies(
             ) = Unit
         },
         composer = composer,
+        corpusStatusReader = com.example.coachserver.CorpusStatusReader { com.example.coachapi.CorpusDiagnostics(ready = true) },
     )
 }
 
@@ -214,7 +215,7 @@ internal fun caseSpecificChatDependencies(cases: List<GoldenCase>): ChatServerDe
             indexByQuery[PositionChatQueryBuilder.build(request)] = passages.size
             passages.add(
                 Passage(
-                    sourceId = "eval-${transcript.case.id}",
+                    sourceId = "lichess-${transcript.case.eco?.lowercase() ?: "unknown"}-${transcript.case.id}",
                     title = "${transcript.case.eco ?: "opening"} concepts",
                     text = turn.expectedConcepts.joinToString(", ").ifBlank { "development and center control" } + ".",
                 ),
@@ -249,6 +250,7 @@ internal fun caseSpecificChatDependencies(cases: List<GoldenCase>): ChatServerDe
             ) = Unit
         },
         streamingChatComposer = TemplateChatComposer(),
+        corpusStatusReader = com.example.coachserver.CorpusStatusReader { com.example.coachapi.CorpusDiagnostics(ready = true) },
     )
 }
 
@@ -364,6 +366,7 @@ private suspend fun evaluateOpeningRoute(
     val stats = RouteStats(route = name, collection = collection)
     cases.forEach { case ->
         val response = request(case.toOpeningRequest())
+        val diagnosticScore = response.diagnostics?.let { EvalScorer.scoreDiagnostics(case.eco, it) }
         stats.record(
             EvalScorer.scoreOpening(
                 case,
@@ -372,6 +375,7 @@ private suspend fun evaluateOpeningRoute(
             ),
             retried = false,
             fellBack = response.composerId.contains("fallback"),
+            diagnosticScore = diagnosticScore
         )
     }
     return stats
@@ -394,10 +398,13 @@ private suspend fun evaluateChatRoute(
         transcript.turns.forEachIndexed { turnIndex, turn ->
             val events = streamChat(client, transcript.toRequest(turnIndex))
             val text = events.accumulateTurnText()
+            val diagEvent = events.lastOrNull { it.type == ChatStreamEvent.TYPE_DIAGNOSTICS }
+            val diagnosticScore = diagEvent?.diagnostics?.let { EvalScorer.scoreDiagnostics(transcript.case.eco, it) }
             stats.record(
                 EvalScorer.scoreChat(turn, text),
                 retried = false,
                 fellBack = events.fellBack(),
+                diagnosticScore = diagnosticScore
             )
         }
     }
@@ -549,6 +556,7 @@ private suspend fun evaluateLlmComposed(cases: List<GoldenCase>): RouteStats {
             ),
             retried = false,
             fellBack = composed.composerId != LlmComposer.ID,
+            diagnosticScore = null // Local LLM compose skips the HTTP layer
         )
     }
     // Same reason: the attempt log is sorted back into case order so two runs of the same build
@@ -702,7 +710,7 @@ internal fun caseSpecificRetrieval(cases: List<GoldenCase>): Pair<ServerDependen
     val byCase = cases.associate { case ->
         case.id to listOf(
             Passage(
-                sourceId = "eval-${case.id}",
+                sourceId = "lichess-${case.eco?.lowercase() ?: "unknown"}-${case.id}",
                 title = "${case.eco} opening concepts",
                 // MUST be openingConceptsPassage, the same text the template route above retrieves.
                 // This used to be the bare tag list ("development, center."), which meant the two
@@ -748,6 +756,9 @@ data class RouteStats(
     var retries: Int = 0,
     var fallbacks: Int = 0,
     var lengthViolations: Int = 0,
+    var diagRetrievalViolations: Int = 0,
+    var diagTerminalViolations: Int = 0,
+    var diagCorpusViolations: Int = 0,
 ) {
     private val readingGrades = mutableListOf<Double>()
 
@@ -778,7 +789,7 @@ data class RouteStats(
             return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2.0
         }
 
-    fun record(score: OutputScore, retried: Boolean, fellBack: Boolean) {
+    fun record(score: OutputScore, retried: Boolean, fellBack: Boolean, diagnosticScore: DiagnosticScore? = null) {
         cases++
         if (!score.grounded) groundingViolations++
         if (!score.fluencyCompliant) fluencyViolations++
@@ -786,6 +797,11 @@ data class RouteStats(
         if (fellBack) fallbacks++
         if (score.lengthViolation) lengthViolations++
         readingGrades += score.readingGrade
+        if (diagnosticScore != null) {
+            if (!diagnosticScore.retrievalCorrect) diagRetrievalViolations++
+            if (!diagnosticScore.terminalCorrect) diagTerminalViolations++
+            if (!diagnosticScore.corpusReady) diagCorpusViolations++
+        }
     }
 }
 
@@ -798,12 +814,15 @@ object ScorecardWriter {
         appendLine()
         appendLine("> Candidate dataset: $totalCases total cases, $openingCases opening cases. Owner hand-review is still required before article publication.")
         appendLine()
-        appendLine("| Route | Cases | Grounding violation | Reading grade | Fluency violation | Retry | Fallback | Length violation | Collection |")
-        appendLine("|---|---:|---:|---:|---:|---:|---:|---:|---|")
+        appendLine("| Route | Cases | Grounding violation | Diag retrieval | Diag terminal | Diag corpus | Reading grade | Fluency violation | Retry | Fallback | Length violation | Collection |")
+        appendLine("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
         stats.forEach { stat ->
             if (stat.available) {
                 appendLine(
                     "| ${stat.route} | ${stat.cases} | ${percent(stat.groundingViolations, stat.cases)} | " +
+                        "${percent(stat.diagRetrievalViolations, stat.cases)} | " +
+                        "${percent(stat.diagTerminalViolations, stat.cases)} | " +
+                        "${percent(stat.diagCorpusViolations, stat.cases)} | " +
                         "${grade(stat.medianReadingGrade)} | " +
                         "${percent(stat.fluencyViolations, stat.cases)} | " +
                         "${percent(stat.retries, stat.cases)} | ${percent(stat.fallbacks, stat.cases)} | " +
@@ -817,7 +836,7 @@ object ScorecardWriter {
                         "${stat.collection.name.lowercase()}${stat.note.takeIf(String::isNotBlank)?.let { " ($it)" }.orEmpty()} |",
                 )
             } else {
-                appendLine("| ${stat.route} | — | — | — | — | — | — | — | ${stat.collection.name.lowercase()} (${stat.note}) |")
+                appendLine("| ${stat.route} | — | — | — | — | — | — | — | — | — | — | ${stat.collection.name.lowercase()} (${stat.note}) |")
             }
         }
         MANUAL_ROWS.forEach { appendLine(it.render()) }

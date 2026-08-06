@@ -71,3 +71,10 @@ tasks.register<JavaExec>("seed") {
     classpath = sourceSets.main.get().runtimeClasspath
     mainClass.set("com.example.coachserver.SeedMain")
 }
+
+tasks.register<JavaExec>("verifyCorpus") {
+    group = "verification"
+    description = "Verifies corpus_seed_state matches the current corpus without modifying the database."
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("com.example.coachserver.VerifyCorpusMain")
+}

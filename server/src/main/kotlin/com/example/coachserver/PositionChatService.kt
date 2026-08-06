@@ -4,6 +4,7 @@ import com.example.coachapi.ChatStreamEvent
 import com.example.coachapi.ChatTurn
 import com.example.coachapi.Passage
 import com.example.coachapi.PositionChatRequest
+import com.example.coachapi.CloudDiagnostics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -33,6 +34,7 @@ sealed interface ChatChunk {
     data class Token(val text: String) : ChatChunk
     data class Fallback(val text: String) : ChatChunk
     data class Done(val composerId: String) : ChatChunk
+    data class Diagnostics(val diagnostics: CloudDiagnostics) : ChatChunk
 }
 
 /** Maps an internal [ChatChunk] to the shared [ChatStreamEvent] wire model. */
@@ -44,6 +46,7 @@ fun ChatChunk.toEvent(): ChatStreamEvent = when (this) {
         composerId = TemplateChatComposer.ID,
     )
     is ChatChunk.Done -> ChatStreamEvent(type = ChatStreamEvent.TYPE_DONE, composerId = composerId)
+    is ChatChunk.Diagnostics -> ChatStreamEvent(type = ChatStreamEvent.TYPE_DIAGNOSTICS, diagnostics = diagnostics)
 }
 
 /**
@@ -657,9 +660,11 @@ class PositionChatService(
     private val dependencies: ChatServerDependencies,
 ) {
     suspend fun chat(request: PositionChatRequest): Flow<ChatChunk> {
-        val retrieval = withContext(Dispatchers.IO) {
-            validateRequest(request)
-            val embedding = dependencies.embedder.embed(PositionChatQueryBuilder.build(request))
+        validateRequest(request)
+        return flow {
+            val startedAt = System.nanoTime()
+            val retrieval = withContext(Dispatchers.IO) {
+                val embedding = dependencies.embedder.embed(PositionChatQueryBuilder.build(request))
             require(embedding.size == OpeningService.EMBEDDING_DIMENSIONS) {
                 "embedder returned ${embedding.size} values; expected ${OpeningService.EMBEDDING_DIMENSIONS}"
             }
@@ -670,13 +675,33 @@ class PositionChatService(
                 eco = request.eco,
             )
         }
-        return dependencies.streamingChatComposer.streamCompose(
+        var composerId = "unknown"
+        dependencies.streamingChatComposer.streamCompose(
             // Same reason as the opening route: clients send eco = null, so the composer's ECO line
             // is "unknown" unless the server hands back the one it resolved from the move prefix.
             request.copy(eco = retrieval.resolvedEco ?: request.eco),
             retrieval.passages,
+        ).collect { chunk ->
+            if (chunk is ChatChunk.Done) composerId = chunk.composerId
+            else if (chunk is ChatChunk.Fallback) composerId = TemplateChatComposer.ID
+            emit(chunk)
+        }
+        emit(
+            ChatChunk.Diagnostics(
+                CloudDiagnostics(
+                    releaseVersion = dependencies.releaseVersion,
+                    corpus = dependencies.corpusStatusReader.readOrUnavailable(),
+                    retrievedPassageIds = retrieval.passages.map(Passage::sourceId),
+                    composerId = composerId,
+                    finishReason = "completed",
+                    latencyMs = ((System.nanoTime() - startedAt) / 1_000_000).coerceAtLeast(0),
+                    completionTokens = null,
+                    rawProviderOutput = null,
+                )
+            )
         )
     }
+}
 
     private fun validateRequest(request: PositionChatRequest) {
         require(request.fen.isNotBlank() && request.fen.length <= MAX_FEN_LENGTH && FEN.matches(request.fen)) {
@@ -741,4 +766,6 @@ data class ChatServerDependencies(
     val embedder: Embedder,
     val passageRepository: PassageRepository,
     val streamingChatComposer: StreamingChatComposer,
+    val releaseVersion: String = "unknown",
+    val corpusStatusReader: CorpusStatusReader = CorpusStatusReader { com.example.coachapi.CorpusDiagnostics(ready = false) },
 )

@@ -28,6 +28,27 @@ data class OpeningExplainResponse(
     val text: String,
     val passages: List<Passage>,
     val composerId: String,
+    val diagnostics: CloudDiagnostics? = null,
+)
+
+@Serializable
+data class CorpusDiagnostics(
+    val ready: Boolean,
+    val seedVersion: String? = null,
+    val rowCount: Int? = null,
+    val finalSourceId: String? = null,
+)
+
+@Serializable
+data class CloudDiagnostics(
+    val releaseVersion: String,
+    val corpus: CorpusDiagnostics,
+    val retrievedPassageIds: List<String>,
+    val composerId: String,
+    val finishReason: String,
+    val latencyMs: Long,
+    val completionTokens: Int? = null,
+    val rawProviderOutput: String? = null,
 )
 
 @Serializable
@@ -90,11 +111,13 @@ data class ChatStreamEvent(
     val type: String,
     val text: String? = null,
     val composerId: String? = null,
+    val diagnostics: CloudDiagnostics? = null,
 ) {
     companion object {
         const val TYPE_TOKEN = "token"
         const val TYPE_FALLBACK = "fallback"
         const val TYPE_DONE = "done"
         const val TYPE_ERROR = "error"
+        const val TYPE_DIAGNOSTICS = "diagnostics"
     }
 }
