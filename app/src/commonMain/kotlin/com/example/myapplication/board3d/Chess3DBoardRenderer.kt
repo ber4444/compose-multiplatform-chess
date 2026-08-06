@@ -23,6 +23,9 @@ interface Chess3DBoardRenderer {
      *  FEN; selection state lives in Compose per the issue). Default no-op so backends that don't
      *  render a highlight still compile. */
     fun setSelectedSquare(square: BoardSquare?) {}
+
+    /** Render multiple highlights (e.g. for coach annotations). Default no-op. */
+    fun setHighlightedSquares(squares: List<BoardSquare>) {}
 }
 
 /** Marker for a platform drawing target. Platform impls wrap native handles

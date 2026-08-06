@@ -6,7 +6,7 @@ data class BestMoveResult(
 )
 
 interface ChessEngine {
-    suspend fun getBestMove(fen: String): BestMoveResult?
+    suspend fun getBestMove(fen: String, thinkTimeMs: Long? = null): BestMoveResult?
     fun close()
 
     /**

@@ -611,7 +611,10 @@ class GameViewModel(
         val stateBefore = FenConverter.fenToGameState(fenBefore)
         // Held across the evaluation so a concurrent hint can't leave the engine at HARD underneath
         // it — see engineStrengthMutex.
-        val cpBest = engineStrengthMutex.withLock {
+        val bestMoveResult = engineStrengthMutex.withLock {
+            engine.getBestMove(fenBefore, engineDifficulty.thinkTimeMs)
+        } ?: return
+        val cpBest = bestMoveResult.evaluationCp ?: engineStrengthMutex.withLock {
             evaluatePositionCp(engine, stateBefore, engineDifficulty.thinkTimeMs)
         }
 
@@ -626,7 +629,8 @@ class GameViewModel(
             cpBefore = cpBest, // By definition, eval of board before move is the eval of the best move
             cpPlayed = cpPlayed,
             cpBest = cpBest,
-            motifs = motifs
+            motifs = motifs,
+            bestMoveUci = bestMoveResult.uci
         )
 
         // Update history safely

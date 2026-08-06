@@ -451,7 +451,40 @@ fun GameScreen(
                     selectedSquare = gameState.selectedSquare
                         .takeIf { it != INVALID_POSITION }
                         ?.let { BoardSquare(it.first, it.second) },
+                    highlightedSquares = remember(coachState) {
+                        if (coachState is MoveCoachUiState.Ready) {
+                            coachState.explanation.annotatedSquares.mapNotNull {
+                                try {
+                                    val col = it[0] - 'a'
+                                    val row = '8' - it[1]
+                                    if (col in 0..7 && row in 0..7) BoardSquare(row, col) else null
+                                } catch (e: Exception) { null }
+                            }
+                        } else emptyList()
+                    },
                     onSquareTapped = onSquareTapped@{ sq ->
+                    // Tap-to-Explain interception
+                    if (coachState !is MoveCoachUiState.Hidden && moveCoachManager != null) {
+                        val pos = Pair(sq.row, sq.col)
+                        val uci = UciMoveConverter.positionToUciSquare(pos)
+                        val pieceIdxWhite = gameState.positionsWhite.indexOf(pos)
+                        val pieceIdxBlack = gameState.positionsBlack.indexOf(pos)
+                        val pieceName = when {
+                            pieceIdxWhite != -1 -> "White ${gameState.piecesWhite[pieceIdxWhite].name}"
+                            pieceIdxBlack != -1 -> "Black ${gameState.piecesBlack[pieceIdxBlack].name}"
+                            else -> "the empty square"
+                        }
+                        val request = com.example.ondeviceai.MoveCoachRequest(
+                            moveUci = uci,
+                            moveDisplay = uci,
+                            deterministicHeadline = "Square $uci",
+                            deterministicExplanation = "Analyzing $pieceName on $uci...",
+                            engineDifficultyName = appSettings?.engineDifficulty?.value?.name ?: "MEDIUM"
+                        )
+                        moveCoachManager.launchCoach(request)
+                        return@onSquareTapped
+                    }
+
                     // Route a 3D tap through the same selection/move logic the 2D board uses.
                     if (animState.pieceToAnimate != null || gameState.turn != Set.WHITE) return@onSquareTapped
                     val pos = Pair(sq.row, sq.col)
@@ -557,6 +590,26 @@ fun GameScreen(
                         playerMove = viewModel::playerMove,
                         animationEnd = viewModel::animationEnd,
                         boardMaxSize = boardMaxSize,
+                        onSquareTapped = if (coachState !is MoveCoachUiState.Hidden && moveCoachManager != null) {
+                            { pos ->
+                                val uci = UciMoveConverter.positionToUciSquare(pos)
+                                val pieceIdxWhite = gameState.positionsWhite.indexOf(pos)
+                                val pieceIdxBlack = gameState.positionsBlack.indexOf(pos)
+                                val pieceName = when {
+                                    pieceIdxWhite != -1 -> "White ${gameState.piecesWhite[pieceIdxWhite].name}"
+                                    pieceIdxBlack != -1 -> "Black ${gameState.piecesBlack[pieceIdxBlack].name}"
+                                    else -> "the empty square"
+                                }
+                                val request = com.example.ondeviceai.MoveCoachRequest(
+                                    moveUci = uci,
+                                    moveDisplay = uci,
+                                    deterministicHeadline = "Square $uci",
+                                    deterministicExplanation = "Analyzing $pieceName on $uci...",
+                                    engineDifficultyName = appSettings?.engineDifficulty?.value?.name ?: "MEDIUM"
+                                )
+                                moveCoachManager.launchCoach(request)
+                            }
+                        } else null
                     )
 
                     Spacer(modifier = Modifier.padding(8.dp))
@@ -769,6 +822,7 @@ fun Board(
     /** Caps the board's size so it fits within the viewport on wide/landscape windows.
      *  On portrait this equals the full width; on landscape it equals ~85% of the height. */
     boardMaxSize: Dp = Dp.Unspecified,
+    onSquareTapped: ((Pair<Int, Int>) -> Unit)? = null,
 ) {
     val squareSizePx = remember { mutableStateOf(IntSize.Zero) }
     val squareAvgSizePx = remember { mutableStateOf(IntSize.Zero) }
@@ -832,7 +886,7 @@ fun Board(
                             }
                         }
 
-                        val clickable = squareType == SquareType.PossibleMove ||
+                        val clickable = onSquareTapped != null || squareType == SquareType.PossibleMove ||
                             squareType == SquareType.PossibleCapture ||
                             squareType == SquareType.WhitePiece
 
@@ -850,6 +904,10 @@ fun Board(
                             clickable = clickable,
                             testTag = squareTestTag(currentSquare, squareType),
                             onClick = { currentSquareType ->
+                                if (onSquareTapped != null) {
+                                    onSquareTapped(currentSquare)
+                                    return@Square
+                                }
                                 when (currentSquareType) {
                                     SquareType.PossibleMove, SquareType.PossibleCapture -> {
                                         val moveIndex = gameState.selectedSquare

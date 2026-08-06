@@ -33,6 +33,7 @@ fun Board3D(
     cameraSession: Board3DSessionState = remember { Board3DSessionState() },
     onRendererReady: () -> Unit = {},
     selectedSquare: BoardSquare? = null,
+    highlightedSquares: List<BoardSquare> = emptyList(),
     onSquareTapped: (BoardSquare) -> Unit = {},
 ) {
     var renderer by remember { mutableStateOf<Chess3DBoardRenderer?>(null) }
@@ -78,6 +79,7 @@ fun Board3D(
             currentRenderer.updatePosition(fen, transition)
         }
         LaunchedEffect(currentRenderer, selectedSquare) { currentRenderer.setSelectedSquare(selectedSquare) }
+        LaunchedEffect(currentRenderer, highlightedSquares) { currentRenderer.setHighlightedSquares(highlightedSquares) }
 
         // Closed briefly after each renderer creation to swallow SceneView's one-shot
         // surface-creation pinch (see SPURIOUS_ZOOM_GUARD_MS); zoom only — orbit/pan stay live.

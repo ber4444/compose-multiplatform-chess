@@ -140,23 +140,27 @@ class MoveCoachManager(
             return
         }
 
-        _coachUiState.value = MoveCoachUiState.Loading(request.moveDisplay)
+        _coachUiState.value = MoveCoachUiState.Loading(request.deterministicHeadline, request.deterministicExplanation)
         coachJob = scope.launch {
             try {
                 orchestrator.explainMoveStreaming(request).collect { event ->
                     when (event) {
                         is MoveCoachEvent.Streaming ->
                             _coachUiState.value = MoveCoachUiState.Streaming(
-                                move = request.moveDisplay,
+                                headline = request.deterministicHeadline,
+                                explanation = request.deterministicExplanation,
                                 text = CitationSanitizer.sanitizeStreaming(event.partialText),
                             )
                         is MoveCoachEvent.Complete -> when (val result = event.result) {
                             is MoveCoachResult.Success -> {
                                 val shown = CitationSanitizer.sanitize(result.explanation.explanation)
+                                val regex = Regex("\\b[a-h][1-8]\\b")
+                                val matches = regex.findAll(result.explanation.explanation).map { it.value }.toList().distinct()
                                 _coachUiState.value = MoveCoachUiState.Ready(
-                                    result.explanation.copy(
+                                    explanation = result.explanation.copy(
                                         headline = CitationSanitizer.sanitize(result.explanation.headline),
                                         explanation = shown,
+                                        annotatedSquares = matches
                                     )
                                 )
                                 rememberOpeningFrame(shown)

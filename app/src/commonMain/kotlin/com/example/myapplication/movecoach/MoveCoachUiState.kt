@@ -26,8 +26,8 @@ sealed interface MoveCoachUiState {
      *  distinguish "warming up" from "genuinely missing" (the [Unavailable] state). */
     data class LoadingModel(val message: String) : MoveCoachUiState
 
-    data class Loading(val move: String) : MoveCoachUiState
-    data class Streaming(val move: String, val text: String) : MoveCoachUiState
+    data class Loading(val headline: String, val explanation: String) : MoveCoachUiState
+    data class Streaming(val headline: String, val explanation: String, val text: String) : MoveCoachUiState
     data class Ready(val explanation: MoveCoachExplanation) : MoveCoachUiState
     /** [reason] stays typed so the panel can pick a designed state via [FallbackPresentation];
      *  flattening it to a string here is what made every fallback render identically (B17). */

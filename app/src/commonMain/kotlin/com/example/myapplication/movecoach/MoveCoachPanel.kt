@@ -44,16 +44,22 @@ fun MoveCoachPanel(
     val presentation = (state as? MoveCoachUiState.Fallback)?.let {
         FallbackPresentation.of(it.reason)
     }
-    val label: String? = when (presentation) {
-        is FallbackPresentation.Labeled -> presentation.label
-        is FallbackPresentation.Retryable -> presentation.label
-        FallbackPresentation.Silent, null -> null
+    val label: String? = when (state) {
+        is MoveCoachUiState.Ready -> state.explanation.headline
+        is MoveCoachUiState.Streaming -> state.headline
+        is MoveCoachUiState.Loading -> state.headline
+        is MoveCoachUiState.Fallback -> when (presentation) {
+            is FallbackPresentation.Labeled -> presentation.label
+            is FallbackPresentation.Retryable -> presentation.label
+            else -> null
+        }
+        else -> null
     }
 
     val text: String = when (state) {
         is MoveCoachUiState.Ready -> state.explanation.explanation
-        is MoveCoachUiState.Streaming -> state.text.ifBlank { "Generating…" }
-        is MoveCoachUiState.Loading -> stringResource(Res.string.move_coach_loading, state.move)
+        is MoveCoachUiState.Streaming -> state.text.ifBlank { state.explanation }
+        is MoveCoachUiState.Loading -> state.explanation
         is MoveCoachUiState.LoadingModel -> state.message
         is MoveCoachUiState.Fallback -> state.text
         is MoveCoachUiState.Error -> state.message

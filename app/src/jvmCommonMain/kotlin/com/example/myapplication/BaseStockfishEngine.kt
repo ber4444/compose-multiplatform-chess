@@ -159,8 +159,8 @@ abstract class BaseStockfishEngine : ChessEngine {
         sendCommand("setoption name Skill Level value $level")
     }
 
-    override suspend fun getBestMove(fen: String): BestMoveResult? = uciMutex.withLock {
-        withContext(Dispatchers.IO) { searchBestMove(fen, thinkTimeMs) }
+    override suspend fun getBestMove(fen: String, thinkTimeMs: Long?): BestMoveResult? = uciMutex.withLock {
+        withContext(Dispatchers.IO) { searchBestMove(fen, thinkTimeMs ?: this@BaseStockfishEngine.thinkTimeMs) }
     }
 
     /**
