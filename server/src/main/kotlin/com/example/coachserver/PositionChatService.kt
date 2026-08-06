@@ -77,8 +77,18 @@ class TemplateChatComposer : StreamingChatComposer {
             passages.isEmpty() -> "After $moveLine, focus on central control, piece development, and king safety."
             else -> sentence(passages.first().text)
         }
-        return grounded.truncateAtWord(PositionChatValidator.MAX_OUTPUT_CHARS)
+        // The base corpus is still mostly opening identification, not authored plan cards. Saying
+        // so directly is more useful and more honest than presenting a label as an answer to
+        // "What is the plan?"; the sourced sentence remains available as context.
+        val answer = if (passages.isNotEmpty() && isPlanQuestion(request.userMessage)) {
+            "The retrieved material does not specify a plan. $grounded"
+        } else {
+            grounded
+        }
+        return answer.truncateAtWord(PositionChatValidator.MAX_OUTPUT_CHARS)
     }
+
+    private fun isPlanQuestion(question: String): Boolean = PLAN_QUESTION.containsMatchIn(question)
 
     private fun sentence(text: String): String {
         val compact = text.replace(Regex("\\s+"), " ").trim()
@@ -88,6 +98,7 @@ class TemplateChatComposer : StreamingChatComposer {
 
     companion object {
         const val ID = "template-chat-v1"
+        private val PLAN_QUESTION = Regex("\\b(plan|play next|what should|how should)\\b", RegexOption.IGNORE_CASE)
     }
 }
 

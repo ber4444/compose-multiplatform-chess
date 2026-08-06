@@ -62,8 +62,7 @@ Cards should support these fields where applicable:
 `common_misconception`, `comparison_to`, `typical_response`, and provenance (line/ECO/source).
 
 The generator may select one or two non-visible facts. Board-visible move narration is supporting
-metadata, never the complete answer. Missing fields must produce a deterministic, honest fallback;
-do not fill them with model guesses.
+metadata, never the complete answer.
 
 ### 3. Derive board facts by replay
 

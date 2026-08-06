@@ -110,6 +110,22 @@ class PositionChatRouteTest {
     }
 
     @Test
+    fun `template chat is honest when retrieved material has no plan answer`() = runBlocking {
+        val request = PositionChatRequest(
+            fen = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+            movesSan = listOf("e4", "e5"),
+            userMessage = "What is White's plan?",
+        )
+
+        val text = TemplateChatComposer().streamCompose(request, listOf(passage)).toList()
+            .filterIsInstance<ChatChunk.Token>()
+            .joinToString("") { it.text }
+
+        assertTrue(text.startsWith("The retrieved material does not specify a plan."))
+        assertTrue(text.contains("Both sides use a king-pawn advance"))
+    }
+
+    @Test
     fun `chat stream downgrades unvalidated provider prose to a fallback event`() = testApplication {
         // The real LlmChatComposer streams provider tokens, then validates the ACCUMULATED text at
         // stream end. A forbidden phrase fails validation → the composer emits a `fallback` (never
