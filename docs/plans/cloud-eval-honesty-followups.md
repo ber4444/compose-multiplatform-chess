@@ -6,6 +6,8 @@ agreed strategy and acceptance criteria; implementation history belongs in commi
 ## Current state
 
 - PR #121 contains the current server changes and is pushed from `fix/cloud-eval-honesty-followups`.
+- Fly release v28 is serving and `/health` returns `ok`; the production database has **not** yet
+  been reseeded with this image.
 - `:server:test` passes locally.
 - `LineNarrator` no longer invents unsupported chess claims.
 - Template chat no longer repeats the passage title, loses spaces between stream chunks, or cuts a
