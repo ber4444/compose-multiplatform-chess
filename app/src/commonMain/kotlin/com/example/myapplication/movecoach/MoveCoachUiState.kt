@@ -24,7 +24,7 @@ sealed interface MoveCoachUiState {
     /** The local model is being prepared (unpacked from assets, initialized, etc).
      *  Shown by platform glue BEFORE the orchestrator is attached so the user can
      *  distinguish "warming up" from "genuinely missing" (the [Unavailable] state). */
-    data class LoadingModel(val message: String) : MoveCoachUiState
+    data class LoadingModel(val message: String, val progress: Float? = null) : MoveCoachUiState
 
     data class Loading(val move: String) : MoveCoachUiState
     data class Streaming(val move: String, val text: String) : MoveCoachUiState

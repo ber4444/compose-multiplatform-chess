@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -109,6 +111,18 @@ fun MoveCoachPanel(
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White,
             )
+            
+            val progress = (state as? MoveCoachUiState.LoadingModel)?.progress
+            if (progress != null) {
+                Spacer(modifier = Modifier.size(8.dp))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().height(4.dp).testTag("move_coach_progress"),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                )
+            }
+
             if (presentation is FallbackPresentation.Retryable && onRetry != null) {
                 TextButton(
                     onClick = onRetry,

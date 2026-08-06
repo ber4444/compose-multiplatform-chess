@@ -54,6 +54,7 @@ class CactusTextGenerator(
     // forever after init has already succeeded on the engine thread.
     @Volatile private var lm: CactusLM? = null
     @Volatile private var initializationFailed: String? = null
+    @Volatile private var downloadProgress: Float? = null
 
     /**
      * The single in-flight initialization, or null when none has started. Shared rather than
@@ -62,6 +63,7 @@ class CactusTextGenerator(
      * `ensureInitialized`'s null check and start a second ~200 MB download of the same model.
      */
     private var initJob: Deferred<Unit>? = null
+    private var progressJob: kotlinx.coroutines.Job? = null
     private val initMutex = Mutex()
     private val initScope = CoroutineScope(SupervisorJob() + engineDispatcher)
 
@@ -70,7 +72,7 @@ class CactusTextGenerator(
         if (lm != null) return AiAvailability.Available
         // Distinguishing "fetching" from "nothing here" is what lets the coach panel say
         // "downloading" instead of "unavailable" on first launch.
-        return if (initJob?.isActive == true) AiAvailability.Downloading else AiAvailability.Unavailable
+        return if (initJob?.isActive == true) AiAvailability.Downloading(downloadProgress) else AiAvailability.Unavailable
     }
 
     /** Starts initialization and returns immediately — the board and the deterministic coach stay
@@ -171,13 +173,39 @@ class CactusTextGenerator(
         try {
             CactusConfig.isTelemetryEnabled = false
             val instance = CactusLM()
+
+            progressJob = initScope.async(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val models = instance.getModels()
+                    val targetModel = models.find { it.slug == modelSlug }
+                    if (targetModel != null) {
+                        val fileName = targetModel.download_url.substringBefore('?').substringAfterLast('/')
+                        val file = java.io.File(com.cactus.CactusModelManager.INSTANCE.getModelsDirectory(), fileName)
+                        val expectedSize = targetModel.size_mb * 1024L * 1024L
+                        while (kotlinx.coroutines.isActive) {
+                            if (file.exists()) {
+                                downloadProgress = (file.length().toFloat() / expectedSize).coerceIn(0f, 1f)
+                            }
+                            kotlinx.coroutines.delay(250)
+                        }
+                    }
+                } catch (e: Exception) {
+                    // ignore polling errors
+                }
+            }
+
             instance.downloadModel(modelSlug)
+            progressJob?.cancel()
+            downloadProgress = null
+
             instance.initializeModel(
                 CactusInitParams(model = modelSlug, contextSize = contextSize)
             )
             lm = instance
         } catch (t: Throwable) {
             initializationFailed = t.message ?: "Cactus init failed"
+            progressJob?.cancel()
+            downloadProgress = null
         }
     }
 

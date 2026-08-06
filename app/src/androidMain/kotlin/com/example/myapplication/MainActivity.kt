@@ -169,8 +169,24 @@ class MainActivity : ComponentActivity() {
                     ?.let { executor.execute(it.route) }
                 // Join the download so the panel's terminal state reflects the real outcome. The
                 // panel must never be left on a LoadingModel spinner that nothing clears.
-                (generator as? com.example.ondeviceai.cactus.CactusTextGenerator)?.awaitWarmup()
-                    ?: generator?.warmup()
+                val warmupJob = launch {
+                    (generator as? com.example.ondeviceai.cactus.CactusTextGenerator)?.awaitWarmup()
+                        ?: generator?.warmup()
+                }
+                while (warmupJob.isActive) {
+                    val status = generator?.status()
+                    if (status is com.example.ondeviceai.AiAvailability.Downloading) {
+                        val percentageStr = status.progress?.let { " (${(it * 100).toInt()}%)" } ?: ""
+                        holder.moveCoachManager.setCoachModelState(
+                            com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
+                                message = "Downloading Gemma 270M model (first launch only)$percentageStr…",
+                                progress = status.progress
+                            )
+                        )
+                    }
+                    kotlinx.coroutines.delay(250)
+                }
+                warmupJob.join()
 
                 (generator?.status() as? com.example.ondeviceai.AiAvailability.Error)?.let {
                     // Logged, not surfaced: the deterministic coach still answers every move, so

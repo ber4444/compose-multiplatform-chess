@@ -41,7 +41,7 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
             when (model.checkStatus()) {
                 FeatureStatus.AVAILABLE -> AiAvailability.Available
                 FeatureStatus.DOWNLOADABLE -> AiAvailability.Downloadable()
-                FeatureStatus.DOWNLOADING -> AiAvailability.Downloading
+                FeatureStatus.DOWNLOADING -> AiAvailability.Downloading()
                 else -> AiAvailability.Unavailable
             }
         } catch (e: Exception) {

@@ -178,7 +178,7 @@ private fun attachMoveCoach(
                 moveCoachManager.setCoachModelState(MoveCoachUiState.Unavailable())
                 return@launch
             }
-            AiAvailability.Available, is AiAvailability.Downloadable, AiAvailability.Downloading -> {
+            AiAvailability.Available, is AiAvailability.Downloadable, is AiAvailability.Downloading -> {
                 if (debug) {
                     moveCoachManager.setCoachModelState(
                         MoveCoachUiState.LoadingModel(message = "LiteRT-LM ready.")

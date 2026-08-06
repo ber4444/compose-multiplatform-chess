@@ -3,7 +3,7 @@ package com.example.ondeviceai
 sealed interface AiAvailability {
     data object Available : AiAvailability
     data class Downloadable(val requiresUserConfirmation: Boolean = true) : AiAvailability
-    data object Downloading : AiAvailability
+    data class Downloading(val progress: Float? = null) : AiAvailability
     data object Unavailable : AiAvailability
     data object Busy : AiAvailability
     data class Error(val message: String) : AiAvailability
