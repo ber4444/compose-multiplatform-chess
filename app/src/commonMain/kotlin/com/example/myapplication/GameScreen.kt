@@ -351,7 +351,7 @@ fun GameScreen(
                             Column(modifier = Modifier.padding(8.dp)) {
                                 Text("Coach Summary", fontWeight = FontWeight.Bold)
                                 com.example.myapplication.ui.ProvenanceBadge(
-                                    route = state.route,
+                                    route = exp.route,
                                     modifier = Modifier.testTag("game_summary_provenance")
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
@@ -376,8 +376,10 @@ fun GameScreen(
                                     )
                                     FallbackPresentation.Silent -> Unit
                                 }
+                                // Fallback text is engine-derived by construction, so the reason
+                                // that produced it is also its provenance (B11).
                                 com.example.myapplication.ui.ProvenanceBadge(
-                                    route = fallback.route,
+                                    route = com.example.ondeviceai.AiRoute.Fallback(fallback.reason),
                                     modifier = Modifier.testTag("game_summary_provenance")
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))

@@ -143,9 +143,12 @@ private fun MessageRow(message: ChatMessage) {
             color = MaterialTheme.colorScheme.primary,
         )
         Text(text = message.text, style = MaterialTheme.typography.bodyMedium)
-        if (message.role == "assistant") {
+        // Only what the turn actually recorded: a missing route is unknown provenance, and
+        // defaulting it to Cloud would credit the model for text it may not have written.
+        val route = message.route
+        if (message.role == "assistant" && route != null) {
             com.example.myapplication.ui.ProvenanceBadge(
-                route = message.route ?: com.example.ondeviceai.AiRoute.Cloud,
+                route = route,
                 modifier = Modifier.testTag("chat_provenance")
             )
         }
@@ -156,10 +159,6 @@ private fun MessageRow(message: ChatMessage) {
 private fun StreamingRow(partialText: String, firstTokenReceived: Boolean) {
     Column(modifier = Modifier.fillMaxWidth().testTag("chat_streaming_row")) {
         Text("Coach", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-        com.example.myapplication.ui.ProvenanceBadge(
-            route = com.example.ondeviceai.AiRoute.Cloud,
-            modifier = Modifier.testTag("chat_provenance")
-        )
         if (!firstTokenReceived) {
             // Typing indicator while awaiting the first token.
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -167,6 +166,12 @@ private fun StreamingRow(partialText: String, firstTokenReceived: Boolean) {
                 Text("Thinking…")
             }
         } else {
+            // Chat is cloud-only by design (a RunOnDevice decision is treated as no route), so an
+            // in-flight turn's provenance is known — but only label text that already exists.
+            com.example.myapplication.ui.ProvenanceBadge(
+                route = com.example.ondeviceai.AiRoute.Cloud,
+                modifier = Modifier.testTag("chat_provenance")
+            )
             Text(partialText, style = MaterialTheme.typography.bodyMedium)
         }
     }

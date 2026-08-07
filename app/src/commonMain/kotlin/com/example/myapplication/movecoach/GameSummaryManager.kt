@@ -89,13 +89,11 @@ class GameSummaryManager {
                                     explanation = result.explanation.copy(
                                         explanation = CitationSanitizer.sanitize(result.explanation.explanation),
                                     ),
-                                    route = result.explanation.route
                                 )
                             is GameSummaryResult.FellBack ->
                                 _uiState.value = GameSummaryUiState.Fallback(
                                     CitationSanitizer.sanitize(result.text),
                                     result.reason,
-                                    route = com.example.ondeviceai.AiRoute.Fallback(result.reason)
                                 )
                             is GameSummaryResult.Failed ->
                                 _uiState.value = GameSummaryUiState.Error(result.message)

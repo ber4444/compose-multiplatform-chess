@@ -25,8 +25,11 @@ sealed interface RulesQaResult {
     data class FellBack(
         val text: String,
         val reason: AiRoutePolicyDecider.FallbackReason,
-        val route: AiRoute = AiRoute.Fallback(reason),
-    ) : RulesQaResult
+    ) : RulesQaResult {
+        /** Provenance (B11): derived from [reason], so the two can never disagree. See
+         *  [OpeningExplainerResult.Fallback.route]. */
+        val route: AiRoute get() = AiRoute.Fallback(reason)
+    }
 }
 
 object RulesQaFallback {

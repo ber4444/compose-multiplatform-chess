@@ -21,8 +21,17 @@ import kotlinx.coroutines.launch
 data class ChatMessage(
     val role: String, // "user" | "assistant"
     val text: String,
-    /** `true` if this assistant turn arrived as a validation fallback rather than a cloud-validated reply. */
+    /**
+     * `true` if this assistant turn did not complete as a cloud-validated reply — a `fallback`
+     * event, or a partial promoted by [ChatViewModel.stop]. Drives Retry and the `dropLastWhile`
+     * in [ChatViewModel.retry]; it is **not** provenance ([route] is), because a stopped turn is
+     * incomplete model text, not substituted text.
+     */
     val isFallback: Boolean = false,
+    /**
+     * Which route produced [text] (B11). `null` on user turns and wherever it is genuinely unknown;
+     * the badge is then not rendered rather than guessing a route.
+     */
     val route: com.example.ondeviceai.AiRoute? = null,
 )
 
@@ -99,7 +108,10 @@ class ChatViewModel(
                 "assistant",
                 CitationSanitizer.sanitize(current.partialText),
                 isFallback = true,
-                route = com.example.ondeviceai.AiRoute.Fallback(com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.Timeout) // Stop is effectively a timeout fallback
+                // The route stays Cloud: this text *is* what the cloud model streamed, just cut
+                // short. Labelling it a fallback would tell the user a template wrote their
+                // partial answer, which is the misreport B11 is meant to remove.
+                route = com.example.ondeviceai.AiRoute.Cloud,
             ),
             partialText = "",
             error = true,
@@ -180,7 +192,10 @@ class ChatViewModel(
     private fun finalizeAssistant(text: String, isFallback: Boolean) {
         val current = mutableState.value
         val sanitizedText = CitationSanitizer.sanitize(text)
-        val route = if (isFallback) com.example.ondeviceai.AiRoute.Fallback(com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.Validation) else com.example.ondeviceai.AiRoute.Cloud
+        // A `fallback` event carries no reason on the wire (see ChatStreamEvent) and covers both a
+        // server-side validation veto (TemplateChatComposer text) and DefaultPositionChat's own
+        // offline sentence. Both are engine-derived, so don't invent Validation for the pair.
+        val route = if (isFallback) FALLBACK_ROUTE else com.example.ondeviceai.AiRoute.Cloud
         mutableState.value = current.copy(
             messages = current.messages + ChatMessage("assistant", sanitizedText, isFallback = isFallback, route = route),
             partialText = "",
@@ -219,5 +234,12 @@ class ChatViewModel(
          * the last N turns; the server re-pins retrieval every turn so grounding never drops out.
          */
         const val MAX_HISTORY_TURNS = 6
+
+        /** Provenance of a `fallback` event's text: substituted, not model-written. */
+        private val FALLBACK_ROUTE = com.example.ondeviceai.AiRoute.Fallback(
+            com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.Other(
+                "cloud reply replaced by grounded fallback text",
+            ),
+        )
     }
 }

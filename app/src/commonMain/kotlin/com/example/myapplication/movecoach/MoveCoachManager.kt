@@ -123,20 +123,25 @@ class MoveCoachManager(
             // Free tier: render the deterministic line as a finished answer, not a Fallback. It is
             // a complete, correct explanation — labelling it a fallback would tell the user their
             // own product tier is a degraded state.
-                _coachUiState.value = MoveCoachUiState.Ready(
-                    com.example.ondeviceai.MoveCoachExplanation(
-                        headline = request.deterministicHeadline,
-                        explanation = request.deterministicExplanation,
-                        confidence = com.example.ondeviceai.ExplanationConfidence.HIGH,
-                        route = com.example.ondeviceai.AiRoute.Fallback(com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.NoLocalModel),
-                        metrics = com.example.ondeviceai.AiInferenceMetrics(
-                            firstTokenMs = null,
-                            completeMs = 0L,
-                            tokenCount = 0,
-                            route = com.example.ondeviceai.AiRoute.Fallback(com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.NoLocalModel),
-                        ),
-                    )
+            // B11: the route still has to say Fallback, because no model wrote this text — the
+            // badge would otherwise credit a model for DeterministicCoach's output. The reason is
+            // FREE_TIER_ROUTE's and not NoLocalModel: a local model may well exist and be warm,
+            // the user simply hasn't unlocked it, and a wrong reason is a wrong log line and a
+            // wrong FallbackPresentation decision the moment either starts reading it.
+            _coachUiState.value = MoveCoachUiState.Ready(
+                com.example.ondeviceai.MoveCoachExplanation(
+                    headline = request.deterministicHeadline,
+                    explanation = request.deterministicExplanation,
+                    confidence = com.example.ondeviceai.ExplanationConfidence.HIGH,
+                    route = FREE_TIER_ROUTE,
+                    metrics = com.example.ondeviceai.AiInferenceMetrics(
+                        firstTokenMs = null,
+                        completeMs = 0L,
+                        tokenCount = 0,
+                        route = FREE_TIER_ROUTE,
+                    ),
                 )
+            )
             return
         }
 
@@ -207,5 +212,12 @@ class MoveCoachManager(
         /** Enough to break a rut, short enough that the ban list stays a hint and not a paragraph. */
         const val MAX_REMEMBERED_FRAMES = 3
         const val FRAME_WORDS = 3
+
+        /** Provenance of the free tier's deterministic line: engine-derived, no model involved. */
+        private val FREE_TIER_ROUTE = com.example.ondeviceai.AiRoute.Fallback(
+            com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.Other(
+                "free tier: deterministic coach",
+            ),
+        )
     }
 }
