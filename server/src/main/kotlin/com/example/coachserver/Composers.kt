@@ -276,6 +276,17 @@ class LlmComposer(
 object OpeningExplanationValidator {
     const val MAX_OUTPUT_CHARS = 300
 
+    /**
+     * Content words (≥4 chars, non-stopword) a sentence must share with the passage it cites.
+     *
+     * Lowered from 2 to 1: at 2 the rule was satisfiable only by near-verbatim reuse of a corpus row
+     * whose distinctive vocabulary is a handful of words (see `CorpusCitabilityProbe`), so a correct
+     * paraphrase was rejected and the fallback rate measured the bar, not the model. One word still
+     * fails fluent prose about a *different* opening, which is the claim this rule exists to make.
+     * It is deliberately a named constant so the check and its rejection message cannot drift.
+     */
+    const val MIN_SOURCE_OVERLAP = 1
+
     private val forbiddenPhrases = listOf(
         "i think stockfish",
         "probably depth",
@@ -364,9 +375,9 @@ object OpeningExplanationValidator {
                 .filterNot { token -> cited.any { id -> token in id.lowercase() } }
                 .toSet()
             val overlap = claimTokens.intersect(sourceTokens)
-            if (overlap.size < 1) {
+            if (overlap.size < MIN_SOURCE_OVERLAP) {
                 return "sentence shares only ${overlap.size} content word(s) $overlap with its " +
-                    "source, need 1: ${sentence.take(60)}"
+                    "source, need $MIN_SOURCE_OVERLAP: ${sentence.take(60)}"
             }
             unsupportedCertainty.firstOrNull { it in sentence.lowercase() && it !in sourceText }
                 ?.let { return "unsupported certainty: $it" }
@@ -391,7 +402,14 @@ class OpenAiCompatibleLlmClient(
     private val model: String,
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val json: Json = Json { ignoreUnknownKeys = true },
-    private val requestTimeout: java.time.Duration = java.time.Duration.ofSeconds(30),
+    /**
+     * Default only — production wires `PROVIDER_TIMEOUT_MS` (20 s, `COACH_LLM_TIMEOUT_MS`-overridable)
+     * from `Application.selectComposer`, so raising this alone changes nothing that is deployed.
+     * Kept aligned with that constant rather than higher: `AiRoutePolicies.openingExplainer`'s
+     * `completeMs` is 8 s, so the app has already abandoned the request long before a longer ceiling
+     * would pay off, and the only thing a bigger number buys is a request nobody is still waiting for.
+     */
+    private val requestTimeout: java.time.Duration = java.time.Duration.ofSeconds(20),
     private val transport: LlmHttpTransport? = null,
 ) : LlmClient {
     override fun generate(systemPrompt: String, userPrompt: String, maxOutputTokens: Int): LlmCompletion? {
