@@ -80,6 +80,7 @@ class BundledRuleLookupTool(
         term.startsWith("captur") -> "capture"
         term.startsWith("attack") -> "attack"
         term.startsWith("touch") -> "touch"
+        term.startsWith("draw") -> "draw"
         term.endsWith("ies") && term.length > 4 -> term.dropLast(3) + "y"
         term.endsWith("s") && term.length > 3 -> term.dropLast(1)
         else -> term
