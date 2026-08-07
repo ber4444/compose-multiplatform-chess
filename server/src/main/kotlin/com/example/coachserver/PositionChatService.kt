@@ -345,7 +345,9 @@ class LlmChatComposer(
         passages.forEach { appendLine("[${it.sourceId}] ${it.title}: ${it.text}") }
         appendLine("Player's Question: ${request.userMessage.trim()}")
         append("Answer in 1-2 short sentences using only these sources. ")
-        // Answer the user's question directly rather than quoting passages verbatim.
+        // The old instruction was "reuse the sources' own wording", written to clear a two-content-word
+        // overlap bar per sentence. That bar is now one word ([PositionChatValidator.MIN_SOURCE_OVERLAP]),
+        // so a synthesized answer still validates — and reads as an answer instead of a restated passage.
         append("Answer the question directly, synthesizing the facts rather than quoting verbatim. ")
         // Placement matters as much as presence: an id after the closing period lands in the *next*
         // sentence once the validator splits, leaving the sentence it belongs to uncited.
@@ -471,7 +473,14 @@ class OpenAiCompatibleStreamingLlmClient(
     private val model: String,
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val json: Json = Json { ignoreUnknownKeys = true },
-    private val requestTimeout: java.time.Duration = java.time.Duration.ofSeconds(30),
+    /**
+     * Default only — production wires `CHAT_PROVIDER_TIMEOUT_MS` from `Application.selectChatComposer`,
+     * so raising this alone changes nothing that is deployed. Kept aligned with that constant (20 s),
+     * which is itself aligned with `AiRoutePolicies.positionChat`'s `completeMs`: past that the client
+     * has already given up on the turn, and a late downgrade to template text is a worse outcome to
+     * have waited for than an error.
+     */
+    private val requestTimeout: java.time.Duration = java.time.Duration.ofSeconds(20),
 ) : StreamingLlmClient {
     override fun streamGenerate(
         systemPrompt: String,
@@ -594,12 +603,25 @@ class OpenAiCompatibleStreamingLlmClient(
 /**
  * Grounding validator for streamed chat output. Mirrors [OpeningExplanationValidator] but is
  * slightly more permissive (1-3 sentences, not strictly 2-3) since chat answers vary in length.
- * The same forbidden-phrase, citation, and token-overlap rules apply so chat cannot leak engine
- * depth/ratings or make unsupported certainty claims. Returns the trimmed text on success, `null`
- * on any failure (→ the composer emits a [ChatChunk.Fallback]).
+ * The same forbidden-phrase, citation, and token-overlap rules apply — the latter at the relaxed
+ * [MIN_SOURCE_OVERLAP] bar — so chat cannot leak engine depth/ratings or make unsupported certainty
+ * claims. Returns the trimmed text on success, `null` on any failure (→ the composer emits a
+ * [ChatChunk.Fallback]).
  */
 object PositionChatValidator {
     const val MAX_OUTPUT_CHARS = 400
+
+    /**
+     * Content words a sentence must share with the passage it cites — the same relaxed bar as
+     * [OpeningExplanationValidator.MIN_SOURCE_OVERLAP], referenced rather than copied so the two
+     * cannot drift apart.
+     *
+     * Kept as a bar rather than dropped: with no anchor at all, the only remaining grounding check is
+     * that a sentence carries a *known* id, and the id is the one thing a model copies reliably from
+     * its prompt. Fluent invention about a different position would then validate, and this route has
+     * no second line of defence — [PositionChatService] streams whatever validates straight to the user.
+     */
+    const val MIN_SOURCE_OVERLAP = OpeningExplanationValidator.MIN_SOURCE_OVERLAP
 
     private val forbiddenPhrases = listOf(
         "i think stockfish",
@@ -632,7 +654,14 @@ object PositionChatValidator {
                 val sourceText = cited.joinToString(" ") { id ->
                     byId.getValue(id).let { "${it.title} ${it.text}" }
                 }.lowercase()
-                unsupportedCertainty.any { phrase -> phrase in sentence.lowercase() && phrase !in sourceText }
+                val sourceTokens = words.findAll(sourceText).map { it.value }.filter { it !in stopWords }.toSet()
+                val claimTokens = words.findAll(sentence.lowercase())
+                    .map { it.value }
+                    .filter { it.length >= 4 && it !in stopWords }
+                    .filterNot { token -> cited.any { id -> token in id.lowercase() } }
+                    .toSet()
+                claimTokens.intersect(sourceTokens).size < MIN_SOURCE_OVERLAP ||
+                    unsupportedCertainty.any { phrase -> phrase in sentence.lowercase() && phrase !in sourceText }
             }) return null
         return text
     }

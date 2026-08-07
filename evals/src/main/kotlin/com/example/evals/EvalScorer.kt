@@ -65,7 +65,7 @@ object EvalScorer {
 
     /**
      * Whether [text] shares at least [minimum] substantial content words with [source]. Mirrors the
-     * per-sentence rule in `OpeningExplanationValidator`, applied to the whole answer: an
+     * per-sentence rule in `OpeningExplanationValidator`, summed over the whole answer: an
      * explanation of a different position reuses almost nothing of the passage it claims to be
      * grounded in.
      */
@@ -83,6 +83,13 @@ object EvalScorer {
         "both", "each", "when", "then", "than", "also", "more", "most", "some", "such", "your",
         "while", "which", "these", "those", "will", "would", "should", "about", "after", "before",
     )
+
+    /**
+     * Deliberately stricter than the server's per-sentence `OpeningExplanationValidator`
+     * `MIN_SOURCE_OVERLAP` (relaxed to 1), because this is applied to the *whole* answer: a compliant
+     * 2-3 sentence explanation clears one word per sentence, so two across the answer is the same
+     * claim, and the eval bar must not move every time the production bar is retuned.
+     */
     private const val MIN_PASSAGE_OVERLAP = 2
 
     /**

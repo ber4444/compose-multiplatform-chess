@@ -384,6 +384,22 @@ class PositionChatRouteTest {
     }
 
     @Test
+    fun `validator accepts a paraphrase sharing one content word with its source`() {
+        // The bar is [PositionChatValidator.MIN_SOURCE_OVERLAP] = 1, so an answer that synthesizes
+        // rather than quotes still validates — which is what the prompt now asks the model to do.
+        val text = "White's plan revolves around the center [lichess-c20]."
+        assertEquals(text, PositionChatValidator.validate(text, listOf(passage)))
+    }
+
+    @Test
+    fun `validator rejects a cited sentence that shares nothing with its source`() {
+        // Grounding cannot rest on the citation alone: the bracketed id is the one part of the prompt
+        // a model copies reliably, and this route streams whatever validates straight to the user.
+        val text = "Rook lifts decide the resulting endgame struggle [lichess-c20]."
+        assertEquals(null, PositionChatValidator.validate(text, listOf(passage)))
+    }
+
+    @Test
     fun `validator rejects uncited sentences`() {
         val text = "The king pawns contest the center. Development follows naturally from the central pawn structure."
         assertEquals(null, PositionChatValidator.validate(text, listOf(passage)))
