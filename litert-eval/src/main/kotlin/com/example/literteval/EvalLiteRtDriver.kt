@@ -107,7 +107,7 @@ fun main(args: Array<String>) {
         println("Next: score them with ferryman's reason-faithfulness scorer:")
         println("  python3 score_litert_outputs.py $outputPath")
     }
-    runBlocking { generator.close() }
+    runBlocking { generator.release() }
 }
 
 private suspend fun runOneCase(

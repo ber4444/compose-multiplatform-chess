@@ -32,8 +32,17 @@ import java.net.http.HttpResponse
  */
 sealed interface ChatChunk {
     data class Token(val text: String) : ChatChunk
-    data class Fallback(val text: String, val finishReason: String = "fallback") : ChatChunk
-    data class Done(val composerId: String) : ChatChunk
+    data class Fallback(
+        val text: String,
+        val finishReason: String = "fallback",
+        val completionTokens: Int? = null,
+        val rawProviderOutput: String? = null
+    ) : ChatChunk
+    data class Done(
+        val composerId: String,
+        val completionTokens: Int? = null,
+        val rawProviderOutput: String? = null
+    ) : ChatChunk
     data class Diagnostics(val diagnostics: CloudDiagnostics) : ChatChunk
     data class Error(val message: String?) : ChatChunk
 }
@@ -793,4 +802,5 @@ data class ChatServerDependencies(
     val streamingChatComposer: StreamingChatComposer,
     val releaseVersion: String = "unknown",
     val corpusStatusReader: CorpusStatusReader = CorpusStatusReader { com.example.coachapi.CorpusDiagnostics(ready = false) },
+    val includeRawDiagnostics: Boolean = false,
 )
