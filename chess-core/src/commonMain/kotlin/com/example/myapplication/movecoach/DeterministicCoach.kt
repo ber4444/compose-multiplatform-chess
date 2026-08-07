@@ -28,7 +28,7 @@ object DeterministicCoach {
         val assessment = record.assessment
         
         if (assessment == null) {
-            return "Engine choice: $move"
+            return "You played $move"
         }
 
         val className = when (assessment.moveClass) {
@@ -86,7 +86,7 @@ object DeterministicCoach {
         }
 
         val move = record.san.ifBlank { record.uci }
-        val finalReason = "Engine choice: $move. $reason"
+        val finalReason = "You played $move. $reason"
 
         return if (finalReason.length <= MAX_FALLBACK_CHARS) finalReason
         else finalReason.take(MAX_FALLBACK_CHARS - 1).trimEnd() + "…"

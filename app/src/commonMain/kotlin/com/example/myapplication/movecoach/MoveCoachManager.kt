@@ -152,6 +152,7 @@ class MoveCoachManager(
                             )
                         is MoveCoachEvent.Complete -> when (val result = event.result) {
                             is MoveCoachResult.Success -> {
+                                logger.d { "AI Coach Success! ${result.explanation.explanation}" }
                                 val shown = CitationSanitizer.sanitize(result.explanation.explanation)
                                 _coachUiState.value = MoveCoachUiState.Ready(
                                     result.explanation.copy(
@@ -161,13 +162,17 @@ class MoveCoachManager(
                                 )
                                 rememberOpeningFrame(shown)
                             }
-                            is MoveCoachResult.FellBack ->
+                            is MoveCoachResult.FellBack -> {
+                                logger.d { "AI Coach Fallback triggered! Reason: ${result.reason}" }
                                 _coachUiState.value = MoveCoachUiState.Fallback(
                                     CitationSanitizer.sanitize(result.text),
                                     result.reason,
                                 )
-                            is MoveCoachResult.Failed ->
+                            }
+                            is MoveCoachResult.Failed -> {
+                                logger.d { "AI Coach Failed! Reason: ${result.message}" }
                                 _coachUiState.value = MoveCoachUiState.Error(result.message)
+                            }
                         }
                     }
                 }

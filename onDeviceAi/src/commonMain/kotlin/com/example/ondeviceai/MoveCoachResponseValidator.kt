@@ -123,23 +123,30 @@ object MoveCoachResponseValidator {
      * Clean the model's few-shot echo before validating/displaying. Plain string ops, no regex,
      * so behavior is identical on every JVM/JS/Wasm/Native/Android runtime (and can't hit the ICU-vs-JVM regex divergence).
      */
-    internal fun normalize(rawText: String): String =
-        rawText.lineSequence()
+    internal fun normalize(rawText: String): String {
+        val filteredLines = rawText.lineSequence()
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .map { unwrapQuotes(stripFewShotLabel(it)) }
             .filter { it.isNotEmpty() }
             .joinToString(" ")
             .trim()
+        
+        return stripConversationalFiller(filteredLines)
+    }
 
     private fun stripFewShotLabel(line: String): String {
+        var result = line
         for (label in FEW_SHOT_LABELS) {
-            if (line.regionMatches(0, label, 0, label.length, ignoreCase = true)) {
-                return line.substring(label.length).trim()
+            if (result.regionMatches(0, label, 0, label.length, ignoreCase = true)) {
+                result = result.substring(label.length).trim()
             }
         }
-        return line
+        return result
     }
+
+    private fun stripConversationalFiller(text: String): String =
+        text.replace(Regex("^(?i)(okay|sure|certainly|here is|here's|let me|let's|i understand)[^.!?\\n]*[.!?:]+\\s*"), "")
 
     private fun unwrapQuotes(s: String): String =
         if (s.length >= 2 && s.first() == '"' && s.last() == '"') s.substring(1, s.length - 1).trim() else s

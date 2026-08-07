@@ -55,4 +55,7 @@ object CitationSanitizer {
         replace(Regex("\\s+([.,!?])"), "$1")
             .replace(Regex("\\s{2,}"), " ")
             .trim()
+            .replace(Regex("^[\\\"“”']+"), "") // strip leading quotes
+            .replace(Regex("[\\\"“”']+$"), "") // strip trailing quotes
+            .trim()
 }

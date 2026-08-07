@@ -88,6 +88,7 @@ fun AppRoot(
     // NoOpEntitlements seeded from AppSettings. purchase() here fails rather than granting Pro.
     entitlements: Entitlements = remember { UnconfiguredEntitlements() },
     switchTopPadding: Dp = 8.dp,
+    forceProUnlocked: Boolean = false,
 ) {
     val openingExplainerStateHolder = remember { OpeningExplainerStateHolder(createOpeningExplainer()) }
     val chatViewModel = remember { ChatViewModel(createPositionChat()) }
@@ -138,8 +139,8 @@ fun AppRoot(
             // above. Free keeps the deterministic coach; Pro gets the model-phrased one. The
             // manager can't read LocalEntitlements itself — entry points construct it before any
             // composition exists.
-            LaunchedEffect(entitlements, moveCoachManager) {
-                entitlements.isProUnlocked.collect { moveCoachManager?.proUnlocked = it }
+            LaunchedEffect(entitlements, moveCoachManager, forceProUnlocked) {
+                entitlements.isProUnlocked.collect { moveCoachManager?.proUnlocked = if (forceProUnlocked) true else it }
             }
             LaunchedEffect(Unit) {
                 settings.playerSide.collect { sideStr -> 

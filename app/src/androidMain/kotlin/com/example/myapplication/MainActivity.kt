@@ -91,6 +91,7 @@ class MainActivity : ComponentActivity() {
                 gameSummaryManager = holder.gameSummaryManager,
                 entitlements = entitlements
                     ?: androidx.compose.runtime.remember { UnconfiguredEntitlements() },
+                forceProUnlocked = isDebug,
             )
         }
     }

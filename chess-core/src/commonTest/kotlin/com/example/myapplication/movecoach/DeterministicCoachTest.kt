@@ -42,7 +42,7 @@ class DeterministicCoachTest {
     @Test
     fun `headline degrades to the move when there is no assessment`() {
         // Backfill hasn't run, or the engine was unavailable — must still say something true.
-        assertEquals("Engine choice: Nf3", DeterministicCoach.buildHeadline(record()))
+        assertEquals("You played Nf3", DeterministicCoach.buildHeadline(record()))
     }
 
     @Test
