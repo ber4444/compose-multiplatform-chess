@@ -345,7 +345,9 @@ class LlmChatComposer(
         passages.forEach { appendLine("[${it.sourceId}] ${it.title}: ${it.text}") }
         appendLine("Player's Question: ${request.userMessage.trim()}")
         append("Answer in 1-2 short sentences using only these sources. ")
-        // Answer the user's question directly rather than quoting passages verbatim.
+        // Synthesis, not quotation. The previous "reuse the sources' own wording" instruction was
+        // written for a two-content-word overlap bar; [PositionChatValidator] now asks for one
+        // shared content word per sentence, which an on-topic direct answer clears without copying.
         append("Answer the question directly, synthesizing the facts rather than quoting verbatim. ")
         // Placement matters as much as presence: an id after the closing period lands in the *next*
         // sentence once the validator splits, leaving the sentence it belongs to uncited.
@@ -597,6 +599,14 @@ class OpenAiCompatibleStreamingLlmClient(
  * The same forbidden-phrase, citation, and token-overlap rules apply so chat cannot leak engine
  * depth/ratings or make unsupported certainty claims. Returns the trimmed text on success, `null`
  * on any failure (→ the composer emits a [ChatChunk.Fallback]).
+ *
+ * The overlap bar is **one** content word, not the two [OpeningExplanationValidator] originally
+ * used: a chat answer is asked to answer the question rather than quote the corpus, and at two words
+ * a correct synthesis was rejected while verbatim copying sailed through. One word still keeps the
+ * sentence *anchored* to the passage it cites — dropping the rule entirely would accept any fluent
+ * sentence that ends in a valid id, which is the one failure mode retrieval grounding exists to
+ * prevent (see "Cloud retrieval" in CLAUDE.md: every wrong answer measured live was fluent, cited
+ * and validator-approved).
  */
 object PositionChatValidator {
     const val MAX_OUTPUT_CHARS = 400
@@ -632,7 +642,14 @@ object PositionChatValidator {
                 val sourceText = cited.joinToString(" ") { id ->
                     byId.getValue(id).let { "${it.title} ${it.text}" }
                 }.lowercase()
-                unsupportedCertainty.any { phrase -> phrase in sentence.lowercase() && phrase !in sourceText }
+                val sourceTokens = words.findAll(sourceText).map { it.value }.filter { it !in stopWords }.toSet()
+                val claimTokens = words.findAll(sentence.lowercase())
+                    .map { it.value }
+                    .filter { it.length >= 4 && it !in stopWords }
+                    .filterNot { token -> cited.any { id -> token in id.lowercase() } }
+                    .toSet()
+                claimTokens.intersect(sourceTokens).isEmpty() ||
+                    unsupportedCertainty.any { phrase -> phrase in sentence.lowercase() && phrase !in sourceText }
             }) return null
         return text
     }

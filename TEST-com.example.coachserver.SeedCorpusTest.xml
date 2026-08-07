@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.example.coachserver.SeedCorpusTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-08-06T03:26:08.736Z" hostname="runnervmvrwv9" time="0.156">
-  <properties/>
-  <testcase name="seed manifest changes when a corpus record changes()" classname="com.example.coachserver.SeedCorpusTest" time="0.002"/>
-  <testcase name="checked in corpus contains all five ECO volumes and concept notes()" classname="com.example.coachserver.SeedCorpusTest" time="0.154"/>
-  <system-out><![CDATA[]]></system-out>
-  <system-err><![CDATA[]]></system-err>
-</testsuite>

@@ -16,18 +16,29 @@ object MoveCoachPromptBuilder {
         appendLine("Do not mention openings by name, engine depth, or ratings.")
     }
 
-    fun build(request: MoveCoachRequest): AiGenerationRequest {
-        var sysPrompt = SYSTEM_PROMPT
-        if (request.bannedOpeningFrames.isNotEmpty()) {
-            sysPrompt += "\nDo not start your explanation with these phrases: " + request.bannedOpeningFrames.joinToString { "'$it'" }
-        }
-        return AiGenerationRequest(
-            systemPrompt = sysPrompt,
+    fun build(request: MoveCoachRequest): AiGenerationRequest =
+        AiGenerationRequest(
+            systemPrompt = systemPrompt(request.bannedOpeningFrames),
             userPrompt = userPrompt(request),
             maxOutputTokens = MAX_OUTPUT_TOKENS_STRICT,
             temperature = 0.3,
-            bannedOpeningFrames = request.bannedOpeningFrames,
         )
+
+    /**
+     * B15: the openings of the last few coach lines are banned by name, so a game's worth of moves
+     * doesn't all start "This move develops…". The prompt is the only place this can live — no local
+     * runtime can enforce a banned *phrase* through its sampler, so carrying the list on
+     * [AiGenerationRequest] as well would add a field to published `:onDeviceAi` API that nothing
+     * reads.
+     */
+    internal fun systemPrompt(bannedOpeningFrames: List<String>): String = buildString {
+        append(SYSTEM_PROMPT)
+        if (bannedOpeningFrames.isNotEmpty()) {
+            appendLine(
+                "Do not start your explanation with these phrases: " +
+                    bannedOpeningFrames.joinToString { "'$it'" },
+            )
+        }
     }
 
     internal fun userPrompt(request: MoveCoachRequest): String = buildString {

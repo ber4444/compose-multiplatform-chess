@@ -14,10 +14,11 @@ data class AiGenerationRequest(
     val userPrompt: String,
     val maxOutputTokens: Int,
     val temperature: Double = 0.2,
+    /** Sampler-level repetition penalty, for the runtimes whose API exposes one (wasm today). */
     val repetitionPenalty: Double? = 1.15,
+    /** B15: cut the completion before an n-gram of this size reoccurs; `null` disables the rule. */
     val noRepeatNgramSize: Int? = 4,
     val stopSequences: List<String> = emptyList(),
-    val bannedOpeningFrames: List<String> = emptyList(),
 )
 
 sealed interface AiTokenOrFinal {

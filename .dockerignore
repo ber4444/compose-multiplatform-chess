@@ -14,10 +14,11 @@
 local.properties
 
 # Vendored Filament payloads — large, and not needed to build :server
+iosApp/iosApp/Filament/filament
+app/src/desktopMain/filament/filament
 
 # Agent and IDE working directories
 .claude/
 .worktrees/
 .idea/
 .fleet/
-

@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.example.coachserver.LlmPromptSelfConsistencyTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-08-06T03:25:54.805Z" hostname="runnervmvrwv9" time="0.003">
-  <properties/>
-  <testcase name="a well formed hand written answer passes()" classname="com.example.coachserver.LlmPromptSelfConsistencyTest" time="0.002"/>
-  <testcase name="the example the prompt tells the model to imitate passes the validator()" classname="com.example.coachserver.LlmPromptSelfConsistencyTest" time="0.001"/>
-  <system-out><![CDATA[]]></system-out>
-  <system-err><![CDATA[]]></system-err>
-</testsuite>

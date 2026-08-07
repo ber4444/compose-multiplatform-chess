@@ -1,6 +1,0 @@
-data: {"type":"token","text":"Black answers the king's pawn with c5, trading a flank pawn for a centre pawn to get queenside counterplay [lichess-b-373-b20]."}
-
-data: {"type":"done","composerId":"llm-chat-v1"}
-
-data: {"type":"diagnostics","diagnostics":{"releaseVersion":"registry.fly.io/compose-chess-opening-coach:deployment-01KZBWKE3HJKKTXTJ8BFDBME7B","corpus":{"ready":true,"seedVersion":"eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660","rowCount":3807,"finalSourceId":"lichess-e-357-e99"},"retrievedPassageIds":["lichess-b-373-b20","lichess-b-381-b20","lichess-b-383-b20","lichess-b-398-b20"],"composerId":"llm-chat-v1","finishReason":"completed","latencyMs":10488}}
-

@@ -1,6 +1,0 @@
-data: {"type":"token","text":"Recapturing with the queen is a standard approach in the Scandinavian Defense, serving as the basis for the Main Line where the queen moves to a5 [lichess-b-102-b01]. This recapture is also featured in the Gubinsky-Melts Defense, where the queen develops to d6 [lichess-b-96-b01]."}
-
-data: {"type":"done","composerId":"llm-chat-v1"}
-
-data: {"type":"diagnostics","diagnostics":{"releaseVersion":"registry.fly.io/compose-chess-opening-coach:deployment-01KZBYDRAW8Q6V19A3ZZAAA3RN","corpus":{"ready":true,"seedVersion":"eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660","rowCount":3807,"finalSourceId":"lichess-e-357-e99"},"retrievedPassageIds":["lichess-b-84-b01","lichess-b-102-b01","lichess-b-129-b01","lichess-b-96-b01"],"composerId":"llm-chat-v1","finishReason":"completed","latencyMs":6196}}
-

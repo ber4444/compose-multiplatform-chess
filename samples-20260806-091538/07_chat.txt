@@ -1,6 +1,0 @@
-data: {"type":"token","text":"The Scandinavian Defense is one of the replies where Black invites a broad white centre in order to attack it [lichess-b-84-b01]. In the Main Line, Black brings the queen out on move 3 with Qa5 [lichess-b-102-b01]."}
-
-data: {"type":"done","composerId":"llm-chat-v1"}
-
-data: {"type":"diagnostics","diagnostics":{"releaseVersion":"registry.fly.io/compose-chess-opening-coach:deployment-01KZBWKE3HJKKTXTJ8BFDBME7B","corpus":{"ready":true,"seedVersion":"eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660","rowCount":3807,"finalSourceId":"lichess-e-357-e99"},"retrievedPassageIds":["lichess-b-84-b01","lichess-b-102-b01","lichess-b-129-b01","lichess-b-96-b01"],"composerId":"llm-chat-v1","finishReason":"completed","latencyMs":10802}}
-

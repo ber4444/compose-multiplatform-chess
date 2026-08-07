@@ -1,6 +1,0 @@
-data: {"type":"token","text":"White offers the c-pawn as a strategic deflection to challenge how Black holds the center [lichess-d-137-d06]. Rather than a simple free capture, Black can respond with various defensive setups or even counter-gambits like pushing the b-pawn [lichess-d-149-d06]."}
-
-data: {"type":"done","composerId":"llm-chat-v1"}
-
-data: {"type":"diagnostics","diagnostics":{"releaseVersion":"registry.fly.io/compose-chess-opening-coach:deployment-01KZBYDRAW8Q6V19A3ZZAAA3RN","corpus":{"ready":true,"seedVersion":"eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660","rowCount":3807,"finalSourceId":"lichess-e-357-e99"},"retrievedPassageIds":["lichess-d-137-d06","lichess-d-143-d06","lichess-d-149-d06","lichess-d-148-d06"],"composerId":"llm-chat-v1","finishReason":"completed","latencyMs":9180}}
-

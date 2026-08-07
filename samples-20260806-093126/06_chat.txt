@@ -1,6 +1,0 @@
-data: {"type":"token","text":"White aims to develop quickly using open-game sidelines instead of entering the Italian or Spanish lines [lichess-c-218-c20]. This can involve immediately advancing the d-pawn to d4, or developing the bishop to b5 before pushing the d-pawn [lichess-c-243-c20]."}
-
-data: {"type":"done","composerId":"llm-chat-v1"}
-
-data: {"type":"diagnostics","diagnostics":{"releaseVersion":"registry.fly.io/compose-chess-opening-coach:deployment-01KZBYDRAW8Q6V19A3ZZAAA3RN","corpus":{"ready":true,"seedVersion":"eda9a33f49be79337e3ec8df9bbffdc56029d899559ac9c279bdd2646a1c7660","rowCount":3807,"finalSourceId":"lichess-e-357-e99"},"retrievedPassageIds":["lichess-c-218-c20","lichess-c-243-c20","lichess-c-241-c20","lichess-c-216-c20"],"composerId":"llm-chat-v1","finishReason":"completed","latencyMs":14998}}
-

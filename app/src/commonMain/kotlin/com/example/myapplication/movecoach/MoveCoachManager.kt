@@ -38,8 +38,11 @@ class MoveCoachManager(
     /** The last request built by [triggerCoach], replayed by [retry]. */
     private var lastRequest: com.example.ondeviceai.MoveCoachRequest? = null
 
-    /** Maintains a short history of recent opening frames to prevent repetitive phrasing. */
-    private val recentOpeningFrames = ArrayDeque<String>(3)
+    /**
+     * The first few words of the last [MAX_REMEMBERED_FRAMES] coach lines, fed back into the prompt
+     * as phrases to avoid (B15) so a game's worth of moves doesn't all open the same way.
+     */
+    private val recentOpeningFrames = ArrayDeque<String>(MAX_REMEMBERED_FRAMES)
 
     /**
      * Whether the model-phrased coach is unlocked (§0.4). Bridged from `Entitlements.isProUnlocked`
@@ -149,18 +152,14 @@ class MoveCoachManager(
                             )
                         is MoveCoachEvent.Complete -> when (val result = event.result) {
                             is MoveCoachResult.Success -> {
+                                val shown = CitationSanitizer.sanitize(result.explanation.explanation)
                                 _coachUiState.value = MoveCoachUiState.Ready(
                                     result.explanation.copy(
                                         headline = CitationSanitizer.sanitize(result.explanation.headline),
-                                        explanation = CitationSanitizer.sanitize(result.explanation.explanation),
+                                        explanation = shown,
                                     )
                                 )
-                                val words = result.explanation.explanation.split(Regex("\\s+")).filter { it.isNotBlank() }
-                                if (words.size >= 3) {
-                                    val frame = words.take(3).joinToString(" ")
-                                    if (recentOpeningFrames.size >= 3) recentOpeningFrames.removeFirst()
-                                    recentOpeningFrames.addLast(frame)
-                                }
+                                rememberOpeningFrame(shown)
                             }
                             is MoveCoachResult.FellBack ->
                                 _coachUiState.value = MoveCoachUiState.Fallback(
@@ -181,9 +180,32 @@ class MoveCoachManager(
         }
     }
 
+    /**
+     * Records how the line the user just read *started*, so the next prompt can ban it.
+     *
+     * Taken from the **sanitized** text, not the raw model output: a retrieval id left in the frame
+     * would be handed back to the model as a phrase to avoid, teaching it the one shape
+     * `CitationSanitizer` exists to remove. Only called from the single coach job, so the deque
+     * needs no synchronization.
+     */
+    private fun rememberOpeningFrame(explanation: String) {
+        val words = explanation.split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (words.size < FRAME_WORDS) return
+        val frame = words.take(FRAME_WORDS).joinToString(" ")
+        if (frame in recentOpeningFrames) return
+        if (recentOpeningFrames.size >= MAX_REMEMBERED_FRAMES) recentOpeningFrames.removeFirst()
+        recentOpeningFrames.addLast(frame)
+    }
+
     fun close() {
         coachJob?.cancel()
         gameViewModel.onMoveCoached = null
         scope.cancel()
+    }
+
+    private companion object {
+        /** Enough to break a rut, short enough that the ban list stays a hint and not a paragraph. */
+        const val MAX_REMEMBERED_FRAMES = 3
+        const val FRAME_WORDS = 3
     }
 }

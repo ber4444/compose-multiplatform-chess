@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.example.coachserver.CorpusBookIndexTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-08-06T03:25:52.842Z" hostname="runnervmvrwv9" time="0.006">
-  <properties/>
-  <testcase name="book retrieval suppresses strict prefix ancestors after resolving a deeper line()" classname="com.example.coachserver.CorpusBookIndexTest" time="0.006"/>
-  <system-out><![CDATA[]]></system-out>
-  <system-err><![CDATA[]]></system-err>
-</testsuite>
