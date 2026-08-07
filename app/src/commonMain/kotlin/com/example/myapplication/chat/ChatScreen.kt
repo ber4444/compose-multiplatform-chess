@@ -58,86 +58,81 @@ fun ChatScreen(
     LaunchedEffect(state.messages.size, state.partialText) {
         val lastIndex = state.messages.size - 1
         if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)
-    }
-
-    Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        SubScreenScaffold(
+        title = "Position Chat",
+        onBack = onBack,
+        showBackButton = !isAndroidPlatform,
+        scrollable = false,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Position chat", style = MaterialTheme.typography.titleLarge)
-            if (!isAndroidPlatform) {
-                androidx.compose.material3.OutlinedButton(
-                    onClick = onBack, 
-                    modifier = Modifier.testTag("chat_back_button")
-                ) { Text("Back") }
-            }
-        }
-        Text(
-            "Ask about the current position. Replies are grounded and cloud-streamed; Stop cancels.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(state.messages) { message ->
-                MessageRow(message)
-            }
-            if (state.streaming) {
-                item(key = "__streaming__") {
-                    StreamingRow(state.displayPartialText, state.firstTokenReceived)
-                }
-            }
-            if (state.error && !state.streaming) {
-                item(key = "__error__") {
-                    Text(
-                        "Chat failed or was cancelled.",
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.testTag("chat_error"),
-                    )
-                }
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it.take(MAX_INPUT_CHARS) },
-                label = { Text("Ask about the position") },
-                enabled = !state.streaming,
-                modifier = Modifier.weight(1f).heightIn(min = 56.dp).testTag("chat_input"),
+            Text(
+                "Ask about the current position. Replies are grounded and cloud-streamed; Stop cancels.",
+                style = MaterialTheme.typography.bodySmall,
             )
-            if (state.streaming) {
-                OutlinedButton(
-                    onClick = { viewModel.stop() },
-                    modifier = Modifier.testTag("chat_stop_button"),
-                ) { Text("Stop") }
-            } else if (state.canRetry) {
-                OutlinedButton(
-                    onClick = { viewModel.retry(gameState) },
-                    modifier = Modifier.testTag("chat_retry_button"),
-                ) { Text("Retry") }
-            } else {
-                Button(
-                    onClick = {
-                        viewModel.send(gameState, input)
-                        input = ""
-                    },
-                    enabled = input.isNotBlank(),
-                    modifier = Modifier.testTag("chat_send_button"),
-                ) { Text("Send") }
+            LazyColumn(
+                state = listState,
+                // Use weight(1f) instead of heightIn so the chat view pushes the input box to the bottom.
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(state.messages) { message ->
+                    MessageRow(message)
+                }
+                if (state.streaming) {
+                    item(key = "__streaming__") {
+                        StreamingRow(state.displayPartialText, state.firstTokenReceived)
+                    }
+                }
+                if (state.error && !state.streaming) {
+                    item(key = "__error__") {
+                        Text(
+                            "Chat failed or was cancelled.",
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.testTag("chat_error"),
+                        )
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it.take(MAX_INPUT_CHARS) },
+                    label = { Text("Ask about the position") },
+                    enabled = !state.streaming,
+                    modifier = Modifier.weight(1f).heightIn(min = 56.dp).testTag("chat_input"),
+                )
+                if (state.streaming) {
+                    OutlinedButton(
+                        onClick = { viewModel.stop() },
+                        modifier = Modifier.testTag("chat_stop_button"),
+                    ) { Text("Stop") }
+                } else if (state.canRetry) {
+                    OutlinedButton(
+                        onClick = { viewModel.retry(gameState) },
+                        modifier = Modifier.testTag("chat_retry_button"),
+                    ) { Text("Retry") }
+                } else {
+                    OutlinedButton(
+                        onClick = {
+                            if (input.isNotBlank()) {
+                                viewModel.send(gameState, input)
+                                input = ""
+                            }
+                        },
+                        enabled = input.isNotBlank(),
+                        modifier = Modifier.testTag("chat_send_button"),
+                    ) { Text("Send") }
+                }
             }
         }
-    }
+    }  }
 }
 
 @Composable
