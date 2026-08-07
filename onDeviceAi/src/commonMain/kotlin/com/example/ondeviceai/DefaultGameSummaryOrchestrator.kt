@@ -80,7 +80,7 @@ class DefaultGameSummaryOrchestrator(
         // For the summary, we don't have a complex validation step like MoveCoach response validation.
         // As long as we got text, we accept it.
         if (outcome.rawText.isBlank()) {
-            return fallback(request, AiRoutePolicyDecider.FallbackReason.Other("Silent"))
+            return fallback(request, AiRoutePolicyDecider.FallbackReason.Validation)
         }
 
         return success(outcome.rawText, outcome.metrics)

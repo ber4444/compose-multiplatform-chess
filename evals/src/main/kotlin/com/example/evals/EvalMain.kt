@@ -352,7 +352,7 @@ private suspend fun evaluateFake(cases: List<GoldenCase>): RouteStats {
         val text = tokenText(generator.generate(MoveCoachPromptBuilder.build(request)).toList())
         val score = EvalScorer.scoreMove(case, text)
         stats.record(score, retried = false, fellBack = !score.grounded)
-        generator.close()
+        generator.release()
     }
     return stats
 }
