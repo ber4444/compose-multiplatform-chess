@@ -345,9 +345,9 @@ class LlmChatComposer(
         passages.forEach { appendLine("[${it.sourceId}] ${it.title}: ${it.text}") }
         appendLine("Player's Question: ${request.userMessage.trim()}")
         append("Answer in 1-2 short sentences using only these sources. ")
-        // The old instruction was "reuse the sources' own wording", written to clear a two-content-word
-        // overlap bar per sentence. That bar is now one word ([PositionChatValidator.MIN_SOURCE_OVERLAP]),
-        // so a synthesized answer still validates — and reads as an answer instead of a restated passage.
+        // Synthesis, not quotation. The previous "reuse the sources' own wording" instruction was
+        // written for a two-content-word overlap bar. That bar is now one word ([PositionChatValidator.MIN_SOURCE_OVERLAP]),
+        // so an on-topic synthesized answer still validates — and reads as an answer instead of a restated passage.
         append("Answer the question directly, synthesizing the facts rather than quoting verbatim. ")
         // Placement matters as much as presence: an id after the closing period lands in the *next*
         // sentence once the validator splits, leaving the sentence it belongs to uncited.
@@ -607,6 +607,14 @@ class OpenAiCompatibleStreamingLlmClient(
  * [MIN_SOURCE_OVERLAP] bar — so chat cannot leak engine depth/ratings or make unsupported certainty
  * claims. Returns the trimmed text on success, `null` on any failure (→ the composer emits a
  * [ChatChunk.Fallback]).
+ *
+ * The overlap bar is one content word, not the two [OpeningExplanationValidator] originally
+ * used: a chat answer is asked to answer the question rather than quote the corpus, and at two words
+ * a correct synthesis was rejected while verbatim copying sailed through. One word still keeps the
+ * sentence *anchored* to the passage it cites — dropping the rule entirely would accept any fluent
+ * sentence that ends in a valid id, which is the one failure mode retrieval grounding exists to
+ * prevent (see "Cloud retrieval" in CLAUDE.md: every wrong answer measured live was fluent, cited
+ * and validator-approved).
  */
 object PositionChatValidator {
     const val MAX_OUTPUT_CHARS = 400

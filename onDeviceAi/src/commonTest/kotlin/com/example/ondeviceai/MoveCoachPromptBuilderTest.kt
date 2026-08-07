@@ -77,4 +77,24 @@ class MoveCoachPromptBuilderTest {
         val system = MoveCoachPromptBuilder.build(request).systemPrompt.lowercase()
         assertTrue("rewrite" in system, system)
     }
+
+    @Test
+    fun `recently used openings are banned by name`() {
+        val built = MoveCoachPromptBuilder.build(
+            request.copy(bannedOpeningFrames = listOf("This move develops", "Nice job on")),
+        )
+
+        assertTrue("This move develops" in built.systemPrompt, built.systemPrompt)
+        assertTrue("Nice job on" in built.systemPrompt, built.systemPrompt)
+    }
+
+    @Test
+    fun `the ban instruction is absent on the first move of a game`() {
+        // Nothing has been said yet, so an empty ban list must not leave a dangling instruction —
+        // "do not start with ''" is one more contentless sentence for a 270M model to copy.
+        val system = MoveCoachPromptBuilder.build(request).systemPrompt
+
+        assertFalse("Do not start" in system, system)
+        assertEquals(MoveCoachPromptBuilder.systemPrompt(emptyList()), system)
+    }
 }

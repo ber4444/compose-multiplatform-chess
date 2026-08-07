@@ -613,7 +613,7 @@ class GameViewModel(
         // it — see engineStrengthMutex.
         val cpBest = engineStrengthMutex.withLock {
             evaluatePositionCp(engine, stateBefore, engineDifficulty.thinkTimeMs)
-        } ?: return
+        }
 
         // Motif detection (fast)
         val stateBeforeObj = FenConverter.fenToGameState(fenBefore)

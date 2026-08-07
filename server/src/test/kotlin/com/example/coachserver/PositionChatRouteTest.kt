@@ -405,6 +405,17 @@ class PositionChatRouteTest {
         assertEquals(null, PositionChatValidator.validate(text, listOf(passage)))
     }
 
+    /**
+     * A citation is not grounding. Every wrong answer measured against the live deployment was
+     * fluent, cited and validator-approved, so a sentence that shares *nothing* with the passage it
+     * points at has to be rejected even though the id resolves.
+     */
+    @Test
+    fun `validator rejects a cited sentence that shares nothing with its source`() {
+        val text = "Your rook lift prepares a kingside attack against a fianchettoed bishop [lichess-c20]."
+        assertEquals(null, PositionChatValidator.validate(text, listOf(passage)))
+    }
+
     @Test
     fun chatDiagnosticsFollowsDoneAndIdentifiesComposer() = runBlocking {
         val request = PositionChatRequest(

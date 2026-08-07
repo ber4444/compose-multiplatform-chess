@@ -14,6 +14,7 @@ data class MoveCoachRequest(
     val deterministicExplanation: String,
     val engineDifficultyName: String,
     val policy: AiRoutePolicy = AiRoutePolicies.moveCoachOffline,
+    val bannedOpeningFrames: List<String> = emptyList(),
 )
 
 
