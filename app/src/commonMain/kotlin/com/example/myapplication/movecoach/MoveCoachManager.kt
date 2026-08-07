@@ -94,7 +94,6 @@ class MoveCoachManager(
             deterministicExplanation = DeterministicCoach.buildExplanation(moveRecord),
             engineDifficultyName = engineDifficultyName,
         )
-        lastRequest = request
         launchCoach(request)
     }
 
@@ -109,6 +108,7 @@ class MoveCoachManager(
     }
 
     private fun launchCoach(request: com.example.ondeviceai.MoveCoachRequest) {
+        lastRequest = request
         val orchestrator = this.orchestrator ?: return
         coachJob?.cancel()
 

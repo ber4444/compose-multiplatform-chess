@@ -32,9 +32,10 @@ import java.net.http.HttpResponse
  */
 sealed interface ChatChunk {
     data class Token(val text: String) : ChatChunk
-    data class Fallback(val text: String) : ChatChunk
+    data class Fallback(val text: String, val finishReason: String = "fallback") : ChatChunk
     data class Done(val composerId: String) : ChatChunk
     data class Diagnostics(val diagnostics: CloudDiagnostics) : ChatChunk
+    data class Error(val message: String?) : ChatChunk
 }
 
 /** Maps an internal [ChatChunk] to the shared [ChatStreamEvent] wire model. */
@@ -47,6 +48,7 @@ fun ChatChunk.toEvent(): ChatStreamEvent = when (this) {
     )
     is ChatChunk.Done -> ChatStreamEvent(type = ChatStreamEvent.TYPE_DONE, composerId = composerId)
     is ChatChunk.Diagnostics -> ChatStreamEvent(type = ChatStreamEvent.TYPE_DIAGNOSTICS, diagnostics = diagnostics)
+    is ChatChunk.Error -> ChatStreamEvent(type = ChatStreamEvent.TYPE_ERROR, text = message)
 }
 
 /**
@@ -113,9 +115,13 @@ class TemplateChatComposer : StreamingChatComposer {
 internal fun String.truncateAtWord(limit: Int): String {
     val trimmed = trim()
     if (trimmed.length <= limit) return trimmed
-    val cut = trimmed.take(limit)
+    // Leave room for the ellipsis so we never exceed `limit`
+    val cutLimit = limit - 1
+    if (cutLimit <= 0) return "\u2026"
+    val cut = trimmed.take(cutLimit)
     val boundary = cut.lastIndexOfAny(charArrayOf(' ', '\t', '\n'))
-    return if (boundary <= 0) "\u2026" else (cut.take(boundary).trimEnd(',', ';', ':', ' ') + "\u2026").trim()
+    // Fall back to a hard cut if there's no boundary in the second half of the string to avoid losing too much text
+    return if (boundary <= cutLimit / 2) "$cut\u2026" else (cut.take(boundary).trimEnd(',', ';', ':', ' ') + "\u2026").trim()
 }
 
 /**
@@ -318,7 +324,7 @@ class LlmChatComposer(
                 "chat-provider-failed after ${accumulated.length} chars: " +
                     "${e::class.simpleName}: ${e.message?.take(200)}"
             )
-            fallback.streamCompose(request, passages).collect { emit(it) }
+            emit(ChatChunk.Fallback(fallbackText(request, passages), finishReason = "provider_failed"))
             return@flow
         }
         // Cleaned again at the end for the shapes only a whole answer reveals; the gate above has
@@ -334,7 +340,8 @@ class LlmChatComposer(
                 "chat-validation-rejected ids=${passages.map(Passage::sourceId)} " +
                     "text=${parsedExplanation.take(400)}"
             )
-            emit(ChatChunk.Fallback(fallbackText(request, passages)))
+            val reason = if (parsedExplanation.isEmpty()) "provider_empty" else "validation_rejected"
+            emit(ChatChunk.Fallback(fallbackText(request, passages), finishReason = reason))
         }
     }.flowOn(Dispatchers.IO)
 
@@ -663,43 +670,61 @@ class PositionChatService(
         validateRequest(request)
         return flow {
             val startedAt = System.nanoTime()
-            val retrieval = withContext(Dispatchers.IO) {
-                val embedding = dependencies.embedder.embed(PositionChatQueryBuilder.build(request))
-            require(embedding.size == OpeningService.EMBEDDING_DIMENSIONS) {
-                "embedder returned ${embedding.size} values; expected ${OpeningService.EMBEDDING_DIMENSIONS}"
+            val retrieval = try {
+                withContext(Dispatchers.IO) {
+                    val embedding = dependencies.embedder.embed(PositionChatQueryBuilder.build(request))
+                    require(embedding.size == OpeningService.EMBEDDING_DIMENSIONS) {
+                        "embedder returned ${embedding.size} values; expected ${OpeningService.EMBEDDING_DIMENSIONS}"
+                    }
+                    dependencies.passageRepository.retrieve(
+                        embedding = embedding,
+                        limit = RETRIEVAL_LIMIT,
+                        movesSan = request.movesSan,
+                        eco = request.eco,
+                    )
+                }
+            } catch (e: Exception) {
+                emit(ChatChunk.Error(e.message))
+                return@flow
             }
-            dependencies.passageRepository.retrieve(
-                embedding = embedding,
-                limit = RETRIEVAL_LIMIT,
-                movesSan = request.movesSan,
-                eco = request.eco,
-            )
-        }
-        var composerId = "unknown"
         dependencies.streamingChatComposer.streamCompose(
             // Same reason as the opening route: clients send eco = null, so the composer's ECO line
             // is "unknown" unless the server hands back the one it resolved from the move prefix.
             request.copy(eco = retrieval.resolvedEco ?: request.eco),
             retrieval.passages,
         ).collect { chunk ->
-            if (chunk is ChatChunk.Done) composerId = chunk.composerId
-            else if (chunk is ChatChunk.Fallback) composerId = TemplateChatComposer.ID
+            if (chunk is ChatChunk.Done || chunk is ChatChunk.Fallback) {
+                val cId = if (chunk is ChatChunk.Done) chunk.composerId else TemplateChatComposer.ID
+                val rawOut = if (dependencies.includeRawDiagnostics) {
+                    when (chunk) { 
+                        is ChatChunk.Done -> chunk.rawProviderOutput
+                        is ChatChunk.Fallback -> chunk.rawProviderOutput
+                        else -> null
+                    }?.take(4000)
+                } else null
+                val cTok = when (chunk) {
+                    is ChatChunk.Done -> chunk.completionTokens
+                    is ChatChunk.Fallback -> chunk.completionTokens
+                    else -> null
+                }
+                val fReason = if (chunk is ChatChunk.Done) "completed" else if (chunk is ChatChunk.Fallback) chunk.finishReason else "fallback"
+                emit(
+                    ChatChunk.Diagnostics(
+                        CloudDiagnostics(
+                            releaseVersion = dependencies.releaseVersion,
+                            corpus = dependencies.corpusStatusReader.readOrUnavailable(),
+                            retrievedPassageIds = retrieval.passages.map(Passage::sourceId),
+                            composerId = cId,
+                            finishReason = fReason,
+                            latencyMs = ((System.nanoTime() - startedAt) / 1_000_000).coerceAtLeast(0),
+                            completionTokens = cTok,
+                            rawProviderOutput = rawOut,
+                        )
+                    )
+                )
+            }
             emit(chunk)
         }
-        emit(
-            ChatChunk.Diagnostics(
-                CloudDiagnostics(
-                    releaseVersion = dependencies.releaseVersion,
-                    corpus = dependencies.corpusStatusReader.readOrUnavailable(),
-                    retrievedPassageIds = retrieval.passages.map(Passage::sourceId),
-                    composerId = composerId,
-                    finishReason = "completed",
-                    latencyMs = ((System.nanoTime() - startedAt) / 1_000_000).coerceAtLeast(0),
-                    completionTokens = null,
-                    rawProviderOutput = null,
-                )
-            )
-        )
     }
 }
 

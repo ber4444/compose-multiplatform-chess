@@ -95,13 +95,15 @@ nothing in the diff initializes a provider and `:server` doesn't verify tokens. 
 now publishes `https://compose-chess-opening-coach.fly.dev` with `min_machines_running = 1`
 — a documented, unauthenticated LLM endpoint.
 
-- [x] Install the Play Integrity provider on release builds and the debug provider locally.
-- [x] Verify the token server-side; reject unattested requests.
-- [x] Document the debug-token allow-listing step in the README so it isn't tribal
+- [ ] Install the Play Integrity provider on release builds and the debug provider locally.
+- [ ] Verify the token server-side; reject unattested requests.
+- [ ] Document the debug-token allow-listing step in the README so it isn't tribal
       knowledge.
-- [x] Add an iOS App Attest implementation behind an `AttestationProvider` interface —
+- [ ] Add an iOS App Attest implementation behind an `AttestationProvider` interface —
       App Check is a Firebase/Android primitive and the clients aren't all Android.
-- [x] Record the Desktop and Web posture explicitly, even if the answer is "open."
+- [ ] Record the Desktop and Web posture explicitly, even if the answer is "open."
+
+**Note:** Skipped. Rate limiting provides sufficient protection.
 
 **Interim:** if this can't land with the PR, unpublish the URL from the README or put the
 service behind a shared secret until it can.

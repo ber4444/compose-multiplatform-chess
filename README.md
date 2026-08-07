@@ -504,7 +504,7 @@ DATABASE_URL=… ./gradlew :server:verifyCorpus
 
 # 7. Collect diagnostics for R-1 hand-review (before testing with the app):
 tools/collect_cloud_samples.sh https://compose-chess-opening-coach.fly.dev
-# → inspect the written samples directory and record the verdict in docs/plans/cloud-eval-honesty-followups.md
+# → inspect the written samples directory and record the verdict
 
 # 8. Point the app at it (local dev via local.properties, or CI/deploy via env var):
 echo "coach.baseUrl=https://compose-chess-opening-coach.fly.dev" >> local.properties

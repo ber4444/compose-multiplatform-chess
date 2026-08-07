@@ -63,7 +63,9 @@ class MainActivity : ComponentActivity() {
         )
 
         holder.attachEngine(createStockfishEngine())
-        attachMoveCoach()
+        if (savedInstanceState == null) {
+            attachMoveCoach()
+        }
 
         val appSettings = AppSettings(createSettings("chess"))
         // PgnSharer needs the host Activity (for ACTION_SEND), so it's built here, not in the holder.

@@ -76,7 +76,9 @@ object FluencyScorer {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return 0.0 to true
 
-        val sentences = trimmed.split(Regex("[.!?]+")).filter { it.isNotBlank() }
+        // Mask decimals to avoid splitting numbers (e.g. "3.14") into two sentences.
+        val masked = trimmed.replace(Regex("(?<=\\d)\\.(?=\\d)"), "<DEC>")
+        val sentences = masked.split(Regex("[.!?]+")).filter { it.isNotBlank() }
         val sentenceCount = sentences.size.coerceAtLeast(1)
 
         val words = trimmed.lowercase().split(Regex("[^a-z0-9']+")).filter { it.isNotBlank() }

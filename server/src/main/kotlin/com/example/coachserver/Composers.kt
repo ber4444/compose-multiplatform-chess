@@ -215,7 +215,8 @@ class LlmComposer(
         } else {
             fallback.compose(request, passages).copy(
                 finishReason = when {
-                    attempt.isFailure || candidate == null -> "provider_error"
+                    candidate == null -> "provider_empty"
+                    attempt.isFailure -> "provider_error"
                     else -> "validator_rejected"
                 },
                 completionTokens = completion?.completionTokens,

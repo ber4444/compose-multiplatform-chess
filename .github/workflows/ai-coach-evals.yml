@@ -66,15 +66,16 @@ jobs:
         if: always()
         run: |
           xml="$(find server/build/test-results -name '*OpeningRetrievalGroundingTest*.xml' 2>/dev/null | head -1 || true)"
-          if [ -z "$xml" ]; then
+          repo_xml="$(find server/build/test-results -name '*PostgresPassageRepositoryTest*.xml' 2>/dev/null | head -1 || true)"
+          if [ -z "$xml" ] || [ -z "$repo_xml" ]; then
             echo "### ❌ Retrieval grounding gate: NOT RUN (no result file)" >> "$GITHUB_STEP_SUMMARY"
-            echo "OpeningRetrievalGroundingTest produced no result file — the suite did not execute." >&2
+            echo "A required Testcontainers suite produced no result file — the suite did not execute." >&2
             exit 1
-          elif grep -q '<skipped' "$xml"; then
+          elif grep -q '<skipped' "$xml" || grep -q '<skipped' "$repo_xml"; then
             echo "### ❌ Retrieval grounding gate: SKIPPED (Docker unavailable)" >> "$GITHUB_STEP_SUMMARY"
-            echo "OpeningRetrievalGroundingTest was skipped — Docker is required for this gate." >&2
+            echo "A required Testcontainers suite was skipped — Docker is required for this gate." >&2
             exit 1
-          elif grep -q '<failure' "$xml"; then
+          elif grep -q '<failure' "$xml" || grep -q '<failure' "$repo_xml"; then
             echo "### Retrieval grounding gate: ran (with failures — see report)" >> "$GITHUB_STEP_SUMMARY"
           else
             tests="$(grep -o 'tests="[0-9]*"' "$xml" | head -1)"

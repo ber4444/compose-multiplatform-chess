@@ -93,6 +93,13 @@ fun main() {
     check(regressions.isEmpty()) {
         "Grounding/diagnostic violations detected: ${regressions.joinToString { "${it.route}=${it.groundingViolations}/${it.diagRetrievalViolations}/${it.diagTerminalViolations}/${it.diagCorpusViolations}" }}"
     }
+
+    val templateChat = stats.firstOrNull { it.route == "local-template-chat" }
+    if (templateChat != null && templateChat.available) {
+        check(templateChat.diagnosticsCollected > 0) {
+            "No row diagnostics collected for local-template-chat. Ensure ChatChunk.Diagnostics is emitted."
+        }
+    }
 }
 
 /**
@@ -217,7 +224,7 @@ internal fun caseSpecificChatDependencies(cases: List<GoldenCase>): ChatServerDe
                 Passage(
                     sourceId = "lichess-${transcript.case.eco?.lowercase() ?: "unknown"}-${transcript.case.id}",
                     title = "${transcript.case.eco ?: "opening"} concepts",
-                    text = turn.expectedConcepts.joinToString(", ").ifBlank { "development and center control" } + ".",
+                    text = openingConceptsPassage(turn.expectedConcepts),
                 ),
             )
         }
@@ -759,6 +766,7 @@ data class RouteStats(
     var diagRetrievalViolations: Int = 0,
     var diagTerminalViolations: Int = 0,
     var diagCorpusViolations: Int = 0,
+    var diagnosticsCollected: Int = 0,
 ) {
     private val readingGrades = mutableListOf<Double>()
 
@@ -798,6 +806,7 @@ data class RouteStats(
         if (score.lengthViolation) lengthViolations++
         readingGrades += score.readingGrade
         if (diagnosticScore != null) {
+            diagnosticsCollected++
             if (!diagnosticScore.retrievalCorrect) diagRetrievalViolations++
             if (!diagnosticScore.terminalCorrect) diagTerminalViolations++
             if (!diagnosticScore.corpusReady) diagCorpusViolations++

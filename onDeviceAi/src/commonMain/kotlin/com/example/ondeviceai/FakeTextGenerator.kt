@@ -52,7 +52,7 @@ class FakeTextGenerator(
         )
     }
 
-    override suspend fun close() {
+    override suspend fun release() {
         closeCount++
     }
 }

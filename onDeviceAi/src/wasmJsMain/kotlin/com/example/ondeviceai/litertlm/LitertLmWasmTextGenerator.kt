@@ -141,7 +141,7 @@ class LitertLmWasmTextGenerator(
     }
 
     /** No-op — keeps the worker + model warm across moves (mirrors desktop/Android). */
-    override suspend fun close() {}
+    override suspend fun release() {}
 
     // ── internals ──────────────────────────────────────────────────────────────
 

@@ -164,7 +164,7 @@ class CactusTextGenerator(
     }
 
     /** No-op — keeps the model warm across moves. */
-    override suspend fun close() {}
+    override suspend fun release() {}
 
     private suspend fun ensureInitialized() {
         if (lm != null || initializationFailed != null) return

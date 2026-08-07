@@ -65,6 +65,7 @@ class CorpusBookIndex(entries: List<SeedMain.CorpusEntry>) {
             .filter { it.moves == matchedMoves }
             .map(BookRow::passage)
             .distinctBy(Passage::sourceId)
+            .sortedBy(Passage::sourceId)
             .take(limit)
             .toList()
     }

@@ -64,7 +64,7 @@ class DefaultGameSummaryOrchestrator(
             logger.w(t) { "On-device generation threw; falling back" }
             fallback(request, AiRoutePolicyDecider.FallbackReason.Other("generation error: ${t.message}"))
         } finally {
-            runCatching { generator.close() }
+            runCatching { generator.release() }
         }
     }
 
@@ -80,7 +80,7 @@ class DefaultGameSummaryOrchestrator(
         // For the summary, we don't have a complex validation step like MoveCoach response validation.
         // As long as we got text, we accept it.
         if (outcome.rawText.isBlank()) {
-            return fallback(request, AiRoutePolicyDecider.FallbackReason.Validation)
+            return fallback(request, AiRoutePolicyDecider.FallbackReason.Other("Silent"))
         }
 
         return success(outcome.rawText, outcome.metrics)
