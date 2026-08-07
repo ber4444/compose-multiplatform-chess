@@ -23,6 +23,8 @@ class RuleLookupToolTest {
             "How does a knight move?" to "knight-movement",
             "What is insufficient material?" to "draw-dead-position",
             "Can I touch a piece and then choose another?" to "touch-move",
+            "game ends in draw if only two kings remain" to "draw-dead-position",
+            "Game is a draw when 2 kings remain?" to "draw-dead-position",
         )
 
         cases.forEach { (question, expectedId) ->

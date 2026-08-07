@@ -69,7 +69,7 @@ class BundledRuleLookupTool(
 
     private fun tokenize(value: String): List<String> = WORD.findAll(value.lowercase())
         .map { match -> match.value }
-        .filter { term -> term.length > 1 && term !in STOP_WORDS }
+        .filter { term -> (term.length > 1 || term.all { it.isDigit() }) && term !in STOP_WORDS }
         .map(::normalize)
         .toList()
 
