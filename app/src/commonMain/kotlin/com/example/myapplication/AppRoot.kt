@@ -183,7 +183,7 @@ fun AppRoot(
                 // `rulesQaAnswerer == null` short-circuits the gate for the same reason ProGate's
                 // `available` flag does — on a build with no answerer the feature stays dead after a
                 // purchase, so it must not be sold. RulesQaScreen already says so itself.
-                Screen.RULES -> if (rulesQaAnswerer == null || isProUnlocked()) {
+                Screen.RULES -> if (rulesQaAnswerer == null || forceProUnlocked || isProUnlocked()) {
                     RulesQaScreen(
                         stateHolder = rulesQaStateHolder,
                         onBack = { screen = Screen.GAME },
@@ -212,7 +212,7 @@ fun AppRoot(
                             )
                         }
 
-                    isProUnlocked() -> ChatScreen(
+                    forceProUnlocked || isProUnlocked() -> ChatScreen(
                         viewModel = chatViewModel,
                         gameState = gameState,
                         onBack = { screen = Screen.GAME },
