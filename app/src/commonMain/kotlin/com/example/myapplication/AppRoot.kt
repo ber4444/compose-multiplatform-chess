@@ -189,7 +189,7 @@ fun AppRoot(
                         onBack = { screen = Screen.GAME },
                     )
                 } else {
-                    SubScreenScaffold(title = "Chess rules", onBack = { screen = Screen.GAME }) {
+                    SubScreenScaffold(title = "Chess rules", onBack = { screen = Screen.GAME }, showBackButton = !isAndroidPlatform) {
                         ProUpsellCard(
                             featureName = "Rules Q&A",
                             pitch = "Ask any rules question and get an answer cited to the " +
@@ -205,7 +205,7 @@ fun AppRoot(
                     // it can only ever emit its fixed offline sentence. Say that instead of either
                     // selling it or pretending the input box works.
                     !cloudCoachConfigured ->
-                        SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }) {
+                        SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }, showBackButton = !isAndroidPlatform) {
                             Text(
                                 "Position Chat needs a coach server, and this build has none configured.",
                                 modifier = Modifier.padding(16.dp),
@@ -218,7 +218,7 @@ fun AppRoot(
                         onBack = { screen = Screen.GAME },
                     )
 
-                    else -> SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }) {
+                    else -> SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }, showBackButton = !isAndroidPlatform) {
                         ProUpsellCard(
                             featureName = "Position Chat",
                             pitch = "Ask about the position you're in and get grounded answers as you play.",

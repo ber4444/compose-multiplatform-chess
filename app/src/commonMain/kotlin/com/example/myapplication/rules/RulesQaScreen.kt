@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.SubScreenScaffold
+import com.example.myapplication.isAndroidPlatform
 import kotlinx.coroutines.launch
 
 @Composable
@@ -30,7 +31,7 @@ fun RulesQaScreen(
     var question by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
-    SubScreenScaffold(title = "Chess rules", onBack = onBack) {
+    SubScreenScaffold(title = "Chess rules", onBack = onBack, showBackButton = !isAndroidPlatform) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

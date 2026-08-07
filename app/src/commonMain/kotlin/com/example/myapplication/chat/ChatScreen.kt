@@ -28,6 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.GameUiState
+import com.example.myapplication.isAndroidPlatform
+import com.example.myapplication.SubScreenScaffold
 
 /**
  * Interactive position-chat screen. Renders each `token` event as it arrives; Stop cancels the
@@ -68,7 +70,12 @@ fun ChatScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("Position chat", style = MaterialTheme.typography.titleLarge)
-            OutlinedButton(onClick = onBack, modifier = Modifier.testTag("chat_back_button")) { Text("Back") }
+            if (!isAndroidPlatform) {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = onBack, 
+                    modifier = Modifier.testTag("chat_back_button")
+                ) { Text("Back") }
+            }
         }
         Text(
             "Ask about the current position. Replies are grounded and cloud-streamed; Stop cancels.",
