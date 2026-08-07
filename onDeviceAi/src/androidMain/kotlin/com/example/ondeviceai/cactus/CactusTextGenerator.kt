@@ -176,6 +176,12 @@ class CactusTextGenerator(
                 CactusInitParams(model = modelSlug, contextSize = contextSize)
             )
             lm = instance
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            // Must not be recorded as a hard failure: startInit() reuses a *completed* job forever,
+            // so treating a cancellation as "init failed" would pin the generator to Error for the
+            // rest of the process. downloadModel hops to Dispatchers.IO, which is a real suspension
+            // point, so this is reachable rather than theoretical.
+            throw ce
         } catch (t: Throwable) {
             initializationFailed = t.message ?: "Cactus init failed"
         }
