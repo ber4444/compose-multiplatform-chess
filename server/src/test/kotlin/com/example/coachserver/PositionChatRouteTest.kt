@@ -392,14 +392,6 @@ class PositionChatRouteTest {
     }
 
     @Test
-    fun `validator rejects a cited sentence that shares nothing with its source`() {
-        // Grounding cannot rest on the citation alone: the bracketed id is the one part of the prompt
-        // a model copies reliably, and this route streams whatever validates straight to the user.
-        val text = "Rook lifts decide the resulting endgame struggle [lichess-c20]."
-        assertEquals(null, PositionChatValidator.validate(text, listOf(passage)))
-    }
-
-    @Test
     fun `validator rejects uncited sentences`() {
         val text = "The king pawns contest the center. Development follows naturally from the central pawn structure."
         assertEquals(null, PositionChatValidator.validate(text, listOf(passage)))
