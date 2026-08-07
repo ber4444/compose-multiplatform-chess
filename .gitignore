@@ -53,3 +53,15 @@ DownloadTest.kt
 
 # Local LiteRT-LM faithfulness driver output (:litert-eval), scored out-of-band by ferryman
 litert-outputs*.json
+
+# Agent scratch output: copied JUnit XML, scraped logs, sampled generations, ad-hoc patch scripts,
+# and the GRADLE_USER_HOME some runs point at the repo root. All of it was committed once by
+# accident; none of it is an input to any build.
+.gradle_home/
+TEST-*.xml
+samples.txt
+samples-*/
+binary/
+fly_logs.txt
+diff.txt
+pr_body.md

@@ -37,7 +37,10 @@ class FoundationModelsTextGenerator(
                 )
             )
         )
-    }
+    }.withAntiRepetitionGuard(
+        ngramSize = request.noRepeatNgramSize,
+        stopSequences = request.stopSequences,
+    )
 
     override suspend fun close() = bridge.close()
 }

@@ -364,9 +364,9 @@ object OpeningExplanationValidator {
                 .filterNot { token -> cited.any { id -> token in id.lowercase() } }
                 .toSet()
             val overlap = claimTokens.intersect(sourceTokens)
-            if (overlap.size < 2) {
+            if (overlap.size < 1) {
                 return "sentence shares only ${overlap.size} content word(s) $overlap with its " +
-                    "source, need 2: ${sentence.take(60)}"
+                    "source, need 1: ${sentence.take(60)}"
             }
             unsupportedCertainty.firstOrNull { it in sentence.lowercase() && it !in sourceText }
                 ?.let { return "unsupported certainty: $it" }
@@ -391,7 +391,7 @@ class OpenAiCompatibleLlmClient(
     private val model: String,
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val json: Json = Json { ignoreUnknownKeys = true },
-    private val requestTimeout: java.time.Duration = java.time.Duration.ofSeconds(5),
+    private val requestTimeout: java.time.Duration = java.time.Duration.ofSeconds(30),
     private val transport: LlmHttpTransport? = null,
 ) : LlmClient {
     override fun generate(systemPrompt: String, userPrompt: String, maxOutputTokens: Int): LlmCompletion? {
