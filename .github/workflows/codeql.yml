@@ -95,13 +95,13 @@ jobs:
       uses: github/codeql-action/init@v3
       with:
         languages: ${{ matrix.language }}
-        build-mode: ${{ (matrix.language == 'java-kotlin' || matrix.language == 'swift') && 'manual' || 'none' }}
+        build-mode: ${{ (matrix.language == 'java-kotlin' || matrix.language == 'swift' || matrix.language == 'c-cpp') && 'manual' || 'none' }}
         # Trim vendored Filament/Stockfish payloads, build output, and test
         # sources from analysis — see .github/codeql-config.yml.
         config-file: .github/codeql-config.yml
 
     - name: Cache Filament desktop payload
-      if: matrix.language == 'java-kotlin'
+      if: matrix.language == 'java-kotlin' || matrix.language == 'c-cpp'
       id: cache_desktop_filament
       uses: actions/cache@v4
       with:
@@ -109,11 +109,11 @@ jobs:
         key: filament-desktop-v1.72.0-${{ runner.os }}-${{ hashFiles('tools/fetch_filament_desktop.sh') }}
 
     - name: Fetch Filament desktop dependencies
-      if: matrix.language == 'java-kotlin' && steps.cache_desktop_filament.outputs.cache-hit != 'true'
+      if: (matrix.language == 'java-kotlin' || matrix.language == 'c-cpp') && steps.cache_desktop_filament.outputs.cache-hit != 'true'
       run: tools/fetch_filament_desktop.sh
 
-    - name: Build Java-Kotlin
-      if: matrix.language == 'java-kotlin'
+    - name: Build Java-Kotlin and C-CPP
+      if: matrix.language == 'java-kotlin' || matrix.language == 'c-cpp'
       run: ./gradlew :chess-core:compileAndroidMain :app:compileAndroidMain :androidApp:assembleDebug :app:desktopJar
 
     - name: Force Swift recompilation
