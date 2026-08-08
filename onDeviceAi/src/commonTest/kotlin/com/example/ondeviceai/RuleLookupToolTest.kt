@@ -25,6 +25,7 @@ class RuleLookupToolTest {
             "Can I touch a piece and then choose another?" to "touch-move",
             "game ends in draw if only two kings remain" to "draw-dead-position",
             "Game is a draw when 2 kings remain?" to "draw-dead-position",
+            "Game is a draw when only kings remain?" to "draw-dead-position",
         )
 
         cases.forEach { (question, expectedId) ->
