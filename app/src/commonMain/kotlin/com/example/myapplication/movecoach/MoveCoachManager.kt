@@ -39,6 +39,15 @@ class MoveCoachManager(
     private var lastRequest: com.example.ondeviceai.MoveCoachRequest? = null
 
     /**
+     * Whether [attachCoachOrchestrator] has already run with a non-null orchestrator. Entry points
+     * use this to decide whether a re-entry into their setup needs to redo the (expensive) warmup:
+     * on Android the holder survives a configuration change but *not* process death, and the
+     * Activity cannot tell those apart from `savedInstanceState` alone — a restored bundle means
+     * both. Asking the manager is the only signal that distinguishes them.
+     */
+    val hasOrchestrator: Boolean get() = orchestrator != null
+
+    /**
      * Whether the model-phrased coach is unlocked (§0.4). Bridged from `Entitlements.isProUnlocked`
      * by `AppRoot`, mirroring how `AppSettings.aiCoachEnabled` reaches `GameViewModel`.
      *

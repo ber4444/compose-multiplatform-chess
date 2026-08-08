@@ -696,46 +696,61 @@ class PositionChatService(
                 emit(ChatChunk.Error(e.message))
                 return@flow
             }
-        dependencies.streamingChatComposer.streamCompose(
-            // Same reason as the opening route: clients send eco = null, so the composer's ECO line
-            // is "unknown" unless the server hands back the one it resolved from the move prefix.
-            request.copy(eco = retrieval.resolvedEco ?: request.eco),
-            retrieval.passages,
-        ).collect { chunk ->
-            if (chunk is ChatChunk.Done || chunk is ChatChunk.Fallback) {
-                val cId = if (chunk is ChatChunk.Done) chunk.composerId else TemplateChatComposer.ID
-                val rawOut = if (dependencies.includeRawDiagnostics) {
-                    when (chunk) { 
-                        is ChatChunk.Done -> chunk.rawProviderOutput
-                        is ChatChunk.Fallback -> chunk.rawProviderOutput
-                        else -> null
-                    }?.take(4000)
-                } else null
-                val cTok = when (chunk) {
-                    is ChatChunk.Done -> chunk.completionTokens
-                    is ChatChunk.Fallback -> chunk.completionTokens
-                    else -> null
-                }
-                val fReason = if (chunk is ChatChunk.Done) "completed" else if (chunk is ChatChunk.Fallback) chunk.finishReason else "fallback"
-                emit(
-                    ChatChunk.Diagnostics(
-                        CloudDiagnostics(
-                            releaseVersion = dependencies.releaseVersion,
-                            corpus = dependencies.corpusStatusReader.readOrUnavailable(),
-                            retrievedPassageIds = retrieval.passages.map(Passage::sourceId),
-                            composerId = cId,
-                            finishReason = fReason,
-                            latencyMs = ((System.nanoTime() - startedAt) / 1_000_000).coerceAtLeast(0),
-                            completionTokens = cTok,
-                            rawProviderOutput = rawOut,
+            dependencies.streamingChatComposer.streamCompose(
+                // Same reason as the opening route: clients send eco = null, so the composer's ECO
+                // line is "unknown" unless the server hands back the one it resolved from the
+                // move prefix.
+                request.copy(eco = retrieval.resolvedEco ?: request.eco),
+                retrieval.passages,
+            ).collect { chunk ->
+                // Diagnostics go out immediately *before* the terminal chunk, so a client that
+                // stops reading at `done`/`fallback` has already seen them.
+                terminalSummary(chunk)?.let { summary ->
+                    emit(
+                        ChatChunk.Diagnostics(
+                            CloudDiagnostics(
+                                releaseVersion = dependencies.releaseVersion,
+                                corpus = dependencies.corpusStatusReader.readOrUnavailable(),
+                                retrievedPassageIds = retrieval.passages.map(Passage::sourceId),
+                                composerId = summary.composerId,
+                                finishReason = summary.finishReason,
+                                latencyMs = ((System.nanoTime() - startedAt) / 1_000_000).coerceAtLeast(0),
+                                completionTokens = summary.completionTokens,
+                                rawProviderOutput = summary.rawProviderOutput
+                                    ?.takeIf { dependencies.includeRawDiagnostics }
+                                    ?.take(MAX_RAW_DIAGNOSTICS_CHARS),
+                            )
                         )
                     )
-                )
+                }
+                emit(chunk)
             }
-            emit(chunk)
         }
     }
-}
+
+    /** The diagnostic fields a terminal chunk carries, or null for a non-terminal one. */
+    private data class TerminalSummary(
+        val composerId: String,
+        val finishReason: String,
+        val completionTokens: Int?,
+        val rawProviderOutput: String?,
+    )
+
+    private fun terminalSummary(chunk: ChatChunk): TerminalSummary? = when (chunk) {
+        is ChatChunk.Done -> TerminalSummary(
+            composerId = chunk.composerId,
+            finishReason = "completed",
+            completionTokens = chunk.completionTokens,
+            rawProviderOutput = chunk.rawProviderOutput,
+        )
+        is ChatChunk.Fallback -> TerminalSummary(
+            composerId = TemplateChatComposer.ID,
+            finishReason = chunk.finishReason,
+            completionTokens = chunk.completionTokens,
+            rawProviderOutput = chunk.rawProviderOutput,
+        )
+        is ChatChunk.Token, is ChatChunk.Diagnostics, is ChatChunk.Error -> null
+    }
 
     private fun validateRequest(request: PositionChatRequest) {
         require(request.fen.isNotBlank() && request.fen.length <= MAX_FEN_LENGTH && FEN.matches(request.fen)) {
@@ -762,6 +777,13 @@ class PositionChatService(
 
     companion object {
         private const val RETRIEVAL_LIMIT = 4
+
+        /**
+         * Cap on the raw model output echoed back under `COACH_DIAGNOSTICS_RAW=1`. Bounded because
+         * this rides the SSE stream to the client, and a reasoning model's raw output can be
+         * multiples of its visible answer.
+         */
+        private const val MAX_RAW_DIAGNOSTICS_CHARS = 4_000
         private const val MAX_MOVES = 20
         private const val MAX_FEN_LENGTH = 128
         private const val MAX_SAN_LENGTH = 16

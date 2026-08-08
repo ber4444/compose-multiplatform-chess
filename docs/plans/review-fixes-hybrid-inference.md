@@ -103,10 +103,22 @@ now publishes `https://compose-chess-opening-coach.fly.dev` with `min_machines_r
       App Check is a Firebase/Android primitive and the clients aren't all Android.
 - [ ] Record the Desktop and Web posture explicitly, even if the answer is "open."
 
-**Note:** Skipped. Rate limiting provides sufficient protection.
+**Decision (2026-08-08): not doing attestation. Per-client rate limiting is the control.**
 
-**Interim:** if this can't land with the PR, unpublish the URL from the README or put the
-service behind a shared secret until it can.
+The endpoint stays published and unauthenticated. What bounds the exposure instead:
+
+- `FixedWindowRateLimiter` (`server/.../Application.kt`) caps each client key at **30
+  requests/minute**, applied to both `/v1/openings/explain` and
+  `/v1/positions/chat/stream` before any retrieval or provider call runs.
+- `ProviderCostBudget` caps spend per request, and the provider composers are opt-in via
+  `COACH_LLM_*` — with them unset the service only ever runs deterministic template
+  composers, which cost nothing per call.
+
+This supersedes the earlier interim note (unpublish the URL / put it behind a shared
+secret): the URL stays in the README on purpose, because the rate limiter and the cost
+budget are the protection, not obscurity. Revisit if the Fly.io bill or the request logs
+show sustained non-app traffic — that is the trigger to reopen the checklist above, and
+the reason the items stay unchecked rather than being deleted.
 
 ### P0-6 Decide what `FirebaseCloudGenerator` is for
 

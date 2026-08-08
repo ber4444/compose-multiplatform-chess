@@ -214,9 +214,13 @@ class LlmComposer(
             ComposedText(valid, ID, completionTokens = completion.completionTokens, rawProviderOutput = completion.text)
         } else {
             fallback.compose(request, passages).copy(
+                // Same order as the ComposeAttempt branches above, and it has to be: a failed
+                // attempt also leaves `candidate` null, so checking emptiness first would report
+                // every transport/HTTP error as "provider_empty" and re-merge the two causes the
+                // taxonomy exists to separate.
                 finishReason = when {
-                    candidate == null -> "provider_empty"
                     attempt.isFailure -> "provider_error"
+                    candidate == null -> "provider_empty"
                     else -> "validator_rejected"
                 },
                 completionTokens = completion?.completionTokens,

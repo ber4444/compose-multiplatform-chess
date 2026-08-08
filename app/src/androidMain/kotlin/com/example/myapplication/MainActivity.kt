@@ -63,7 +63,12 @@ class MainActivity : ComponentActivity() {
         )
 
         holder.attachEngine(createStockfishEngine())
-        if (savedInstanceState == null) {
+        // Skip the attach + warmup only when the retained holder already carries an orchestrator,
+        // i.e. a configuration change. Keying this off `savedInstanceState == null` instead looks
+        // equivalent but is not: process death also restores a bundle, and there the holder is a
+        // brand-new ViewModel with no orchestrator, so the coach would stay dead for the whole
+        // session.
+        if (!holder.moveCoachManager.hasOrchestrator) {
             attachMoveCoach()
         }
 
