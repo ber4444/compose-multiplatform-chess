@@ -217,7 +217,7 @@ class CactusTextGenerator(
      * Polls the partially-downloaded model file for a determinate progress fraction.
      *
      * Every identifier this touches — `getModels()`, `slug`, `download_url`, `size_mb`, and
-     * `CactusModelManager.INSTANCE.getModelsDirectory()` — is Cactus **internals**, not published
+     * `CactusModelManager.getModelsDirectory()` — is Cactus **internals**, not published
      * API, and is pinned to `com.cactuscompute:cactus:1.4.1-beta`. A version bump can silently
      * remove any of them, so the failure is caught and logged rather than thrown: losing the
      * percentage degrades the bar to an indeterminate spinner, which is a cosmetic regression, but
@@ -228,7 +228,10 @@ class CactusTextGenerator(
         try {
             val targetModel = instance.getModels().find { it.slug == modelSlug } ?: return@launch
             val fileName = targetModel.download_url.substringBefore('?').substringAfterLast('/')
-            val file = File(com.cactus.CactusModelManager.INSTANCE.getModelsDirectory(), fileName)
+            // CactusModelManager is a Kotlin `expect object`, so it is referenced directly — the
+            // JVM-only `.INSTANCE` field does not exist in Kotlin source. getModelsDirectory()
+            // returns an absolute path as a String.
+            val file = File(com.cactus.CactusModelManager.getModelsDirectory(), fileName)
             val expectedBytes = targetModel.size_mb * 1024L * 1024L
             if (expectedBytes <= 0L) return@launch
             while (isActive) {
