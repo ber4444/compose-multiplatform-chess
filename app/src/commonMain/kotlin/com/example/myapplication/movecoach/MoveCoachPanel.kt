@@ -25,7 +25,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import game.app.generated.resources.Res
-import game.app.generated.resources.move_coach_loading
 import game.app.generated.resources.move_coach_unavailable
 import org.jetbrains.compose.resources.stringResource
 import kotlinx.coroutines.delay
@@ -35,6 +34,10 @@ fun MoveCoachPanel(
     state: MoveCoachUiState,
     modifier: Modifier = Modifier,
     onRetry: (() -> Unit)? = null,
+    /** Whether B16's Explain mode is armed — the next board tap asks about a square. */
+    explainMode: Boolean = false,
+    /** Arms/disarms Explain mode. Null hides the control (no coach attached). */
+    onToggleExplainMode: (() -> Unit)? = null,
 ) {
     if (state is MoveCoachUiState.Hidden) return
 
@@ -115,6 +118,21 @@ fun MoveCoachPanel(
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White,
             )
+            if (onToggleExplainMode != null) {
+                // Opt-in, and it says which state it is in. The alternative B16 shipped with —
+                // swallowing every tap whenever the panel was visible — made the board unplayable
+                // from move two, because the panel is essentially always visible after that.
+                TextButton(
+                    onClick = onToggleExplainMode,
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    modifier = Modifier.testTag("move_coach_explain_toggle"),
+                ) {
+                    Text(
+                        text = if (explainMode) "Tap a square…" else "Explain a square",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
             if (presentation is FallbackPresentation.Retryable && onRetry != null) {
                 TextButton(
                     onClick = onRetry,

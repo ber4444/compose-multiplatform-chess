@@ -611,10 +611,16 @@ class GameViewModel(
         val stateBefore = FenConverter.fenToGameState(fenBefore)
         // Held across the evaluation so a concurrent hint can't leave the engine at HARD underneath
         // it — see engineStrengthMutex.
+        // One search does both jobs: the score it reports *is* the eval of the best move, and its
+        // UCI is what the coach needs to name the alternative. Both are already normalized to
+        // White's perspective by every transport, matching what evaluate() returns.
         val bestMoveResult = engineStrengthMutex.withLock {
             engine.getBestMove(fenBefore, engineDifficulty.thinkTimeMs)
-        } ?: return
-        val cpBest = bestMoveResult.evaluationCp ?: engineStrengthMutex.withLock {
+        }
+        // A null result, or a search that reported no score, must not cost the move its assessment
+        // — evaluatePositionCp still answers, degrading to material balance with no engine. Losing
+        // the assessment loses the coach line for that ply, which is the whole feature.
+        val cpBest = bestMoveResult?.evaluationCp ?: engineStrengthMutex.withLock {
             evaluatePositionCp(engine, stateBefore, engineDifficulty.thinkTimeMs)
         }
 
@@ -630,7 +636,7 @@ class GameViewModel(
             cpPlayed = cpPlayed,
             cpBest = cpBest,
             motifs = motifs,
-            bestMoveUci = bestMoveResult.uci
+            bestMoveUci = bestMoveResult?.uci,
         )
 
         // Update history safely

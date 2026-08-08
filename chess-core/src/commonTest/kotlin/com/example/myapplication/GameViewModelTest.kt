@@ -433,7 +433,7 @@ class GameViewModelTest {
         // 2. Attach a fake engine
         val fakeEngine = object : ChessEngine {
             override suspend fun configure(difficulty: EngineDifficulty) {}
-            override suspend fun getBestMove(fen: String): BestMoveResult? = BestMoveResult("e2e4", evaluationCp = 30)
+            override suspend fun getBestMove(fen: String, thinkTimeMs: Long?): BestMoveResult? = BestMoveResult("e2e4", evaluationCp = 30)
             override fun close() {}
         }
         vm.attachEngine(fakeEngine)
@@ -476,7 +476,7 @@ class GameViewModelTest {
                 configured += difficulty
             }
 
-            override suspend fun getBestMove(fen: String): BestMoveResult? {
+            override suspend fun getBestMove(fen: String, thinkTimeMs: Long?): BestMoveResult? {
                 kotlinx.coroutines.delay(10_000)
                 return BestMoveResult("e2e4", evaluationCp = 30)
             }

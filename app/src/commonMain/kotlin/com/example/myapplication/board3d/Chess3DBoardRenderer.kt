@@ -24,7 +24,15 @@ interface Chess3DBoardRenderer {
      *  render a highlight still compile. */
     fun setSelectedSquare(square: BoardSquare?) {}
 
-    /** Render multiple highlights (e.g. for coach annotations). Default no-op. */
+    /**
+     * Render the squares the coach line names (B16). Default no-op.
+     *
+     * **No backend implements this yet**, so B16's board anchoring is currently 2D-only — the 2D
+     * board tints these squares in `GameScreen.Square`. The four Filament backends each own a
+     * different highlight path (SceneView ModelNode pool, the native C++ bridge, Metal, WebGL) and
+     * are explicitly frozen per CLAUDE.md, so wiring them is its own change. The seam is defined
+     * here, and the call site in `Board3D` is live, so that change is additive per backend.
+     */
     fun setHighlightedSquares(squares: List<BoardSquare>) {}
 }
 

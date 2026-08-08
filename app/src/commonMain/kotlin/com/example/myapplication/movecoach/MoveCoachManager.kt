@@ -35,7 +35,7 @@ class MoveCoachManager(
 
     private var coachJob: Job? = null
     private var orchestrator: AiCoachOrchestrator? = null
-    /** The last request built by [triggerCoach], replayed by [retry]. */
+    /** The last request handed to [launchCoach], replayed by [retry]. */
     private var lastRequest: com.example.ondeviceai.MoveCoachRequest? = null
 
     /**
@@ -101,7 +101,6 @@ class MoveCoachManager(
             engineDifficultyName = engineDifficultyName,
             bannedOpeningFrames = recentOpeningFrames.toList(),
         )
-        lastRequest = request
         launchCoach(request)
     }
 
@@ -115,8 +114,36 @@ class MoveCoachManager(
         launchCoach(lastRequest ?: return)
     }
 
+    /**
+     * Ask the coach about a square the user tapped (B16's Explain mode), rather than about a move
+     * that was just played.
+     *
+     * The request is built here rather than by the screen for the same reason [triggerCoach]'s is:
+     * `launchCoach` is private, the free-tier and cancellation rules live behind it, and two call
+     * sites (the 2D board and the 3D board) would otherwise assemble the same `MoveCoachRequest`
+     * by hand and drift apart.
+     *
+     * [square] is algebraic (`"e4"`). [occupant] describes what stands there, and is the caller's
+     * job because only the screen holds the board state.
+     */
+    fun explainSquare(square: String, occupant: String) {
+        launchCoach(
+            com.example.ondeviceai.MoveCoachRequest(
+                moveUci = square,
+                moveDisplay = square,
+                deterministicHeadline = "Square $square",
+                deterministicExplanation = "$occupant on $square.",
+                engineDifficultyName = engineDifficultyName,
+                bannedOpeningFrames = recentOpeningFrames.toList(),
+            )
+        )
+    }
+
     private fun launchCoach(request: com.example.ondeviceai.MoveCoachRequest) {
         val orchestrator = this.orchestrator ?: return
+        // Recorded here, not in triggerCoach, so retry() replays whichever request actually ran —
+        // an Explain-mode square query is as retryable as a coached move.
+        lastRequest = request
         coachJob?.cancel()
 
         if (!proUnlocked) {
@@ -154,13 +181,11 @@ class MoveCoachManager(
                         is MoveCoachEvent.Complete -> when (val result = event.result) {
                             is MoveCoachResult.Success -> {
                                 val shown = CitationSanitizer.sanitize(result.explanation.explanation)
-                                val regex = Regex("\\b[a-h][1-8]\\b")
-                                val matches = regex.findAll(result.explanation.explanation).map { it.value }.toList().distinct()
                                 _coachUiState.value = MoveCoachUiState.Ready(
                                     explanation = result.explanation.copy(
                                         headline = CitationSanitizer.sanitize(result.explanation.headline),
                                         explanation = shown,
-                                        annotatedSquares = matches
+                                        annotatedSquares = squaresNamedIn(shown),
                                     )
                                 )
                                 rememberOpeningFrame(shown)
@@ -211,5 +236,28 @@ class MoveCoachManager(
         /** Enough to break a rut, short enough that the ban list stays a hint and not a paragraph. */
         const val MAX_REMEMBERED_FRAMES = 3
         const val FRAME_WORDS = 3
+
+        /**
+         * A board square, in plain algebraic ("e4") or SAN with a piece letter ("Nf3", "Bxc4").
+         * The capture marker is optional; the file/rank pair is what gets kept.
+         */
+        private val SQUARE_REFERENCE = Regex("[KQRBN]?x?[a-h][1-8]")
+
+        /**
+         * Board squares named in a coach line, for B16's board highlighting.
+         *
+         * `\\b[a-h][1-8]\\b` does not work here: a word boundary cannot occur between `N` and `f3`,
+         * so it matched plain algebraic and silently skipped SAN — which is how the coach writes
+         * nearly every square it mentions ("Nf3", "Bxc4+", "Qd1"), so the highlight almost never
+         * fired. Matching an optional piece letter and keeping the file/rank pair catches both.
+         *
+         * Call it with sanitized text: a citation id containing a square-shaped substring is
+         * already gone by then.
+         */
+        internal fun squaresNamedIn(text: String): List<String> =
+            SQUARE_REFERENCE.findAll(text)
+                .map { it.value.takeLast(2).lowercase() }
+                .distinct()
+                .toList()
     }
 }
