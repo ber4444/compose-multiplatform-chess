@@ -121,12 +121,12 @@ class MoveCoachManager(
                     headline = request.deterministicHeadline,
                     explanation = request.deterministicExplanation,
                     confidence = com.example.ondeviceai.ExplanationConfidence.HIGH,
-                    route = com.example.ondeviceai.AiRoute.Fallback(com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.NoLocalModel),
+                    route = com.example.ondeviceai.AiRoute.OnDevice,
                     metrics = com.example.ondeviceai.AiInferenceMetrics(
                         firstTokenMs = null,
                         completeMs = 0L,
                         tokenCount = 0,
-                        route = com.example.ondeviceai.AiRoute.Fallback(com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.NoLocalModel),
+                        route = com.example.ondeviceai.AiRoute.OnDevice,
                     ),
                 )
             )
