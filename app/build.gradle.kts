@@ -253,11 +253,11 @@ kotlin {
 val openingExplainerBaseUrl = providers.provider {
     System.getenv("CHESS_COACH_BASE_URL")?.takeIf { it.isNotBlank() } ?: run {
         val propertiesFile = rootProject.file("local.properties")
-        if (!propertiesFile.exists()) return@run ""
-        Properties().apply { propertiesFile.inputStream().use(::load) }
-            .getProperty("coach.baseUrl")
-            .orEmpty()
-    }
+        if (propertiesFile.exists()) {
+            Properties().apply { propertiesFile.inputStream().use(::load) }
+                .getProperty("coach.baseUrl")?.takeIf { it.isNotBlank() }
+        } else null
+    } ?: "https://compose-chess-opening-coach.fly.dev"
 }
 val openingExplainerConfigDir = layout.buildDirectory.dir("generated/openingExplainer/commonMain/kotlin")
 val generateOpeningExplainerConfig by tasks.registering {
