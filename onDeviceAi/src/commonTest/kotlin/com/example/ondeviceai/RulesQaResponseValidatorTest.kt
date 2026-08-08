@@ -47,6 +47,21 @@ class RulesQaResponseValidatorTest {
     }
 
     @Test
+    fun `only the best-anchored passage is cited`() {
+        // Measured on device: this answer shared 22 content words with draw-dead-position and
+        // exactly two — "king" and "two" — with castling-requirements, and Sources: credited both.
+        val result = RulesQaResponseValidator.validate(
+            text = "Yes, the game is drawn when no possible legal sequence can lead to checkmate. " +
+                "Common insufficient-material examples include king against king (two kings, only " +
+                "kings remain) and king plus a lone bishop or knight against King.",
+            retrievedPassageIds = listOf("draw-dead-position", "castling-requirements"),
+        )
+
+        val valid = assertIs<RulesQaResponseValidator.Result.Valid>(result)
+        assertEquals(listOf("draw-dead-position"), valid.citedPassageIds)
+    }
+
+    @Test
     fun `rejects an answer sharing nothing with the retrieved passage`() {
         // Anchoring is kept above zero for the reason PositionChatValidator gives: with no anchor,
         // any fluent invention validates.

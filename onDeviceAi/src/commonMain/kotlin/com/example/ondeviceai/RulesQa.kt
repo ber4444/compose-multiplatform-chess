@@ -146,15 +146,23 @@ object RulesQaResponseValidator {
         // "move", which would let an answer anchor itself on the id it just invented. An id is
         // evidence about the prompt, never about the prose.
         val answerWords = contentWords(trimmed.replace(CITATION_TAG, " "))
-        val anchored = retrievedPassageIds.filter { id ->
-            val passage = rulePassageForId(id) ?: return@filter false
-            contentWords("${passage.title} ${passage.text}").count { it in answerWords } >=
-                MIN_SOURCE_OVERLAP
+        val overlaps = retrievedPassageIds.mapNotNull { id ->
+            val passage = rulePassageForId(id) ?: return@mapNotNull null
+            val shared = contentWords("${passage.title} ${passage.text}").count { it in answerWords }
+            if (shared >= MIN_SOURCE_OVERLAP) id to shared else null
         }
-        if (anchored.isEmpty()) {
+        if (overlaps.isEmpty()) {
             return Result.Invalid("answer is not anchored to any retrieved passage")
         }
-        return Result.Valid(trimmed, anchored)
+        // Only the *best*-anchored passage is cited, not everything that clears the bar. Chess
+        // vocabulary is small and repetitive, so a generic pair like "king"/"two" reaches
+        // MIN_SOURCE_OVERLAP against almost anything: a measured answer about dead positions shared
+        // 22 words with `draw-dead-position` and exactly those 2 with `castling-requirements`, and
+        // the screen credited both. A citation the answer did not use is a false claim about where
+        // the rule came from, which is worse than citing nothing. Ties keep retrieval order, so the
+        // higher-ranked BM25 hit wins.
+        val best = overlaps.maxOf { it.second }
+        return Result.Valid(trimmed, overlaps.filter { it.second == best }.map { it.first })
     }
 
     /** Lowercased distinct words, minus the ones every sentence shares regardless of topic. */
