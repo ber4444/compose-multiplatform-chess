@@ -5,7 +5,9 @@ import com.example.ondeviceai.AiGenerationRequest
 import com.example.ondeviceai.AiTokenOrFinal
 import com.example.ondeviceai.OnDeviceTextGenerator
 import com.example.ondeviceai.RuleLookupTool
+import com.example.ondeviceai.RulePassage
 import com.example.ondeviceai.RulesQaAnswerer
+import com.example.ondeviceai.RulesQaGrounding
 import com.example.ondeviceai.RulesQaModelOutput
 import kotlinx.coroutines.CancellationException
 
@@ -29,26 +31,40 @@ class StructuredOutputRulesQaAnswerer(
 ) : RulesQaAnswerer {
 
     override suspend fun answer(question: String, route: VendorRoute): RulesQaModelOutput {
-        val generator = executor.execute(route) ?: return ungrounded("")
+        // Retrieval runs FIRST, on the user's own question, and is never gated on the model.
+        //
+        // It used to be: the model had to emit a parseable `lookup_rule` envelope before any lookup
+        // happened at all, so a 270M model fumbling its JSON meant a corpus that contains the answer
+        // was never even searched. The question is itself a good BM25 query -- "Game is a draw when
+        // only kings remain?" scores `draw-dead-position` first by a wide margin -- so the model was
+        // a single point of failure in front of a step that already worked without it.
+        val fromQuestion = lookupTool.lookup(question)
+
+        val generator = executor.execute(route) ?: return grounded(fromQuestion)
         return try {
-            if (generator.status() !is AiAvailability.Available) return ungrounded("")
+            if (generator.status() !is AiAvailability.Available) return grounded(fromQuestion)
 
-            val firstTurn = generator.runTurn(
-                AiGenerationRequest(
-                    systemPrompt = LOOKUP_SYSTEM_PROMPT,
-                    userPrompt = """
-                        Structured-output request. Decide what rule to retrieve for this question:
-                        $question
+            // The structured-output turn is now a *refinement*: its query can surface passages the
+            // raw question misses, and if it produces nothing usable we simply keep what retrieval
+            // already found. Question hits stay first because they are the ones we can vouch for.
+            val refined = parseLookupQuery(
+                generator.runTurn(
+                    AiGenerationRequest(
+                        systemPrompt = LOOKUP_SYSTEM_PROMPT,
+                        userPrompt = """
+                            Structured-output request. Decide what rule to retrieve for this question:
+                            $question
 
-                        Return only {"tool":"lookup_rule","query":"short search query"}.
-                    """.trimIndent(),
-                    maxOutputTokens = 80,
-                    temperature = 0.0,
+                            Return only {"tool":"lookup_rule","query":"short search query"}.
+                        """.trimIndent(),
+                        maxOutputTokens = 80,
+                        temperature = 0.0,
+                    ),
                 ),
-            )
-            val lookupQuery = parseLookupQuery(firstTurn) ?: return ungrounded(firstTurn)
-            val passages = lookupTool.lookup(lookupQuery)
-            if (passages.isEmpty()) return ungrounded(firstTurn)
+            )?.let { lookupTool.lookup(it) }.orEmpty()
+
+            val passages = (fromQuestion + refined).distinctBy { it.id }.take(MAX_PASSAGES)
+            if (passages.isEmpty()) return ungrounded("")
 
             val passageText = passages.joinToString("\n") { passage ->
                 "[${passage.id}] ${passage.title}: ${passage.text}"
@@ -69,11 +85,16 @@ class StructuredOutputRulesQaAnswerer(
                 ),
             )
             RulesQaModelOutput(
-                text = answer,
+                // Uncited or over-long model prose falls back to the passage text, not to
+                // RulesQaFallback -- see RulesQaGrounding. Retrieval succeeded; the user gets the rule.
+                text = RulesQaGrounding.answerOrReference(answer, passages),
                 retrievedPassageIds = passages.map { it.id },
             )
         } catch (ce: CancellationException) {
             throw ce
+        } catch (_: Throwable) {
+            // A native generation failure must not discard a retrieval that already succeeded.
+            grounded(fromQuestion)
         } finally {
             try {
                 generator.close()
@@ -110,7 +131,20 @@ class StructuredOutputRulesQaAnswerer(
         retrievedPassageIds = emptyList(),
     )
 
+    /**
+     * Retrieval succeeded but the model never contributed (absent, unavailable, or it threw).
+     * Empty passages collapse to [ungrounded], which is the one case that should reach
+     * `RulesQaFallback`: nothing was found, so there is genuinely nothing to report.
+     */
+    private fun grounded(passages: List<RulePassage>) = RulesQaModelOutput(
+        text = RulesQaGrounding.composeFromPassages(passages),
+        retrievedPassageIds = passages.map { it.id },
+    )
+
     private companion object {
+        /** Union cap. Each lookup already returns at most 4; the prompt stays small. */
+        const val MAX_PASSAGES = 4
+
         const val LOOKUP_SYSTEM_PROMPT = """
             You route chess-rules questions to an offline lookup. This is structured-output
             prompting, so output one lookup_rule JSON object and no prose.

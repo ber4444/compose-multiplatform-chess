@@ -32,6 +32,47 @@ object RulesQaFallback {
         "leave your king safe; checkmate ends the game, while stalemate is a draw."
 }
 
+/**
+ * The retrieved passage, as a finished answer.
+ *
+ * Rules Q&A is a *retrieval* feature: BM25 over the bundled corpus finds the rule deterministically,
+ * and the model's only job is to phrase what was found. Those two steps fail independently, and the
+ * phrasing step fails often — the Android runtime is a ~270M model, which frequently will not
+ * reproduce an exact `[passage-id]` no matter how the prompt asks. Before this existed, that
+ * phrasing failure discarded a *correct retrieval* and emitted [RulesQaFallback.TEXT], which tells a
+ * user whose rule was found, and is sitting in memory, that it could not be found.
+ *
+ * So the retrieved passage is the floor. Mirrors `DeterministicCoach` on the move-coach side and the
+ * house rule it encodes: code retrieves, the model only narrates. A narration failure costs the
+ * user some fluency, never the answer.
+ */
+object RulesQaGrounding {
+
+    /** The top passage rendered as a cited answer, trimmed to the validator's budget. */
+    fun composeFromPassages(passages: List<RulePassage>): String {
+        val top = passages.firstOrNull() ?: return ""
+        val citation = " [${top.id}]"
+        val budget = RulesQaResponseValidator.MAX_OUTPUT_CHARS - citation.length
+        val body = "${top.title}: ${top.text}"
+        if (budget <= 1) return citation.trim()
+        return if (body.length <= budget) body + citation
+        else body.take(budget - 1).trimEnd() + "…" + citation
+    }
+
+    /**
+     * The model's wording when it survives [RulesQaResponseValidator], the passage itself otherwise.
+     *
+     * Deliberately re-uses the orchestrator's validator rather than a looser check of its own: an
+     * answer that would be rejected downstream must not be preferred here, or the two disagree and
+     * the user gets the fallback anyway.
+     */
+    fun answerOrReference(modelText: String, passages: List<RulePassage>): String =
+        when (RulesQaResponseValidator.validate(modelText, passages.map { it.id })) {
+            is RulesQaResponseValidator.Result.Valid -> modelText.trim()
+            is RulesQaResponseValidator.Result.Invalid -> composeFromPassages(passages)
+        }
+}
+
 object RulesQaResponseValidator {
     const val MAX_OUTPUT_CHARS = 600
 
