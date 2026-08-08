@@ -52,6 +52,18 @@ class TemplateComposer : TextComposer {
  */
 data class LlmCompletion(val text: String, val completionTokens: Int? = null)
 
+/**
+ * The provider answered, but with no usable text — the reasoning-model shape that spends its whole
+ * budget deliberating and returns `{"role":"assistant"}` with no `content` key.
+ *
+ * It is a *thrown* failure because the message names the fix (raise `COACH_LLM_MAX_OUTPUT_TOKENS`)
+ * and `LlmClientResponseShapeTest` pins that a caller cannot mistake it for a silent null. It is a
+ * *distinct type* because [LlmComposer] must still separate it from a transport or HTTP error:
+ * collapsing the two is exactly the conflation the `finishReason` taxonomy exists to undo, and
+ * without the type both arrive as an ordinary `IllegalStateException`.
+ */
+class EmptyProviderResponse(message: String) : IllegalStateException(message)
+
 fun interface LlmClient {
     fun generate(systemPrompt: String, userPrompt: String, maxOutputTokens: Int): LlmCompletion?
 }
@@ -196,8 +208,13 @@ class LlmComposer(
         // rejection was recorded as a quality failure.
         val candidate = completion?.text?.let(ModelOutputCleaner::clean)
         val valid = candidate?.let { OpeningExplanationValidator.validate(it, passages) }
+        // "The provider answered with nothing" arrives as a throw (see [EmptyProviderResponse]), so
+        // it has to be tested *before* the generic failure branch — otherwise it reads as a
+        // transport error and the taxonomy loses the one distinction it was added to make.
+        val emptyResponse = attempt.exceptionOrNull() is EmptyProviderResponse
         probe(
             when {
+                emptyResponse -> ComposeAttempt.ProviderEmpty
                 attempt.isFailure -> ComposeAttempt.ProviderError(
                     attempt.exceptionOrNull()!!.let { "${it::class.simpleName}: ${it.message?.take(300)}" },
                 )
@@ -219,6 +236,7 @@ class LlmComposer(
                 // every transport/HTTP error as "provider_empty" and re-merge the two causes the
                 // taxonomy exists to separate.
                 finishReason = when {
+                    emptyResponse -> "provider_empty"
                     attempt.isFailure -> "provider_error"
                     candidate == null -> "provider_empty"
                     else -> "validator_rejected"
@@ -451,7 +469,7 @@ class OpenAiCompatibleLlmClient(
             // Distinguish "spent the budget thinking" from "returned nothing" — the first is fixed
             // by raising maxOutputTokens, the second is a provider problem. Both used to look the
             // same from the outside.
-            error(
+            throw EmptyProviderResponse(
                 "provider returned no content (finish_reason=${choice?.finishReason}, " +
                     "reasoning=${choice?.message?.reasoningContent?.length ?: 0} chars). " +
                     "If finish_reason is 'length', raise COACH_LLM_MAX_OUTPUT_TOKENS.",
