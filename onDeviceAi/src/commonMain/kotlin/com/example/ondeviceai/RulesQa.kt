@@ -61,12 +61,20 @@ object RulesQaFallback {
  */
 object RulesQaGrounding {
 
-    /** The top passage rendered as a cited answer, trimmed to the validator's budget. */
+    /**
+     * The top passage rendered as a cited answer, trimmed to the validator's budget.
+     *
+     * **Text only — the title is deliberately not prefixed.** The UI names the rule in its
+     * `Sources:` line, so leading with "Draw by dead position and insufficient material: The game is
+     * drawn when…" printed the same words twice on one screen. Attribution belongs in one place, and
+     * dropping the prefix also makes this read the same way a model-phrased answer does: the body is
+     * the answer, the source is named beside it.
+     */
     fun composeFromPassages(passages: List<RulePassage>): String {
         val top = passages.firstOrNull() ?: return ""
         val citation = " [${top.id}]"
         val budget = RulesQaResponseValidator.MAX_OUTPUT_CHARS - citation.length
-        val body = "${top.title}: ${top.text}"
+        val body = top.text
         if (budget <= 1) return citation.trim()
         return if (body.length <= budget) body + citation
         else body.take(budget - 1).trimEnd() + "…" + citation

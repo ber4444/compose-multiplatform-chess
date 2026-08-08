@@ -3,6 +3,7 @@ package com.example.ondeviceai
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -36,6 +37,16 @@ class RulesQaGroundingTest {
         assertIs<RulesQaResponseValidator.Result.Valid>(
             RulesQaResponseValidator.validate(text, listOf(passage.id)),
         )
+    }
+
+    @Test
+    fun `the title is not prefixed, because Sources already names the rule`() {
+        val text = RulesQaGrounding.composeFromPassages(listOf(passage))
+
+        // Otherwise the screen reads "Draw by dead position and insufficient material: The game is
+        // drawn…" directly above "Sources: Draw by dead position and insufficient material".
+        assertFalse(text.contains(passage.title), text)
+        assertTrue(text.startsWith("The game is drawn"), text)
     }
 
     @Test
