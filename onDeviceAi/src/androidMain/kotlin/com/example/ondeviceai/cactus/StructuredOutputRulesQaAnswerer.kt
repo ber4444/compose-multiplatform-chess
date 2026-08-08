@@ -63,7 +63,11 @@ class StructuredOutputRulesQaAnswerer(
                 ),
             )?.let { lookupTool.lookup(it) }.orEmpty()
 
-            val passages = (fromQuestion + refined).distinctBy { it.id }.take(MAX_PASSAGES)
+            // Only the best few reach the prompt. Handing a small model four passages and asking it
+            // to "answer from these" reliably produces a transcript of all four -- observed on
+            // device: three passages echoed back with their ids and nothing resembling an answer.
+            // The top hit is the answer; the rest are context it does not need in order to phrase one.
+            val passages = (fromQuestion + refined).distinctBy { it.id }.take(ANSWER_PASSAGES)
             if (passages.isEmpty()) return ungrounded("")
 
             val passageText = passages.joinToString("\n") { passage ->
@@ -78,8 +82,16 @@ class StructuredOutputRulesQaAnswerer(
                         Retrieved offline rules:
                         $passageText
 
-                        Answer from these passages only and cite at least one exact [passage-id].
+                        Reply with one or two sentences that answer the question directly, then the
+                        id of the rule you used in square brackets. Do not list the rules and do not
+                        copy them word for word.
+
+                        Example of the shape: Yes — with no way left to force mate the game is
+                        drawn [${passages.first().id}].
                     """.trimIndent(),
+                    // The example's id is deliberately a *retrieved* one: a model that copies the
+                    // example verbatim still produces a citation the validator accepts, instead of
+                    // inventing `[rule-id]` and failing closed to the passage text.
                     maxOutputTokens = 160,
                     temperature = 0.2,
                 ),
@@ -142,15 +154,20 @@ class StructuredOutputRulesQaAnswerer(
     )
 
     private companion object {
-        /** Union cap. Each lookup already returns at most 4; the prompt stays small. */
-        const val MAX_PASSAGES = 4
+        /**
+         * How many retrieved passages reach the answer prompt. Two, not four: a 270M model asked to
+         * answer from four passages echoes four passages. This is also what `Sources:` reports, so
+         * the user is shown exactly what grounded the answer.
+         */
+        const val ANSWER_PASSAGES = 2
 
         const val LOOKUP_SYSTEM_PROMPT = """
             You route chess-rules questions to an offline lookup. This is structured-output
             prompting, so output one lookup_rule JSON object and no prose.
         """
         const val ANSWER_SYSTEM_PROMPT = """
-            You answer chess-rules questions only from retrieved offline passages. Be concise,
+            You answer chess-rules questions only from retrieved offline passages. Answer the
+            question in your own words -- never reproduce the passages as a list. Be concise,
             never invent a rule, and cite an exact passage id in square brackets.
         """
         val LOOKUP_ENVELOPE = Regex(
