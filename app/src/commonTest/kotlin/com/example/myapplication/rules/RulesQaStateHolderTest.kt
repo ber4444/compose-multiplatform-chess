@@ -65,6 +65,11 @@ class RulesQaStateHolderTest {
         val ready = assertIs<RulesQaUiState.Ready>(holder.state.value)
         assertEquals("With only kings left neither side can mate.", ready.text)
         assertEquals(listOf("draw-dead-position"), ready.passageIds)
+        // What the "Sources:" line renders: a title, not the slug we just stripped from the answer.
+        assertEquals(
+            listOf("Draw by dead position and insufficient material"),
+            ready.sources.map { it.title },
+        )
     }
 
     @Test

@@ -15,11 +15,24 @@ fun interface RulesQaAnswerer {
 
 expect fun defaultRulesQaAnswerer(lookupTool: RuleLookupTool): RulesQaAnswerer?
 
+/**
+ * A corpus passage an answer cites, in the two forms the product needs: the [id] the validator and
+ * the benchmarks key on, and the [title] a person can read.
+ *
+ * Both are required because they serve different readers. `CitationSanitizer` exists so raw ids
+ * never reach the screen — printing `draw-dead-position` under a "Sources:" heading was doing the
+ * very thing the sanitizer removes from the answer text one line above it.
+ */
+data class RuleCitation(val id: String, val title: String)
+
 sealed interface RulesQaResult {
     data class Success(
         val text: String,
-        val passageIds: List<String>,
-    ) : RulesQaResult
+        val citations: List<RuleCitation>,
+    ) : RulesQaResult {
+        /** Ids alone, for callers and tests that only key on identity. Derived, never stored. */
+        val passageIds: List<String> get() = citations.map { it.id }
+    }
 
     data class FellBack(
         val text: String,
@@ -70,6 +83,21 @@ object RulesQaGrounding {
         when (RulesQaResponseValidator.validate(modelText, passages.map { it.id })) {
             is RulesQaResponseValidator.Result.Valid -> modelText.trim()
             is RulesQaResponseValidator.Result.Invalid -> composeFromPassages(passages)
+        }
+
+    /**
+     * Why the model's wording was refused, or `null` when it was kept. Diagnostic only.
+     *
+     * Falling back to the passage is now silent by construction — the user still gets a correct
+     * answer, so nothing downstream reports a problem. That is the right product behaviour and the
+     * wrong debugging behaviour: it is exactly the "six causes, one string" trap that made this
+     * feature take four attempts to fix. Callers log this so `adb logcat -s RulesQa` can still tell
+     * "the model wrote nothing" from "the model would not cite".
+     */
+    fun rejectionReason(modelText: String, passages: List<RulePassage>): String? =
+        when (val result = RulesQaResponseValidator.validate(modelText, passages.map { it.id })) {
+            is RulesQaResponseValidator.Result.Valid -> null
+            is RulesQaResponseValidator.Result.Invalid -> result.reason
         }
 }
 
@@ -147,7 +175,13 @@ class DefaultRulesQaOrchestrator(
         ) {
             is RulesQaResponseValidator.Result.Valid -> RulesQaResult.Success(
                 text = validation.text,
-                passageIds = validation.citedPassageIds,
+                // Titles come from the corpus, keyed by the id the model actually cited. An id with
+                // no corpus entry falls back to showing itself rather than vanishing — a citation
+                // we cannot name is still a citation, and silently dropping it would overstate how
+                // little the answer was grounded in.
+                citations = validation.citedPassageIds.map { id ->
+                    RuleCitation(id = id, title = ruleTitleForId(id) ?: id)
+                },
             )
             // The specific broken rule is a diagnostic; the product state is the same either way.
             // Mirrors DefaultAiCoachOrchestrator: log the detail, fall back with Validation.

@@ -57,7 +57,11 @@ fun RulesQaScreen(
                 RulesQaUiState.Unavailable -> Text("Offline rules Q&A is unavailable on this platform or build.")
                 is RulesQaUiState.Ready -> {
                     Text(current.text, modifier = Modifier.testTag("rules_answer"))
-                    if (current.passageIds.isNotEmpty()) Text("Sources: ${current.passageIds.joinToString()}")
+                    // Titles, not ids: CitationSanitizer strips `[draw-dead-position]` out of the
+                    // answer directly above, so printing the same slug here undid it one line later.
+                    if (current.sources.isNotEmpty()) {
+                        Text("Sources: ${current.sources.joinToString { it.title }}")
+                    }
                     if (current.isFallback) Text("Offline reference fallback")
                 }
             }

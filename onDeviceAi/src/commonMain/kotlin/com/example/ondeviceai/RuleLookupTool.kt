@@ -15,6 +15,19 @@ fun interface RuleLookupTool {
 fun createBundledRuleLookupTool(): RuleLookupTool = BundledRuleLookupTool()
 
 /**
+ * Human-readable title for a bundled corpus id, or `null` if the id is not from this corpus.
+ *
+ * Titles are resolved from the corpus at render time rather than carried alongside the id through
+ * `RulesQaModelOutput` → `RulesQaResult` → the UI. The corpus is already the single source of truth
+ * for them, and a copy travelling beside the id is a copy that can go stale — the same reason
+ * `AiContextSnapshot.isDeviceModelAvailable` is a derived getter and not a stored field.
+ *
+ * It also keeps iOS out of it: that bridge hands back a CSV of ids and has no passages to thread.
+ */
+internal fun ruleTitleForId(id: String): String? =
+    GeneratedRulePassages.firstOrNull { it.id == id }?.title
+
+/**
  * Small, deterministic BM25 scan over the generated bundled corpus.
  *
  * A separate sentence-embedding model would add a material binary and memory cost on top of the

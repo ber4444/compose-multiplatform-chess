@@ -1,5 +1,6 @@
 package com.example.ondeviceai.cactus
 
+import co.touchlab.kermit.Logger
 import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.AiGenerationRequest
 import com.example.ondeviceai.AiTokenOrFinal
@@ -29,6 +30,8 @@ class StructuredOutputRulesQaAnswerer(
     private val executor: AiRouteExecutor,
     private val lookupTool: RuleLookupTool,
 ) : RulesQaAnswerer {
+
+    private val logger = Logger.withTag("RulesQa")
 
     override suspend fun answer(question: String, route: VendorRoute): RulesQaModelOutput {
         // Retrieval runs FIRST, on the user's own question, and is never gated on the model.
@@ -96,6 +99,9 @@ class StructuredOutputRulesQaAnswerer(
                     temperature = 0.2,
                 ),
             )
+            RulesQaGrounding.rejectionReason(answer, passages)?.let { reason ->
+                logger.i { "model wording refused ($reason); answering from the passage instead" }
+            }
             RulesQaModelOutput(
                 // Uncited or over-long model prose falls back to the passage text, not to
                 // RulesQaFallback -- see RulesQaGrounding. Retrieval succeeded; the user gets the rule.

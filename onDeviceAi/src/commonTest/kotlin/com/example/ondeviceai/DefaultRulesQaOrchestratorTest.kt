@@ -23,6 +23,29 @@ class DefaultRulesQaOrchestratorTest {
 
         assertIs<RulesQaResult.Success>(result)
         assertEquals(listOf("castling-check"), result.passageIds)
+        // The title is resolved from the corpus by id, so the UI never has to print the slug.
+        assertEquals(
+            listOf(RuleCitation("castling-check", "Castling and attacked squares")),
+            result.citations,
+        )
+    }
+
+    @Test
+    fun `a cited id outside the corpus shows itself rather than disappearing`() = runTest {
+        val orchestrator = DefaultRulesQaOrchestrator(
+            answerer = RulesQaAnswerer { _, _ ->
+                RulesQaModelOutput(
+                    text = "Grounded in something unknown. [not-in-corpus]",
+                    retrievedPassageIds = listOf("not-in-corpus"),
+                )
+            },
+            contextProvider = { localContext() },
+        )
+
+        val result = orchestrator.answer("Anything?")
+
+        assertIs<RulesQaResult.Success>(result)
+        assertEquals(listOf(RuleCitation("not-in-corpus", "not-in-corpus")), result.citations)
     }
 
     @Test

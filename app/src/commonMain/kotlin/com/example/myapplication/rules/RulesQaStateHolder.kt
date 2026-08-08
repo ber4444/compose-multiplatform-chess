@@ -2,6 +2,7 @@ package com.example.myapplication.rules
 
 import com.example.myapplication.ui.CitationSanitizer
 import com.example.ondeviceai.DefaultRulesQaOrchestrator
+import com.example.ondeviceai.RuleCitation
 import com.example.ondeviceai.RulesQaResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -11,7 +12,14 @@ import kotlinx.coroutines.CancellationException
 sealed interface RulesQaUiState {
     data object Idle : RulesQaUiState
     data object Loading : RulesQaUiState
-    data class Ready(val text: String, val passageIds: List<String>, val isFallback: Boolean) : RulesQaUiState
+    data class Ready(
+        val text: String,
+        val sources: List<RuleCitation>,
+        val isFallback: Boolean,
+    ) : RulesQaUiState {
+        /** Ids alone, for tests and any caller keying on identity. Derived, never stored. */
+        val passageIds: List<String> get() = sources.map { it.id }
+    }
     data object Unavailable : RulesQaUiState
 }
 
@@ -41,7 +49,7 @@ class RulesQaStateHolder(
                 is RulesQaResult.Success ->
                     RulesQaUiState.Ready(
                         CitationSanitizer.sanitize(result.text),
-                        result.passageIds,
+                        result.citations,
                         isFallback = false,
                     )
                 is RulesQaResult.FellBack ->
