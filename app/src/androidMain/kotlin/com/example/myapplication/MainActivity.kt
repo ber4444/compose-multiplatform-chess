@@ -173,20 +173,30 @@ class MainActivity : ComponentActivity() {
                     (generator as? com.example.ondeviceai.cactus.CactusTextGenerator)?.awaitWarmup()
                         ?: generator?.warmup()
                 }
-                while (warmupJob.isActive) {
-                    val status = generator?.status()
-                    if (status is com.example.ondeviceai.AiAvailability.Downloading) {
-                        val percentageStr = status.progress?.let { " (${(it * 100).toInt()}%)" } ?: ""
-                        holder.moveCoachManager.setCoachModelState(
-                            com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
-                                message = "Downloading Gemma 270M model (first launch only)$percentageStr…",
-                                progress = status.progress
+                // Poll rather than observe: neither Cactus nor the OnDeviceTextGenerator seam
+                // exposes a progress callback, so status() is the only signal. It is deliberately
+                // off the engine dispatcher (see CactusTextGenerator.status) so it answers during
+                // the download instead of queueing behind it.
+                try {
+                    while (warmupJob.isActive) {
+                        val status = generator?.status()
+                        if (status is com.example.ondeviceai.AiAvailability.Downloading) {
+                            val percent = status.progress?.let { " (${(it * 100).toInt()}%)" } ?: ""
+                            holder.moveCoachManager.setCoachModelState(
+                                com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
+                                    message = "Downloading the coach model (first launch only)$percent…",
+                                    progress = status.progress,
+                                )
                             )
-                        )
+                        }
+                        kotlinx.coroutines.delay(MODEL_PROGRESS_POLL_INTERVAL_MS)
                     }
-                    kotlinx.coroutines.delay(250)
+                } finally {
+                    // The loop exits as soon as the job goes inactive, which happens fractionally
+                    // before it completes; join so the status() read below sees the real outcome.
+                    // In a finally because a cancelled attach must not leave the job unawaited.
+                    warmupJob.join()
                 }
-                warmupJob.join()
 
                 (generator?.status() as? com.example.ondeviceai.AiAvailability.Error)?.let {
                     // Logged, not surfaced: the deterministic coach still answers every move, so
@@ -215,6 +225,9 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         private const val SYSTEM_BAR_SCRIM = 0x66000000
+
+        /** How often the coach panel re-reads download progress during first-launch warmup. */
+        private const val MODEL_PROGRESS_POLL_INTERVAL_MS = 250L
     }
 }
 

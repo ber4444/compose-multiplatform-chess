@@ -111,7 +111,11 @@ fun MoveCoachPanel(
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White,
             )
-            
+
+            // Determinate only when the runtime can say how far along it is: Cactus reports a
+            // fraction by watching the partial file grow, LiteRT-LM (desktop/wasm) reports none.
+            // A null progress leaves the surrounding spinner as the whole indicator rather than
+            // rendering a bar stuck at zero.
             val progress = (state as? MoveCoachUiState.LoadingModel)?.progress
             if (progress != null) {
                 Spacer(modifier = Modifier.size(8.dp))
