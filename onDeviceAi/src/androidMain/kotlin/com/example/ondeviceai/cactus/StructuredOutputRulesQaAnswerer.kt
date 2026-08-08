@@ -97,7 +97,7 @@ class StructuredOutputRulesQaAnswerer(
     }
 
     private fun parseLookupQuery(output: String): String? {
-        val match = LOOKUP_ENVELOPE.matchEntire(output) ?: return null
+        val match = LOOKUP_ENVELOPE.find(output) ?: return null
         return match.groupValues[1]
             .replace("\\\"", "\"")
             .replace("\\\\", "\\")
