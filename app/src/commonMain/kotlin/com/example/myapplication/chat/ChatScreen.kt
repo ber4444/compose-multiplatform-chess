@@ -84,7 +84,7 @@ fun ChatScreen(
             }
             if (state.streaming) {
                 item(key = "__streaming__") {
-                    StreamingRow(state.displayPartialText, state.firstTokenReceived)
+                    StreamingRow(state.displayPartialText, state.firstTokenReceived, state.streamingRoute)
                 }
             }
             if (state.error && !state.streaming) {
@@ -156,7 +156,11 @@ private fun MessageRow(message: ChatMessage) {
 }
 
 @Composable
-private fun StreamingRow(partialText: String, firstTokenReceived: Boolean) {
+private fun StreamingRow(
+    partialText: String,
+    firstTokenReceived: Boolean,
+    route: com.example.ondeviceai.AiRoute?,
+) {
     Column(modifier = Modifier.fillMaxWidth().testTag("chat_streaming_row")) {
         Text("Coach", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         if (!firstTokenReceived) {
@@ -166,13 +170,15 @@ private fun StreamingRow(partialText: String, firstTokenReceived: Boolean) {
                 Text("Thinking…")
             }
         } else {
-            // Chat is cloud-only by design (a RunOnDevice decision is treated as no route), so an
-            // in-flight turn's provenance is known — but only label text that already exists.
-            com.example.myapplication.ui.ProvenanceBadge(
-                route = com.example.ondeviceai.AiRoute.Cloud,
-                modifier = Modifier.testTag("chat_provenance")
-            )
             Text(partialText, style = MaterialTheme.typography.bodyMedium)
+            // The route comes from the view model, not from this composable knowing chat is
+            // cloud-only — same rule as every other badge call site.
+            if (route != null) {
+                com.example.myapplication.ui.ProvenanceBadge(
+                    route = route,
+                    modifier = Modifier.testTag("chat_provenance")
+                )
+            }
         }
     }
 }

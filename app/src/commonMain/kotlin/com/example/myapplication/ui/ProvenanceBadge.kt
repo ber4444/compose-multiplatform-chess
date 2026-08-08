@@ -1,16 +1,10 @@
 package com.example.myapplication.ui
 
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import com.example.ondeviceai.AiRoute
 
 /**
@@ -23,8 +17,17 @@ import com.example.ondeviceai.AiRoute
  * `DeterministicCoach` line, `MoveCoachFallback`, the server's template composers) is
  * engine-derived, and labelling it model-phrased is the misreport this badge exists to prevent.
  *
- * The glyph and the label are merged into one semantics node, so a `testTag` on the badge can be
- * asserted with `assertTextContains` without an unmerged tree.
+ * Two deliberate choices in the rendering:
+ *
+ * - **No glyph.** An emoji (☁️/📱/⚙️) reads well on Android and iOS and renders as tofu on the
+ *   desktop JVM, whose default AWT font chain carries no colour-emoji font — and this is a
+ *   five-target app. The label alone says the same thing everywhere.
+ * - **Plain English, not taxonomy.** "Engine-derived" is our word for it, not the user's. Each
+ *   label answers the two questions a provenance badge exists to answer — who wrote this, and did
+ *   it leave my device — in words that need no glossary.
+ *
+ * The badge is a single text node, so a `testTag` on it can be asserted with `assertTextContains`
+ * without an unmerged tree.
  */
 @Composable
 fun ProvenanceBadge(
@@ -32,34 +35,16 @@ fun ProvenanceBadge(
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
-    val glyph = when (route) {
-        is AiRoute.Fallback -> "⚙️"
-        is AiRoute.OnDevice -> "📱"
-        is AiRoute.Cloud -> "☁️"
+    val label = when (route) {
+        is AiRoute.Fallback -> "Written by the app, not a model"
+        is AiRoute.OnDevice -> "Written by a model on your device"
+        is AiRoute.Cloud -> "Written by a model in the cloud"
     }
 
-    val text = when (route) {
-        is AiRoute.Fallback -> "Engine-derived"
-        is AiRoute.OnDevice -> "Model-phrased • Never left your device"
-        is AiRoute.Cloud -> "Model-phrased"
-    }
-
-    val tint = color.copy(alpha = 0.7f)
-
-    Row(
-        modifier = modifier.semantics(mergeDescendants = true) {},
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = glyph,
-            style = MaterialTheme.typography.labelSmall,
-            color = tint,
-        )
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall,
-            color = tint,
-        )
-    }
+    Text(
+        text = label,
+        modifier = modifier,
+        style = MaterialTheme.typography.labelSmall,
+        color = color.copy(alpha = 0.7f),
+    )
 }

@@ -55,12 +55,12 @@ fun RulesQaScreen(
                 RulesQaUiState.Loading -> CircularProgressIndicator()
                 RulesQaUiState.Unavailable -> Text("Offline rules Q&A is unavailable on this platform or build.")
                 is RulesQaUiState.Ready -> {
+                    Text(current.text, modifier = Modifier.testTag("rules_answer"))
+                    if (current.passageIds.isNotEmpty()) Text("Sources: ${current.passageIds.joinToString()}")
                     com.example.myapplication.ui.ProvenanceBadge(
                         route = current.route,
                         modifier = Modifier.testTag("rules_qa_provenance")
                     )
-                    Text(current.text, modifier = Modifier.testTag("rules_answer"))
-                    if (current.passageIds.isNotEmpty()) Text("Sources: ${current.passageIds.joinToString()}")
                 }
             }
         }

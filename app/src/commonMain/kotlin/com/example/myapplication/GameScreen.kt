@@ -350,12 +350,12 @@ fun GameScreen(
                             val exp = state.explanation
                             Column(modifier = Modifier.padding(8.dp)) {
                                 Text("Coach Summary", fontWeight = FontWeight.Bold)
+                                Text(exp.explanation, style = MaterialTheme.typography.bodyMedium)
+                                Spacer(modifier = Modifier.height(4.dp))
                                 com.example.myapplication.ui.ProvenanceBadge(
                                     route = exp.route,
                                     modifier = Modifier.testTag("game_summary_provenance")
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(exp.explanation, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                         is GameSummaryUiState.Fallback -> {
@@ -376,14 +376,14 @@ fun GameScreen(
                                     )
                                     FallbackPresentation.Silent -> Unit
                                 }
+                                Text(fallback.text, style = MaterialTheme.typography.bodyMedium)
+                                Spacer(modifier = Modifier.height(4.dp))
                                 // Fallback text is engine-derived by construction, so the reason
                                 // that produced it is also its provenance (B11).
                                 com.example.myapplication.ui.ProvenanceBadge(
                                     route = com.example.ondeviceai.AiRoute.Fallback(fallback.reason),
                                     modifier = Modifier.testTag("game_summary_provenance")
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(fallback.text, style = MaterialTheme.typography.bodyMedium)
                                 if (presentation is FallbackPresentation.Retryable) {
                                     TextButton(onClick = { gameSummaryManager.retry() }) {
                                         Text("Retry")
