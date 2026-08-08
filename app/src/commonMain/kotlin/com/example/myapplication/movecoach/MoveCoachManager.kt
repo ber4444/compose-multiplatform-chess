@@ -232,10 +232,13 @@ class MoveCoachManager(
         scope.cancel()
     }
 
-    private companion object {
+    // internal, not private: [squaresNamedIn] is the one member the module reaches for — a private
+    // companion hides even its internal members, so `MoveCoachSquareParsingTest` could not see it.
+    // Everything else here stays private.
+    internal companion object {
         /** Enough to break a rut, short enough that the ban list stays a hint and not a paragraph. */
-        const val MAX_REMEMBERED_FRAMES = 3
-        const val FRAME_WORDS = 3
+        private const val MAX_REMEMBERED_FRAMES = 3
+        private const val FRAME_WORDS = 3
 
         /**
          * A board square, in plain algebraic ("e4") or SAN with a piece letter ("Nf3", "Bxc4").
