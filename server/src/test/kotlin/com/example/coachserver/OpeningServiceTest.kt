@@ -5,6 +5,7 @@ import com.example.coachapi.Passage
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OpeningServiceTest {
@@ -140,6 +141,43 @@ class OpeningServiceTest {
         )
 
         assertEquals("template-v1", result.composerId)
+    }
+
+    /**
+     * The per-sentence anchor is [OpeningExplanationValidator.MIN_SOURCE_OVERLAP] content words,
+     * lowered to 1 so a correct paraphrase is no longer rejected for failing to reuse the corpus's
+     * own wording (the bar the fallback rate was actually measuring). Both directions are pinned
+     * here, because a relaxation with no test is indistinguishable from a deletion.
+     */
+    @Test
+    fun `a paraphrase sharing one content word per sentence is accepted`() {
+        val passages = listOf(
+            Passage("c20", "King's Pawn Game", "Both king pawns contest the center and open development lines."),
+        )
+        val text = "A paraphrase that avoids the source's phrasing still discusses the center [c20]. " +
+            "Rapid piece play follows once those lines are contested [c20]."
+
+        assertNull(
+            OpeningExplanationValidator.rejectionReason(text, passages),
+            "Reason: ${OpeningExplanationValidator.rejectionReason(text, passages)}",
+        )
+    }
+
+    @Test
+    fun `a cited sentence sharing nothing with its source is still rejected`() {
+        val passages = listOf(
+            Passage("c20", "King's Pawn Game", "Both king pawns contest the center and open development lines."),
+        )
+        // Fluent, correctly cited, and about a position nobody retrieved. The bracketed id is the
+        // one thing a model copies reliably from its prompt, so citation alone is not grounding.
+        val text = "Rook lifts decide the resulting endgame struggle [c20]. " +
+            "Knight outposts appear near squares nobody guards [c20]."
+
+        assertEquals(
+            "sentence shares only 0 content word(s) [] with its source, need 1: " +
+                "Rook lifts decide the resulting endgame struggle [c20].",
+            OpeningExplanationValidator.rejectionReason(text, passages),
+        )
     }
 
     @Test

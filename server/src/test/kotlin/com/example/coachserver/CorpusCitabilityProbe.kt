@@ -8,9 +8,12 @@ import kotlin.test.assertTrue
  * The objective floor under `OpeningExplanationValidator`: does a retrieved passage carry enough
  * distinct vocabulary for a *satisfiable* answer?
  *
- * The validator requires 2–3 sentences, each citing a passage and each sharing **at least two**
- * content words (≥4 chars, non-stopword) with the passage it cites. That is a constraint on the
- * corpus as much as on the writer. With the old passage shape — `"Ruy Lopez is classified as ECO
+ * The validator requires 2–3 sentences, each citing a passage and each sharing at least
+ * [OpeningExplanationValidator.MIN_SOURCE_OVERLAP] content words (≥4 chars, non-stopword) with the
+ * passage it cites. That is a constraint on the corpus as much as on the writer, and this floor is
+ * deliberately measured against **two** words per sentence rather than the current relaxed bar: a
+ * corpus that can only be cited once is the substrate problem, whatever the validator is tuned to
+ * at the time. With the old passage shape — `"Ruy Lopez is classified as ECO
  * C60. A representative move sequence is 1. e4 e5 2. Nf3 Nc6 3. Bb5."` — a passage carried five
  * content words, four of which (`classified`, `representative`, `sequence`, `move`) were identical
  * in every one of the ~3,800 rows. That left **one** distinctive word. Two different sentences

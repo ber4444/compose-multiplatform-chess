@@ -7,6 +7,7 @@ import com.example.ondeviceai.AiRoute
 import com.example.ondeviceai.AiRoutePolicyDecider
 import com.example.ondeviceai.AiTokenOrFinal
 import com.example.ondeviceai.OnDeviceTextGenerator
+import com.example.ondeviceai.withAntiRepetitionGuard
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -90,6 +91,7 @@ class LitertLmWasmTextGenerator(
             "userPrompt" to request.userPrompt,
             "maxTokens" to request.maxOutputTokens.toString(),
             "temperature" to request.temperature.toString(),
+            "repetitionPenalty" to (request.repetitionPenalty?.toString() ?: "1.0"),
         )
         worker?.postMessage(req.toJsString())
 
@@ -138,7 +140,10 @@ class LitertLmWasmTextGenerator(
                 is WorkerMsg.Status -> Unit
             }
         }
-    }
+    }.withAntiRepetitionGuard(
+        ngramSize = request.noRepeatNgramSize,
+        stopSequences = request.stopSequences,
+    )
 
     /** No-op — keeps the worker + model warm across moves (mirrors desktop/Android). */
     override suspend fun release() {}

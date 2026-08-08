@@ -361,7 +361,7 @@ val desktopFilamentNativeLibraryPath = desktopFilamentCmakeDir.map { cmakeDir ->
 val configureDesktopFilamentBridge by tasks.registering(Exec::class) {
     val sourceDir = layout.projectDirectory.dir("src/desktopMain/native/filament_bridge")
     inputs.dir(sourceDir)
-    inputs.dir(layout.projectDirectory.dir("src/desktopMain/filament/filament"))
+    inputs.dir(layout.projectDirectory.dir("src/desktopMain/filament/filament")).optional()
     outputs.dir(desktopFilamentCmakeDir)
     commandLine(
         "cmake",
