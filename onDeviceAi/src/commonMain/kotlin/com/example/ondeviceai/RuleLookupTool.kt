@@ -24,8 +24,10 @@ fun createBundledRuleLookupTool(): RuleLookupTool = BundledRuleLookupTool()
  *
  * It also keeps iOS out of it: that bridge hands back a CSV of ids and has no passages to thread.
  */
-internal fun ruleTitleForId(id: String): String? =
-    GeneratedRulePassages.firstOrNull { it.id == id }?.title
+internal fun rulePassageForId(id: String): RulePassage? =
+    GeneratedRulePassages.firstOrNull { it.id == id }
+
+internal fun ruleTitleForId(id: String): String? = rulePassageForId(id)?.title
 
 /**
  * Small, deterministic BM25 scan over the generated bundled corpus.

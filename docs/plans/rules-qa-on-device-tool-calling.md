@@ -157,9 +157,18 @@ user — P0 is.
 
 ### P1-2 Structured answer envelope (the turn that users actually see)
 
-The second turn must currently emit a literal `[draw-dead-position]` inside prose or
-`RulesQaResponseValidator` rejects it. A 270M model will not do that reliably, so after #131 the
-user usually sees the raw passage rather than a phrased answer. Correct, but flat.
+> **Partly overtaken by events.** On-device logging confirmed the exact failure —
+> `model wording refused (answer does not cite a retrieved passage id)` — i.e. the model produced a
+> correct, in-budget answer and lost it purely on the citation format. Rather than build the envelope
+> first, `RulesQaResponseValidator` now accepts an **uncited answer that is anchored** to a retrieved
+> passage by content-word overlap, and derives the citation from that overlap. This mirrors
+> `PositionChatValidator`, which had already concluded that overlap is the real grounding check and
+> the id the weak one. Re-measure before building the envelope: it is now a quality upgrade over a
+> working path, not a fix for a broken one.
+
+The second turn used to require a literal `[draw-dead-position]` inside prose or
+`RulesQaResponseValidator` rejected it. A 270M model will not do that reliably, so after #131 the
+user usually saw the raw passage rather than a phrased answer. Correct, but flat.
 
 Replace the demand with a schema:
 

@@ -112,15 +112,63 @@ object RulesQaGrounding {
 object RulesQaResponseValidator {
     const val MAX_OUTPUT_CHARS = 600
 
+    /**
+     * Content words an answer must share with a retrieved passage to count as grounded in it.
+     *
+     * **This replaced "the answer must contain `[passage-id]`" as the primary rule, and the reason
+     * is the runtime.** `PositionChatValidator` notes that "the id is the one thing a model copies
+     * reliably from its prompt" — true of a cloud model, and the exact opposite on device. Measured
+     * on a real device, gemma3-270m produced a correct, in-budget answer and simply did not echo the
+     * bracketed id: `model wording refused (answer does not cite a retrieved passage id)`. The rule
+     * was rejecting good answers for a formatting miss, which is precisely the mistake `:server`
+     * already made and fixed (see "Why the provider LLM failed" in CLAUDE.md — a literal-string
+     * check that scored verbatim copying and failed every correct paraphrase).
+     *
+     * Overlap is a *weaker* claim than a citation but a *stronger* grounding check: an id proves the
+     * model read its prompt, whereas shared content words prove the answer is about the passage. The
+     * bar is kept above zero for the reason `PositionChatValidator` gives — with no anchor at all,
+     * any fluent invention validates.
+     */
+    const val MIN_SOURCE_OVERLAP = 2
+
     fun validate(text: String, retrievedPassageIds: List<String>): Result {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return Result.Invalid("empty answer")
         if (trimmed.length > MAX_OUTPUT_CHARS) return Result.Invalid("answer too long")
         if (retrievedPassageIds.isEmpty()) return Result.Invalid("no passage was retrieved")
+
+        // An explicit citation is still the strongest signal, and still accepted first: it names the
+        // passage the model itself claims to have used, rather than one inferred from word overlap.
         val cited = retrievedPassageIds.filter { id -> trimmed.contains("[$id]") }
-        if (cited.isEmpty()) return Result.Invalid("answer does not cite a retrieved passage id")
-        return Result.Valid(trimmed, cited.distinct())
+        if (cited.isNotEmpty()) return Result.Valid(trimmed, cited.distinct())
+
+        // Tags are removed before measuring overlap: `[draw-fifty-move]` tokenizes to "draw", "fifty",
+        // "move", which would let an answer anchor itself on the id it just invented. An id is
+        // evidence about the prompt, never about the prose.
+        val answerWords = contentWords(trimmed.replace(CITATION_TAG, " "))
+        val anchored = retrievedPassageIds.filter { id ->
+            val passage = rulePassageForId(id) ?: return@filter false
+            contentWords("${passage.title} ${passage.text}").count { it in answerWords } >=
+                MIN_SOURCE_OVERLAP
+        }
+        if (anchored.isEmpty()) {
+            return Result.Invalid("answer is not anchored to any retrieved passage")
+        }
+        return Result.Valid(trimmed, anchored)
     }
+
+    /** Lowercased distinct words, minus the ones every sentence shares regardless of topic. */
+    private fun contentWords(value: String): Set<String> = WORD.findAll(value.lowercase())
+        .map { it.value }
+        .filter { it.length > 2 && it !in STOP_WORDS }
+        .toSet()
+
+    private val WORD = Regex("[a-z0-9]+")
+    private val CITATION_TAG = Regex("\\[[^\\[\\]]*]")
+    private val STOP_WORDS = setOf(
+        "and", "are", "any", "but", "can", "for", "from", "has", "have", "not", "the", "that",
+        "this", "when", "with", "you", "your", "its", "may", "must", "was", "were", "will",
+    )
 
     sealed interface Result {
         data class Valid(val text: String, val citedPassageIds: List<String>) : Result

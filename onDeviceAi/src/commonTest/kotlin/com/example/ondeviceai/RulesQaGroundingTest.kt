@@ -78,9 +78,17 @@ class RulesQaGroundingTest {
     }
 
     @Test
-    fun `uncited model wording is replaced by the passage, not discarded`() {
-        // The observed 270M failure: fluent, correct, and with no bracketed id anywhere.
+    fun `uncited wording is kept when it is anchored to the passage`() {
+        // The observed 270M failure: fluent, correct, and with no bracketed id anywhere. This is now
+        // an accepted answer rather than a discarded one — the citation is derived from the overlap.
         val model = "Yes, that is a draw because neither side has enough material to checkmate."
+
+        assertEquals(model, RulesQaGrounding.answerOrReference(model, listOf(passage)))
+    }
+
+    @Test
+    fun `wording that shares nothing with the passage falls back to it`() {
+        val model = "Sure! Here you go."
 
         val text = RulesQaGrounding.answerOrReference(model, listOf(passage))
 
