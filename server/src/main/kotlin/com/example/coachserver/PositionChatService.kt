@@ -345,10 +345,10 @@ class LlmChatComposer(
         passages.forEach { appendLine("[${it.sourceId}] ${it.title}: ${it.text}") }
         appendLine("Player's Question: ${request.userMessage.trim()}")
         append("Answer in 1-2 short sentences using only these sources. ")
-        // The validator requires >= 2 content words shared with the cited passage per sentence, so a
-        // loose paraphrase gets rejected even when it is factually correct. Fewer sentences also
-        // means fewer chances for the model to append an unsupported one.
-        append("Reuse the sources' own wording; do not paraphrase loosely or add facts. ")
+        // Synthesis, not quotation. The previous "reuse the sources' own wording" instruction was
+        // written for a two-content-word overlap bar. That bar is now one word ([PositionChatValidator.MIN_SOURCE_OVERLAP]),
+        // so an on-topic synthesized answer still validates — and reads as an answer instead of a restated passage.
+        append("Answer the question directly, synthesizing the facts rather than quoting verbatim. ")
         // Placement matters as much as presence: an id after the closing period lands in the *next*
         // sentence once the validator splits, leaving the sentence it belongs to uncited.
         passages.firstOrNull()?.let { example ->
@@ -473,7 +473,14 @@ class OpenAiCompatibleStreamingLlmClient(
     private val model: String,
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val json: Json = Json { ignoreUnknownKeys = true },
-    private val requestTimeout: java.time.Duration = java.time.Duration.ofSeconds(15),
+    /**
+     * Default only — production wires `CHAT_PROVIDER_TIMEOUT_MS` from `Application.selectChatComposer`,
+     * so raising this alone changes nothing that is deployed. Kept aligned with that constant (20 s),
+     * which is itself aligned with `AiRoutePolicies.positionChat`'s `completeMs`: past that the client
+     * has already given up on the turn, and a late downgrade to template text is a worse outcome to
+     * have waited for than an error.
+     */
+    private val requestTimeout: java.time.Duration = java.time.Duration.ofSeconds(20),
 ) : StreamingLlmClient {
     override fun streamGenerate(
         systemPrompt: String,
@@ -596,12 +603,33 @@ class OpenAiCompatibleStreamingLlmClient(
 /**
  * Grounding validator for streamed chat output. Mirrors [OpeningExplanationValidator] but is
  * slightly more permissive (1-3 sentences, not strictly 2-3) since chat answers vary in length.
- * The same forbidden-phrase, citation, and token-overlap rules apply so chat cannot leak engine
- * depth/ratings or make unsupported certainty claims. Returns the trimmed text on success, `null`
- * on any failure (→ the composer emits a [ChatChunk.Fallback]).
+ * The same forbidden-phrase, citation, and token-overlap rules apply — the latter at the relaxed
+ * [MIN_SOURCE_OVERLAP] bar — so chat cannot leak engine depth/ratings or make unsupported certainty
+ * claims. Returns the trimmed text on success, `null` on any failure (→ the composer emits a
+ * [ChatChunk.Fallback]).
+ *
+ * The overlap bar is one content word, not the two [OpeningExplanationValidator] originally
+ * used: a chat answer is asked to answer the question rather than quote the corpus, and at two words
+ * a correct synthesis was rejected while verbatim copying sailed through. One word still keeps the
+ * sentence *anchored* to the passage it cites — dropping the rule entirely would accept any fluent
+ * sentence that ends in a valid id, which is the one failure mode retrieval grounding exists to
+ * prevent (see "Cloud retrieval" in CLAUDE.md: every wrong answer measured live was fluent, cited
+ * and validator-approved).
  */
 object PositionChatValidator {
     const val MAX_OUTPUT_CHARS = 400
+
+    /**
+     * Content words a sentence must share with the passage it cites — the same relaxed bar as
+     * [OpeningExplanationValidator.MIN_SOURCE_OVERLAP], referenced rather than copied so the two
+     * cannot drift apart.
+     *
+     * Kept as a bar rather than dropped: with no anchor at all, the only remaining grounding check is
+     * that a sentence carries a *known* id, and the id is the one thing a model copies reliably from
+     * its prompt. Fluent invention about a different position would then validate, and this route has
+     * no second line of defence — [PositionChatService] streams whatever validates straight to the user.
+     */
+    const val MIN_SOURCE_OVERLAP = OpeningExplanationValidator.MIN_SOURCE_OVERLAP
 
     private val forbiddenPhrases = listOf(
         "i think stockfish",
@@ -640,7 +668,7 @@ object PositionChatValidator {
                     .filter { it.length >= 4 && it !in stopWords }
                     .filterNot { token -> cited.any { id -> token in id.lowercase() } }
                     .toSet()
-                claimTokens.intersect(sourceTokens).size < 2 ||
+                claimTokens.intersect(sourceTokens).size < MIN_SOURCE_OVERLAP ||
                     unsupportedCertainty.any { phrase -> phrase in sentence.lowercase() && phrase !in sourceText }
             }) return null
         return text

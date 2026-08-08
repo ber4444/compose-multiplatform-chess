@@ -7,6 +7,7 @@ import com.example.ondeviceai.AiRoute
 import com.example.ondeviceai.AiRoutePolicyDecider
 import com.example.ondeviceai.AiTokenOrFinal
 import com.example.ondeviceai.OnDeviceTextGenerator
+import com.example.ondeviceai.withAntiRepetitionGuard
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.ConversationConfig
@@ -197,7 +198,10 @@ class LitertLmTextGenerator(
                 }
             }
         }
-    }.flowOn(engineDispatcher)
+    }.withAntiRepetitionGuard(
+        ngramSize = request.noRepeatNgramSize,
+        stopSequences = request.stopSequences,
+    ).flowOn(engineDispatcher)
 
     /** No-op — keeps the model warm across moves (mirrors CactusTextGenerator). */
     override suspend fun close() {}

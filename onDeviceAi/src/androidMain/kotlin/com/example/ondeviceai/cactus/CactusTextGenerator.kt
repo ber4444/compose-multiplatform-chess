@@ -13,6 +13,7 @@ import com.example.ondeviceai.AiRoute
 import com.example.ondeviceai.AiRoutePolicyDecider
 import com.example.ondeviceai.AiTokenOrFinal
 import com.example.ondeviceai.OnDeviceTextGenerator
+import com.example.ondeviceai.withAntiRepetitionGuard
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -127,6 +128,7 @@ class CactusTextGenerator(
                 params = CactusCompletionParams(
                     temperature = request.temperature,
                     maxTokens = request.maxOutputTokens,
+                    stopSequences = request.stopSequences.ifEmpty { TURN_TERMINATORS },
                 ),
             )
         } finally {
@@ -155,7 +157,10 @@ class CactusTextGenerator(
                 )
             )
         )
-    }.flowOn(engineDispatcher)
+    }.withAntiRepetitionGuard(
+        ngramSize = request.noRepeatNgramSize,
+        stopSequences = request.stopSequences.ifEmpty { TURN_TERMINATORS },
+    ).flowOn(engineDispatcher)
 
     /**
      * Strip Gemma chat-template artifacts. Cactus surfaces the raw completion, so gemma3-270m's
