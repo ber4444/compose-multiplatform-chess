@@ -50,7 +50,12 @@ dependencies {
     // TEST-ONLY: jackson never reaches runtimeClasspath (swagger lives under testImplementation),
     // but a platform import under `implementation` still constrains the test configs' transitive
     // resolution. `enforcedPlatform` isn't needed — nothing requests a higher jackson.
-    implementation(platform("com.fasterxml.jackson:jackson-bom:2.21.4"))
+    //
+    // 2.21.4 -> 2.21.5: three jackson-databind advisories land on the same patch release —
+    // GHSA-5gvw-p9qm-jgwh, GHSA-mhm7-754m-9p8w (both @JsonView bypasses) and GHSA-5jmj-h7xm-6q6v
+    // (case-insensitive deserialization defeating per-property @JsonIgnoreProperties). Staying in
+    // the 2.21 line rather than jumping to 2.22.x keeps this a patch bump.
+    implementation(platform("com.fasterxml.jackson:jackson-bom:2.21.5"))
 }
 
 kotlin {
