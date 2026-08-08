@@ -13,3 +13,17 @@ import androidx.compose.runtime.staticCompositionLocalOf
  * or fall back gracefully.
  */
 val LocalEntitlements = staticCompositionLocalOf<Entitlements?> { null }
+
+/**
+ * Debug-only blanket unlock, consulted by [isProUnlocked].
+ *
+ * Exists so the override applies to **all five** Pro surfaces from one place. Threading a
+ * `forceProUnlocked` boolean through individual branches unlocked Rules Q&A and Position Chat while
+ * leaving Game Summary and the Opening Explainer — which gate through `ProGate` -> [isProUnlocked]
+ * — still locked, so a debug build showed a partially-paywalled app that matches no real user.
+ *
+ * Defaults to `false`, and entry points must only set it from a debug signal (`FLAG_DEBUGGABLE` /
+ * `Platform.isDebugBinary`). It deliberately does **not** affect `PaywallScreen`, which reads
+ * [LocalEntitlements] directly so it can still be inspected in a debug build.
+ */
+val LocalProUnlockOverride = staticCompositionLocalOf { false }

@@ -53,6 +53,7 @@ import com.example.ondeviceai.createBundledRuleLookupTool
 import com.example.ondeviceai.defaultRulesQaAnswerer
 import com.example.myapplication.monetization.Entitlements
 import com.example.myapplication.monetization.LocalEntitlements
+import com.example.myapplication.monetization.LocalProUnlockOverride
 import com.example.myapplication.monetization.UnconfiguredEntitlements
 import com.example.myapplication.monetization.PaywallScreen
 import com.example.myapplication.monetization.ProUpsellCard
@@ -118,6 +119,7 @@ fun AppRoot(
     CompositionLocalProvider(
         LocalAppSettings provides settings,
         LocalEntitlements provides entitlements,
+        LocalProUnlockOverride provides forceProUnlocked,
         LocalMoveCoachManager provides moveCoachManager,
         LocalGameSummaryManager provides gameSummaryManager,
         LocalOpeningExplainerStateHolder provides openingExplainerStateHolder,
@@ -183,7 +185,7 @@ fun AppRoot(
                 // `rulesQaAnswerer == null` short-circuits the gate for the same reason ProGate's
                 // `available` flag does — on a build with no answerer the feature stays dead after a
                 // purchase, so it must not be sold. RulesQaScreen already says so itself.
-                Screen.RULES -> if (rulesQaAnswerer == null || forceProUnlocked || isProUnlocked()) {
+                Screen.RULES -> if (rulesQaAnswerer == null || isProUnlocked()) {
                     RulesQaScreen(
                         stateHolder = rulesQaStateHolder,
                         onBack = { screen = Screen.GAME },
@@ -212,7 +214,7 @@ fun AppRoot(
                             )
                         }
 
-                    forceProUnlocked || isProUnlocked() -> ChatScreen(
+                    isProUnlocked() -> ChatScreen(
                         viewModel = chatViewModel,
                         gameState = gameState,
                         onBack = { screen = Screen.GAME },

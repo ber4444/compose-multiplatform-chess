@@ -180,6 +180,57 @@ class MoveCoachResponseValidatorTest {
         assertTrue(!prompt.contains("Bad:"))
     }
 
+    // Conversational-preamble stripping. Runs on every target — commonTest is the point: the
+    // implementation is prefix matching precisely because a regex with an inline (?i) flag throws
+    // on Kotlin/JS, and only a common test would catch that.
+
+    @Test
+    fun `strips a conversational preamble and keeps the answer`() {
+        assertEquals(
+            "Nf3 develops a piece toward the center.",
+            MoveCoachResponseValidator.normalize("Okay, here we go. Nf3 develops a piece toward the center."),
+        )
+    }
+
+    @Test
+    fun `strips a preamble that ends in a colon`() {
+        assertEquals(
+            "Nf3 develops a piece toward the center.",
+            MoveCoachResponseValidator.normalize("Here's the explanation: Nf3 develops a piece toward the center."),
+        )
+    }
+
+    @Test
+    fun `preamble matching is case-insensitive`() {
+        assertEquals(
+            "Nf3 develops a piece toward the center.",
+            MoveCoachResponseValidator.normalize("SURE! Nf3 develops a piece toward the center."),
+        )
+    }
+
+    @Test
+    fun `keeps text whose opening word merely resembles a preamble`() {
+        // "Certainly" only opens a preamble when a preamble follows; here it opens the answer, and
+        // eating everything to the first period would delete the whole first sentence.
+        val text = "Certainly the knight belongs on f3."
+        assertEquals(text, MoveCoachResponseValidator.normalize(text))
+    }
+
+    @Test
+    fun `does not empty a response that is nothing but filler`() {
+        // Better to hand the validator a blank-ish line it will reject than to silently produce "".
+        val text = "Okay."
+        assertEquals(text, MoveCoachResponseValidator.normalize(text))
+    }
+
+    @Test
+    fun `strips stacked few-shot labels regardless of order`() {
+        assertEquals(
+            "Nf3 develops a piece.",
+            MoveCoachResponseValidator.normalize("Bad: Good: Nf3 develops a piece."),
+        )
+    }
+
     @Test
     fun `leaves an unlabeled response unchanged`() {
         val v = MoveCoachResponseValidator.validate(

@@ -58,10 +58,14 @@ fun ChatScreen(
     LaunchedEffect(state.messages.size, state.partialText) {
         val lastIndex = state.messages.size - 1
         if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)
-        SubScreenScaffold(
+    }
+
+    SubScreenScaffold(
         title = "Position Chat",
         onBack = onBack,
         showBackButton = !isAndroidPlatform,
+        // The transcript is a LazyColumn that must own its own scrolling and give the input row a
+        // weight-based bottom anchor; a scrollable scaffold would nest two scroll containers.
         scrollable = false,
     ) {
         Column(
@@ -132,7 +136,7 @@ fun ChatScreen(
                 }
             }
         }
-    }  }
+    }
 }
 
 @Composable

@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
  */
 @Composable
 fun isProUnlocked(): Boolean {
+    if (LocalProUnlockOverride.current) return true
     val entitlements = LocalEntitlements.current ?: return true
     val unlocked by entitlements.isProUnlocked.collectAsState(entitlements.isProUnlocked.value)
     return unlocked

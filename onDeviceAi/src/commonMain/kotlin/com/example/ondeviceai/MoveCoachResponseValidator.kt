@@ -135,18 +135,50 @@ object MoveCoachResponseValidator {
         return stripConversationalFiller(filteredLines)
     }
 
+    /**
+     * Strips leading few-shot labels, repeatedly — a model that echoes "Good: Bad: …" needs more
+     * than one pass, and restarting the scan after each hit means the labels are order-independent
+     * rather than only stripping in list order.
+     */
     private fun stripFewShotLabel(line: String): String {
         var result = line
-        for (label in FEW_SHOT_LABELS) {
-            if (result.regionMatches(0, label, 0, label.length, ignoreCase = true)) {
-                result = result.substring(label.length).trim()
+        var strippedSomething = true
+        while (strippedSomething) {
+            strippedSomething = false
+            for (label in FEW_SHOT_LABELS) {
+                if (result.regionMatches(0, label, 0, label.length, ignoreCase = true)) {
+                    result = result.substring(label.length).trim()
+                    strippedSomething = true
+                    break
+                }
             }
         }
         return result
     }
 
-    private fun stripConversationalFiller(text: String): String =
-        text.replace(Regex("^(?i)(okay|sure|certainly|here is|here's|let me|let's|i understand)[^.!?\\n]*[.!?:]+\\s*"), "")
+    /**
+     * Drops a leading conversational preamble ("Okay, here's the explanation:") so the answer
+     * starts at the answer.
+     *
+     * No regex, deliberately — the same rule [normalize] documents. An inline `(?i)` flag in
+     * particular does not survive the trip: Kotlin/JS lowers `Regex` onto JS `RegExp`, which has no
+     * inline-flag syntax, so a pattern written that way throws on the target the React Native port
+     * consumes. Prefix matching over a fixed list needs none of it.
+     *
+     * The preamble is only removed when what follows it is non-empty: a response that is *entirely*
+     * filler should fail validation as blank rather than be silently emptied here.
+     */
+    private fun stripConversationalFiller(text: String): String {
+        for (opener in CONVERSATIONAL_OPENERS) {
+            if (!text.regionMatches(0, opener, 0, opener.length, ignoreCase = true)) continue
+            // The preamble runs to the first sentence end; anything past that is the answer.
+            val end = text.indexOfFirst { it in FILLER_TERMINATORS }
+            if (end == -1 || end == text.lastIndex) return text
+            val remainder = text.substring(end + 1).trimStart()
+            return if (remainder.isEmpty()) text else remainder
+        }
+        return text
+    }
 
     private fun unwrapQuotes(s: String): String =
         if (s.length >= 2 && s.first() == '"' && s.last() == '"') s.substring(1, s.length - 1).trim() else s
@@ -171,6 +203,18 @@ object MoveCoachResponseValidator {
         "Good:",
         "Bad:",
     )
+
+    /**
+     * Openers a chat-tuned model uses before getting to the answer. Prefixes only — matching these
+     * anywhere in the text would cut sentences out of the middle of a legitimate explanation.
+     */
+    private val CONVERSATIONAL_OPENERS = listOf(
+        "okay", "ok,", "ok ", "sure", "certainly", "of course",
+        "here is", "here's", "let me", "let's", "i understand",
+    )
+
+    /** What ends a preamble. A colon counts: "Here's the explanation:" is all preamble. */
+    private const val FILLER_TERMINATORS = ".!?:\n"
 
     /** Fingerprints of every sentence the prompt shows the model. Derived, never hand-copied. */
     private val SCAFFOLDING_FINGERPRINTS: List<String> =

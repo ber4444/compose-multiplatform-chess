@@ -152,7 +152,7 @@ class MoveCoachManager(
                             )
                         is MoveCoachEvent.Complete -> when (val result = event.result) {
                             is MoveCoachResult.Success -> {
-                                logger.d { "AI Coach Success! ${result.explanation.explanation}" }
+                                logger.d { "coach ok: ${result.explanation.explanation.take(LOG_EXCERPT_CHARS)}" }
                                 val shown = CitationSanitizer.sanitize(result.explanation.explanation)
                                 _coachUiState.value = MoveCoachUiState.Ready(
                                     result.explanation.copy(
@@ -163,14 +163,14 @@ class MoveCoachManager(
                                 rememberOpeningFrame(shown)
                             }
                             is MoveCoachResult.FellBack -> {
-                                logger.d { "AI Coach Fallback triggered! Reason: ${result.reason}" }
+                                logger.d { "coach fell back: ${result.reason}" }
                                 _coachUiState.value = MoveCoachUiState.Fallback(
                                     CitationSanitizer.sanitize(result.text),
                                     result.reason,
                                 )
                             }
                             is MoveCoachResult.Failed -> {
-                                logger.d { "AI Coach Failed! Reason: ${result.message}" }
+                                logger.d { "coach failed: ${result.message}" }
                                 _coachUiState.value = MoveCoachUiState.Error(result.message)
                             }
                         }
@@ -212,5 +212,8 @@ class MoveCoachManager(
         /** Enough to break a rut, short enough that the ban list stays a hint and not a paragraph. */
         const val MAX_REMEMBERED_FRAMES = 3
         const val FRAME_WORDS = 3
+
+        /** Keeps the per-move debug line to an identifying excerpt rather than the whole answer. */
+        private const val LOG_EXCERPT_CHARS = 120
     }
 }
