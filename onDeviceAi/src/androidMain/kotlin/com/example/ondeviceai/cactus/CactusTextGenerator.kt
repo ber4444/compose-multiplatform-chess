@@ -1,5 +1,6 @@
 package com.example.ondeviceai.cactus
 
+import co.touchlab.kermit.Logger
 import com.cactus.CactusCompletionParams
 import com.cactus.CactusInitParams
 import com.cactus.CactusLM
@@ -15,18 +16,24 @@ import com.example.ondeviceai.AiRoutePolicyDecider
 import com.example.ondeviceai.AiTokenOrFinal
 import com.example.ondeviceai.OnDeviceTextGenerator
 import com.example.ondeviceai.withAntiRepetitionGuard
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.io.File
 import java.util.concurrent.Executors
-import co.touchlab.kermit.Logger
 
 /**
  * Android [OnDeviceTextGenerator] backed by Cactus.
@@ -48,11 +55,11 @@ class CactusTextGenerator(
     private val contextSize: Int = DEFAULT_CONTEXT_SIZE,
 ) : OnDeviceTextGenerator {
 
+    private val logger: Logger = Logger.withTag("CactusTextGenerator")
+
     private val engineDispatcher = Executors.newSingleThreadExecutor { r ->
         Thread(r, "cactus-engine").apply { isDaemon = true }
     }.asCoroutineDispatcher()
-
-    private val logger = Logger.withTag("CactusTextGenerator")
 
     // @Volatile because status() is deliberately NOT confined to engineDispatcher any more (B18:
     // it must answer instantly while a download runs, instead of blocking behind it). Without the
@@ -60,6 +67,7 @@ class CactusTextGenerator(
     // forever after init has already succeeded on the engine thread.
     @Volatile private var lm: CactusLM? = null
     @Volatile private var initializationFailed: String? = null
+    @Volatile private var downloadProgress: Float? = null
 
     /**
      * The single in-flight initialization, or null when none has started. Shared rather than
@@ -68,6 +76,7 @@ class CactusTextGenerator(
      * `ensureInitialized`'s null check and start a second ~200 MB download of the same model.
      */
     private var initJob: Deferred<Unit>? = null
+    private var progressJob: Job? = null
     private val initMutex = Mutex()
     private val initScope = CoroutineScope(SupervisorJob() + engineDispatcher)
 
@@ -76,7 +85,7 @@ class CactusTextGenerator(
         if (lm != null) return AiAvailability.Available
         // Distinguishing "fetching" from "nothing here" is what lets the coach panel say
         // "downloading" instead of "unavailable" on first launch.
-        return if (initJob?.isActive == true) AiAvailability.Downloading else AiAvailability.Unavailable
+        return if (initJob?.isActive == true) AiAvailability.Downloading(downloadProgress) else AiAvailability.Unavailable
     }
 
     /** Starts initialization and returns immediately — the board and the deterministic coach stay
@@ -160,7 +169,10 @@ class CactusTextGenerator(
                 metrics = AiInferenceMetrics(
                     firstTokenMs = result?.timeToFirstTokenMs?.toLong(),
                     completeMs = System.currentTimeMillis() - start,
-                    tokenCount = result?.totalTokens ?: 1,
+                    // 0, not 1: a null token count means the vendor reported nothing, and the bench
+                    // JSONL treats this field as a measurement. Inventing one token per generation
+                    // biases every tok/s figure computed from it.
+                    tokenCount = result?.totalTokens ?: 0,
                     route = AiRoute.OnDevice,
                 )
             )
@@ -189,7 +201,7 @@ class CactusTextGenerator(
     }
 
     /** No-op — keeps the model warm across moves. */
-    override suspend fun close() {}
+    override suspend fun release() {}
 
     @Volatile override var supportsTools: Boolean = false
         private set
@@ -200,7 +212,7 @@ class CactusTextGenerator(
             CactusConfig.isTelemetryEnabled = false
             
             val instance = CactusLM()
-            
+
             // Resolve tool calling support once during warmup (off the critical path)
             // getModels() internally falls back to emptyList() on failure, but we wrap in a catch
             // anyway to guarantee it never fails the initialization of the model itself.
@@ -214,13 +226,70 @@ class CactusTextGenerator(
                 // Not fatal; defaults to false.
             }
 
-            instance.downloadModel(modelSlug)
+            // The download itself is opaque — Cactus exposes no progress callback (see
+            // docs/benchmarks/on-device-ai/cactus-download-progress.md), so the only signal is the
+            // partial file growing on disk. Cancelled in the `finally` below, which covers the
+            // cancellation path too: `downloadModel` hops to Dispatchers.IO and is therefore a real
+            // suspension point, so an `initJob` cancelled mid-download would otherwise leave this
+            // poller spinning for the life of the process.
+            progressJob = startDownloadProgressPolling(instance)
+            try {
+                instance.downloadModel(modelSlug)
+            } finally {
+                progressJob?.cancel()
+                progressJob = null
+                downloadProgress = null
+            }
+
             instance.initializeModel(
                 CactusInitParams(model = modelSlug, contextSize = contextSize)
             )
             lm = instance
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            // Must not be recorded as a hard failure: startInit() reuses a *completed* job forever,
+            // so treating a cancellation as "init failed" would pin the generator to Error for the
+            // rest of the process. downloadModel hops to Dispatchers.IO, which is a real suspension
+            // point, so this is reachable rather than theoretical.
+            throw ce
         } catch (t: Throwable) {
             initializationFailed = t.message ?: "Cactus init failed"
+        }
+    }
+
+    /**
+     * Polls the partially-downloaded model file for a determinate progress fraction.
+     *
+     * Every identifier this touches — `getModels()`, `slug`, `download_url`, `size_mb`, and
+     * `CactusModelManager.getModelsDirectory()` — is Cactus **internals**, not published
+     * API, and is pinned to `com.cactuscompute:cactus:1.4.1-beta`. A version bump can silently
+     * remove any of them, so the failure is caught and logged rather than thrown: losing the
+     * percentage degrades the bar to an indeterminate spinner, which is a cosmetic regression, but
+     * failing the download over it would not be. The warn line is what makes that degradation
+     * visible instead of mysterious.
+     */
+    private fun startDownloadProgressPolling(instance: CactusLM): Job = initScope.launch(Dispatchers.IO) {
+        try {
+            val targetModel = instance.getModels().find { it.slug == modelSlug } ?: return@launch
+            val fileName = targetModel.download_url.substringBefore('?').substringAfterLast('/')
+            // CactusModelManager is a Kotlin `expect object`, so it is referenced directly — the
+            // JVM-only `.INSTANCE` field does not exist in Kotlin source. getModelsDirectory()
+            // returns an absolute path as a String.
+            val file = File(com.cactus.CactusModelManager.getModelsDirectory(), fileName)
+            val expectedBytes = targetModel.size_mb * 1024L * 1024L
+            if (expectedBytes <= 0L) return@launch
+            while (isActive) {
+                if (file.exists()) {
+                    downloadProgress = (file.length().toFloat() / expectedBytes).coerceIn(0f, 1f)
+                }
+                delay(PROGRESS_POLL_INTERVAL_MS)
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            logger.w(t) {
+                "Cactus download-progress probe failed; falling back to an indeterminate bar. " +
+                    "These are SDK internals pinned to cactus:1.4.1-beta — check them after a bump."
+            }
         }
     }
 
@@ -238,6 +307,9 @@ class CactusTextGenerator(
     companion object {
         const val DEFAULT_MODEL = "gemma3-270m"
         const val DEFAULT_CONTEXT_SIZE = 2048
+
+        /** How often the partial model file is stat-ed for a progress fraction. */
+        private const val PROGRESS_POLL_INTERVAL_MS = 250L
 
         // Gemma turn terminators — text at/after these is the template boundary, not the answer.
         private val TURN_TERMINATORS = listOf("<end_of_turn>", "<eos>")

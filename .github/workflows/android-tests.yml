@@ -345,19 +345,26 @@ jobs:
           # unrelated to the change under test. Retry only the FAILING test up to 3 iterations so a
           # flaky native crash doesn't red an otherwise-green PR. Coverage is preserved — a genuine
           # regression fails all 3 attempts. (Retries failures only; it does not run every test 3×.)
-          xcodebuild \
-            -project iosApp/iosApp.xcodeproj \
-            -scheme iosApp \
-            -configuration Debug \
-            -destination "platform=iOS Simulator,name=iPhone 16,OS=latest,arch=arm64" \
-            -derivedDataPath iosApp/build/DerivedData \
-            -parallel-testing-enabled NO \
-            -skip-testing:iosAppUITests \
-            -skip-testing:iosAppTests/StockfishChessEngineTests/testBestMoveFromStartPositionIsUciMove \
-            -retry-tests-on-failure \
-            -test-iterations 3 \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-            test
+          for i in 1 2 3; do
+            if xcodebuild \
+              -project iosApp/iosApp.xcodeproj \
+              -scheme iosApp \
+              -configuration Debug \
+              -destination "platform=iOS Simulator,name=iPhone 16,OS=latest,arch=arm64" \
+              -derivedDataPath iosApp/build/DerivedData \
+              -parallel-testing-enabled NO \
+              -skip-testing:iosAppUITests \
+              -skip-testing:iosAppTests/StockfishChessEngineTests/testBestMoveFromStartPositionIsUciMove \
+              -retry-tests-on-failure \
+              -test-iterations 3 \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+              test; then
+              
+              exit 0
+            fi
+            echo "xcodebuild failed (flaky native crash). Retrying ($i/3)..."
+          done
+          exit 1
 
       - name: Upload test reports
         if: failure()

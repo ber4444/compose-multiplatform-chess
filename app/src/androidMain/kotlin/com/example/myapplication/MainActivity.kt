@@ -63,7 +63,14 @@ class MainActivity : ComponentActivity() {
         )
 
         holder.attachEngine(createStockfishEngine())
-        attachMoveCoach()
+        // Skip the attach + warmup only when the retained holder already carries an orchestrator,
+        // i.e. a configuration change. Keying this off `savedInstanceState == null` instead looks
+        // equivalent but is not: process death also restores a bundle, and there the holder is a
+        // brand-new ViewModel with no orchestrator, so the coach would stay dead for the whole
+        // session.
+        if (!holder.moveCoachManager.hasOrchestrator) {
+            attachMoveCoach()
+        }
 
         val appSettings = AppSettings(createSettings("chess"))
         // PgnSharer needs the host Activity (for ACTION_SEND), so it's built here, not in the holder.
@@ -171,8 +178,34 @@ class MainActivity : ComponentActivity() {
                     ?.let { executor.execute(it.route) }
                 // Join the download so the panel's terminal state reflects the real outcome. The
                 // panel must never be left on a LoadingModel spinner that nothing clears.
-                (generator as? com.example.ondeviceai.cactus.CactusTextGenerator)?.awaitWarmup()
-                    ?: generator?.warmup()
+                val warmupJob = launch {
+                    (generator as? com.example.ondeviceai.cactus.CactusTextGenerator)?.awaitWarmup()
+                        ?: generator?.warmup()
+                }
+                // Poll rather than observe: neither Cactus nor the OnDeviceTextGenerator seam
+                // exposes a progress callback, so status() is the only signal. It is deliberately
+                // off the engine dispatcher (see CactusTextGenerator.status) so it answers during
+                // the download instead of queueing behind it.
+                try {
+                    while (warmupJob.isActive) {
+                        val status = generator?.status()
+                        if (status is com.example.ondeviceai.AiAvailability.Downloading) {
+                            val percent = status.progress?.let { " (${(it * 100).toInt()}%)" } ?: ""
+                            holder.moveCoachManager.setCoachModelState(
+                                com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
+                                    message = "Downloading the coach model (first launch only)$percent…",
+                                    progress = status.progress,
+                                )
+                            )
+                        }
+                        kotlinx.coroutines.delay(MODEL_PROGRESS_POLL_INTERVAL_MS)
+                    }
+                } finally {
+                    // The loop exits as soon as the job goes inactive, which happens fractionally
+                    // before it completes; join so the status() read below sees the real outcome.
+                    // In a finally because a cancelled attach must not leave the job unawaited.
+                    warmupJob.join()
+                }
 
                 (generator?.status() as? com.example.ondeviceai.AiAvailability.Error)?.let {
                     // Logged, not surfaced: the deterministic coach still answers every move, so
@@ -201,6 +234,9 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         private const val SYSTEM_BAR_SCRIM = 0x66000000
+
+        /** How often the coach panel re-reads download progress during first-launch warmup. */
+        private const val MODEL_PROGRESS_POLL_INTERVAL_MS = 250L
     }
 }
 

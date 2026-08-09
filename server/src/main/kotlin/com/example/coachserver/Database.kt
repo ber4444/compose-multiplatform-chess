@@ -116,6 +116,7 @@ class PostgresPassageRepository(
             ORDER BY length(moves) DESC
             LIMIT 1
         )
+        ORDER BY source_id
         LIMIT ?
         """.trimIndent(),
     ).use { statement ->
@@ -138,9 +139,9 @@ class PostgresPassageRepository(
         eco: String?,
     ): List<Passage> {
         val sql = if (eco == null) {
-            "SELECT source_id, title, text FROM passages ORDER BY embedding <=> ? LIMIT ?"
+            "SELECT source_id, title, text FROM passages ORDER BY embedding <=> ?, source_id LIMIT ?"
         } else {
-            "SELECT source_id, title, text FROM passages WHERE eco = ? ORDER BY embedding <=> ? LIMIT ?"
+            "SELECT source_id, title, text FROM passages WHERE eco = ? ORDER BY embedding <=> ?, source_id LIMIT ?"
         }
         return connection.prepareStatement(sql).use { statement ->
             var index = 1

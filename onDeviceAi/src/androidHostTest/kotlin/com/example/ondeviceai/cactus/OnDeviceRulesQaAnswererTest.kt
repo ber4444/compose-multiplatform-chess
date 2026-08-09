@@ -47,7 +47,7 @@ class OnDeviceRulesQaAnswererTest {
         coEvery { generator.generate(match { it.systemPrompt.contains("Answer the") }) } returns flowOf(
             AiTokenOrFinal.Token("It is a draw [draw].")
         )
-        coEvery { generator.close() } returns Unit
+        coEvery { generator.release() } returns Unit
 
         val output = answerer.answer(question, VendorRoute.CactusLocal())
 
@@ -73,7 +73,7 @@ class OnDeviceRulesQaAnswererTest {
         coEvery { generator.generate(match { it.systemPrompt.contains("Answer the") }) } returns flowOf(
             AiTokenOrFinal.Token("It is a draw [draw].")
         )
-        coEvery { generator.close() } returns Unit
+        coEvery { generator.release() } returns Unit
 
         val output = answerer.answer(question, VendorRoute.CactusLocal())
 
@@ -104,7 +104,7 @@ class OnDeviceRulesQaAnswererTest {
         coEvery { generator.generate(match { it.systemPrompt.contains("Answer the") }) } returns flowOf(
             AiTokenOrFinal.Token("")
         )
-        coEvery { generator.close() } returns Unit
+        coEvery { generator.release() } returns Unit
 
         val output = answerer.answer(question, VendorRoute.CactusLocal())
 
@@ -134,7 +134,7 @@ class OnDeviceRulesQaAnswererTest {
         coEvery { generator.generate(match { it.systemPrompt.contains("Answer the") }) } returns flowOf(
             AiTokenOrFinal.Token("It is a draw [draw2].")
         )
-        coEvery { generator.close() } returns Unit
+        coEvery { generator.release() } returns Unit
 
         val output = answerer.answer(question, VendorRoute.CactusLocal())
 
@@ -165,7 +165,7 @@ class OnDeviceRulesQaAnswererTest {
         coEvery { generator.generate(match { it.systemPrompt.contains("Answer the") }) } returns flowOf(
             AiTokenOrFinal.Token("It is a draw [draw2].")
         )
-        coEvery { generator.close() } returns Unit
+        coEvery { generator.release() } returns Unit
 
         val output = answerer.answer(question, VendorRoute.CactusLocal())
 
@@ -195,7 +195,7 @@ class OnDeviceRulesQaAnswererTest {
             delay(30000) // 30s delay to trigger timeout
             emit(AiTokenOrFinal.Token("It is a draw [draw]."))
         }
-        coEvery { generator.close() } returns Unit
+        coEvery { generator.release() } returns Unit
 
         val output = answerer.answer(question, VendorRoute.CactusLocal())
 
@@ -225,7 +225,7 @@ class OnDeviceRulesQaAnswererTest {
         coEvery { generator.generate(match { it.systemPrompt.contains("Answer the") }) } returns flowOf(
             AiTokenOrFinal.Token("It is a draw [draw2].")
         )
-        coEvery { generator.close() } returns Unit
+        coEvery { generator.release() } returns Unit
 
         val output = answerer.answer(question, VendorRoute.CactusLocal())
 
@@ -254,7 +254,7 @@ class OnDeviceRulesQaAnswererTest {
         coEvery { generator.generate(match { it.systemPrompt.contains("Answer the") }) } returns flowOf(
             AiTokenOrFinal.Token("It is a draw [fake-id].")
         )
-        coEvery { generator.close() } returns Unit
+        coEvery { generator.release() } returns Unit
 
         val output = answerer.answer(question, VendorRoute.CactusLocal())
 

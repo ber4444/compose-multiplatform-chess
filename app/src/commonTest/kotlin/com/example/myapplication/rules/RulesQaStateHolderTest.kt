@@ -1,6 +1,7 @@
 package com.example.myapplication.rules
 
 import com.example.ondeviceai.AiContextSnapshot
+import com.example.ondeviceai.AiRoute
 import com.example.ondeviceai.AiUserSetting
 import com.example.ondeviceai.DefaultRulesQaOrchestrator
 import com.example.ondeviceai.RulesQaAnswerer
@@ -37,6 +38,7 @@ class RulesQaStateHolderTest {
         val ready = assertIs<RulesQaUiState.Ready>(holder.state.value)
         assertEquals(listOf("en-passant"), ready.passageIds)
         assertEquals(null, ready.fallbackReason)
+        assertEquals(AiRoute.OnDevice, ready.route)
     }
 
     @Test

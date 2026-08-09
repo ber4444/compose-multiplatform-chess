@@ -15,8 +15,10 @@ sealed interface GameSummaryUiState {
     data object Hidden : GameSummaryUiState
     data object Loading : GameSummaryUiState
     data class Streaming(val text: String) : GameSummaryUiState
+    /** Provenance (B11) is read off [GameSummaryExplanation.route]; see [MoveCoachUiState.Ready]. */
     data class Ready(val explanation: GameSummaryExplanation) : GameSummaryUiState
-    /** See [MoveCoachUiState.Fallback] — typed so [FallbackPresentation] can map it (B17). */
+    /** See [MoveCoachUiState.Fallback] — typed so [FallbackPresentation] can map it (B17), and it
+     *  doubles as the provenance of this state's engine-derived text. */
     data class Fallback(
         val text: String,
         val reason: com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason,

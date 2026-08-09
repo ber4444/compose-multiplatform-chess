@@ -74,7 +74,7 @@ class DefaultAiCoachOrchestrator(
             logger.w(t) { "On-device generation threw; falling back" }
             fallback(request, AiRoutePolicyDecider.FallbackReason.Other("generation error: ${t.message}"))
         } finally {
-            runCatching { generator.close() }
+            runCatching { generator.release() }
         }
     }
 
@@ -94,7 +94,7 @@ class DefaultAiCoachOrchestrator(
         val validation = MoveCoachResponseValidator.validate(parsedExplanation, request)
 
         return when (validation) {
-            is MoveCoachResponseValidator.Result.Valid -> success(request, parsedExplanation, outcome.metrics)
+            is MoveCoachResponseValidator.Result.Valid -> success(request, validation.text, outcome.metrics)
             is MoveCoachResponseValidator.Result.Invalid -> {
                 logger.w { "Validation failed: ${validation.reason}" }
                 fallback(request, AiRoutePolicyDecider.FallbackReason.Validation)

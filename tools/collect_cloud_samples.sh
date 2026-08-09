@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Collects full Opening Explainer and Position Chat responses for the R-1 hand-review
-# (docs/plans/cloud-eval-honesty-followups.md).
+# (for manual evaluation).
 #
 # This script COLLECTS. It does not judge, and nothing automated can: R-1 asks whether the output
 # tells a player something they could not see, and every check in this repo verifies faithfulness
@@ -40,11 +40,6 @@ POSITIONS=(
   'rnbqkbnr/pppp1ppp/4p3/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2|["e4","e6"]|French Defence|What is the problem piece for Black?'
 )
 
-cat << 'EOF' > "$OUTDIR/metadata.json"
-{
-  "samples": []
-}
-EOF
 
 for i in "${!POSITIONS[@]}"; do
   entry="${POSITIONS[$i]}"
@@ -52,14 +47,16 @@ for i in "${!POSITIONS[@]}"; do
   
   idx=$(printf "%02d" "$i")
   
-  curl -s -X POST "$BASE/v1/openings/explain" \
+  payload_explain=$(jq -n --arg fen "$fen" --argjson moves "$moves" '{fen: $fen, movesSan: $moves, eco: null, locale: "en-US"}')
+  curl -f -s -m 60 -X POST "$BASE/v1/openings/explain" \
     -H 'Content-Type: application/json' \
-    -d "{\"fen\":\"$fen\",\"movesSan\":$moves,\"eco\":null,\"locale\":\"en-US\"}" \
+    -d "$payload_explain" \
     > "$OUTDIR/${idx}_opening.json"
 
-  curl -sN -m 60 -X POST "$BASE/v1/positions/chat/stream" \
+  payload_chat=$(jq -n --arg fen "$fen" --argjson moves "$moves" --arg q "$question" '{fen: $fen, movesSan: $moves, eco: null, history: [], userMessage: $q, locale: "en-US"}')
+  curl -f -sN -m 60 -X POST "$BASE/v1/positions/chat/stream" \
     -H 'Content-Type: application/json' \
-    -d "{\"fen\":\"$fen\",\"movesSan\":$moves,\"eco\":null,\"history\":[],\"userMessage\":\"$question\",\"locale\":\"en-US\"}" \
+    -d "$payload_chat" \
     > "$OUTDIR/${idx}_chat.txt"
 done
 
@@ -156,5 +153,5 @@ with open(f"{outdir}/summary.json", "w") as f:
 print("════════════════════════════════════════════════════════════════")
 print("Now read them. The question is usefulness, not correctness:")
 print("  does each one tell a player something they could not see on the board?")
-print("Record the verdict in docs/plans/cloud-eval-honesty-followups.md § R-1.")
+print("Record the verdict.")
 ' "$OUTDIR" "$(printf "%s\n" "${POSITIONS[@]}")"

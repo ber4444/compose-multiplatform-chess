@@ -64,6 +64,10 @@ fun RulesQaScreen(
                     if (current.sources.isNotEmpty()) {
                         Text("Sources: ${current.sources.joinToString { it.title }}")
                     }
+                    com.example.myapplication.ui.ProvenanceBadge(
+                        route = current.route,
+                        modifier = Modifier.testTag("rules_qa_provenance")
+                    )
                     if (current.fallbackReason != null) {
                         val isDebug = LocalIsDebug.current
                         val suffix = if (isDebug) " [${current.fallbackReason.description}]" else ""

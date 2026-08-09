@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -41,7 +40,7 @@ import com.example.myapplication.SubScreenScaffold
  * `done` — the provider answers `stream: true` with a whole completion, so there is nothing for
  * this screen to reveal gradually. The per-token rendering is not dead code (the template composer
  * and any genuinely streaming provider do arrive in pieces) but do not describe the shipped
- * experience as token-by-token. See `docs/plans/cloud-eval-honesty-followups.md` § P1-2 and the
+ * experience as token-by-token. See the
  * `chat-provider-oneshot` log line in `:server`.
  */
 @Composable
@@ -87,7 +86,7 @@ fun ChatScreen(
                 }
                 if (state.streaming) {
                     item(key = "__streaming__") {
-                        StreamingRow(state.displayPartialText, state.firstTokenReceived)
+                        StreamingRow(state.displayPartialText, state.firstTokenReceived, state.streamingRoute)
                     }
                 }
                 if (state.error && !state.streaming) {
@@ -149,18 +148,24 @@ private fun MessageRow(message: ChatMessage) {
             color = MaterialTheme.colorScheme.primary,
         )
         Text(text = message.text, style = MaterialTheme.typography.bodyMedium)
-        if (message.isFallback) {
-            Text(
-                "fallback reply",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
+        // Only what the turn actually recorded: a missing route is unknown provenance, and
+        // defaulting it to Cloud would credit the model for text it may not have written.
+        val route = message.route
+        if (message.role == "assistant" && route != null) {
+            com.example.myapplication.ui.ProvenanceBadge(
+                route = route,
+                modifier = Modifier.testTag("chat_provenance")
             )
         }
     }
 }
 
 @Composable
-private fun StreamingRow(partialText: String, firstTokenReceived: Boolean) {
+private fun StreamingRow(
+    partialText: String,
+    firstTokenReceived: Boolean,
+    route: com.example.ondeviceai.AiRoute?,
+) {
     Column(modifier = Modifier.fillMaxWidth().testTag("chat_streaming_row")) {
         Text("Coach", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         if (!firstTokenReceived) {
@@ -171,6 +176,14 @@ private fun StreamingRow(partialText: String, firstTokenReceived: Boolean) {
             }
         } else {
             Text(partialText, style = MaterialTheme.typography.bodyMedium)
+            // The route comes from the view model, not from this composable knowing chat is
+            // cloud-only — same rule as every other badge call site.
+            if (route != null) {
+                com.example.myapplication.ui.ProvenanceBadge(
+                    route = route,
+                    modifier = Modifier.testTag("chat_provenance")
+                )
+            }
         }
     }
 }

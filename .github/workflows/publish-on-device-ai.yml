@@ -41,6 +41,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          # Tags are needed by the version resolution step below (chess-core-v* lookup).
+          fetch-depth: 0
 
       - name: Set up JDK
         uses: actions/setup-java@v5
@@ -60,6 +63,14 @@ jobs:
             # Strip the 'on-device-ai-v' prefix from the tag → '0.1.0'
             echo "version=${GITHUB_REF_NAME#on-device-ai-v}" >> "$GITHUB_OUTPUT"
           fi
+          # The chess-core release to bind this artifact to: the highest chess-core-v* tag reachable
+          # from this commit, so the published POM names a version that actually exists.
+          chess_core="$(git tag --list 'chess-core-v*' --merged HEAD --sort=-v:refname | head -1)"
+          if [ -z "$chess_core" ]; then
+            echo "No chess-core-v* tag is an ancestor of this commit; refusing to publish an artifact that would pin chess-core's 0.1.0 default." >&2
+            exit 1
+          fi
+          echo "chessCore=${chess_core#chess-core-v}" >> "$GITHUB_OUTPUT"
 
       - name: Publish coachApi then onDeviceAi
         # Order matters conceptually (onDeviceAi's metadata references coachApi), though Gradle
@@ -70,6 +81,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COACH_API_VERSION: ${{ steps.ver.outputs.version }}
           ON_DEVICE_AI_VERSION: ${{ steps.ver.outputs.version }}
+          # :onDeviceAi has `api(project(":chess-core"))`, so chess-core's version is baked into the
+          # published POM. Without this it resolved to chess-core's hardcoded "0.1.0" default, and
+          # every onDeviceAi artifact published so far (0.1.0-0.1.4) declares a dependency on
+          # chess-core:0.1.0 while chess-core itself is at 0.2.0. The RN consumer then either gets a
+          # chess-core three releases stale or, once 0.1.0 is cleaned up, an unresolvable coordinate.
+          # Same lockstep argument the header makes for coachApi — MoveAssessment and MoveRecord leak
+          # into GameSummaryRequest exactly as coachApi types leak into OpeningExplainer.
+          CHESS_CORE_VERSION: ${{ steps.ver.outputs.chessCore }}
 
       - name: Summary
         run: |

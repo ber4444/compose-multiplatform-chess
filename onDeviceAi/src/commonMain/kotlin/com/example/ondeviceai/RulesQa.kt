@@ -30,6 +30,7 @@ sealed interface RulesQaResult {
     data class Success(
         val text: String,
         val citations: List<RuleCitation>,
+        val route: AiRoute,
     ) : RulesQaResult {
         /** Ids alone, for callers and tests that only key on identity. Derived, never stored. */
         val passageIds: List<String> get() = citations.map { it.id }
@@ -38,7 +39,11 @@ sealed interface RulesQaResult {
     data class FellBack(
         val text: String,
         val reason: AiRoutePolicyDecider.FallbackReason,
-    ) : RulesQaResult
+    ) : RulesQaResult {
+        /** Provenance (B11): derived from [reason], so the two can never disagree. See
+         *  [OpeningExplainerResult.Fallback.route]. */
+        val route: AiRoute get() = AiRoute.Fallback(reason)
+    }
 }
 
 object RulesQaFallback {
@@ -264,10 +269,11 @@ class DefaultRulesQaOrchestrator(
                 citations = validation.citedPassageIds.map { id ->
                     RuleCitation(id = id, title = ruleTitleForId(id) ?: id)
                 },
+                route = AiRoute.OnDevice,
             )
             is RulesQaResponseValidator.Result.Invalid -> {
                 logger.w { "Rules Q&A validation failed: ${validation.reason}" }
-                grounded(output.retrievedPassages)
+                grounded(output.retrievedPassages, AiRoutePolicyDecider.FallbackReason.Validation)
                     ?: groundedOrFallback(question, AiRoutePolicyDecider.FallbackReason.Validation)
             }
         }
@@ -293,17 +299,23 @@ class DefaultRulesQaOrchestrator(
             logger.w { "Rules Q&A lookup failed during fallback: ${t.message}" }
             emptyList()
         }
-        grounded(retrieved)?.let { return it }
+        grounded(retrieved, reason)?.let { return it }
         logger.w { "Rules Q&A fallback triggered: ${reason.description} | Question: $question" }
         return RulesQaResult.FellBack(text = RulesQaFallback.TEXT, reason = reason)
     }
 
     /** The top passage as a cited answer, or `null` when nothing was retrieved. */
-    private fun grounded(passages: List<RulePassage>): RulesQaResult.Success? {
+    private fun grounded(
+        passages: List<RulePassage>,
+        reason: AiRoutePolicyDecider.FallbackReason,
+    ): RulesQaResult.Success? {
         val top = passages.firstOrNull() ?: return null
         return RulesQaResult.Success(
             text = RulesQaGrounding.composeFromPassages(passages),
             citations = listOf(RuleCitation(id = top.id, title = top.title)),
+            // Provenance (B11): the text is corpus-composed, not model-authored, even though this
+            // is a Success (a complete, correct answer) rather than a FellBack.
+            route = AiRoute.Fallback(reason),
         )
     }
 }

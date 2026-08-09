@@ -159,7 +159,7 @@ class OnDeviceRulesQaAnswerer(
             grounded(fromQuestion)
         } finally {
             try {
-                generator.close()
+                generator.release()
             } catch (ce: CancellationException) {
                 throw ce
             } catch (_: Throwable) {

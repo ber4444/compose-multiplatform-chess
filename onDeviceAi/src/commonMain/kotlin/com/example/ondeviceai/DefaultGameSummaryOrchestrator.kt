@@ -64,7 +64,7 @@ class DefaultGameSummaryOrchestrator(
             logger.w(t) { "On-device generation threw; falling back" }
             fallback(request, AiRoutePolicyDecider.FallbackReason.Other("generation error: ${t.message}"))
         } finally {
-            runCatching { generator.close() }
+            runCatching { generator.release() }
         }
     }
 
@@ -74,8 +74,19 @@ class DefaultGameSummaryOrchestrator(
         startMs: Long,
     ): GameSummaryEvent {
         val prompt = GameSummaryPromptBuilder.build(request)
-        val outcome = collectGenerate(request, generator, prompt, startMs)
-            ?: return fallback(request, AiRoutePolicyDecider.FallbackReason.Timeout)
+        // "Timed out" and "the generator finished but never emitted a Final event" are different
+        // failures and must not share a reason: FallbackPresentation maps Timeout to *Retryable*, so
+        // reporting a missing Final as a timeout hands the user a Retry button for a condition retry
+        // cannot fix. A generator that stops emitting mid-flow — AntiRepetitionGuard does exactly
+        // this when it trips — is a protocol fault, and Silent is the honest state for it.
+        val outcome = when (val result = collectGenerate(request, generator, prompt, startMs)) {
+            is CollectResult.TimedOut -> return fallback(request, AiRoutePolicyDecider.FallbackReason.Timeout)
+            is CollectResult.NoFinalEvent -> return fallback(
+                request,
+                AiRoutePolicyDecider.FallbackReason.Other("generator emitted no final event"),
+            )
+            is CollectResult.Completed -> result.outcome
+        }
 
         // For the summary, we don't have a complex validation step like MoveCoach response validation.
         // As long as we got text, we accept it.
@@ -91,7 +102,7 @@ class DefaultGameSummaryOrchestrator(
         generator: OnDeviceTextGenerator,
         prompt: AiGenerationRequest,
         startMs: Long,
-    ): GenerationOutcome? {
+    ): CollectResult {
         val buffer = StringBuilder()
         var metrics: AiInferenceMetrics? = null
 
@@ -114,17 +125,24 @@ class DefaultGameSummaryOrchestrator(
             true
         }
 
-        if (completed == null || metrics == null) return null
+        if (completed == null) return CollectResult.TimedOut
+        val observed = metrics ?: return CollectResult.NoFinalEvent
 
-        val finalMetrics = metrics?.copy(completeMs = clock() - startMs)
-            ?: AiInferenceMetrics(
-                firstTokenMs = null,
-                completeMs = clock() - startMs,
-                tokenCount = 0,
-                route = AiRoute.OnDevice,
-            )
+        return CollectResult.Completed(
+            GenerationOutcome(buffer.toString().trim(), observed.copy(completeMs = clock() - startMs)),
+        )
+    }
 
-        return GenerationOutcome(buffer.toString().trim(), finalMetrics)
+    /**
+     * Why this is a sealed type and not a nullable [GenerationOutcome]: the null carried two
+     * distinct failures that map to different product states, and the `?: AiInferenceMetrics(...)`
+     * default that used to sit below the null check was unreachable — it read as a safety net and
+     * was not one.
+     */
+    private sealed interface CollectResult {
+        data object TimedOut : CollectResult
+        data object NoFinalEvent : CollectResult
+        data class Completed(val outcome: GenerationOutcome) : CollectResult
     }
 
     private fun fallback(request: GameSummaryRequest, reason: AiRoutePolicyDecider.FallbackReason): GameSummaryEvent.Complete {

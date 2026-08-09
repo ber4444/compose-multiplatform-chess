@@ -165,14 +165,14 @@ class DefaultAiCoachOrchestratorTest {
     fun `always closes generator after success`() = runTest {
         val gen = FakeTextGenerator(response = """{"headline": "Good", "explanation": "Nf3 develops the knight."}""")
         orchestrator(gen).explainMove(request)
-        assertEquals(1, gen.closeCount)
+        assertEquals(1, gen.releaseCount)
     }
 
     @Test
     fun `always closes generator after failure`() = runTest {
         val gen = FakeTextGenerator(throwOnGenerate = RuntimeException("boom"))
         orchestrator(gen).explainMove(request)
-        assertEquals(1, gen.closeCount)
+        assertEquals(1, gen.releaseCount)
     }
 }
 
