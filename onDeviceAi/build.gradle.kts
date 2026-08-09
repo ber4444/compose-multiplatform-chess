@@ -180,6 +180,14 @@ kotlin {
                 implementation(kotlin("test"))
             }
         }
+        
+        val androidHostTest by getting {
+            dependencies {
+                implementation(kotlin("test-junit"))
+                implementation(libs.mockk)
+                implementation(libs.kotlinx.coroutines.test)
+            }
+        }
     }
 }
 
@@ -203,7 +211,7 @@ tasks.matching { it.name.endsWith("sourcesJar") || it.name.endsWith("SourcesJar"
 val onDeviceAiVersion: String =
     (System.getenv("ON_DEVICE_AI_VERSION")?.takeIf { it.isNotBlank() }
         ?: project.findProperty("onDeviceAiVersion") as? String
-        ?: "0.1.0").removePrefix("on-device-ai-v")
+        ?: "0.3.0").removePrefix("on-device-ai-v")
 
 group = "io.github.ber4444"
 version = onDeviceAiVersion
@@ -239,3 +247,4 @@ plugins.withId("maven-publish") {
         }
     }
 }
+
