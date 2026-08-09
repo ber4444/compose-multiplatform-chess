@@ -67,10 +67,14 @@ fun RulesQaScreen(
                     if (current.fallbackReason != null) {
                         val isDebug = LocalIsDebug.current
                         val suffix = if (isDebug) " [${current.fallbackReason.description}]" else ""
-                        when (FallbackPresentation.of(current.fallbackReason)) {
-                            FallbackPresentation.Silent -> if (isDebug) Text("Offline reference fallback$suffix")
-                            FallbackPresentation.Labeled -> Text("Offline reference fallback$suffix")
-                            FallbackPresentation.Retryable -> Text("Offline reference fallback (timeout)$suffix")
+                        // `Labeled`/`Retryable` carry their copy, so they must be matched with `is`.
+                        // Silent is the deterministic-text-is-the-product state: nothing is drawn
+                        // outside a debug build.
+                        when (val presentation = FallbackPresentation.of(current.fallbackReason)) {
+                            FallbackPresentation.Silent ->
+                                if (isDebug) Text("Offline reference fallback$suffix")
+                            is FallbackPresentation.Labeled -> Text("${presentation.label}$suffix")
+                            is FallbackPresentation.Retryable -> Text("${presentation.label}$suffix")
                         }
                     }
                 }

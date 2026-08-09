@@ -194,13 +194,18 @@ class DefaultRulesQaOrchestrator(
 ) {
     // Not a constructor parameter: contextProvider is passed as a trailing lambda at every call
     // site, and this module is published, so appending a param is both a source and a binary break.
-    // lookupTool was added deliberately as a source break covered by the 0.2.0 bump.
+    // lookupTool was added deliberately as a source break covered by the 0.3.0 bump.
     private val logger: Logger = Logger.withTag("RulesQa")
 
     suspend fun answer(question: String): RulesQaResult {
         val normalizedQuestion = question.trim()
         if (normalizedQuestion.isEmpty()) {
-            return fallback(AiRoutePolicyDecider.FallbackReason.Other("empty question"), question)
+            // The one case with nothing to retrieve, so the one case that skips the floor.
+            logger.w { "Rules Q&A fallback triggered: empty question" }
+            return RulesQaResult.FellBack(
+                text = RulesQaFallback.TEXT,
+                reason = AiRoutePolicyDecider.FallbackReason.Other("empty question"),
+            )
         }
 
         val context = try {
@@ -208,39 +213,43 @@ class DefaultRulesQaOrchestrator(
         } catch (ce: CancellationException) {
             throw ce
         } catch (t: Throwable) {
-            return fallback(
-                AiRoutePolicyDecider.FallbackReason.Other("context snapshot failed: ${t.message}"),
+            return groundedOrFallback(
                 normalizedQuestion,
+                AiRoutePolicyDecider.FallbackReason.Other("context snapshot failed: ${t.message}"),
             )
         }
 
         return when (val decision = AiRoutePolicyDecider.decide(AiRoutePolicies.rulesQaOffline, context)) {
             is AiRoutePolicyDecider.Decision.RunOnDevice -> runOnDevice(normalizedQuestion, decision.route)
-            is AiRoutePolicyDecider.Decision.RunCloud ->
-                fallback(AiRoutePolicyDecider.FallbackReason.Other("cloud route not supported"), normalizedQuestion)
-            is AiRoutePolicyDecider.Decision.FallBack -> {
-                val passages = lookupTool.lookup(normalizedQuestion)
-                if (passages.isNotEmpty()) {
-                    RulesQaResult.Success(
-                        text = RulesQaGrounding.composeFromPassages(passages),
-                        citations = listOf(RuleCitation(id = passages.first().id, title = passages.first().title)),
-                    )
-                } else {
-                    fallback(decision.reason, normalizedQuestion)
-                }
-            }
+            is AiRoutePolicyDecider.Decision.RunCloud -> groundedOrFallback(
+                normalizedQuestion,
+                AiRoutePolicyDecider.FallbackReason.Other("cloud route not supported"),
+            )
+            is AiRoutePolicyDecider.Decision.FallBack ->
+                groundedOrFallback(normalizedQuestion, decision.reason)
         }
     }
 
     private suspend fun runOnDevice(question: String, route: VendorRoute): RulesQaResult {
+        // The budget lives here, not only inside an answerer, because it is the *only* bound that
+        // covers every platform: the Android answerer deadlines its own turns, but the iOS
+        // Foundation Models bridge has no timeout of its own, and an answerer that never returns
+        // leaves the screen spinning with no way out.
+        //
+        // What the earlier version got wrong was the fallback, not the timeout: expiring here used
+        // to emit RulesQaFallback.TEXT and throw away a corpus hit the deterministic lookup can
+        // produce in microseconds. groundedOrFallback re-runs that lookup, so a slow model costs
+        // the user the model's phrasing and nothing else.
         val output = try {
-            answerer.answer(question, route)
+            withTimeoutOrNull(AiRoutePolicies.rulesQaOffline.latencyBudget.completeMs) {
+                answerer.answer(question, route)
+            } ?: return groundedOrFallback(question, AiRoutePolicyDecider.FallbackReason.Timeout)
         } catch (ce: CancellationException) {
             throw ce
         } catch (t: Throwable) {
-            return fallback(
-                AiRoutePolicyDecider.FallbackReason.Other("rules generation failed: ${t.message}"),
+            return groundedOrFallback(
                 question,
+                AiRoutePolicyDecider.FallbackReason.Other("rules generation failed: ${t.message}"),
             )
         }
 
@@ -258,26 +267,43 @@ class DefaultRulesQaOrchestrator(
             )
             is RulesQaResponseValidator.Result.Invalid -> {
                 logger.w { "Rules Q&A validation failed: ${validation.reason}" }
-                if (output.retrievedPassages.isNotEmpty()) {
-                    val fallbackText = RulesQaGrounding.composeFromPassages(output.retrievedPassages)
-                    RulesQaResult.Success(
-                        text = fallbackText,
-                        citations = listOf(RuleCitation(id = output.retrievedPassages.first().id, title = output.retrievedPassages.first().title))
-                    )
-                } else {
-                    fallback(AiRoutePolicyDecider.FallbackReason.Validation, question)
-                }
+                grounded(output.retrievedPassages)
+                    ?: groundedOrFallback(question, AiRoutePolicyDecider.FallbackReason.Validation)
             }
         }
     }
 
-    private fun fallback(reason: AiRoutePolicyDecider.FallbackReason, question: String? = null): RulesQaResult.FellBack {
-        if (question != null) {
-            logger.w { "Rules Q&A fallback triggered: ${reason.description} | Question: $question" }
+    /**
+     * The retrieval floor, applied to whatever the answerer did *not* manage to use.
+     *
+     * Every path that gives up on the model lands here rather than on [RulesQaFallback.TEXT]:
+     * retrieval is deterministic and cheap, so "the model was slow / threw / would not cite" must
+     * never be reported to the user as "the rule could not be found". Only an empty corpus hit
+     * reaches the fallback text.
+     */
+    private suspend fun groundedOrFallback(
+        question: String,
+        reason: AiRoutePolicyDecider.FallbackReason,
+    ): RulesQaResult {
+        val retrieved = try {
+            lookupTool.lookup(question)
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            logger.w { "Rules Q&A lookup failed during fallback: ${t.message}" }
+            emptyList()
         }
-        return RulesQaResult.FellBack(
-            text = RulesQaFallback.TEXT,
-            reason = reason,
+        grounded(retrieved)?.let { return it }
+        logger.w { "Rules Q&A fallback triggered: ${reason.description} | Question: $question" }
+        return RulesQaResult.FellBack(text = RulesQaFallback.TEXT, reason = reason)
+    }
+
+    /** The top passage as a cited answer, or `null` when nothing was retrieved. */
+    private fun grounded(passages: List<RulePassage>): RulesQaResult.Success? {
+        val top = passages.firstOrNull() ?: return null
+        return RulesQaResult.Success(
+            text = RulesQaGrounding.composeFromPassages(passages),
+            citations = listOf(RuleCitation(id = top.id, title = top.title)),
         )
     }
 }
