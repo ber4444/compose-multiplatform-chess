@@ -41,10 +41,41 @@ object MoveCoachPromptBuilder {
         }
     }
 
+    /**
+     * The facts the engine detected, then the task.
+     *
+     * This used to be `Rewrite this explanation: "<deterministicExplanation>"` and nothing else —
+     * no move, no assessment, no motifs. The model could not reason about the position because it
+     * was never told the position; every "on-device AI" line was a reworded copy of one
+     * deterministic sentence. `MoveCoachRequest` carried `moveUci`, `moveDisplay` and
+     * `engineDifficultyName` the whole time and the prompt used none of them, while
+     * `MoveCoachResponseValidator.groundingTokens` graded the answer on move squares the model had
+     * never seen.
+     *
+     * **"Code detects, the model narrates" is unchanged.** Every fact below comes from
+     * `MoveAssessment`; the model supplies phrasing and the connective reasoning between facts, not
+     * new claims. The headline stays code-authored — `DefaultAiCoachOrchestrator.success` uses
+     * `request.deterministicHeadline` regardless of what the model returns.
+     *
+     * The deterministic explanation stays in the prompt as the grounding floor: it is what the
+     * fallback would have said, so the model's job is to do at least that well with more context.
+     */
     internal fun userPrompt(request: MoveCoachRequest): String = buildString {
-        appendLine("Rewrite this explanation in 1-2 short, conversational sentences:")
+        appendLine("The player just played ${request.moveDisplay}.")
+        request.moveClassName?.let { appendLine("Engine assessment of that move: ${it.lowercase()}.") }
+        request.centipawnLoss?.takeIf { it > 0 }?.let {
+            appendLine("It gives up about $it centipawns against the best move.")
+        }
+        if (request.motifs.isNotEmpty()) {
+            appendLine("Tactical features detected: ${request.motifs.joinToString(", ")}.")
+        }
+        appendLine("Baseline explanation: \"${request.deterministicExplanation}\"")
         appendLine()
-        append("\"${request.deterministicExplanation}\"")
+        appendLine(
+            "Using only the facts above, tell the player in 1-2 short, conversational sentences " +
+                "why ${request.moveDisplay} was that good or bad. Do not invent other moves, " +
+                "squares, or evaluations.",
+        )
     }
 
     const val MAX_OUTPUT_TOKENS_STRICT = 100

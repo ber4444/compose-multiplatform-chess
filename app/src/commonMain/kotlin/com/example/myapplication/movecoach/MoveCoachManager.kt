@@ -100,6 +100,12 @@ class MoveCoachManager(
             deterministicExplanation = DeterministicCoach.buildExplanation(moveRecord),
             engineDifficultyName = engineDifficultyName,
             bannedOpeningFrames = recentOpeningFrames.toList(),
+            // The code-detected facts, so the on-device model can reason about this ply instead of
+            // rewording one sentence. Null/empty when the move has no assessment yet (no engine
+            // attached), which degrades the prompt to the baseline explanation alone.
+            moveClassName = moveRecord.assessment?.moveClass?.name,
+            motifs = moveRecord.assessment?.motifs.orEmpty(),
+            centipawnLoss = moveRecord.assessment?.cpLoss,
         )
         lastRequest = request
         launchCoach(request)

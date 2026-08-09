@@ -15,6 +15,19 @@ data class MoveCoachRequest(
     val engineDifficultyName: String,
     val policy: AiRoutePolicy = AiRoutePolicies.moveCoachOffline,
     val bannedOpeningFrames: List<String> = emptyList(),
+    /**
+     * The code-detected facts about this ply, passed so the model can *reason about them* rather
+     * than reword one sentence. Both are additive with defaults, so the published `:onDeviceAi`
+     * API stays source-compatible for the React Native consumer.
+     *
+     * "Code detects, the model narrates" is preserved: these come from [MoveAssessment], the model
+     * invents nothing. What changed is that the model can now see them at all — before this, the
+     * prompt carried only [deterministicExplanation] and the model had no way to say anything about
+     * the position it had not already been handed as a finished sentence.
+     */
+    val moveClassName: String? = null,
+    val motifs: List<String> = emptyList(),
+    val centipawnLoss: Int? = null,
 )
 
 
