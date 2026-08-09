@@ -39,7 +39,7 @@ import com.example.myapplication.GameUiState
  * `done` — the provider answers `stream: true` with a whole completion, so there is nothing for
  * this screen to reveal gradually. The per-token rendering is not dead code (the template composer
  * and any genuinely streaming provider do arrive in pieces) but do not describe the shipped
- * experience as token-by-token. See `docs/plans/cloud-eval-honesty-followups.md` § P1-2 and the
+ * experience as token-by-token. See the
  * `chat-provider-oneshot` log line in `:server`.
  */
 @Composable

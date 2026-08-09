@@ -140,7 +140,10 @@ class CactusTextGenerator(
                 metrics = AiInferenceMetrics(
                     firstTokenMs = result?.timeToFirstTokenMs?.toLong(),
                     completeMs = System.currentTimeMillis() - start,
-                    tokenCount = result?.totalTokens ?: 1,
+                    // 0, not 1: a null token count means the vendor reported nothing, and the bench
+                    // JSONL treats this field as a measurement. Inventing one token per generation
+                    // biases every tok/s figure computed from it.
+                    tokenCount = result?.totalTokens ?: 0,
                     route = AiRoute.OnDevice,
                 )
             )
@@ -169,7 +172,7 @@ class CactusTextGenerator(
     }
 
     /** No-op — keeps the model warm across moves. */
-    override suspend fun close() {}
+    override suspend fun release() {}
 
     private suspend fun ensureInitialized() {
         if (lm != null || initializationFailed != null) return
@@ -181,6 +184,12 @@ class CactusTextGenerator(
                 CactusInitParams(model = modelSlug, contextSize = contextSize)
             )
             lm = instance
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            // Must not be recorded as a hard failure: startInit() reuses a *completed* job forever,
+            // so treating a cancellation as "init failed" would pin the generator to Error for the
+            // rest of the process. downloadModel hops to Dispatchers.IO, which is a real suspension
+            // point, so this is reachable rather than theoretical.
+            throw ce
         } catch (t: Throwable) {
             initializationFailed = t.message ?: "Cactus init failed"
         }

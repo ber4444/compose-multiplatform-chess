@@ -122,7 +122,7 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
         
         orchestrator.explainMoveStreaming(request).collect() // exhaust flow
         
-        generator.close()
+        generator.release()
         
         val thermalAfter = pm.currentThermalStatus
         val pmi = android.os.Debug.MemoryInfo()

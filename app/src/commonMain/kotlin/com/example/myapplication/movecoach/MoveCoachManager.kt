@@ -39,6 +39,15 @@ class MoveCoachManager(
     private var lastRequest: com.example.ondeviceai.MoveCoachRequest? = null
 
     /**
+     * Whether [attachCoachOrchestrator] has already run with a non-null orchestrator. Entry points
+     * use this to decide whether a re-entry into their setup needs to redo the (expensive) warmup:
+     * on Android the holder survives a configuration change but *not* process death, and the
+     * Activity cannot tell those apart from `savedInstanceState` alone — a restored bundle means
+     * both. Asking the manager is the only signal that distinguishes them.
+     */
+    val hasOrchestrator: Boolean get() = orchestrator != null
+
+    /**
      * The first few words of the last [MAX_REMEMBERED_FRAMES] coach lines, fed back into the prompt
      * as phrases to avoid (B15) so a game's worth of moves doesn't all open the same way.
      */
@@ -101,7 +110,6 @@ class MoveCoachManager(
             engineDifficultyName = engineDifficultyName,
             bannedOpeningFrames = recentOpeningFrames.toList(),
         )
-        lastRequest = request
         launchCoach(request)
     }
 
@@ -116,6 +124,7 @@ class MoveCoachManager(
     }
 
     private fun launchCoach(request: com.example.ondeviceai.MoveCoachRequest) {
+        lastRequest = request
         val orchestrator = this.orchestrator ?: return
         coachJob?.cancel()
 

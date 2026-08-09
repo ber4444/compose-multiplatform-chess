@@ -41,7 +41,11 @@ interface OnDeviceTextGenerator {
     suspend fun status(): AiAvailability
     suspend fun warmup()
     fun generate(request: AiGenerationRequest): kotlinx.coroutines.flow.Flow<AiTokenOrFinal>
-    suspend fun close()
+    /**
+     * Generators are singletons owned by the executor. Orchestrators borrow them for a generation
+     * and MUST call [release] when done. They must NOT close/destroy the underlying engine.
+     */
+    suspend fun release()
 }
 
 
@@ -51,7 +55,7 @@ object UnsupportedTextGenerator : OnDeviceTextGenerator {
     override fun generate(
         request: AiGenerationRequest,
     ): kotlinx.coroutines.flow.Flow<AiTokenOrFinal> = kotlinx.coroutines.flow.flowOf()
-    override suspend fun close() = Unit
+    override suspend fun release() = Unit
 }
 
 

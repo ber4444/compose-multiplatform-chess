@@ -120,14 +120,14 @@ class DefaultGameSummaryOrchestratorTest {
     fun `always closes generator after success`() = runTest {
         val gen = FakeTextGenerator(response = "The mistake was e5.")
         orchestrator(gen).summarizeGame(request)
-        assertEquals(1, gen.closeCount)
+        assertEquals(1, gen.releaseCount)
     }
 
     @Test
     fun `always closes generator after failure`() = runTest {
         val gen = FakeTextGenerator(throwOnGenerate = RuntimeException("boom"))
         orchestrator(gen).summarizeGame(request)
-        assertEquals(1, gen.closeCount)
+        assertEquals(1, gen.releaseCount)
     }
 }
 
