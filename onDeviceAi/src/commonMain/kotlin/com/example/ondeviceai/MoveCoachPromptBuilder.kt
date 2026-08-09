@@ -10,11 +10,43 @@ object MoveCoachPromptBuilder {
      */
     internal const val GENERIC_FILLER = "This is a good move that improves the position."
 
+    /**
+     * The system prompt states the *constraint*; [userPrompt] states the task.
+     *
+     * It used to open "Rewrite the provided explanation", which contradicted the user prompt once
+     * that stopped being a rewrite task — the model was told to reword one sentence and, three
+     * lines later, to reason across a list of facts. A 270M model resolves that by copying, which
+     * is the behaviour the prompt rewrite existed to stop.
+     *
+     * What the old wording was really protecting is the no-invention rule, and that is now stated
+     * as the rule it is: the facts are handed over, the model supplies only the phrasing. Same
+     * fence, no longer disguised as a task description.
+     */
     private val SYSTEM_PROMPT: String = buildString {
         appendLine("You are a chess coach.")
-        appendLine("Rewrite the provided explanation of the move in 1-2 short, conversational sentences.")
+        appendLine("Explain the move in 1-2 short, conversational sentences.")
+        appendLine("Use only the facts you are given. Never invent moves, squares, or evaluations.")
         appendLine("Do not mention openings by name, engine depth, or ratings.")
     }
+
+    /**
+     * Motif ids are slugs (`discovered-attack`, `hangs-piece`) and the prompt is prose, so they are
+     * spelled out before the model sees them — a small model copies the nearest token, and
+     * "discovered-attack" reaching the panel with its hyphen is the coach quoting a database key at
+     * the user.
+     *
+     * The map only covers slugs that read badly when de-hyphenated; everything else falls through
+     * to the general rule, so adding a motif to `MotifDetector` can never leak a raw id even if
+     * nobody remembers this function exists.
+     */
+    private val MOTIF_PHRASES = mapOf(
+        "hangs-piece" to "hanging piece",
+        "castle-kingside" to "castling kingside",
+        "castle-queenside" to "castling queenside",
+    )
+
+    internal fun humanizeMotif(motif: String): String =
+        MOTIF_PHRASES[motif] ?: motif.replace('-', ' ').replace('_', ' ').trim()
 
     fun build(request: MoveCoachRequest): AiGenerationRequest =
         AiGenerationRequest(
@@ -67,7 +99,10 @@ object MoveCoachPromptBuilder {
             appendLine("It gives up about $it centipawns against the best move.")
         }
         if (request.motifs.isNotEmpty()) {
-            appendLine("Tactical features detected: ${request.motifs.joinToString(", ")}.")
+            appendLine(
+                "Tactical features detected: " +
+                    "${request.motifs.joinToString(", ") { humanizeMotif(it) }}.",
+            )
         }
         appendLine("Baseline explanation: \"${request.deterministicExplanation}\"")
         appendLine()
