@@ -2,16 +2,9 @@
 .claude/skills/*
 .DS_Store
 */.DS_Store
-build/*
-app/build/*
-androidApp/build/*
-onDeviceAi/build/*
-chess-core/build/*
-coachApi/build/*
-server/build/*
-evals/build/*
-perft-mcp/build/*
-litert-eval/build/*
+# One rule instead of one line per module: the per-module list silently failed to cover
+# :stockfish-assets when it was added, and an AGP-generated asset-pack manifest landed in git.
+**/build/
 .kotlin/*
 .gradle/*
 .idea/*
