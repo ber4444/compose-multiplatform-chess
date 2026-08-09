@@ -13,6 +13,7 @@ Compose Multiplatform chess app (Kotlin 2.3.x, Compose Multiplatform 1.10.x) tar
 ./gradlew :app:desktopTest --tests "com.example.myapplication.MoveTest"   # single test class (fastest iteration)
 ./gradlew :chess-core:check :ondeviceai:check :coachapi:check              # core + AI module suites (all targets)
 ./gradlew :server:test                          # cloud-AI service tests (Testcontainers Postgres; skips without Docker)
+./gradlew :server:verifyCorpus                  # validates the JSON book theory against structural rules
 ./gradlew :evals:run                            # AI eval gate (grounding gates; routing/fluency scored); rewrites evals/scorecard.md
 EVAL_CALIBRATION=1 ./gradlew :evals:run         # + per-route reading-grade distributions (recalibrating FluencySurface bounds)
 ./gradlew :chess-core:desktopTest --tests "*Perft*"                        # perft gate (canonical counts + Stockfish cross-check)
@@ -69,6 +70,8 @@ Nine Gradle projects. The five KMP ones carry the app; the rest are JVM-only too
 - `:onDeviceAi` — AI orchestration for all five surfaces (move coach, game summary, rules Q&A, opening explainer, position chat) plus the route policy. On-device generation lives behind its `OnDeviceTextGenerator` seam; the two cloud surfaces keep only their orchestrators here and take an injected client. Targets: `android`, `jvm("desktop")`, `iosArm64`, `iosSimulatorArm64`, `js(IR)`, `wasmJs`. Published to GitHub Packages as `io.github.ber4444:onDeviceAi` alongside `:coachApi` (see `.github/workflows/publish-on-device-ai.yml`) so the React Native repo can consume it. Has `api(project(":coachApi"))` — coachApi types leak into `OpeningExplainer.kt`'s public signatures, so both artifacts move in lockstep under one `on-device-ai-v*` tag.
 - `:coachApi` — serialization-only KMP wire models (opening-explain request/response, `PositionChatRequest`, `ChatTurn`, `ChatStreamEvent`) shared by `:onDeviceAi`, `:app`, and the JVM `:server`. Published as `io.github.ber4444:coachApi`. Targets mirror `:onDeviceAi`.
 - `:server` — JVM-only Ktor cloud-AI service: `POST /v1/openings/explain` (one-shot) and `POST /v1/positions/chat/stream` (SSE), both over one Postgres+pgvector corpus with ONNX MiniLM embeddings. Deterministic template composers by default; the provider-LLM composers are opt-in via `COACH_LLM_*` env vars and always validated + fallback-guarded. Deployed to Fly.io (see README). **`server/openapi.yaml` is hand-written on purpose** — a spec generated from the routing tree cannot detect server drift, because it *is* the server. `OpenApiContractTest` validates real responses against it; keep the spec independent of the code it checks. **Retrieval is book-first, not embedding-first** — see [Cloud retrieval](#cloud-retrieval).
+  - **Chat Diagnostics:** The chat stream emits a client-visible `Diagnostics` event (carrying `CloudDiagnostics`) immediately before terminating with `Done` or `Fallback`. For debugging, `COACH_DIAGNOSTICS_RAW=1` includes the full unparsed model output (capped at 4000 chars) in this event. The `finishReason` differentiates success (`completed`), validation vetoes (`validation_rejected`, or `provider_empty` if the model produced no text), and HTTP errors (`provider_failed`).
+  - **Lazy Retrieval:** The chat route's `retrieve()` runs lazily within the SSE flow; a failure here (e.g. database timeout) terminates the stream by emitting a terminal `error` event rather than failing the initial POST.
 - `:evals` — JVM-only rule-based eval harness; regenerates `evals/scorecard.md` and fails on grounding regression. Also scores two non-gating columns: `FluencyScorer` (Flesch-Kincaid + three tone rules, bounds calibrated **per surface** against that surface's own deterministic composer — see `docs/benchmarks/on-device-ai/fluency-calibration.md`; the grades are ordinal, not real US grade levels) and `RouterEvalSuite` (the `route-selection` row: four named invariants swept over the full context grid, with a mutation test that injects a broken decider and asserts the sweep goes red). **Routing eval scaffolding lives here, never in `:onDeviceAi`** — that module is published to the RN consumer, so eval types there become public API. Gated in CI by `.github/workflows/ai-coach-evals.yml` on changes to `:onDeviceAi`, `:coachApi`, `:server`, `:evals`, or `app/src/**/{opening,chat}/**`.
 - `:litert-eval` — JVM-only driver that runs the desktop `LitertLmTextGenerator` from the CLI. Depends on `:ondeviceai` + `:coachapi` only, deliberately **not** `:server` (keeps Ktor from pinning this module's coroutines version — see the `force` block in its `build.gradle.kts`).
 - `:perft-mcp` — JVM-only stdio MCP server exposing the perft rig as agent tools. No dependency on `:app`/`:chess-core` (shells out to gradle + stockfish).
@@ -424,10 +427,8 @@ The `allowLocal = false` flag on `openingExplainer` and `positionChat` policies 
   - `ChatViewModel` keeps a single `streamJob` (Stop cancels it, which must close the TCP connection) and sends the last 6 turns; the server independently caps history at 12 turns / 20 plies / 500 chars.
   - Validation is server-side on the *accumulated* text at stream end; a veto emits `fallback` with `TemplateChatComposer`'s grounded text. `DefaultPositionChat`'s own fallback event is a fixed offline sentence and is **not** retrieval-grounded — don't conflate the two layers.
 - `docs/plans/on-device-coach-rag-unification.md` — **partially implemented**; check before assuming either way. Landed: **RAG-1** (per-ply `MoveAssessment` + motifs, persisted on `MoveRecord`, coach subject switched to the player's moves), **RAG-2** (summary ranks turning points by `cpLoss`/`MoveClass` and cites `[move-N]`), **RAG-3** (the per-move line is grounded in the assessment and the headline is computed in code by `DeterministicCoach`), and the Hint-button split-out from **RAG-4**. Not implemented: the rest of RAG-4 (assessment-record retrieval in chat, counterfactuals, deterministic-feature query construction), **RAG-5** (habit aggregation across games — `GameHistoryBackfiller` backfills assessments but nothing aggregates them), and **RAG-6** (offline chat). Don't document the unimplemented phases as existing behaviour.
-- `docs/plans/cloud-eval-honesty-followups.md` — follow-ups from the cloud-retrieval fix. **P0/P1/P2
-  all closed 2026-08-05**; only the two human-only items (R-1 prose quality, R-2 chat monitoring) and
-  a short list of newly-opened items remain. Four conclusions worth knowing before touching this
-  area, all measured against gemini-3.6-flash on 100 golden cases:
+
+- Four conclusions worth knowing before touching the eval system, all measured against gemini-3.6-flash on 100 golden cases:
   - **The provider composer is accepted on 99 of 100 cases.** The old "42% ungrounded" was
     `EvalScorer.scoreOpening` requiring the *literal* string `"development"`/`"center"`, so it scored
     verbatim copying — `TemplateComposer` quotes its passage and scored 0% by construction, while
@@ -444,6 +445,10 @@ The `allowLocal = false` flag on `openingExplainer` and `positionChat` policies 
     cross-check in `OpeningRetrievalGroundingTest`; don't let them drift.
 - `docs/plans/hybrid-inference-vendor-adoption-plan.md` outlines the vendor adoption plan for hybrid AI inference.
 - `docs/plans/review-fixes-hybrid-inference.md` documents P0 blocking review fixes for the hybrid inference implementation (PR #106) and should be completed before further feature development.
+
+## Hybrid inference & AI
+
+- **App Check is skipped**: The server relies on rate limiting rather than Firebase App Check for abuse prevention.
 
 ## Build quirks (don't "clean up")
 

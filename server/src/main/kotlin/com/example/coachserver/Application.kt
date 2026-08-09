@@ -232,6 +232,7 @@ fun defaultDependencies(environment: Map<String, String>): ServerDependencies {
         composer = composer,
         releaseVersion = environment["RELEASE_VERSION"] ?: environment["FLY_IMAGE_REF"] ?: "unknown",
         corpusStatusReader = PostgresCorpusStatusReader(dataSource),
+        includeRawDiagnostics = environment["COACH_DIAGNOSTICS_RAW"] == "1",
     )
 }
 
@@ -255,7 +256,8 @@ fun defaultChatDependencies(environment: Map<String, String>): PositionChatServi
             passageRepository = PostgresPassageRepository(dataSource),
             streamingChatComposer = composer,
             releaseVersion = environment["RELEASE_VERSION"] ?: environment["FLY_IMAGE_REF"] ?: "unknown",
-            corpusStatusReader = PostgresCorpusStatusReader(dataSource)
+            corpusStatusReader = PostgresCorpusStatusReader(dataSource),
+            includeRawDiagnostics = environment["COACH_DIAGNOSTICS_RAW"] == "1"
         ),
     )
 }

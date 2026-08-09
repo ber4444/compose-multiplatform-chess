@@ -10,7 +10,7 @@ import kotlinx.coroutines.CancellationException
 sealed interface RulesQaUiState {
     data object Idle : RulesQaUiState
     data object Loading : RulesQaUiState
-    data class Ready(val text: String, val passageIds: List<String>, val isFallback: Boolean) : RulesQaUiState
+    data class Ready(val text: String, val passageIds: List<String>, val route: com.example.ondeviceai.AiRoute) : RulesQaUiState
     data object Unavailable : RulesQaUiState
 }
 
@@ -31,8 +31,8 @@ class RulesQaStateHolder(
         mutableState.value = RulesQaUiState.Loading
         try {
             mutableState.value = when (val result = available.answer(question)) {
-                is RulesQaResult.Success -> RulesQaUiState.Ready(result.text, result.passageIds, isFallback = false)
-                is RulesQaResult.FellBack -> RulesQaUiState.Ready(result.text, emptyList(), isFallback = true)
+                is RulesQaResult.Success -> RulesQaUiState.Ready(result.text, result.passageIds, route = result.route)
+                is RulesQaResult.FellBack -> RulesQaUiState.Ready(result.text, emptyList(), route = result.route)
             }
         } catch (cancellation: CancellationException) {
             mutableState.value = RulesQaUiState.Idle

@@ -42,7 +42,7 @@ class FoundationModelsTextGenerator(
         stopSequences = request.stopSequences,
     )
 
-    override suspend fun close() = bridge.close()
+    override suspend fun release() = bridge.close()
 }
 
 fun createFoundationModelsTextGenerator(bridge: FoundationModelsBridge): OnDeviceTextGenerator =

@@ -131,6 +131,54 @@ class LlmComposerHttpTest {
         assertEquals(0, transportCalls)
     }
 
+    // (e) finishReason taxonomy. These three causes are the whole point of the field: a bare
+    // fallback *rate* conflates "the call blew up", "the model wrote nothing" and "the model wrote
+    // something the validator refused", and the last time they were conflated the real cause sat
+    // undiagnosed in the validator. A failed call also leaves `candidate` null, so the order of
+    // the branches — not just their presence — is what keeps (e-1) and (e-2) apart.
+
+    // (e-1) The transport throws → provider_error, NOT provider_empty.
+    @Test
+    fun `a provider transport failure is reported as provider_error`() {
+        val client = OpenAiCompatibleLlmClient.forTesting(
+            transport = LlmHttpTransport { error("connection reset") },
+        )
+        val result = LlmComposer(client, TemplateComposer()).compose(request, passages)
+
+        assertEquals("template-v1", result.composerId)
+        assertEquals("provider_error", result.finishReason)
+    }
+
+    // (e-2) The provider answers with no content — the reasoning-model shape that spends its whole
+    // budget deliberating and returns `{"role":"assistant"}` with no `content` key.
+    @Test
+    fun `a provider response with no content is reported as provider_empty`() {
+        val client = OpenAiCompatibleLlmClient.forTesting(
+            transport = LlmHttpTransport { """{"choices":[{"message":{"role":"assistant"}}]}""" },
+        )
+        val result = LlmComposer(client, TemplateComposer()).compose(request, passages)
+
+        assertEquals("template-v1", result.composerId)
+        assertEquals("provider_empty", result.finishReason)
+    }
+
+    // (e-3) The provider answers, the validator refuses it.
+    @Test
+    fun `text the validator refuses is reported as validator_rejected`() {
+        val client = OpenAiCompatibleLlmClient.forTesting(
+            transport = LlmHttpTransport {
+                buildJsonObject(
+                    "I think Stockfish probably depth 30 likes this position [c20]. " +
+                        "The center is contested by both king pawns [center]."
+                )
+            },
+        )
+        val result = LlmComposer(client, TemplateComposer()).compose(request, passages)
+
+        assertEquals("template-v1", result.composerId)
+        assertEquals("validator_rejected", result.finishReason)
+    }
+
     // (d) Missing env — when COACH_LLM_API_KEY is absent, selectComposer returns the template
     // (the LlmComposer is never constructed).
     @Test

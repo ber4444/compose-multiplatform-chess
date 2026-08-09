@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -69,6 +71,15 @@ fun MoveCoachPanel(
         is MoveCoachUiState.Unavailable -> state.reason
             ?: stringResource(Res.string.move_coach_unavailable)
         MoveCoachUiState.Hidden -> return
+    }
+
+    // B11: derived, never stored twice. Ready carries the route the orchestrator recorded; a
+    // Fallback's text is engine-derived by construction, so its reason *is* its provenance. The
+    // remaining states have no text a route could describe yet.
+    val route: com.example.ondeviceai.AiRoute? = when (state) {
+        is MoveCoachUiState.Ready -> state.explanation.route
+        is MoveCoachUiState.Fallback -> com.example.ondeviceai.AiRoute.Fallback(state.reason)
+        else -> null
     }
 
     val showSpinner = state is MoveCoachUiState.Loading ||
@@ -132,6 +143,32 @@ fun MoveCoachPanel(
                         style = MaterialTheme.typography.labelSmall,
                     )
                 }
+            }
+
+            // Determinate only when the runtime can say how far along it is: Cactus reports a
+            // fraction by watching the partial file grow, LiteRT-LM (desktop/wasm) reports none.
+            // A null progress leaves the surrounding spinner as the whole indicator rather than
+            // rendering a bar stuck at zero.
+            val progress = (state as? MoveCoachUiState.LoadingModel)?.progress
+            if (progress != null) {
+                Spacer(modifier = Modifier.size(8.dp))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().height(4.dp).testTag("move_coach_progress"),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                )
+            }
+
+            if (route != null) {
+                Spacer(modifier = Modifier.size(4.dp))
+                com.example.myapplication.ui.ProvenanceBadge(
+                    route = route,
+                    // This panel paints its own white-on-dark palette; the badge's default
+                    // onSurfaceVariant would not match it.
+                    color = Color.White,
+                    modifier = Modifier.testTag("move_coach_provenance")
+                )
             }
             if (presentation is FallbackPresentation.Retryable && onRetry != null) {
                 TextButton(

@@ -72,7 +72,7 @@ class LitertLmTextGenerator(
     override suspend fun status(): AiAvailability {
         initializationFailed?.let { return AiAvailability.Error(it) }
         if (engine != null) return AiAvailability.Available
-        return if (initJob?.isActive == true) AiAvailability.Downloading else AiAvailability.Unavailable
+        return if (initJob?.isActive == true) AiAvailability.Downloading() else AiAvailability.Unavailable
     }
 
     /** Returns as soon as the download starts, so the UI stays live. [awaitWarmup] joins it. */
@@ -204,7 +204,7 @@ class LitertLmTextGenerator(
     ).flowOn(engineDispatcher)
 
     /** No-op — keeps the model warm across moves (mirrors CactusTextGenerator). */
-    override suspend fun close() {}
+    override suspend fun release() {}
 
     private fun ensureInitialized() {
         if (engine != null || initializationFailed != null) return

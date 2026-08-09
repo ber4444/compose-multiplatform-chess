@@ -76,7 +76,7 @@ class StructuredOutputRulesQaAnswerer(
             throw ce
         } finally {
             try {
-                generator.close()
+                generator.release()
             } catch (ce: CancellationException) {
                 throw ce
             } catch (_: Throwable) {

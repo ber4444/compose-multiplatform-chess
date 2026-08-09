@@ -64,7 +64,7 @@ fun createOpeningExplainer(): OpeningExplainer {
         KtorOpeningExplainerClient(
             httpClient = HttpClient(openingExplainerHttpClientEngine()) {
                 install(ContentNegotiation) {
-                    json(Json { ignoreUnknownKeys = false })
+                    json(Json { ignoreUnknownKeys = true })
                 }
             },
             baseUrl = it,

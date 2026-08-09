@@ -18,7 +18,7 @@ sealed interface OpeningExplainerUiState {
     data class Ready(
         val text: String,
         val sourceTitles: List<String>,
-        val isFallback: Boolean,
+        val route: com.example.ondeviceai.AiRoute,
     ) : OpeningExplainerUiState
 }
 
@@ -45,8 +45,8 @@ class OpeningExplainerStateHolder(
             ),
         )
         mutableState.value = when (result) {
-            is OpeningExplainerResult.Success -> result.response.toUiState(isFallback = false)
-            is OpeningExplainerResult.Fallback -> result.response.toUiState(isFallback = true)
+            is OpeningExplainerResult.Success -> result.response.toUiState(route = result.route)
+            is OpeningExplainerResult.Fallback -> result.response.toUiState(route = result.route)
         }
     }
 
@@ -58,11 +58,11 @@ class OpeningExplainerStateHolder(
         explainer.close()
     }
 
-    private fun com.example.coachapi.OpeningExplainResponse.toUiState(isFallback: Boolean) =
+    private fun com.example.coachapi.OpeningExplainResponse.toUiState(route: com.example.ondeviceai.AiRoute) =
         OpeningExplainerUiState.Ready(
             text = CitationSanitizer.sanitize(text),
             sourceTitles = passages.map { it.title }.distinct(),
-            isFallback = isFallback,
+            route = route,
         )
 
     companion object {

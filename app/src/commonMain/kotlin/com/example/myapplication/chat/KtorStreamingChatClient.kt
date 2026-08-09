@@ -81,6 +81,7 @@ class KtorStreamingChatClient(
                     logger.i { "position-chat: response status=${response.status.value}" }
                     if (response.status.value !in 200..299) {
                         logger.w { "position-chat: non-2xx status ${response.status.value} — aborting stream" }
+                        sink.send(errorEvent())
                         return@execute
                     }
                     val channel = response.bodyAsChannel()

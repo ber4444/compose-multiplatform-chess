@@ -32,6 +32,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "../app/proguard-rules.pro"
             )
+            ndk.debugSymbolLevel = "NONE"
         }
     }
 

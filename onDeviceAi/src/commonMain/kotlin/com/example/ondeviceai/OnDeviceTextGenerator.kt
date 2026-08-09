@@ -3,7 +3,7 @@ package com.example.ondeviceai
 sealed interface AiAvailability {
     data object Available : AiAvailability
     data class Downloadable(val requiresUserConfirmation: Boolean = true) : AiAvailability
-    data object Downloading : AiAvailability
+    data class Downloading(val progress: Float? = null) : AiAvailability
     data object Unavailable : AiAvailability
     data object Busy : AiAvailability
     data class Error(val message: String) : AiAvailability
@@ -41,7 +41,11 @@ interface OnDeviceTextGenerator {
     suspend fun status(): AiAvailability
     suspend fun warmup()
     fun generate(request: AiGenerationRequest): kotlinx.coroutines.flow.Flow<AiTokenOrFinal>
-    suspend fun close()
+    /**
+     * Generators are singletons owned by the executor. Orchestrators borrow them for a generation
+     * and MUST call [release] when done. They must NOT close/destroy the underlying engine.
+     */
+    suspend fun release()
 }
 
 
@@ -51,7 +55,7 @@ object UnsupportedTextGenerator : OnDeviceTextGenerator {
     override fun generate(
         request: AiGenerationRequest,
     ): kotlinx.coroutines.flow.Flow<AiTokenOrFinal> = kotlinx.coroutines.flow.flowOf()
-    override suspend fun close() = Unit
+    override suspend fun release() = Unit
 }
 
 

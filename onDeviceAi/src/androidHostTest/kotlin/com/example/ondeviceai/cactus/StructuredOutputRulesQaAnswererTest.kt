@@ -49,7 +49,7 @@ class StructuredOutputRulesQaAnswererTest {
         assertTrue(prompts.first().contains("structured-output", ignoreCase = true))
         assertTrue(prompts.last().contains("castling-check"))
         assertEquals(2, generator.generateCount)
-        assertEquals(1, generator.closeCount)
+        assertEquals(1, generator.releaseCount)
     }
 
     @Test

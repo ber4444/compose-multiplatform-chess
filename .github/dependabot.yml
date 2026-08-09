@@ -11,12 +11,18 @@
 # opening version-bump PRs for the whole Gradle graph) while the `ignore` conditions still apply
 # to security-update PRs.
 #
-# The current pins (bcprov 1.80.2, netty 4.1.136.Final) already satisfy every open advisory. We
+# The current pins (BouncyCastle 1.84, netty 4.1.136.Final) already satisfy every open advisory. We
 # block only the disruptive *series* jumps Dependabot keeps proposing (see closed PR #82):
 #   - Netty 4.1 -> 4.2 would force grpc-netty 1.69.1 (AGP's Unified Test Platform emulator-control
 #     gRPC path) onto a minor series it was not built against.
-#   - bcprov 1.80.2 -> 1.84 desyncs from AGP's still-1.79 bcpkix/bcutil (BouncyCastle version skew).
-# In-series patches (e.g. a future 4.1.x / 1.80.x) are still allowed so genuine fixes get through.
+# In-series patches (e.g. a future 4.1.x) are still allowed so genuine fixes get through.
+#
+# The BouncyCastle ignore is GONE, and the reason it existed is worth recording. It blocked
+# bcprov 1.81+ because raising bcprov alone desynced it from AGP's 1.79 bcpkix/bcutil. That held
+# only while bcprov was the sole module under advisory. GHSA-wg6q-6289-32hp (bcpkix, empty
+# signature sequence accepted as valid) and GHSA-c3fc-8qff-9hwx (bcprov, LDAP injection) are both
+# fixed in 1.84, so the buildscript now pins bcprov + bcpkix + bcutil to 1.84 together and there is
+# no skew left to protect against. Re-adding a bcprov-only ignore would re-create it.
 #
 # NOTE: :server intentionally runs Netty 4.2.x (ktor-server-netty's own series, pinned via
 # `platform("io.netty:netty-bom:...")` in server/build.gradle.kts). The `>= 4.2.0` ignore below is
@@ -33,6 +39,3 @@ updates:
       # Stay on Netty 4.1.x; block the 4.2.x series jump (grpc-netty 1.69.1 compatibility).
       - dependency-name: "io.netty:*"
         versions: [">= 4.2.0"]
-      # Stay on BouncyCastle 1.80.x; block 1.81+ so bcprov doesn't drift ahead of AGP's bcpkix/bcutil.
-      - dependency-name: "org.bouncycastle:bcprov-jdk18on"
-        versions: [">= 1.81"]

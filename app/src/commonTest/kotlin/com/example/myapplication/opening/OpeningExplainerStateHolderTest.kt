@@ -30,7 +30,7 @@ class OpeningExplainerStateHolderTest {
         val ready = assertIs<OpeningExplainerUiState.Ready>(holder.state.value)
         assertEquals("A central opening.", ready.text)
         assertEquals(listOf("King's Pawn Game"), ready.sourceTitles)
-        assertEquals(false, ready.isFallback)
+        assertEquals(AiRoute.Cloud, ready.route)
     }
 
     @Test
