@@ -92,6 +92,7 @@ class MainActivity : ComponentActivity() {
                 entitlements = entitlements
                     ?: androidx.compose.runtime.remember { UnconfiguredEntitlements() },
                 forceProUnlocked = isDebug,
+                isDebug = isDebug,
             )
         }
     }

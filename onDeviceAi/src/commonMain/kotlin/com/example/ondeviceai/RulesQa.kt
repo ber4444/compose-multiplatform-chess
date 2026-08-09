@@ -7,6 +7,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 data class RulesQaModelOutput(
     val text: String,
     val retrievedPassageIds: List<String>,
+    val retrievedPassages: List<RulePassage> = emptyList(),
 )
 
 fun interface RulesQaAnswerer {
@@ -172,7 +173,7 @@ object RulesQaResponseValidator {
         .toSet()
 
     private val WORD = Regex("[a-z0-9]+")
-    private val CITATION_TAG = Regex("\\[[^\\[\\]]*]")
+    private val CITATION_TAG = Regex("""\[[^\[\]]*\]""")
     private val STOP_WORDS = setOf(
         "and", "are", "any", "but", "can", "for", "from", "has", "have", "not", "the", "that",
         "this", "when", "with", "you", "your", "its", "may", "must", "was", "were", "will",
@@ -188,16 +189,18 @@ object RulesQaResponseValidator {
 
 class DefaultRulesQaOrchestrator(
     private val answerer: RulesQaAnswerer,
+    private val lookupTool: RuleLookupTool,
     private val contextProvider: suspend () -> AiContextSnapshot,
 ) {
     // Not a constructor parameter: contextProvider is passed as a trailing lambda at every call
     // site, and this module is published, so appending a param is both a source and a binary break.
+    // lookupTool was added deliberately as a source break covered by the 0.2.0 bump.
     private val logger: Logger = Logger.withTag("RulesQa")
 
     suspend fun answer(question: String): RulesQaResult {
         val normalizedQuestion = question.trim()
         if (normalizedQuestion.isEmpty()) {
-            return fallback(AiRoutePolicyDecider.FallbackReason.Other("empty question"))
+            return fallback(AiRoutePolicyDecider.FallbackReason.Other("empty question"), question)
         }
 
         val context = try {
@@ -207,27 +210,37 @@ class DefaultRulesQaOrchestrator(
         } catch (t: Throwable) {
             return fallback(
                 AiRoutePolicyDecider.FallbackReason.Other("context snapshot failed: ${t.message}"),
+                normalizedQuestion,
             )
         }
 
         return when (val decision = AiRoutePolicyDecider.decide(AiRoutePolicies.rulesQaOffline, context)) {
             is AiRoutePolicyDecider.Decision.RunOnDevice -> runOnDevice(normalizedQuestion, decision.route)
             is AiRoutePolicyDecider.Decision.RunCloud ->
-                fallback(AiRoutePolicyDecider.FallbackReason.Other("cloud route not supported"))
-            is AiRoutePolicyDecider.Decision.FallBack -> fallback(decision.reason)
+                fallback(AiRoutePolicyDecider.FallbackReason.Other("cloud route not supported"), normalizedQuestion)
+            is AiRoutePolicyDecider.Decision.FallBack -> {
+                val passages = lookupTool.lookup(normalizedQuestion)
+                if (passages.isNotEmpty()) {
+                    RulesQaResult.Success(
+                        text = RulesQaGrounding.composeFromPassages(passages),
+                        citations = listOf(RuleCitation(id = passages.first().id, title = passages.first().title)),
+                    )
+                } else {
+                    fallback(decision.reason, normalizedQuestion)
+                }
+            }
         }
     }
 
     private suspend fun runOnDevice(question: String, route: VendorRoute): RulesQaResult {
         val output = try {
-            withTimeoutOrNull(AiRoutePolicies.rulesQaOffline.latencyBudget.completeMs) {
-                answerer.answer(question, route)
-            } ?: return fallback(AiRoutePolicyDecider.FallbackReason.Timeout)
+            answerer.answer(question, route)
         } catch (ce: CancellationException) {
             throw ce
         } catch (t: Throwable) {
             return fallback(
                 AiRoutePolicyDecider.FallbackReason.Other("rules generation failed: ${t.message}"),
+                question,
             )
         }
 
@@ -239,25 +252,32 @@ class DefaultRulesQaOrchestrator(
         ) {
             is RulesQaResponseValidator.Result.Valid -> RulesQaResult.Success(
                 text = validation.text,
-                // Titles come from the corpus, keyed by the id the model actually cited. An id with
-                // no corpus entry falls back to showing itself rather than vanishing — a citation
-                // we cannot name is still a citation, and silently dropping it would overstate how
-                // little the answer was grounded in.
                 citations = validation.citedPassageIds.map { id ->
                     RuleCitation(id = id, title = ruleTitleForId(id) ?: id)
                 },
             )
-            // The specific broken rule is a diagnostic; the product state is the same either way.
-            // Mirrors DefaultAiCoachOrchestrator: log the detail, fall back with Validation.
             is RulesQaResponseValidator.Result.Invalid -> {
                 logger.w { "Rules Q&A validation failed: ${validation.reason}" }
-                fallback(AiRoutePolicyDecider.FallbackReason.Validation)
+                if (output.retrievedPassages.isNotEmpty()) {
+                    val fallbackText = RulesQaGrounding.composeFromPassages(output.retrievedPassages)
+                    RulesQaResult.Success(
+                        text = fallbackText,
+                        citations = listOf(RuleCitation(id = output.retrievedPassages.first().id, title = output.retrievedPassages.first().title))
+                    )
+                } else {
+                    fallback(AiRoutePolicyDecider.FallbackReason.Validation, question)
+                }
             }
         }
     }
 
-    private fun fallback(reason: AiRoutePolicyDecider.FallbackReason) = RulesQaResult.FellBack(
-        text = RulesQaFallback.TEXT,
-        reason = reason,
-    )
+    private fun fallback(reason: AiRoutePolicyDecider.FallbackReason, question: String? = null): RulesQaResult.FellBack {
+        if (question != null) {
+            logger.w { "Rules Q&A fallback triggered: ${reason.description} | Question: $question" }
+        }
+        return RulesQaResult.FellBack(
+            text = RulesQaFallback.TEXT,
+            reason = reason,
+        )
+    }
 }

@@ -40,7 +40,7 @@ class RulesQaGroundingTest {
     }
 
     @Test
-    fun `the title is not prefixed, because Sources already names the rule`() {
+    fun `the title is not prefixed because Sources already names the rule`() {
         val text = RulesQaGrounding.composeFromPassages(listOf(passage))
 
         // Otherwise the screen reads "Draw by dead position and insufficient material: The game is
@@ -50,7 +50,7 @@ class RulesQaGroundingTest {
     }
 
     @Test
-    fun `no passages composes to nothing, which is the one honest fallback`() {
+    fun `no passages composes to nothing which is the one honest fallback`() {
         assertEquals("", RulesQaGrounding.composeFromPassages(emptyList()))
         // Empty text + no ids is exactly what should reach RulesQaFallback: nothing was found.
         assertIs<RulesQaResponseValidator.Result.Invalid>(

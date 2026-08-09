@@ -737,6 +737,7 @@ internal fun tokenText(chunks: List<AiTokenOrFinal>): String = buildString {
     chunks.forEach { chunk ->
         when (chunk) {
             is AiTokenOrFinal.Token -> append(chunk.text)
+            is AiTokenOrFinal.ToolCall -> {}
             is AiTokenOrFinal.Final -> append(chunk.text)
         }
     }

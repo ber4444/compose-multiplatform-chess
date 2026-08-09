@@ -178,7 +178,8 @@ fun MainViewController(
             gameSummaryManager = gameSummaryManager,
             entitlements = entitlements
                 ?: remember { com.example.myapplication.monetization.UnconfiguredEntitlements() },
-            switchTopPadding = (-16).dp
+            switchTopPadding = (-16).dp,
+            isDebug = debug,
         )
     }
 }

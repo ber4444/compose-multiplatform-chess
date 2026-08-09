@@ -108,6 +108,7 @@ class DefaultGameSummaryOrchestrator(
                             firstTokenMs = token.metrics.firstTokenMs ?: (clock() - startMs)
                         )
                     }
+                    is AiTokenOrFinal.ToolCall -> {}
                 }
             }
             true

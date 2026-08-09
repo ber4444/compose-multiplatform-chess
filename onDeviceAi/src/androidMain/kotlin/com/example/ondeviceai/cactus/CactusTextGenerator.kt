@@ -4,6 +4,8 @@ import com.cactus.CactusCompletionParams
 import com.cactus.CactusInitParams
 import com.cactus.CactusLM
 import com.cactus.ChatMessage
+import com.cactus.models.ToolParameter
+import com.cactus.models.createTool
 import com.cactus.services.CactusConfig
 import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.AiGenerationRequest
@@ -24,6 +26,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.Executors
+import co.touchlab.kermit.Logger
 
 /**
  * Android [OnDeviceTextGenerator] backed by Cactus.
@@ -48,6 +51,8 @@ class CactusTextGenerator(
     private val engineDispatcher = Executors.newSingleThreadExecutor { r ->
         Thread(r, "cactus-engine").apply { isDaemon = true }
     }.asCoroutineDispatcher()
+
+    private val logger = Logger.withTag("CactusTextGenerator")
 
     // @Volatile because status() is deliberately NOT confined to engineDispatcher any more (B18:
     // it must answer instantly while a download runs, instead of blocking behind it). Without the
@@ -108,6 +113,15 @@ class CactusTextGenerator(
 
         val start = System.currentTimeMillis()
         val result = try {
+            val cactusTools = request.tools.map { spec ->
+                createTool(
+                    name = spec.name,
+                    description = spec.description,
+                    parameters = spec.parameters.mapValues { (_, param) ->
+                        ToolParameter(type = param.type, description = param.description)
+                    }
+                )
+            }
             activeLm.generateCompletion(
                 messages = listOf(
                     ChatMessage(content = request.systemPrompt, role = "system"),
@@ -117,6 +131,8 @@ class CactusTextGenerator(
                     temperature = request.temperature,
                     maxTokens = request.maxOutputTokens,
                     stopSequences = request.stopSequences.ifEmpty { TURN_TERMINATORS },
+                    tools = cactusTools,
+                    forceTools = if (cactusTools.isNotEmpty()) true else null,
                 ),
             )
         } finally {
@@ -128,6 +144,10 @@ class CactusTextGenerator(
             // Coach calls, consistent with that cross-call corruption. reset() clears the native
             // context cheaply (no weight/model reload) so each move starts from a clean session.
             activeLm.reset()
+        }
+
+        result?.toolCalls?.forEach { toolCall ->
+            emit(AiTokenOrFinal.ToolCall(toolCall.name, toolCall.arguments))
         }
 
         val text = stripModelArtifacts(result?.response.orEmpty())
@@ -171,11 +191,29 @@ class CactusTextGenerator(
     /** No-op — keeps the model warm across moves. */
     override suspend fun close() {}
 
+    @Volatile override var supportsTools: Boolean = false
+        private set
+
     private suspend fun ensureInitialized() {
         if (lm != null || initializationFailed != null) return
         try {
             CactusConfig.isTelemetryEnabled = false
+            
             val instance = CactusLM()
+            
+            // Resolve tool calling support once during warmup (off the critical path)
+            // getModels() internally falls back to emptyList() on failure, but we wrap in a catch
+            // anyway to guarantee it never fails the initialization of the model itself.
+            // Probe MUST run before `lm = instance` to prevent the first-ask race condition.
+            try {
+                val models = instance.getModels()
+                val targetModel = models.find { it.slug == modelSlug }
+                supportsTools = targetModel?.supports_tool_calling == true
+                logger.i { "supports_tool_calling = $supportsTools" }
+            } catch (t: Throwable) {
+                // Not fatal; defaults to false.
+            }
+
             instance.downloadModel(modelSlug)
             instance.initializeModel(
                 CactusInitParams(model = modelSlug, contextSize = contextSize)

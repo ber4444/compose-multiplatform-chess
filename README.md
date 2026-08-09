@@ -199,7 +199,7 @@ no single switch that turns "AI" on or off everywhere:
 | Feature | Android | iOS | Desktop | Web |
 |---|---|---|---|---|
 | **Move Coach**, **Game Summary** | All builds, debug and release; first launch downloads ~200 MB in the background (see [First-run model download](#first-run-model-download)) | iOS 26.0+, a Foundation-Models-eligible device, and Apple Intelligence on in Settings (`SystemLanguageModel.default.availability`), probed at launch on every build | `CHESS_ENABLE_COACH=1 ./gradlew :app:run` | `?coach=1` on the page URL; Chrome/Edge only, since it needs WebGPU |
-| **Rules Q&A** | All builds — the answerer checks `isCactusInitialized()`, and the coach's init path runs at launch | Same iOS 26+ / Apple Intelligence gate as the coach | Unavailable: `defaultRulesQaAnswerer` returns `null`, and the **Rules** screen reports itself unavailable rather than rendering a dead input box | Unavailable, same as desktop |
+| **Rules Q&A** | All builds — the answerer is unconditionally available and falls back to corpus retrieval if the model has not initialized yet | Same iOS 26+ / Apple Intelligence gate as the coach | Unavailable: `defaultRulesQaAnswerer` returns `null`, and the **Rules** screen reports itself unavailable rather than rendering a dead input box | Unavailable, same as desktop |
 | **Opening Explainer**, **Position Chat** | A `coach.baseUrl` / `CHESS_COACH_BASE_URL` baked in at build time — identical precedence on all four targets (see [App-side wiring](#opening-explainer-service)) | ↑ | ↑ | ↑ |
 
 On top of its platform gate, **Move Coach** also honours the persisted **Enable AI Move Coach**
@@ -262,10 +262,11 @@ off-device at all."
   up with BM25 (`BundledRuleLookupTool`); see
   `docs/benchmarks/on-device-ai/rules-qa-retrieval-decision.md` for why BM25 rather than a bundled
   embedding model. iOS uses a native Foundation Models `Tool` conformance with `NLEmbedding`
-  query-time ranking; Android uses structured-output prompting — the model emits a
+  query-time ranking; Android uses native Cactus tool calling (if supported by the model) or
+  structured-output prompting — the model emits a
   `{"tool":"lookup_rule","query":"…"}` envelope, Kotlin performs the real lookup, and a second
-  generation turn cites the passage. An answer that cites no retrieved passage id is rejected and
-  falls back to a static rules summary.
+  generation turn cites the passage. An answer that fails validation falls back to composing the
+  retrieved passage directly.
 - **Opening Explainer** — `OpeningExplainerPanel` posts the FEN plus the first 20 SAN plies to
   `:server`, which retrieves grounded passages and composes a 2–3 sentence explanation. An unset base
   URL, a dead network, or a non-2xx response all surface as a deterministic offline message rather

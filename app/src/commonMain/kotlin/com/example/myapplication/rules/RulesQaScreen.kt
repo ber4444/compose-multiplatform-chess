@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import com.example.myapplication.SubScreenScaffold
 import com.example.myapplication.isAndroidPlatform
 import kotlinx.coroutines.launch
+import com.example.myapplication.movecoach.FallbackPresentation
+import com.example.myapplication.LocalIsDebug
 
 @Composable
 fun RulesQaScreen(
@@ -62,7 +64,15 @@ fun RulesQaScreen(
                     if (current.sources.isNotEmpty()) {
                         Text("Sources: ${current.sources.joinToString { it.title }}")
                     }
-                    if (current.isFallback) Text("Offline reference fallback")
+                    if (current.fallbackReason != null) {
+                        val isDebug = LocalIsDebug.current
+                        val suffix = if (isDebug) " [${current.fallbackReason.description}]" else ""
+                        when (FallbackPresentation.of(current.fallbackReason)) {
+                            FallbackPresentation.Silent -> if (isDebug) Text("Offline reference fallback$suffix")
+                            FallbackPresentation.Labeled -> Text("Offline reference fallback$suffix")
+                            FallbackPresentation.Retryable -> Text("Offline reference fallback (timeout)$suffix")
+                        }
+                    }
                 }
             }
         }

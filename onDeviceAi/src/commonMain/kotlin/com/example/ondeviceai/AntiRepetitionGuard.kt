@@ -45,6 +45,7 @@ fun Flow<AiTokenOrFinal>.withAntiRepetitionGuard(
                 if (flushed.isNotEmpty()) emit(AiTokenOrFinal.Token(flushed))
                 emit(AiTokenOrFinal.Final(guard.clean(piece.text), piece.metrics))
             }
+            is AiTokenOrFinal.ToolCall -> {}
         }
     }
 }

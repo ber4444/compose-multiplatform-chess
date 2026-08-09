@@ -10,23 +10,29 @@ import com.example.ondeviceai.RulePassage
 import com.example.ondeviceai.RulesQaAnswerer
 import com.example.ondeviceai.RulesQaGrounding
 import com.example.ondeviceai.RulesQaModelOutput
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.max
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 
-import com.example.ondeviceai.VendorRoute
-import com.example.ondeviceai.VendorRouteExecutor
+import com.example.ondeviceai.AiToolParameter
+import com.example.ondeviceai.AiToolSpec
 import com.example.ondeviceai.AiRouteExecutor
 import com.example.ondeviceai.AiRoutePolicies
-import com.example.ondeviceai.AiContextSnapshot
-import com.example.ondeviceai.AiUserSetting
+import com.example.ondeviceai.VendorRoute
 
 /**
- * Android rules Q&A uses structured-output prompting, not native function calling.
+ * Android rules Q&A uses either native tool calling or structured-output prompting, depending on
+ * whether the underlying OnDeviceTextGenerator natively supports it.
  *
- * The small Cactus model first emits a strict `lookup_rule` JSON envelope. Kotlin executes the
- * real offline lookup and sends those passages in a second turn. Keeping this distinction explicit
- * avoids presenting Cactus prompt choreography as a tool-calling API.
+ * It first routes a lookup query to the offline lookup. The passages are then sent in a second
+ * turn. Keeping this distinction explicit keeps offline capabilities separate from model generation.
  */
-class StructuredOutputRulesQaAnswerer(
+class OnDeviceRulesQaAnswerer(
     private val executor: AiRouteExecutor,
     private val lookupTool: RuleLookupTool,
 ) : RulesQaAnswerer {
@@ -50,21 +56,55 @@ class StructuredOutputRulesQaAnswerer(
             // The structured-output turn is now a *refinement*: its query can surface passages the
             // raw question misses, and if it produces nothing usable we simply keep what retrieval
             // already found. Question hits stay first because they are the ones we can vouch for.
-            val refined = parseLookupQuery(
-                generator.runTurn(
-                    AiGenerationRequest(
-                        systemPrompt = LOOKUP_SYSTEM_PROMPT,
-                        userPrompt = """
-                            Structured-output request. Decide what rule to retrieve for this question:
-                            $question
+            val supportsToolCalling = generator.supportsTools
+            val deadline = TimeSource.Monotonic.markNow() + AiRoutePolicies.rulesQaOffline.latencyBudget.completeMs.milliseconds
 
-                            Return only {"tool":"lookup_rule","query":"short search query"}.
-                        """.trimIndent(),
-                        maxOutputTokens = 80,
-                        temperature = 0.0,
-                    ),
-                ),
-            )?.let { lookupTool.lookup(it) }.orEmpty()
+            val refined = withTimeoutOrNull(max(0, (deadline - TimeSource.Monotonic.markNow()).inWholeMilliseconds)) {
+                if (supportsToolCalling) {
+                    var toolQuery: String? = null
+                    generator.generate(
+                        AiGenerationRequest(
+                            systemPrompt = "You route chess-rules questions to an offline lookup.",
+                            userPrompt = "Decide what rule to retrieve for this question: $question",
+                            maxOutputTokens = 80,
+                            temperature = 0.0,
+                            tools = listOf(
+                                AiToolSpec(
+                                    name = "lookup_rule",
+                                    description = "Search the offline rules corpus",
+                                    parameters = mapOf(
+                                        "query" to AiToolParameter(
+                                            type = "string",
+                                            description = "short search query",
+                                        )
+                                    ),
+                                )
+                            )
+                        )
+                    ).collect { output ->
+                        if (output is AiTokenOrFinal.ToolCall && output.name == "lookup_rule") {
+                            toolQuery = output.arguments["query"]
+                        }
+                    }
+                    toolQuery
+                } else {
+                    parseLookupQuery(
+                        generator.runTurn(
+                            AiGenerationRequest(
+                                systemPrompt = LOOKUP_SYSTEM_PROMPT,
+                                userPrompt = """
+                                    Structured-output request. Decide what rule to retrieve for this question:
+                                    $question
+
+                                    Return only {"tool":"lookup_rule","query":"short search query"}.
+                                """.trimIndent(),
+                                maxOutputTokens = 80,
+                                temperature = 0.0,
+                            ),
+                        ),
+                    )
+                }
+            }?.let { lookupTool.lookup(it) }.orEmpty()
 
             // Only the best few reach the prompt. Handing a small model four passages and asking it
             // to "answer from these" reliably produces a transcript of all four -- observed on
@@ -76,29 +116,32 @@ class StructuredOutputRulesQaAnswerer(
             val passageText = passages.joinToString("\n") { passage ->
                 "[${passage.id}] ${passage.title}: ${passage.text}"
             }
-            val answer = generator.runTurn(
-                AiGenerationRequest(
-                    systemPrompt = ANSWER_SYSTEM_PROMPT,
-                    userPrompt = """
-                        Question: $question
+            val answer = withTimeoutOrNull(max(0, (deadline - TimeSource.Monotonic.markNow()).inWholeMilliseconds)) {
+                generator.runTurn(
+                    AiGenerationRequest(
+                        systemPrompt = ANSWER_SYSTEM_PROMPT,
+                        userPrompt = """
+                            Question: $question
 
-                        Retrieved offline rules:
-                        $passageText
+                            Retrieved offline rules:
+                            $passageText
 
-                        Reply with one or two sentences that answer the question directly, then the
-                        id of the rule you used in square brackets. Do not list the rules and do not
-                        copy them word for word.
+                            Reply with one or two sentences that answer the question directly, then the
+                            id of the rule you used in square brackets. Do not list the rules and do not
+                            copy them word for word.
 
-                        Example of the shape: Yes — with no way left to force mate the game is
-                        drawn [${passages.first().id}].
-                    """.trimIndent(),
-                    // The example's id is deliberately a *retrieved* one: a model that copies the
-                    // example verbatim still produces a citation the validator accepts, instead of
-                    // inventing `[rule-id]` and failing closed to the passage text.
-                    maxOutputTokens = 160,
-                    temperature = 0.2,
-                ),
-            )
+                            Example of the shape: Yes — with no way left to force mate the game is
+                            drawn [${passages.first().id}].
+                        """.trimIndent(),
+                        // The example's id is deliberately a *retrieved* one: a model that copies the
+                        // example verbatim still produces a citation the validator accepts, instead of
+                        // inventing `[rule-id]` and failing closed to the passage text.
+                        maxOutputTokens = 160,
+                        temperature = 0.2,
+                    ),
+                )
+            } ?: return grounded(passages)
+            
             RulesQaGrounding.rejectionReason(answer, passages)?.let { reason ->
                 logger.i { "model wording refused ($reason); answering from the passage instead" }
             }
@@ -107,6 +150,7 @@ class StructuredOutputRulesQaAnswerer(
                 // RulesQaFallback -- see RulesQaGrounding. Retrieval succeeded; the user gets the rule.
                 text = RulesQaGrounding.answerOrReference(answer, passages),
                 retrievedPassageIds = passages.map { it.id },
+                retrievedPassages = passages,
             )
         } catch (ce: CancellationException) {
             throw ce
@@ -130,23 +174,38 @@ class StructuredOutputRulesQaAnswerer(
             when (output) {
                 is AiTokenOrFinal.Token -> text.append(output.text)
                 is AiTokenOrFinal.Final -> text.append(output.text)
+                is AiTokenOrFinal.ToolCall -> {}
             }
         }
         return text.toString().trim()
     }
 
     private fun parseLookupQuery(output: String): String? {
-        val match = LOOKUP_ENVELOPE.find(output) ?: return null
-        return match.groupValues[1]
-            .replace("\\\"", "\"")
-            .replace("\\\\", "\\")
-            .trim()
-            .takeIf { it.isNotEmpty() && it.length <= 160 }
+        return Regex("""\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}""").findAll(output)
+            .mapNotNull { 
+                try { 
+                    Json.parseToJsonElement(it.value).jsonObject 
+                } catch (_: Throwable) { 
+                    logger.d { "parseLookupQuery candidate failed to parse: ${it.value}" }
+                    null 
+                } 
+            }
+            .firstOrNull { it["tool"]?.jsonPrimitive?.content == "lookup_rule" }
+            ?.let { obj -> 
+                val query = obj["query"] ?: obj["arguments"]?.jsonObject?.get("query")
+                if (query == null) {
+                    logger.d { "lookup_rule envelope missing query: $obj" }
+                }
+                query
+            }
+            ?.jsonPrimitive?.content
+            ?.takeIf { it.isNotEmpty() && it.length <= 160 }
     }
 
     private fun ungrounded(text: String) = RulesQaModelOutput(
         text = text,
         retrievedPassageIds = emptyList(),
+        retrievedPassages = emptyList(),
     )
 
     /**
@@ -157,6 +216,7 @@ class StructuredOutputRulesQaAnswerer(
     private fun grounded(passages: List<RulePassage>) = RulesQaModelOutput(
         text = RulesQaGrounding.composeFromPassages(passages),
         retrievedPassageIds = passages.map { it.id },
+        retrievedPassages = passages,
     )
 
     private companion object {
@@ -176,12 +236,5 @@ class StructuredOutputRulesQaAnswerer(
             question in your own words -- never reproduce the passages as a list. Be concise,
             never invent a rule, and cite an exact passage id in square brackets.
         """
-        val LOOKUP_ENVELOPE = Regex(
-            // NOTE: the closing brace must be escaped as `\}`. A bare `}` compiles on the JVM
-            // (lenient java.util.regex) but Android's ICU-backed engine rejects it with a
-            // PatternSyntaxException at class-init, crashing the app on device. JVM-only tests
-            // (desktopTest) can't catch this — it is Android-runtime-specific.
-            """\s*\{\s*"tool"\s*:\s*"lookup_rule"\s*,\s*"query"\s*:\s*"((?:\\.|[^"\\])*)"\s*\}\s*""",
-        )
     }
 }

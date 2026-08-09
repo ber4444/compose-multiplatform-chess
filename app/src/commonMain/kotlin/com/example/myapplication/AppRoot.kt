@@ -72,6 +72,7 @@ enum class Screen { GAME, HISTORY, SETTINGS, RULES, CHAT, PAYWALL }
 val LocalMoveCoachManager = staticCompositionLocalOf<MoveCoachManager?> { null }
 val LocalGameSummaryManager = staticCompositionLocalOf<GameSummaryManager?> { null }
 val LocalOpeningExplainerStateHolder = staticCompositionLocalOf<OpeningExplainerStateHolder?> { null }
+val LocalIsDebug = staticCompositionLocalOf { false }
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -90,17 +91,22 @@ fun AppRoot(
     entitlements: Entitlements = remember { UnconfiguredEntitlements() },
     switchTopPadding: Dp = 8.dp,
     forceProUnlocked: Boolean = false,
+    isDebug: Boolean = false,
 ) {
     val openingExplainerStateHolder = remember { OpeningExplainerStateHolder(createOpeningExplainer()) }
     val chatViewModel = remember { ChatViewModel(createPositionChat()) }
     val gameState by viewModel.gameState.collectAsState()
     // Hoisted out of the RulesQaStateHolder construction below because a null answerer is also the
     // "don't sell this" signal for the Pro gate — desktop, wasm and JS return null unconditionally.
-    val rulesQaAnswerer = remember { defaultRulesQaAnswerer(createBundledRuleLookupTool()) }
+    val ruleLookupTool = remember { createBundledRuleLookupTool() }
+    val rulesQaAnswerer = remember { defaultRulesQaAnswerer(ruleLookupTool) }
     val rulesQaStateHolder = remember {
         RulesQaStateHolder(
             rulesQaAnswerer?.let {
-                DefaultRulesQaOrchestrator(it) {
+                DefaultRulesQaOrchestrator(
+                    answerer = it,
+                    lookupTool = ruleLookupTool,
+                ) {
                     AiContextSnapshot(
                         availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
                         isAppForegrounded = true,
@@ -123,6 +129,7 @@ fun AppRoot(
         LocalMoveCoachManager provides moveCoachManager,
         LocalGameSummaryManager provides gameSummaryManager,
         LocalOpeningExplainerStateHolder provides openingExplainerStateHolder,
+        LocalIsDebug provides isDebug,
     ) {
         MyApplicationTheme(darkTheme = isSystemInDarkTheme()) {
             var screen by rememberSaveable { mutableStateOf(Screen.GAME) }

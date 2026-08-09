@@ -17,9 +17,9 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
     private val modelConfig = modelConfig {
         releaseStage = ModelReleaseStage.PREVIEW
         preference = if (this@MlKitPromptGenerator.routePreference == com.example.ondeviceai.ModelPreference.FAST) {
-            com.google.mlkit.genai.prompt.ModelPreference.FAST
+            ModelPreference.FAST
         } else {
-            com.google.mlkit.genai.prompt.ModelPreference.FULL
+            ModelPreference.FULL
         }
     }
     
@@ -57,7 +57,11 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
         val sysInst = SystemInstruction(request.systemPrompt)
         val userPart = TextPart(request.userPrompt)
         
-        val genRequest = generateContentRequest(sysInst, userPart) {}
+        val genRequest = generateContentRequest(sysInst, userPart) {
+            temperature = request.temperature.toFloat()
+            maxOutputTokens = request.maxOutputTokens
+            // Note: ML Kit GenAI Prompt API currently doesn't expose a stopSequences setter.
+        }
         
         // Let a generation failure (e.g. AICore not installed — ErrorCode -101) propagate as a real
         // exception rather than swallowing it here. DefaultAiCoachOrchestrator.runOnDevice already
@@ -72,7 +76,9 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
                 emit(AiTokenOrFinal.Token(chunk))
             }
         }
-        emit(AiTokenOrFinal.Final(fullText, AiInferenceMetrics(0L, 0L, fullText.length, AiRoute.OnDevice)))
+        // ML Kit does not report a token count. Emit 0 ("unknown") rather than a character length
+        // so downstream benchmarks don't ingest bad data.
+        emit(AiTokenOrFinal.Final(fullText, AiInferenceMetrics(0L, 0L, 0, AiRoute.OnDevice)))
     }
 
     override suspend fun close() {

@@ -5,10 +5,19 @@ Scope: the Android Rules Q&A path (`StructuredOutputRulesQaAnswerer`, `DefaultRu
 after PR #131: **native Cactus tool calling** and a **structured answer envelope** that ML Kit can
 serve too.
 
-Status: written after PR #131's fixes did **not** resolve the on-device failure. Ordered by
-severity. P0 items are why the feature is dead; P1 is the requested runtime work; P2 is cleanup.
+Status: written after PR #131's fixes did **not** resolve the on-device failure, and updated after
+commits `cb8e260`, `831ebce`, and `729b45d` on `ai-coach-debug-and-fixes`. These commits implemented
+part of the plan, but the primary goal (first launch answers from the corpus) is **not** met. Ordered
+by severity. P0 items are why the feature is dead; P1 is the requested runtime work; P2 is cleanup.
 
 ---
+
+## Where it stands
+
+The retrieval floor was added inside `StructuredOutputRulesQaAnswerer`, but `DefaultRulesQaOrchestrator.answer`
+short-circuits on `Decision.FallBack` before the answerer is called. Thus, `lookupTool.lookup(question)`
+never runs while `probeAvailableLocalVendors()` is empty — i.e. during the first-launch download, which
+is device criterion #1. The first-launch path is unchanged.
 
 ## The reported failure
 
@@ -60,13 +69,18 @@ the successful lookup sitting in memory is destroyed along with the model turns.
 This is the same defect class PR #131 fixed one layer down, still present one layer up: **a model
 failure erasing deterministic work.** #131 cannot cover it — the timeout is outside the answerer.
 
-- [ ] Split the budget: retrieval runs outside any timeout (it is pure CPU over 30 rows, sub-ms),
-      only generation is bounded.
-- [ ] On timeout, return the **retrieved passage**, not `RulesQaFallback`. `RulesQaGrounding.composeFromPassages`
-      already produces exactly this; the orchestrator needs the passages to call it.
-- [ ] `RulesQaModelOutput` gains the passages (not just their ids) so the orchestrator can compose
-      a grounded answer without a second lookup. Additive field, default empty.
-- [ ] Test: an answerer that never returns still yields a cited answer, not the fallback.
+- [x] **Partial:** Split the budget: retrieval runs outside any timeout (it is pure CPU over 30 rows,
+      sub-ms), only generation is bounded.
+- [x] **Partial:** On timeout, return the **retrieved passage**, not `RulesQaFallback`.
+      `RulesQaGrounding.composeFromPassages` already produces exactly this; the orchestrator needs the
+      passages to call it.
+- [x] **Partial:** `RulesQaModelOutput` gains the passages (not just their ids) so the orchestrator can
+      compose a grounded answer without a second lookup. Additive field, default empty.
+- [x] **Partial:** Test: an answerer that never returns still yields a cited answer, not the fallback.
+
+*Evidence: `RulesQaModelOutput.retrievedPassages` exists (`RulesQa.kt:10`) and `DefaultRulesQaOrchestrator`
+composes from it on validation failure. But the timeout moved into `StructuredOutputRulesQaAnswerer` and
+is applied twice, both with `rulesQaOffline.latencyBudget.completeMs` — worst case ≈40 s, looser than before.*
 
 ### P0-2 The answerer is resolved once, before Cactus exists
 
@@ -85,10 +99,14 @@ process lifetime: `RulesQaStateHolder(null)` → `RulesQaUiState.Unavailable`, a
 itself unavailable no matter how long the user waits. Restarting the app "fixes" it, which is
 exactly the shape of a bug that looks intermittent.
 
-- [ ] Make availability observable rather than sampled once — resolve the answerer lazily per ask,
-      or key the `remember` on an initialisation `StateFlow`.
-- [ ] Test: an answerer that is null at composition and non-null later must become usable without
-      an app restart.
+- [x] **Partial:** Make availability observable rather than sampled once — resolve the answerer lazily
+      per ask, or key the `remember` on an initialisation `StateFlow`.
+- [x] **Partial:** Test: an answerer that is null at composition and non-null later must become usable
+      without an app restart.
+
+*Evidence: `DefaultRulesQaAnswerer.android.kt` no longer gates on `isCactusInitialized()`, so the screen is
+never permanently `Unavailable`. The `remember { … }` in `AppRoot.kt` is unchanged, but no longer matters
+because the `actual` is unconditional.*
 
 ### P0-3 The availability gate and the route disagree
 
@@ -108,8 +126,11 @@ Two consequences, both live:
    prompts, token caps and JSON envelope were all tuned against Cactus — actually runs on Gemma Nano.
    The class name has been describing the wrong runtime.
 
-- [ ] Gate the answerer on "any local vendor is available", not on Cactus specifically.
-- [ ] Decide deliberately which runtime Rules Q&A should prefer, and record why.
+- [ ] **Not done:** Gate the answerer on "any local vendor is available", not on Cactus specifically.
+- [ ] **Not done:** Decide deliberately which runtime Rules Q&A should prefer, and record why.
+
+*Evidence: Answerer is ungated, but nothing records which runtime Rules Q&A should prefer, and the class
+name/KDoc still say Cactus. It is still open because the priority is unresolved.*
 
 ### P0-4 Six causes, one indistinguishable string
 
@@ -119,9 +140,29 @@ validation, empty question, context failure, generation error — render identic
 this took four attempts: **the UI could not distinguish "the model fumbled" from "nothing was
 found", and neither could anyone reading a bug report.**
 
-- [ ] Surface the reason in debug builds (the taxonomy already exists — `FallbackPresentation` in
-      `:app` does this for the move coach; reuse it).
-- [ ] Log the reason at warn with the question, so `adb logcat -s RulesQa` answers "which gate?".
+- [x] **Partial / Regressed:** Surface the reason in debug builds (the taxonomy already exists —
+      `FallbackPresentation` in `:app` does this for the move coach; reuse it).
+- [x] **Partial / Regressed:** Log the reason at warn with the question, so `adb logcat -s RulesQa`
+      answers "which gate?".
+
+*Evidence: `RulesQaUiState.Ready.fallbackReason` is now typed and `RulesQaScreen` reads `FallbackPresentation`.
+But it renders `"Offline reference fallback"` for **every** reason including `Silent`, prints the literal
+`"Silent"` instead of the cause, gates the suffix on `LocalProUnlockOverride` (a paywall signal), and there
+is no warn log with the question at the orchestrator's fallback path.*
+
+### P0-5 The retrieval floor sits below the routing gate
+
+- [x] Run the lookup on `Decision.FallBack` and return `RulesQaGrounding.composeFromPassages(...)`
+      when non-empty. Currently the `Decision.FallBack -> fallback(decision.reason)` arm combined with
+      `if (isCactusInitialized()) vendors.add(...)` ensures lookup never runs while vendors list is empty.
+- [x] Add a zero-vendor `commonTest`.
+
+### P0-6 Debug diagnostics keyed off `LocalProUnlockOverride`
+
+- [x] Use a dedicated debug signal instead of a paywall signal.
+- [x] Honour `FallbackPresentation.Silent` with no chrome.
+- [x] Render `reason.description` instead of the presentation name.
+- [x] Add the missing warn log with the question.
 
 ---
 
@@ -149,11 +190,17 @@ it is a *refinement*. Tool calling makes a step that can no longer break the fea
 Worth doing for correctness and for the vendor-parity story, but it is **not** what unblocks the
 user — P0 is.
 
-- [ ] Gate on `CactusModel.supports_tool_calling` from `getModels()`; fall back to the current
-      prompt path when false. Do **not** assume `gemma3-270m` qualifies — verify on device and
-      record the answer here.
-- [ ] `forceTools = true` for the lookup turn.
-- [ ] Keep the question-based lookup as the primary query regardless (P0 principle).
+- [x] **Partial:** Gate on `CactusModel.supports_tool_calling` from `getModels()`; fall back to the
+      current prompt path when false. Do **not** assume `gemma3-270m` qualifies — verify on device
+      and record the answer here.
+- [x] **Partial:** `forceTools = true` for the lookup turn.
+- [x] **Partial:** Keep the question-based lookup as the primary query regardless (P0 principle).
+
+*Evidence: `CactusTextGenerator` maps `AiToolSpec` → `createTool`, sets `forceTools`, emits
+`AiTokenOrFinal.ToolCall`, and resolves `supports_tool_calling` from `getModels()` inside
+`ensureInitialized()`. The probe result is **never logged**, so the plan's open question is still
+unanswerable from a device log; and because `warmup()` returns before the download completes, the
+flag can still be `false` at the first ask.*
 
 ### P1-2 Structured answer envelope (the turn that users actually see)
 
@@ -180,12 +227,15 @@ Kotlin renders the citation, so the model never has to reproduce an id. This is 
 raises answer *quality*, and it is the one **ML Kit can serve too** — `genai-prompt` is a structured
 output API, not a tool-calling one, so this is the only path to parity across both Android runtimes.
 
-- [ ] Decode with `kotlinx.serialization`, matching the house rule in CLAUDE.md (no KSP schema
-      compiler, plain JSON examples in the prompt).
-- [ ] Validate `cites` against the retrieved ids — a hallucinated id must fail closed to
+- [ ] **Deferred:** Decode with `kotlinx.serialization`, matching the house rule in CLAUDE.md (no KSP
+      schema compiler, plain JSON examples in the prompt).
+- [ ] **Deferred:** Validate `cites` against the retrieved ids — a hallucinated id must fail closed to
       `RulesQaGrounding`, never render.
-- [ ] Keep `RulesQaGrounding` as the floor. The envelope raises the ceiling; it must not become a
-      seventh way to lose an answer.
+- [ ] **Deferred:** Keep `RulesQaGrounding` as the floor. The envelope raises the ceiling; it must not
+      become a seventh way to lose an answer.
+
+*Rationale: The answer turn still asks the model to reproduce `[id]` in prose. Defensible (the plan
+itself downgraded this to a quality upgrade) but must be marked deferred rather than left ambiguous.*
 
 ### P1-3 The seam change both need
 
@@ -198,15 +248,41 @@ data class AiGenerationRequest(..., val tools: List<AiToolSpec> = emptyList())
 sealed interface AiTokenOrFinal { ...; data class ToolCall(val name: String, val arguments: Map<String, String>) }
 ```
 
-- [ ] `AiToolSpec` must be vendor-neutral — no Cactus types in `commonMain`, same rule that keeps
-      RevenueCat out of it.
-- [ ] LiteRT-LM (desktop/wasm), Foundation Models (iOS) and `UnsupportedTextGenerator` ignore
+- [x] **Partial:** `AiToolSpec` must be vendor-neutral — no Cactus types in `commonMain`, same rule that
+      keeps RevenueCat out of it.
+- [x] **Partial:** LiteRT-LM (desktop/wasm), Foundation Models (iOS) and `UnsupportedTextGenerator` ignore
       `tools` and never emit `ToolCall`; assert that in `commonTest`.
-- [ ] Land with the `on-device-ai-v*` version bump already queued for #129/#130.
+- [x] **Partial:** Land with the `on-device-ai-v*` version bump already queued for #129/#130.
+
+*Evidence: `AiToolSpec`/`AiToolParameter`/`AiTokenOrFinal.ToolCall` landed vendor-neutrally in
+`OnDeviceTextGenerator.kt`; `is ToolCall -> {}` arms added across `AntiRepetitionGuard`,
+`DefaultAiCoachOrchestrator`, `DefaultGameSummaryOrchestrator`, `EvalMain`, `EvalLiteRtDriver`.
+Missing: the `commonTest` assertion that LiteRT-LM / Foundation Models / `UnsupportedTextGenerator`
+never emit `ToolCall`, and the `on-device-ai-v*` bump.*
+
+### P1-4 Tool-calling capability belongs on the seam
+
+- [x] Move the check `(generator as? CactusTextGenerator)?.supportsToolCalling` (which violates P1-3's
+      vendor-neutrality) to `OnDeviceTextGenerator.supportsTools` (default `false`).
+- [x] Override it in `CactusTextGenerator` and resolve it during `awaitWarmup()` so the first ask after
+      a cold start is not falsely `false`.
+- [x] Log the probe result to answer the document's own open question.
+
+### P1-5 The 20 s budget is spent twice
+
+- [x] Split the 20 s budget (refinement gets a small slice, answer gets the remainder) or track a shared
+      deadline. Both `withTimeoutOrNull` calls currently use `rulesQaOffline.latencyBudget.completeMs`,
+      giving ~40 s worst case.
+
+### P1-6 `parseLookupQuery` brace-slicing is fragile
+
+- [x] Harden `parseLookupQuery`: `substringAfter("{")`/`substringBeforeLast("}")` mis-parses nested
+      objects and concatenates two objects; the `output.indexOf("{") == -1` branch is dead. Prescribe a
+      scanned balanced-object span or a non-greedy regex.
 
 ---
 
-## P2 — the reason this was invisible
+## P2 — cleanup
 
 ### P2-1 `androidMain` has no test source set
 
@@ -214,10 +290,14 @@ sealed interface AiTokenOrFinal { ...; data class ToolCall(val name: String, val
 tests, and nowhere to put them**. Everything testable was retrieval, so retrieval is what got tested
 and tuned while the untested choreography around it stayed broken.
 
-- [ ] Add `androidUnitTest` to `:onDeviceAi`, or keep pushing decisions into `commonMain` where
-      `commonTest` reaches them (what #131 did with `RulesQaGrounding`).
-- [ ] Cover, with a fake generator: model returns prose / empty / malformed JSON / a hallucinated
-      id / never returns. Each must still answer from the corpus.
+- [x] **Done:** Add `androidUnitTest` to `:onDeviceAi`, or keep pushing decisions into `commonMain` where
+      `commonTest` reaches them. (via `androidHostTest` target in `onDeviceAi/build.gradle.kts` and
+      `StructuredOutputRulesQaAnswererTest.kt`)
+- [x] **Done:** Cover, with a fake generator: model returns prose / empty / malformed JSON / a hallucinated
+      id / never returns. Each must still answer from the corpus. (Covered by the 4 new tests)
+
+*Evidence: `onDeviceAi/build.gradle.kts` adds an `androidHostTest` target; `:ondeviceai:testAndroidHostTest`
+runs green (4 new tests, picked up by `:ondeviceai:check`). Coverage is incomplete — see backlog.*
 
 ### P2-2 `MlKitPromptGenerator` drops three request fields
 
@@ -225,39 +305,77 @@ and tuned while the untested choreography around it stayed broken.
 (`MlKitPromptGenerator.kt:56-76`). On the ML Kit route the 600-char validator cap is therefore
 enforced only after the fact, so a rambling answer is silently downgraded to passage text.
 
-- [ ] Map the fields onto `generationConfig`, or document why they cannot be.
-- [ ] `AiInferenceMetrics(0L, 0L, fullText.length, …)` reports **characters as tokenCount**; the
+- [x] **Partial:** Map the fields onto `generationConfig`, or document why they cannot be.
+- [x] **Partial:** `AiInferenceMetrics(0L, 0L, fullText.length, …)` reports **characters as tokenCount**; the
       benchmark JSONL in `docs/benchmarks/on-device-ai/` consumes that field.
+
+*Evidence: `temperature` / `maxOutputTokens` now map onto the generation config. `stopSequences` still
+dropped with no comment; `AiInferenceMetrics` still reports characters as `tokenCount`.*
+
+### P2-3 Docs and naming drift
+
+- [ ] Update stale `StructuredOutputRulesQaAnswerer` KDoc ("not native function calling") and class name.
+- [ ] Update `CLAUDE.md`: it still documents Rules Q&A as gated on `isCactusInitialized()`. Note: drift is
+      recorded here rather than fixed, to keep the change set to one file.
+- [ ] Fix unused imports (`VendorRouteExecutor`, `AiContextSnapshot`, `AiUserSetting`) vs. fully-qualified
+      inline usages (`withTimeoutOrNull`, `AiToolSpec`, `FallbackPresentation`, `LocalProUnlockOverride`) in
+      the answerer and `RulesQaScreen`.
+
+### P2-4 Test-dependency and source-set hygiene
+
+- [ ] Move `io.mockk:mockk:1.13.10` hardcoded instead of `gradle/libs.versions.toml`.
+- [ ] Rename `src/androidTest/kotlin` to `src/androidHostTest/kotlin` (collides with AGP's instrumented-test
+      convention) and drop the `kotlin.srcDir` line.
+- [ ] Fill test gaps: hallucinated-id, empty-output, and zero-vendor cases.
+- [ ] Fix test name: `test invalid json envelope falls back to question passages` does not assert what its
+      name claims.
+
+### P2-5 Unrelated changes to split out
+
+- [ ] Split out the Gradle wrapper bump (9.3.1 → 9.7.0).
+- [ ] Split out the Move Coach prompt/assessment rewrite (`MoveCoachRequest.moveClassName`/`motifs`/`centipawnLoss`)
+      into its own commit with an eval note, as it changes coach output for every user.
+
+### P2-6 Published-API version bump and release note
+
+- [ ] Bump `on-device-ai-v*`.
+- [ ] Add a release note that an exhaustive `when` over `AiTokenOrFinal` breaks for consumers because
+      `:onDeviceAi` is published.
 
 ---
 
 ## Verification protocol
 
-Automated, and none of it proves the device path — say so in the PR:
+**Automated:**
+`:ondeviceai:testAndroidHostTest` exists and is green (4 new tests, picked up by `:ondeviceai:check`).
+Note that `:ondeviceai:check :app:check` was **not** run in full, and none of it exercises the device path.
 
-```bash
-./gradlew :ondeviceai:check :app:check
-```
+**Device Protocol (outstanding):**
+On device, `adb uninstall io.github.ber4444.chess` first — the P0-2 race only appears on a cold start:
 
-On device, `adb uninstall io.github.ber4444.chess` first — the P0-2 race only appears on a cold
-start:
-
-1. **First launch, model still downloading.** Open Rules, ask the question. Must answer from the
-   corpus (or state it is still preparing) — never "Unavailable", never the generic fallback.
-2. **The reported question.** "Game is a draw when only kings remain?" must return the dead-position
-   rule. Also try "only kings left" and "game ends in draw if only two kings remain".
+1. **First launch, model still downloading.** Open Rules, ask the question. Must answer from the corpus
+   (or state it is still preparing) — never "Unavailable", never the generic fallback. *(Still fails until
+   P0-5 lands).*
+2. **The reported question.** "Game is a draw when only kings remain?" must return the dead-position rule.
+   Also try "only kings left" and "game ends in draw if only two kings remain".
 3. **Which gate.** `adb logcat -s RulesQa` must name the reason whenever a fallback renders.
 4. **Airplane mode.** LOCAL_ONLY must behave identically; nothing here may touch the network.
-5. **Tool-call support.** Log `supports_tool_calling` for the loaded model and record it in P1-1
-   above — the whole tool-calling branch is conditional on it.
+5. **Tool-call support.** Log `supports_tool_calling` for the loaded model and record it in P1-1 above —
+   the whole tool-calling branch is conditional on it. *(Probe implemented, result unlogged).*
 6. **AICore vs not.** Repeat on a device with ML Kit available and one without; P0-3 means these are
    genuinely different code paths.
 
+## Suggested order
+
+1. Retrieval floor above the routing decision + zero-vendor test.
+2. Capability on the seam resolved at warmup.
+3. Real debug signal, honour `Silent`, log the reason.
+4. Split the budget and harden the parser.
+5. Split the unrelated commits, refresh `CLAUDE.md` and the KDoc, tick or explicitly defer the remaining boxes.
+
 ## Open questions
 
-- Does `gemma3-270m` report `supports_tool_calling = true`? Everything in P1-1 is conditional on it,
-  and it is only answerable at runtime via `getModels()`.
-- Should Rules Q&A prefer ML Kit (more capable, narrow device support) or Cactus (universal,
-  270M)? P0-3 forces the choice to be made explicitly rather than by probe ordering.
-- Is a 20 s budget right at all once retrieval is outside it? A grounded answer is available in
-  milliseconds; the only question is how long to wait for nicer phrasing on top of it.
+- Does `gemma3-270m` report `supports_tool_calling = true`? The probe is implemented but the result is unlogged.
+- Should Rules Q&A prefer ML Kit (more capable, narrow device support) or Cactus (universal, 270M)? The
+  answerer is ungated, making this choice urgent.
+- Is a 20 s budget right at all once retrieval is outside it? (Superseded by P1-5's double-spend).

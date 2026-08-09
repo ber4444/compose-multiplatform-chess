@@ -22,6 +22,7 @@ class RulesQaStateHolderTest {
                 answerer = RulesQaAnswerer { _, _ ->
                     RulesQaModelOutput("En passant is immediate [en-passant].", listOf("en-passant"))
                 },
+                lookupTool = { emptyList() },
                 contextProvider = {
                     AiContextSnapshot(
                         availableLocalVendors = listOf(VendorRoute.CactusLocal()),
@@ -35,7 +36,7 @@ class RulesQaStateHolderTest {
 
         val ready = assertIs<RulesQaUiState.Ready>(holder.state.value)
         assertEquals(listOf("en-passant"), ready.passageIds)
-        assertEquals(false, ready.isFallback)
+        assertEquals(null, ready.fallbackReason)
     }
 
     @Test
@@ -51,6 +52,7 @@ class RulesQaStateHolderTest {
                         listOf("draw-dead-position"),
                     )
                 },
+                lookupTool = { emptyList() },
                 contextProvider = {
                     AiContextSnapshot(
                         availableLocalVendors = listOf(VendorRoute.CactusLocal()),
@@ -86,6 +88,7 @@ class RulesQaStateHolderTest {
         val holder = RulesQaStateHolder(
             DefaultRulesQaOrchestrator(
                 answerer = RulesQaAnswerer { _, _ -> started.complete(Unit); never.await() },
+                lookupTool = { emptyList() },
                 contextProvider = {
                     AiContextSnapshot(
                         availableLocalVendors = listOf(VendorRoute.CactusLocal()),

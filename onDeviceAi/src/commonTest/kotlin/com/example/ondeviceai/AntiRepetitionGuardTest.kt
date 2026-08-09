@@ -32,6 +32,7 @@ class AntiRepetitionGuardTest {
         joinToString("") { piece ->
             when (piece) {
                 is AiTokenOrFinal.Token -> piece.text
+                is AiTokenOrFinal.ToolCall -> ""
                 is AiTokenOrFinal.Final -> piece.text
             }
         }

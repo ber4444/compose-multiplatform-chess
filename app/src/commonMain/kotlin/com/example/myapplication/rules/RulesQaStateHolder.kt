@@ -15,7 +15,7 @@ sealed interface RulesQaUiState {
     data class Ready(
         val text: String,
         val sources: List<RuleCitation>,
-        val isFallback: Boolean,
+        val fallbackReason: com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason? = null,
     ) : RulesQaUiState {
         /** Ids alone, for tests and any caller keying on identity. Derived, never stored. */
         val passageIds: List<String> get() = sources.map { it.id }
@@ -50,13 +50,13 @@ class RulesQaStateHolder(
                     RulesQaUiState.Ready(
                         CitationSanitizer.sanitize(result.text),
                         result.citations,
-                        isFallback = false,
+                        fallbackReason = null,
                     )
                 is RulesQaResult.FellBack ->
                     RulesQaUiState.Ready(
                         CitationSanitizer.sanitize(result.text),
                         emptyList(),
-                        isFallback = true,
+                        fallbackReason = result.reason,
                     )
             }
         } catch (cancellation: CancellationException) {

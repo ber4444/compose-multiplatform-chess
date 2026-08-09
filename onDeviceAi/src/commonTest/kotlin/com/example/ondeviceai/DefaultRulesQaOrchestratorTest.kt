@@ -16,6 +16,7 @@ class DefaultRulesQaOrchestratorTest {
                     retrievedPassageIds = listOf("castling-check"),
                 )
             },
+            lookupTool = { emptyList() },
             contextProvider = { localContext() },
         )
 
@@ -39,6 +40,7 @@ class DefaultRulesQaOrchestratorTest {
                     retrievedPassageIds = listOf("not-in-corpus"),
                 )
             },
+            lookupTool = { emptyList() },
             contextProvider = { localContext() },
         )
 
@@ -54,6 +56,7 @@ class DefaultRulesQaOrchestratorTest {
             answerer = RulesQaAnswerer { _, _ ->
                 RulesQaModelOutput("Yes, whenever you want.", emptyList())
             },
+            lookupTool = { emptyList() },
             contextProvider = { localContext() },
         )
 
@@ -71,6 +74,7 @@ class DefaultRulesQaOrchestratorTest {
                 called = true
                 RulesQaModelOutput("unused", emptyList())
             },
+            lookupTool = { emptyList() },
             contextProvider = { localContext(hasModel = false) },
         )
 
@@ -78,6 +82,25 @@ class DefaultRulesQaOrchestratorTest {
 
         assertIs<RulesQaResult.FellBack>(result)
         assertEquals(false, called)
+    }
+
+    @Test
+    fun `missing local model uses lookupTool fallback when available`() = runTest {
+        val orchestrator = DefaultRulesQaOrchestrator(
+            answerer = RulesQaAnswerer { _, _ ->
+                RulesQaModelOutput("unused", emptyList())
+            },
+            lookupTool = { listOf(
+                RulePassage("stalemate", "Stalemate", "Stalemate text"),
+                RulePassage("checkmate", "Checkmate", "Checkmate text")
+            ) },
+            contextProvider = { localContext(hasModel = false) },
+        )
+
+        val result = orchestrator.answer("What is stalemate?")
+
+        assertIs<RulesQaResult.Success>(result)
+        assertEquals(listOf("stalemate"), result.passageIds)
     }
 
     private fun localContext(hasModel: Boolean = true) = AiContextSnapshot(
