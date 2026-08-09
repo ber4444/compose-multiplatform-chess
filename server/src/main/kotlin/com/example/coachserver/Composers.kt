@@ -129,7 +129,9 @@ data class ProviderCostBudget(
         /**
          * How far above [maxUsdCents] a single request's *worst case* may sit before the
          * configuration is refused outright. Sized so the shipped defaults (2048 tokens at
-         * commodity prices against a 0.2c cap) pass comfortably, while a 100k-token ceiling or a
+         * commodity prices against the configured cap — 1.5c by default since the ProviderCostBudget
+         * recalibration; this multiple was originally sized against 0.2c) pass comfortably, while a
+         * 100k-token ceiling or a
          * frontier-priced model does not.
          */
         const val WORST_CASE_MULTIPLE = 25.0

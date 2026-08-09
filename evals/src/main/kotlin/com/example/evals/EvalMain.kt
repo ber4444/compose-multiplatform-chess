@@ -829,9 +829,14 @@ object ScorecardWriter {
             if (stat.available) {
                 appendLine(
                     "| ${stat.route} | ${stat.cases} | ${percent(stat.groundingViolations, stat.cases)} | " +
-                        "${percent(stat.diagRetrievalViolations, stat.cases)} | " +
-                        "${percent(stat.diagTerminalViolations, stat.cases)} | " +
-                        "${percent(stat.diagCorpusViolations, stat.cases)} | " +
+                        // "—", not "0.0%", when the row never collected a diagnostic. A row that was
+                        // not measured must not read as a clean row — the same rule the absent-row
+                        // banner already applies at row granularity, applied at column granularity.
+                        // route-selection and book-retrieval never record a DiagnosticScore, so all
+                        // three of these printed a reassuring 0.0%.
+                        "${diagPercent(stat.diagRetrievalViolations, stat)} | " +
+                        "${diagPercent(stat.diagTerminalViolations, stat)} | " +
+                        "${diagPercent(stat.diagCorpusViolations, stat)} | " +
                         "${grade(stat.medianReadingGrade)} | " +
                         "${percent(stat.fluencyViolations, stat.cases)} | " +
                         "${percent(stat.retries, stat.cases)} | ${percent(stat.fallbacks, stat.cases)} | " +
@@ -941,6 +946,14 @@ object ScorecardWriter {
 
     private fun percent(value: Int, total: Int): String =
         if (total == 0) "—" else "${((value * 1000.0 / total).roundToInt() / 10.0)}%"
+
+    /**
+     * Diagnostic columns are denominated in *diagnostics collected*, not cases. A row that ran 724
+     * cases and collected zero diagnostics has no diagnostic result — printing `0.0%` there claims a
+     * clean measurement that was never taken.
+     */
+    private fun diagPercent(value: Int, stat: RouteStats): String =
+        if (stat.diagnosticsCollected == 0) "—" else percent(value, stat.diagnosticsCollected)
 
     /**
      * Median Flesch-Kincaid grade. Reported so the [FluencyScorer.FluencySurface] bounds stay

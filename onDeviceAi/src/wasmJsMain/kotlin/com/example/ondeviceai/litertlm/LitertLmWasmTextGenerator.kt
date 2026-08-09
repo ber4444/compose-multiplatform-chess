@@ -58,7 +58,19 @@ class LitertLmWasmTextGenerator(
      * One pending request at a time. Each `generate()` call drains this channel
      * for worker messages (tokens / final / error) until it sees `final`.
      */
+    /**
+     * Generation traffic only. Status replies go to [statusInbox].
+     *
+     * These used to be one channel with two readers: `generate()`'s loop and `requestStatus()`.
+     * `generate()` already discarded any `Status` that landed in it — the tell that messages could
+     * reach the wrong reader — but the converse was unguarded, so a `status()` call overlapping a
+     * generation could consume that generation's `Token` or `Final` and hang it until its timeout.
+     * The class comment claimed the orchestrator serialises calls; it serialises *generations*, and
+     * `status()` is called from entry-point code, not the orchestrator. Single-threaded wasmJs does
+     * not help — these are coroutines interleaving at suspension points, not threads.
+     */
     private val inbox = Channel<WorkerMsg>(Channel.UNLIMITED)
+    private val statusInbox = Channel<WorkerMsg.Status>(Channel.UNLIMITED)
 
     // wasmJs is single-threaded — no @Volatile / dispatcher needed. At most one
     // generate() call is active at a time (the orchestrator serializes them).
@@ -136,7 +148,8 @@ class LitertLmWasmTextGenerator(
                     )
                     return@flow
                 }
-                // Status replies only arrive in response to requestStatus(); ignore here.
+                // Unreachable since onWorkerMessage routes Status to statusInbox; kept so the `when`
+                // stays exhaustive without an else arm.
                 is WorkerMsg.Status -> Unit
             }
         }
@@ -155,14 +168,10 @@ class LitertLmWasmTextGenerator(
         worker?.postMessage(buildJson("type" to "status", "modelUrl" to modelUrl).toJsString())
         // Wait for the worker's status reply (or error). A null return means the
         // worker never replied — treated as an error by status().
-        return when (val msg = inbox.receive()) {
-            is WorkerMsg.Status -> when (msg.status) {
-                "available" -> StatusResult.Available
-                "unavailable" -> StatusResult.Error("WebGPU unavailable")
-                else -> StatusResult.Error(msg.status)
-            }
-            is WorkerMsg.Error -> StatusResult.Error(msg.message)
-            else -> null
+        return when (val status = statusInbox.receive().status) {
+            "available" -> StatusResult.Available
+            "unavailable" -> StatusResult.Error("WebGPU unavailable")
+            else -> StatusResult.Error(status)
         }
     }
 
@@ -178,7 +187,16 @@ class LitertLmWasmTextGenerator(
     private fun onWorkerMessage(event: JsWorkerMessageEvent) {
         val raw = event.data?.toString() ?: return
         val parsed = parseWorkerMessage(raw) ?: return
-        inbox.trySend(parsed)
+        // Route by kind so a status reply can never be consumed by an in-flight generation, or
+        // vice versa. Errors go to both: either reader may be the one waiting.
+        when (parsed) {
+            is WorkerMsg.Status -> statusInbox.trySend(parsed)
+            is WorkerMsg.Error -> {
+                statusInbox.trySend(WorkerMsg.Status(parsed.message))
+                inbox.trySend(parsed)
+            }
+            else -> inbox.trySend(parsed)
+        }
     }
 
     companion object {

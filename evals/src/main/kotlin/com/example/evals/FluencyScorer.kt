@@ -77,7 +77,14 @@ object FluencyScorer {
         if (trimmed.isEmpty()) return 0.0 to true
 
         // Mask decimals to avoid splitting numbers (e.g. "3.14") into two sentences.
-        val masked = trimmed.replace(Regex("(?<=\\d)\\.(?=\\d)"), "<DEC>")
+        // Mask any period *preceded* by a digit — not just one between two digits. The corpus is
+        // chess prose, so the dominant case is a move number ("1. e4 c5"), which is
+        // digit-period-SPACE and slipped straight through a `(?=\d)` lookahead. Every such period
+        // counted as a sentence boundary, inflating the sentence count and understating the
+        // Flesch-Kincaid grade for exactly the rows that quote corpus passages. This is the same
+        // rule OpeningExplanationValidator.splitSentences already applies, and the same bug it was
+        // written to fix. Lookbehind is fine here: :evals is JVM-only.
+        val masked = trimmed.replace(Regex("(?<=\\d)\\."), "<DEC>")
         val sentences = masked.split(Regex("[.!?]+")).filter { it.isNotBlank() }
         val sentenceCount = sentences.size.coerceAtLeast(1)
 

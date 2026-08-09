@@ -8,6 +8,7 @@ import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.AiTokenOrFinal
 import com.example.ondeviceai.MoveCoachPromptBuilder
 import com.example.ondeviceai.MoveCoachRequest
+import com.example.ondeviceai.MoveCoachResponseValidator
 import com.example.ondeviceai.litertlm.LitertLmModelStore
 import com.example.ondeviceai.litertlm.LitertLmTextGenerator
 import kotlinx.coroutines.flow.toList
@@ -126,7 +127,19 @@ private suspend fun runOneCase(
         return fallbackRecord(case, reason = "generation failed: ${t.message}")
     }
 
-    val text = tokenText(chunks)
+    // Score what a user would actually read, not the raw generation. Production runs the output
+    // through MoveCoachResponseValidator and renders `Valid.text` — the normalized, few-shot-label-
+    // stripped, sentence-deduplicated string. Recording the raw text here was accidentally close to
+    // production only while the orchestrator had the bug of displaying its pre-validation
+    // candidate; now that it renders `validation.text`, the two diverge and the faithfulness score
+    // stops describing the shipped experience.
+    val text = when (val validation = MoveCoachResponseValidator.validate(tokenText(chunks), request)) {
+        is MoveCoachResponseValidator.Result.Valid -> validation.text
+        // A rejected generation is what the orchestrator turns into the deterministic fallback, so
+        // fall through to the same record shape rather than scoring text no user would see.
+        is MoveCoachResponseValidator.Result.Invalid ->
+            return fallbackRecord(case, reason = "validation failed: ${validation.reason}")
+    }
     val metrics = chunks.lastOrNull { it is AiTokenOrFinal.Final } as? AiTokenOrFinal.Final
 
     return if (text.isNotBlank()) {

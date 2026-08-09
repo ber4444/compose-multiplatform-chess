@@ -165,16 +165,25 @@ object RouterEvalSuite {
             VendorRoute.AppleFoundationModels(),
             VendorRoute.LiteRtLm(),
         )
-        for (route in allRoutes) {
-            val isDeclaredLocalOnly = when (route) {
-                is VendorRoute.MlKitPrompt -> true
-                is VendorRoute.CactusLocal -> true
-                is VendorRoute.AppleFoundationModels -> true
-                is VendorRoute.LiteRtLm -> true
+        // What this checks and what it used to. `isDeclaredLocalOnly` was a `when` whose every arm
+        // returned `true`, ANDed with `route.isCloudCapable`, which is `false` for every shipped
+        // variant — so the condition was `true && false` for all four routes and could not fire,
+        // while still adding 4 to the denominator and diluting the three real invariants.
+        //
+        // The check that is actually worth making is the one VendorRoute's KDoc describes: the
+        // routes a LOCAL_ONLY policy is allowed to select must all declare themselves non-cloud. So
+        // ask the decider which routes it will hand a LOCAL_ONLY policy, and assert on those. When
+        // a cloud-capable vendor is eventually added, this goes red unless the decider filters it.
+        val localOnlyRoutes = policies
+            .filter { it.privacyClass == PrivacyClass.LOCAL_ONLY }
+            .flatMap { policy ->
+                snapshots.mapNotNull { snapshot ->
+                    (decider(policy, snapshot) as? AiRoutePolicyDecider.Decision.RunOnDevice)?.route
+                }
             }
-            if (isDeclaredLocalOnly && route.isCloudCapable) {
-                declares++
-            }
+            .distinct()
+        for (route in localOnlyRoutes) {
+            if (route.isCloudCapable) declares++
         }
 
         val totalViolations = neverReaches + alwaysReaches + carries + declares
@@ -182,8 +191,9 @@ object RouterEvalSuite {
             // DECLARES is a per-route taxonomy check, not a per-(policy, snapshot) one, so its
             // checks are added to the denominator too. Otherwise its violations land in the
             // numerator of a rate whose denominator never counted them, and the scorecard's
-            // violation percentage overstates by one route-check per decision case.
-            totalEvaluated = total + allRoutes.size,
+            // violation percentage overstates by one route-check per decision case. The count is
+            // now the routes actually reachable under a LOCAL_ONLY policy, not a fixed 4.
+            totalEvaluated = total + localOnlyRoutes.size,
             violations = totalViolations,
             neverReachesViolations = neverReaches,
             alwaysReachesViolations = alwaysReaches,

@@ -22,7 +22,13 @@ internal fun isCactusInitialized(): Boolean = cactusInitialized
 actual class VendorRouteExecutor : AiRouteExecutor {
     actual override suspend fun execute(route: VendorRoute): OnDeviceTextGenerator? {
         return when (route) {
-            is VendorRoute.MlKitPrompt -> MlKitPromptGenerator(route.preference)
+            // Cached per preference, mirroring the Cactus route. A fresh instance per execute()
+            // paid ML Kit's model setup on every coached move while the Cactus route paid it once,
+            // an asymmetry nobody measured because only the Cactus fallback has been exercised on
+            // real hardware.
+            is VendorRoute.MlKitPrompt -> cachedMlKit.getOrPut(route.preference) {
+                MlKitPromptGenerator(route.preference)
+            }
             is VendorRoute.AppleFoundationModels -> error("iOS route on Android")
             is VendorRoute.LiteRtLm -> error("Desktop/Wasm route on Android")
             is VendorRoute.CactusLocal -> getCactus()
@@ -39,4 +45,11 @@ actual class VendorRouteExecutor : AiRouteExecutor {
 
 @Volatile
 private var cachedGenerator: CactusTextGenerator? = null
+
+/**
+ * Process-wide, like [cachedGenerator]. Keyed by preference because FAST and FULL are different
+ * ML Kit models. Both caches are deliberately never cleared — `release()` borrows and returns a
+ * generator, it does not destroy one.
+ */
+private val cachedMlKit = java.util.concurrent.ConcurrentHashMap<ModelPreference, MlKitPromptGenerator>()
 

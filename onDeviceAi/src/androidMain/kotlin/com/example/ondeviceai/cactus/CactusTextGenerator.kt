@@ -140,7 +140,10 @@ class CactusTextGenerator(
                 metrics = AiInferenceMetrics(
                     firstTokenMs = result?.timeToFirstTokenMs?.toLong(),
                     completeMs = System.currentTimeMillis() - start,
-                    tokenCount = result?.totalTokens ?: 1,
+                    // 0, not 1: a null token count means the vendor reported nothing, and the bench
+                    // JSONL treats this field as a measurement. Inventing one token per generation
+                    // biases every tok/s figure computed from it.
+                    tokenCount = result?.totalTokens ?: 0,
                     route = AiRoute.OnDevice,
                 )
             )
