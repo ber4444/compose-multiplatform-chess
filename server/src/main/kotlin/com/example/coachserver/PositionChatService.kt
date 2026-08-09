@@ -32,9 +32,19 @@ import java.net.http.HttpResponse
  */
 sealed interface ChatChunk {
     data class Token(val text: String) : ChatChunk
-    data class Fallback(val text: String) : ChatChunk
-    data class Done(val composerId: String) : ChatChunk
+    data class Fallback(
+        val text: String,
+        val finishReason: String = "fallback",
+        val completionTokens: Int? = null,
+        val rawProviderOutput: String? = null
+    ) : ChatChunk
+    data class Done(
+        val composerId: String,
+        val completionTokens: Int? = null,
+        val rawProviderOutput: String? = null
+    ) : ChatChunk
     data class Diagnostics(val diagnostics: CloudDiagnostics) : ChatChunk
+    data class Error(val message: String?) : ChatChunk
 }
 
 /** Maps an internal [ChatChunk] to the shared [ChatStreamEvent] wire model. */
@@ -47,6 +57,7 @@ fun ChatChunk.toEvent(): ChatStreamEvent = when (this) {
     )
     is ChatChunk.Done -> ChatStreamEvent(type = ChatStreamEvent.TYPE_DONE, composerId = composerId)
     is ChatChunk.Diagnostics -> ChatStreamEvent(type = ChatStreamEvent.TYPE_DIAGNOSTICS, diagnostics = diagnostics)
+    is ChatChunk.Error -> ChatStreamEvent(type = ChatStreamEvent.TYPE_ERROR, text = message)
 }
 
 /**
@@ -113,9 +124,13 @@ class TemplateChatComposer : StreamingChatComposer {
 internal fun String.truncateAtWord(limit: Int): String {
     val trimmed = trim()
     if (trimmed.length <= limit) return trimmed
-    val cut = trimmed.take(limit)
+    // Leave room for the ellipsis so we never exceed `limit`
+    val cutLimit = limit - 1
+    if (cutLimit <= 0) return "\u2026"
+    val cut = trimmed.take(cutLimit)
     val boundary = cut.lastIndexOfAny(charArrayOf(' ', '\t', '\n'))
-    return if (boundary <= 0) "\u2026" else (cut.take(boundary).trimEnd(',', ';', ':', ' ') + "\u2026").trim()
+    // Fall back to a hard cut if there's no boundary in the second half of the string to avoid losing too much text
+    return if (boundary <= cutLimit / 2) "$cut\u2026" else (cut.take(boundary).trimEnd(',', ';', ':', ' ') + "\u2026").trim()
 }
 
 /**
@@ -318,7 +333,7 @@ class LlmChatComposer(
                 "chat-provider-failed after ${accumulated.length} chars: " +
                     "${e::class.simpleName}: ${e.message?.take(200)}"
             )
-            fallback.streamCompose(request, passages).collect { emit(it) }
+            emit(ChatChunk.Fallback(fallbackText(request, passages), finishReason = "provider_failed"))
             return@flow
         }
         // Cleaned again at the end for the shapes only a whole answer reveals; the gate above has
@@ -334,7 +349,8 @@ class LlmChatComposer(
                 "chat-validation-rejected ids=${passages.map(Passage::sourceId)} " +
                     "text=${parsedExplanation.take(400)}"
             )
-            emit(ChatChunk.Fallback(fallbackText(request, passages)))
+            val reason = if (parsedExplanation.isEmpty()) "provider_empty" else "validation_rejected"
+            emit(ChatChunk.Fallback(fallbackText(request, passages), finishReason = reason))
         }
     }.flowOn(Dispatchers.IO)
 
@@ -691,45 +707,78 @@ class PositionChatService(
         validateRequest(request)
         return flow {
             val startedAt = System.nanoTime()
-            val retrieval = withContext(Dispatchers.IO) {
-                val embedding = dependencies.embedder.embed(PositionChatQueryBuilder.build(request))
-            require(embedding.size == OpeningService.EMBEDDING_DIMENSIONS) {
-                "embedder returned ${embedding.size} values; expected ${OpeningService.EMBEDDING_DIMENSIONS}"
+            val retrieval = try {
+                withContext(Dispatchers.IO) {
+                    val embedding = dependencies.embedder.embed(PositionChatQueryBuilder.build(request))
+                    require(embedding.size == OpeningService.EMBEDDING_DIMENSIONS) {
+                        "embedder returned ${embedding.size} values; expected ${OpeningService.EMBEDDING_DIMENSIONS}"
+                    }
+                    dependencies.passageRepository.retrieve(
+                        embedding = embedding,
+                        limit = RETRIEVAL_LIMIT,
+                        movesSan = request.movesSan,
+                        eco = request.eco,
+                    )
+                }
+            } catch (e: Exception) {
+                emit(ChatChunk.Error(e.message))
+                return@flow
             }
-            dependencies.passageRepository.retrieve(
-                embedding = embedding,
-                limit = RETRIEVAL_LIMIT,
-                movesSan = request.movesSan,
-                eco = request.eco,
-            )
+            dependencies.streamingChatComposer.streamCompose(
+                // Same reason as the opening route: clients send eco = null, so the composer's ECO
+                // line is "unknown" unless the server hands back the one it resolved from the
+                // move prefix.
+                request.copy(eco = retrieval.resolvedEco ?: request.eco),
+                retrieval.passages,
+            ).collect { chunk ->
+                // Diagnostics go out immediately *before* the terminal chunk, so a client that
+                // stops reading at `done`/`fallback` has already seen them.
+                terminalSummary(chunk)?.let { summary ->
+                    emit(
+                        ChatChunk.Diagnostics(
+                            CloudDiagnostics(
+                                releaseVersion = dependencies.releaseVersion,
+                                corpus = dependencies.corpusStatusReader.readOrUnavailable(),
+                                retrievedPassageIds = retrieval.passages.map(Passage::sourceId),
+                                composerId = summary.composerId,
+                                finishReason = summary.finishReason,
+                                latencyMs = ((System.nanoTime() - startedAt) / 1_000_000).coerceAtLeast(0),
+                                completionTokens = summary.completionTokens,
+                                rawProviderOutput = summary.rawProviderOutput
+                                    ?.takeIf { dependencies.includeRawDiagnostics }
+                                    ?.take(MAX_RAW_DIAGNOSTICS_CHARS),
+                            )
+                        )
+                    )
+                }
+                emit(chunk)
+            }
         }
-        var composerId = "unknown"
-        dependencies.streamingChatComposer.streamCompose(
-            // Same reason as the opening route: clients send eco = null, so the composer's ECO line
-            // is "unknown" unless the server hands back the one it resolved from the move prefix.
-            request.copy(eco = retrieval.resolvedEco ?: request.eco),
-            retrieval.passages,
-        ).collect { chunk ->
-            if (chunk is ChatChunk.Done) composerId = chunk.composerId
-            else if (chunk is ChatChunk.Fallback) composerId = TemplateChatComposer.ID
-            emit(chunk)
-        }
-        emit(
-            ChatChunk.Diagnostics(
-                CloudDiagnostics(
-                    releaseVersion = dependencies.releaseVersion,
-                    corpus = dependencies.corpusStatusReader.readOrUnavailable(),
-                    retrievedPassageIds = retrieval.passages.map(Passage::sourceId),
-                    composerId = composerId,
-                    finishReason = "completed",
-                    latencyMs = ((System.nanoTime() - startedAt) / 1_000_000).coerceAtLeast(0),
-                    completionTokens = null,
-                    rawProviderOutput = null,
-                )
-            )
-        )
     }
-}
+
+    /** The diagnostic fields a terminal chunk carries, or null for a non-terminal one. */
+    private data class TerminalSummary(
+        val composerId: String,
+        val finishReason: String,
+        val completionTokens: Int?,
+        val rawProviderOutput: String?,
+    )
+
+    private fun terminalSummary(chunk: ChatChunk): TerminalSummary? = when (chunk) {
+        is ChatChunk.Done -> TerminalSummary(
+            composerId = chunk.composerId,
+            finishReason = "completed",
+            completionTokens = chunk.completionTokens,
+            rawProviderOutput = chunk.rawProviderOutput,
+        )
+        is ChatChunk.Fallback -> TerminalSummary(
+            composerId = TemplateChatComposer.ID,
+            finishReason = chunk.finishReason,
+            completionTokens = chunk.completionTokens,
+            rawProviderOutput = chunk.rawProviderOutput,
+        )
+        is ChatChunk.Token, is ChatChunk.Diagnostics, is ChatChunk.Error -> null
+    }
 
     private fun validateRequest(request: PositionChatRequest) {
         require(request.fen.isNotBlank() && request.fen.length <= MAX_FEN_LENGTH && FEN.matches(request.fen)) {
@@ -756,6 +805,13 @@ class PositionChatService(
 
     companion object {
         private const val RETRIEVAL_LIMIT = 4
+
+        /**
+         * Cap on the raw model output echoed back under `COACH_DIAGNOSTICS_RAW=1`. Bounded because
+         * this rides the SSE stream to the client, and a reasoning model's raw output can be
+         * multiples of its visible answer.
+         */
+        private const val MAX_RAW_DIAGNOSTICS_CHARS = 4_000
         private const val MAX_MOVES = 20
         private const val MAX_FEN_LENGTH = 128
         private const val MAX_SAN_LENGTH = 16
@@ -796,4 +852,5 @@ data class ChatServerDependencies(
     val streamingChatComposer: StreamingChatComposer,
     val releaseVersion: String = "unknown",
     val corpusStatusReader: CorpusStatusReader = CorpusStatusReader { com.example.coachapi.CorpusDiagnostics(ready = false) },
+    val includeRawDiagnostics: Boolean = false,
 )

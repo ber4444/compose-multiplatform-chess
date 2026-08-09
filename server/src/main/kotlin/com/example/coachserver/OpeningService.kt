@@ -65,6 +65,7 @@ data class ServerDependencies(
     val composer: TextComposer,
     val releaseVersion: String = "unknown",
     val corpusStatusReader: CorpusStatusReader = CorpusStatusReader { CorpusDiagnostics(ready = false) },
+    val includeRawDiagnostics: Boolean = false,
 )
 
 class OpeningService(

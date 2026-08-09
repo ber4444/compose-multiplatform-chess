@@ -75,7 +75,7 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
         emit(AiTokenOrFinal.Final(fullText, AiInferenceMetrics(0L, 0L, fullText.length, AiRoute.OnDevice)))
     }
 
-    override suspend fun close() {
+    override suspend fun release() {
         model.close()
     }
 }

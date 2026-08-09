@@ -14,7 +14,7 @@ class FakeTextGenerator(
 ) : OnDeviceTextGenerator {
     var warmupCount: Int = 0
         private set
-    var closeCount: Int = 0
+    var releaseCount: Int = 0
         private set
     var generateCount: Int = 0
         private set
@@ -52,8 +52,8 @@ class FakeTextGenerator(
         )
     }
 
-    override suspend fun close() {
-        closeCount++
+    override suspend fun release() {
+        releaseCount++
     }
 }
 

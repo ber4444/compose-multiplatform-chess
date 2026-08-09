@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.runComposeUiTest
+import com.example.ondeviceai.AiRoute
 import kotlin.test.Test
 
 @OptIn(ExperimentalTestApi::class)
@@ -15,7 +16,7 @@ class OpeningExplainerPanelTest {
                 state = OpeningExplainerUiState.Ready(
                     text = "A central opening.",
                     sourceTitles = listOf("King's Pawn Game", "Development"),
-                    isFallback = false,
+                    route = AiRoute.Cloud,
                 ),
             )
         }

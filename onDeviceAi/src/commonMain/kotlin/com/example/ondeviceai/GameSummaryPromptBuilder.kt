@@ -1,5 +1,6 @@
 package com.example.ondeviceai
 
+import com.example.myapplication.MotifDetector
 import com.example.myapplication.MoveAssessment
 import com.example.myapplication.MoveRecord
 import com.example.myapplication.Set
@@ -63,8 +64,21 @@ internal object GameSummaryPromptBuilder {
         }
     }
 
+    // Motif strings come from MotifDetector's constants, never string literals. This branch was
+    // written as "Fork"/"Pin"/"Skewer"/"Discovered Attack" while the detector emits
+    // "fork"/"pin"/"skewer"/"discovered-attack", so the intersection was empty and every tactical
+    // turning point silently fell through to the cpLoss-only text below. That is the same failure
+    // MotifDetector's KDoc records for DeterministicCoach; the test that pins it
+    // (`motif vocabulary is understood by DeterministicCoach`) only covers that one consumer.
+    private val TACTICAL_MOTIFS = setOf(
+        MotifDetector.FORK,
+        MotifDetector.PIN,
+        MotifDetector.SKEWER,
+        MotifDetector.DISCOVERED_ATTACK,
+    )
+
     private fun mapToIntuition(assessment: MoveAssessment): String {
-        if (assessment.motifs.contains("Fork") || assessment.motifs.contains("Pin") || assessment.motifs.contains("Skewer") || assessment.motifs.contains("Discovered Attack")) {
+        if (assessment.motifs.any { it in TACTICAL_MOTIFS }) {
             return "You missed a tactical sequence or allowed a tactic."
         }
         

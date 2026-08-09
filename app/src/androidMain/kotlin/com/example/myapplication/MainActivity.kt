@@ -63,7 +63,14 @@ class MainActivity : ComponentActivity() {
         )
 
         holder.attachEngine(createStockfishEngine())
-        attachMoveCoach()
+        // Skip the attach + warmup only when the retained holder already carries an orchestrator,
+        // i.e. a configuration change. Keying this off `savedInstanceState == null` instead looks
+        // equivalent but is not: process death also restores a bundle, and there the holder is a
+        // brand-new ViewModel with no orchestrator, so the coach would stay dead for the whole
+        // session.
+        if (!holder.moveCoachManager.hasOrchestrator) {
+            attachMoveCoach()
+        }
 
         val appSettings = AppSettings(createSettings("chess"))
         // PgnSharer needs the host Activity (for ACTION_SEND), so it's built here, not in the holder.
