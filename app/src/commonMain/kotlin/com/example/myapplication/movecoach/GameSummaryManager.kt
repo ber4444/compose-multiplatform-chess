@@ -86,9 +86,9 @@ class GameSummaryManager {
                         is GameSummaryEvent.Complete -> when (val result = event.result) {
                             is GameSummaryResult.Success ->
                                 _uiState.value = GameSummaryUiState.Ready(
-                                    result.explanation.copy(
+                                    explanation = result.explanation.copy(
                                         explanation = CitationSanitizer.sanitize(result.explanation.explanation),
-                                    )
+                                    ),
                                 )
                             is GameSummaryResult.FellBack ->
                                 _uiState.value = GameSummaryUiState.Fallback(

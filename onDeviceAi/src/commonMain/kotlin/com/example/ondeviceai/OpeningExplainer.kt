@@ -26,7 +26,11 @@ sealed interface OpeningExplainerResult {
     data class Fallback(
         val response: OpeningExplainResponse,
         val reason: AiRoutePolicyDecider.FallbackReason,
-    ) : OpeningExplainerResult
+    ) : OpeningExplainerResult {
+        /** Provenance (B11): derived, not a parameter — a caller cannot hand this a route that
+         *  contradicts [reason], and the field can't go stale when [reason] changes. */
+        val route: AiRoute get() = AiRoute.Fallback(reason)
+    }
 }
 
 class DefaultOpeningExplainer(

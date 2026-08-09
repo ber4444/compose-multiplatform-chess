@@ -62,6 +62,15 @@ fun MoveCoachPanel(
         MoveCoachUiState.Hidden -> return
     }
 
+    // B11: derived, never stored twice. Ready carries the route the orchestrator recorded; a
+    // Fallback's text is engine-derived by construction, so its reason *is* its provenance. The
+    // remaining states have no text a route could describe yet.
+    val route: com.example.ondeviceai.AiRoute? = when (state) {
+        is MoveCoachUiState.Ready -> state.explanation.route
+        is MoveCoachUiState.Fallback -> com.example.ondeviceai.AiRoute.Fallback(state.reason)
+        else -> null
+    }
+
     val showSpinner = state is MoveCoachUiState.Loading ||
         state is MoveCoachUiState.Streaming ||
         state is MoveCoachUiState.LoadingModel
@@ -109,6 +118,16 @@ fun MoveCoachPanel(
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White,
             )
+            if (route != null) {
+                Spacer(modifier = Modifier.size(4.dp))
+                com.example.myapplication.ui.ProvenanceBadge(
+                    route = route,
+                    // This panel paints its own white-on-dark palette; the badge's default
+                    // onSurfaceVariant would not match it.
+                    color = Color.White,
+                    modifier = Modifier.testTag("move_coach_provenance")
+                )
+            }
             if (presentation is FallbackPresentation.Retryable && onRetry != null) {
                 TextButton(
                     onClick = onRetry,

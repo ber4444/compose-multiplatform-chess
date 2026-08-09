@@ -28,9 +28,12 @@ sealed interface MoveCoachUiState {
 
     data class Loading(val move: String) : MoveCoachUiState
     data class Streaming(val move: String, val text: String) : MoveCoachUiState
+    /** Provenance (B11) is read off [MoveCoachExplanation.route] — the state does not copy it, so
+     *  the badge can't disagree with what the orchestrator recorded. */
     data class Ready(val explanation: MoveCoachExplanation) : MoveCoachUiState
     /** [reason] stays typed so the panel can pick a designed state via [FallbackPresentation];
-     *  flattening it to a string here is what made every fallback render identically (B17). */
+     *  flattening it to a string here is what made every fallback render identically (B17). It is
+     *  also the whole provenance of this state: the text is engine-derived by construction. */
     data class Fallback(
         val text: String,
         val reason: com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason,
