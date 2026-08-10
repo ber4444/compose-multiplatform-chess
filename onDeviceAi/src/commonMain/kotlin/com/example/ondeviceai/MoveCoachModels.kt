@@ -30,7 +30,6 @@ data class MoveCoachExplanation(
     val confidence: ExplanationConfidence,
     val route: AiRoute,
     val metrics: AiInferenceMetrics,
-    val annotatedSquares: List<String> = emptyList()
 )
 
 sealed interface MoveCoachResult {

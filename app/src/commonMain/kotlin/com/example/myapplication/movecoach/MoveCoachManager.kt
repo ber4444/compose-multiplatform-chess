@@ -132,18 +132,30 @@ class MoveCoachManager(
      * sites (the 2D board and the 3D board) would otherwise assemble the same `MoveCoachRequest`
      * by hand and drift apart.
      *
-     * [square] is algebraic (`"e4"`). [occupant] describes what stands there, and is the caller's
-     * job because only the screen holds the board state.
+     * [square] is algebraic (`"e4"`). [headline] and [explanation] come from `SquareInsight`, which
+     * needs the board state the screen holds.
+     *
+     * **No model runs here**, unlike [triggerCoach]. The analysis is exact attacker counts and a
+     * verdict derived from them, and a small on-device rewriter paraphrases numbers into false ones
+     * — "You cover it once, Black twice" came back from gemma3-270m as "with Black twice covering it
+     * once". `MoveCoachResponseValidator` cannot catch that: the sentence is still short, grounded
+     * and fluent, it is merely wrong. A move needs narration because its assessment is a centipawn
+     * score; a square's answer *is* the detection, so there is nothing left to narrate.
      */
-    fun explainSquare(square: String, occupant: String) {
-        launchCoach(
-            com.example.ondeviceai.MoveCoachRequest(
-                moveUci = square,
-                moveDisplay = square,
-                deterministicHeadline = "Square $square",
-                deterministicExplanation = "$occupant on $square.",
-                engineDifficultyName = engineDifficultyName,
-                bannedOpeningFrames = recentOpeningFrames.toList(),
+    fun explainSquare(square: String, headline: String, explanation: String) {
+        coachJob?.cancel()
+        _coachUiState.value = MoveCoachUiState.Ready(
+            com.example.ondeviceai.MoveCoachExplanation(
+                headline = headline,
+                explanation = explanation,
+                confidence = com.example.ondeviceai.ExplanationConfidence.HIGH,
+                route = SQUARE_INSIGHT_ROUTE,
+                metrics = com.example.ondeviceai.AiInferenceMetrics(
+                    firstTokenMs = null,
+                    completeMs = 0L,
+                    tokenCount = 0,
+                    route = SQUARE_INSIGHT_ROUTE,
+                ),
             )
         )
     }
@@ -200,7 +212,6 @@ class MoveCoachManager(
                                     explanation = result.explanation.copy(
                                         headline = CitationSanitizer.sanitize(result.explanation.headline),
                                         explanation = shown,
-                                        annotatedSquares = squaresNamedIn(shown),
                                     )
                                 )
                                 rememberOpeningFrame(shown)
@@ -259,6 +270,13 @@ class MoveCoachManager(
         private val FREE_TIER_ROUTE = com.example.ondeviceai.AiRoute.Fallback(
             com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.Other(
                 "free tier: deterministic coach",
+            ),
+        )
+
+        /** Provenance of an Explain-mode answer: read off the board, on every tier. */
+        private val SQUARE_INSIGHT_ROUTE = com.example.ondeviceai.AiRoute.Fallback(
+            com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.Other(
+                "square insight: computed from the position",
             ),
         )
 

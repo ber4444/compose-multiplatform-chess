@@ -40,3 +40,23 @@ sealed interface MoveCoachUiState {
     ) : MoveCoachUiState
     data class Error(val message: String) : MoveCoachUiState
 }
+
+/**
+ * The coach's own prose for this state, or `null` for the states whose text is app chrome.
+ *
+ * Board highlighting reads squares out of this, so it deliberately excludes [MoveCoachUiState.Error],
+ * [MoveCoachUiState.Unavailable] and [MoveCoachUiState.LoadingModel]: those carry diagnostics and
+ * progress messages, and tinting the board off a stack trace that happens to contain "e4" would be
+ * worse than not tinting at all.
+ */
+val MoveCoachUiState.narratedText: String?
+    get() = when (this) {
+        // The headline is included because it is the deterministic half of the line: Explain mode's
+        // subject square is always in it, while the body is a model rewrite that may paraphrase the
+        // square away entirely ("an empty central square"), leaving the tapped square untinted.
+        is MoveCoachUiState.Ready -> "${explanation.headline} ${explanation.explanation}"
+        is MoveCoachUiState.Fallback -> text
+        is MoveCoachUiState.Streaming -> "$headline ${text.ifBlank { explanation }}"
+        is MoveCoachUiState.Loading -> "$headline $explanation"
+        else -> null
+    }

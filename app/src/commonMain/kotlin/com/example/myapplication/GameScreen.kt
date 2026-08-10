@@ -74,8 +74,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
 import com.example.myapplication.monetization.ProGate
 import com.example.myapplication.movecoach.FallbackPresentation
+import com.example.myapplication.movecoach.MoveCoachManager
 import com.example.myapplication.movecoach.MoveCoachPanel
+import com.example.myapplication.movecoach.SquareInsight
 import com.example.myapplication.movecoach.MoveCoachUiState
+import com.example.myapplication.movecoach.narratedText
 import com.example.myapplication.movecoach.GameSummaryUiState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.CircularProgressIndicator
@@ -154,20 +157,18 @@ internal fun algebraicToSquare(algebraic: String): BoardSquare? {
     return if (col in 0..7 && row in 0..7) BoardSquare(row, col) else null
 }
 
-/** Describes what stands on [pos] and hands it to the coach. Shared by the 2D and 3D boards. */
+/** Reads the strategic situation on [pos] and hands it to the coach. Shared by the 2D and 3D boards. */
 private fun explainSquareAt(
     pos: Pair<Int, Int>,
     gameState: GameUiState,
+    viewer: Set,
     moveCoachManager: com.example.myapplication.movecoach.MoveCoachManager,
 ) {
-    val whiteIndex = gameState.positionsWhite.indexOf(pos)
-    val blackIndex = gameState.positionsBlack.indexOf(pos)
-    val occupant = when {
-        whiteIndex != -1 -> "White ${gameState.piecesWhite[whiteIndex].name}"
-        blackIndex != -1 -> "Black ${gameState.piecesBlack[blackIndex].name}"
-        else -> "Empty square"
-    }
-    moveCoachManager.explainSquare(UciMoveConverter.positionToUciSquare(pos), occupant)
+    moveCoachManager.explainSquare(
+        square = UciMoveConverter.positionToUciSquare(pos),
+        headline = SquareInsight.buildHeadline(gameState, pos, viewer),
+        explanation = SquareInsight.buildExplanation(gameState, pos, viewer),
+    )
 }
 
 @Composable
@@ -204,13 +205,17 @@ fun GameScreen(
     // Leaving the mode armed across a move would fire it on an unrelated later tap.
     LaunchedEffect(gameState.moveHistory.size) { explainMode = false }
 
-    /** Squares the current coach line names, as board coordinates. Empty unless a line is Ready. */
+    /**
+     * Squares the coach line currently on screen names, as board coordinates.
+     *
+     * Parsed from the text the panel is displaying rather than from a field carried on the Ready
+     * state: only a model-authored `Ready` ever populated that field, so the tint was dead on the
+     * two paths that produce most of the lines a user actually sees — the deterministic fallback
+     * and the free tier — and on Explain mode, which usually lands on one of them.
+     */
     val coachHighlights = remember(coachState) {
-        (coachState as? MoveCoachUiState.Ready)
-            ?.explanation
-            ?.annotatedSquares
-            ?.mapNotNull(::algebraicToSquare)
-            .orEmpty()
+        MoveCoachManager.squaresNamedIn(coachState.narratedText.orEmpty())
+            .mapNotNull(::algebraicToSquare)
     }
     val openingExplainerStateHolder = LocalOpeningExplainerStateHolder.current
     val openingExplainerState = openingExplainerStateHolder?.state?.collectAsState()?.value
@@ -522,7 +527,7 @@ fun GameScreen(
                     // Explain mode is opt-in and one-shot (see explainMode). Outside it, a tap is a
                     // move — the board must never stop accepting moves because a panel is open.
                     if (explainMode && moveCoachManager != null) {
-                        explainSquareAt(Pair(sq.row, sq.col), gameState, moveCoachManager)
+                        explainSquareAt(Pair(sq.row, sq.col), gameState, viewModel.playerSide, moveCoachManager)
                         explainMode = false
                         return@onSquareTapped
                     }
@@ -637,7 +642,7 @@ fun GameScreen(
                         highlightedSquares = coachHighlights,
                         onSquareTapped = if (explainMode && moveCoachManager != null) {
                             { pos ->
-                                explainSquareAt(pos, gameState, moveCoachManager)
+                                explainSquareAt(pos, gameState, viewModel.playerSide, moveCoachManager)
                                 explainMode = false
                             }
                         } else null,
@@ -664,6 +669,7 @@ fun GameScreen(
                             onRetry = moveCoachManager?.let { { it.retry() } },
                             explainMode = explainMode,
                             onToggleExplainMode = moveCoachManager?.let { { explainMode = !explainMode } },
+                            contentColor = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 }
