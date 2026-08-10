@@ -57,6 +57,10 @@ class AndroidSceneViewChessRenderer(
         driver.setSelected(square)
     }
 
+    override fun setHighlightedSquares(squares: List<BoardSquare>) {
+        driver.setHighlighted(squares)
+    }
+
     override fun dispose() {
         driver.cancel()
         animScope.cancel()

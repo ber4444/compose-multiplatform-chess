@@ -20,6 +20,7 @@ class FilamentWasmChessRenderer : Chess3DBoardRenderer {
     override fun updatePosition(fen: String) = delegate.updatePosition(fen)
     override fun updatePosition(fen: String, transition: Board3DTransition?) = delegate.updatePosition(fen, transition)
     override fun setSelectedSquare(square: BoardSquare?) = delegate.setSelectedSquare(square)
+    override fun setHighlightedSquares(squares: List<BoardSquare>) = delegate.setHighlightedSquares(squares)
     override fun onUserInteraction(event: Board3DInput) = delegate.onUserInteraction(event)
     override fun dispose() = delegate.dispose()
 
@@ -174,7 +175,10 @@ const PIECE_SCALE = ${ChessSetConventions.PIECE_SCALE};
 // A board holds at most 32 pieces (promotion replaces a pawn, never adds). Instance 0 is the board;
 // 1..32 are the piece-pool slots — mirrors iOS createInstancedAsset(kMaxPieces + 1).
 const MAX_PIECES = ${ChessSetConventions.MAX_PIECES};
-const INSTANCE_COUNT = MAX_PIECES + 1;
+const MAX_HIGHLIGHTS = ${ChessSetConventions.MAX_HIGHLIGHTS};
+const INSTANCE_COUNT = MAX_PIECES + MAX_HIGHLIGHTS + 1;
+// Lifts the highlight quad off the tile just enough to beat z-fighting.
+const HIGHLIGHT_LIFT_Y = 0.005;
 // PieceKind ordinals (Board3DScene.kt): KING, QUEEN, ROOK, BISHOP, KNIGHT, PAWN -> glTF node names.
 const KIND_NAMES = [${ChessSetConventions.KIND_NAMES.joinToString(", ") { "'$it'" }}];
 
@@ -241,7 +245,7 @@ window.chess3dFilament = {
     configureInstanceVisibility() {
         const board = this.instances[0];
         this.forEachRenderable(board, (e, name) => {
-            const hide = KIND_NAMES.indexOf(name) !== -1 || name === 'Plane';
+            const hide = KIND_NAMES.indexOf(name) !== -1 || name === 'Plane' || name === 'Highlight';
             if (hide) this.scene.remove(e); else this.scene.addEntity(e);
         });
         this.setInstanceTransform(board, 0, 0, 0, 0);
@@ -252,33 +256,99 @@ window.chess3dFilament = {
 
     // Reconcile the fixed instance pool against an encoded Board3DScene ("kind,color,x,y,z,rot;...").
     // Called every animation frame by the shared Board3DAnimationDriver. Mirrors iOS setSceneEncoded.
-    setScene(s) {
-        if (!this.isReady) return;
-        const pieces = this.parseScene(s);
+    setScene(encoded) {
+        if (!this.isReady || !encoded) return;
+        
+        let piecesStr = encoded;
+        let highlightsStr = "";
+        const pipePos = encoded.indexOf('|');
+        if (pipePos !== -1) {
+            piecesStr = encoded.substring(0, pipePos);
+            highlightsStr = encoded.substring(pipePos + 1);
+        }
+
+        const pieces = piecesStr ? piecesStr.split(';').map(rec => {
+            const f = rec.split(',');
+            return {
+                kind: parseInt(f[0], 10),
+                color: parseInt(f[1], 10),
+                x: parseFloat(f[2]),
+                y: parseFloat(f[3]),
+                z: parseFloat(f[4]),
+                rotY: parseFloat(f[5])
+            };
+        }) : [];
+        
+        const highlights = highlightsStr ? highlightsStr.split(';').map(rec => {
+            const f = rec.split(',');
+            return {
+                x: parseFloat(f[0]),
+                y: parseFloat(f[1]),
+                z: parseFloat(f[2])
+            };
+        }) : [];
+
         for (let slot = 0; slot < MAX_PIECES; slot++) {
             const inst = this.instances[slot + 1];
             if (!inst) continue;
+
             if (slot >= pieces.length) {
                 this.forEachRenderable(inst, (e) => this.scene.remove(e));
                 continue;
             }
+
             const p = pieces[slot];
-            const meshName = KIND_NAMES[p.kind] || '';
-            const mat = this.materialNamed(p.color === 0 ? 'white' : 'black', inst);
+            const meshName = (p.kind >= 0 && p.kind < KIND_NAMES.length) ? KIND_NAMES[p.kind] : "";
+            const materialName = (p.color === 0) ? "white" : "black";
+            const targetMat = this.materialNamed(materialName, inst);
+
             this.forEachRenderable(inst, (e, name) => {
-                if (name === meshName) {
+                const show = (name === meshName);
+                if (show) {
                     this.scene.addEntity(e);
-                    if (mat) {
-                        const ri = this.renderableManager.getInstance(e);
-                        const prims = this.renderableManager.getPrimitiveCount(ri);
-                        for (let pr = 0; pr < prims; pr++) this.renderableManager.setMaterialInstanceAt(ri, pr, mat);
+                    if (targetMat) {
+                        const rm = this.renderableManager;
+                        const ri = rm.getInstance(e);
+                        if (ri) {
+                            const prims = rm.getPrimitiveCount(ri);
+                            for (let pr = 0; pr < prims; pr++) {
+                                rm.setMaterialInstanceAt(ri, pr, targetMat);
+                            }
+                        }
                     }
                 } else {
                     this.scene.remove(e);
                 }
             });
-            // y comes from the scene so the move-arc hop lifts the piece; resting pieces stay at y=0.
-            this.setInstanceTransform(inst, p.x, p.y, p.z, p.rot);
+
+            this.setInstanceTransform(inst, p.x, p.y, p.z, p.rotY);
+        }
+        
+        for (let slot = 0; slot < MAX_HIGHLIGHTS; slot++) {
+            const inst = this.instances[MAX_PIECES + 1 + slot];
+            if (!inst) continue;
+
+            if (slot >= highlights.length) {
+                this.forEachRenderable(inst, (e) => this.scene.remove(e));
+                continue;
+            }
+
+            const h = highlights[slot];
+
+            // No material binding: the Plane mesh carries its own `highlight` material (alphaMode
+            // BLEND) in chess.glb. Tinting one of the OPAQUE glTF materials at runtime cannot work —
+            // gltfio selects the ubershader blending variant from alphaMode when the asset loads.
+            this.forEachRenderable(inst, (e, name) => {
+                if (name === "Highlight") {
+                    this.scene.addEntity(e);
+                } else {
+                    this.scene.remove(e);
+                }
+            });
+
+            // The Plane node's baked local translation was zeroed in chess.glb, so the square centre
+            // applies directly; the small y lift clears the tile to avoid z-fighting.
+            this.setInstanceTransform(inst, h.x, HIGHLIGHT_LIFT_Y, h.z, 0.0);
         }
     },
 

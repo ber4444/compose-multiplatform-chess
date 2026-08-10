@@ -42,6 +42,17 @@ object ChessSetConventions {
     /** A chess board holds at most 32 pieces (promotion replaces a pawn, never adds). */
     const val MAX_PIECES: Int = 32
 
+    /**
+     * Highlight-quad pool size, mirroring [MAX_PIECES] for the coach's cited squares.
+     *
+     * Deliberately small: every slot is a full instance of `chess.glb` (72 nodes) on all four
+     * Filament backends, created eagerly at init, so each one costs ~72 entities and material
+     * instances to draw a single quad. The coach cites a move, i.e. a from/to pair, so 4 leaves
+     * headroom without paying for 10. Callers must cap their list to this — the backends silently
+     * drop the overflow.
+     */
+    const val MAX_HIGHLIGHTS: Int = 4
+
     /** glTF model asset filename. */
     const val GLB_ASSET: String = "chess.glb"
 

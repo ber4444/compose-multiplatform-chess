@@ -27,11 +27,15 @@ interface Chess3DBoardRenderer {
     /**
      * Render the squares the coach line names (B16). Default no-op.
      *
-     * **No backend implements this yet**, so B16's board anchoring is currently 2D-only — the 2D
-     * board tints these squares in `GameScreen.Square`. The four Filament backends each own a
-     * different highlight path (SceneView ModelNode pool, the native C++ bridge, Metal, WebGL) and
-     * are explicitly frozen per CLAUDE.md, so wiring them is its own change. The seam is defined
-     * here, and the call site in `Board3D` is live, so that change is additive per backend.
+     * All four Filament backends implement this, each over a fixed pool of `chess.glb` `Plane`
+     * instances capped at [ChessSetConventions.MAX_HIGHLIGHTS]; the 2D board tints the same squares
+     * in `GameScreen.Square`. The blue translucency comes from the asset — the `Plane` mesh carries
+     * its own `highlight` material with `alphaMode: BLEND` — **not** from runtime tinting, which
+     * cannot work: gltfio picks the ubershader blending variant from `alphaMode` at load time, so
+     * setting alpha on one of the GLB's OPAQUE materials renders fully opaque.
+     *
+     * A renderer that delegates to [FilamentEncodedChessRenderer] must forward this explicitly;
+     * inheriting this no-op default silently swallows every highlight.
      */
     fun setHighlightedSquares(squares: List<BoardSquare>) {}
 }

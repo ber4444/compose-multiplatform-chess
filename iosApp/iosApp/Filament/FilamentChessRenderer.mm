@@ -58,7 +58,11 @@ static constexpr float kModelScale = 0.5f;
 // 1..32 are the piece-pool slots — mirrors AndroidBoard3D's createInstancedModel(MAX_PIECES + 1).
 // Keep in sync with ChessSetConventions in commonMain (single source of truth).
 static constexpr int kMaxPieces = 32;
-static constexpr int kInstanceCount = kMaxPieces + 1;
+// Keep in sync with ChessSetConventions.MAX_HIGHLIGHTS in commonMain.
+static constexpr int kMaxHighlights = 4;
+// Lifts the highlight quad off the tile just enough to beat z-fighting.
+static constexpr float kHighlightLiftY = 0.005f;
+static constexpr int kInstanceCount = kMaxPieces + kMaxHighlights + 1;
 
 // PieceKind ordinals (Board3DScene.kt): KING, QUEEN, ROOK, BISHOP, KNIGHT, PAWN.
 // Keep in sync with ChessSetConventions in commonMain (single source of truth).
@@ -71,6 +75,10 @@ struct PieceWire {
     int color;     // 0 = white, 1 = black
     float x, y, z; // game world coords (square center, y lifts during the move-arc hop)
     float rotY;    // degrees
+};
+
+struct HighlightWire {
+    float x, y, z;
 };
 
 // Split on a delimiter into substrings (empty input -> empty vector).
@@ -87,8 +95,7 @@ std::vector<std::string> split(const std::string& s, char delim) {
     return out;
 }
 
-// Parse "kind,color,x,y,z,rot;kind,color,…" (Board3DScene.encode()).
-std::vector<PieceWire> parseScene(const std::string& s) {
+std::vector<PieceWire> parseScenePieces(const std::string& s) {
     std::vector<PieceWire> out;
     for (const std::string& rec : split(s, ';')) {
         std::vector<std::string> f = split(rec, ',');
@@ -101,6 +108,20 @@ std::vector<PieceWire> parseScene(const std::string& s) {
         p.z     = std::strtof(f[4].c_str(), nullptr);
         p.rotY  = std::strtof(f[5].c_str(), nullptr);
         out.push_back(p);
+    }
+    return out;
+}
+
+std::vector<HighlightWire> parseSceneHighlights(const std::string& s) {
+    std::vector<HighlightWire> out;
+    for (const std::string& rec : split(s, ';')) {
+        std::vector<std::string> f = split(rec, ',');
+        if (f.size() < 3) continue;
+        HighlightWire h{};
+        h.x = std::strtof(f[0].c_str(), nullptr);
+        h.y = std::strtof(f[1].c_str(), nullptr);
+        h.z = std::strtof(f[2].c_str(), nullptr);
+        out.push_back(h);
     }
     return out;
 }
@@ -304,7 +325,8 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
         [self forEachRenderable:board do:^(Entity e, const char* name) {
             bool isTemplate = false;
             for (int k = 0; k < 6; ++k) if (std::strcmp(name, kMeshForKind[k]) == 0) isTemplate = true;
-            bool hidden = isTemplate || std::strcmp(name, "Plane") == 0;
+            bool hidden = isTemplate || std::strcmp(name, "Plane") == 0
+                          || std::strcmp(name, "Highlight") == 0;
             if (hidden) _scene->remove(e); else _scene->addEntity(e);
         }];
         [self setInstanceTransform:board pos:{0,0,0} rotYDeg:0 scale:kModelScale];
@@ -318,19 +340,30 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
     _sceneAdded = true;
 }
 
-- (void)setSceneEncoded:(NSString *)encoded {
+- (void)setSceneEncoded:(NSString*)encoded {
     if (!_ready || encoded == nil) return;
-    std::vector<PieceWire> pieces = parseScene(std::string(encoded.UTF8String));
+    
+    std::string s = [encoded UTF8String];
+    std::string piecesStr = s;
+    std::string highlightsStr = "";
+    size_t pipePos = s.find('|');
+    if (pipePos != std::string::npos) {
+        piecesStr = s.substr(0, pipePos);
+        highlightsStr = s.substr(pipePos + 1);
+    }
+
+    std::vector<PieceWire> pieces = parseScenePieces(piecesStr);
+    std::vector<HighlightWire> highlights = parseSceneHighlights(highlightsStr);
 
     for (int slot = 0; slot < kMaxPieces; ++slot) {
         gltfio::FilamentInstance* inst = (*_instances)[slot + 1];
         if (!inst) continue;
 
         if (slot >= (int)pieces.size()) {
-            // No piece for this slot -> hide everything in it.
             [self forEachRenderable:inst do:^(Entity e, const char*) { _scene->remove(e); }];
             continue;
         }
+
         const PieceWire& p = pieces[slot];
         const char* meshName = (p.kind >= 0 && p.kind < 6) ? kMeshForKind[p.kind] : "";
         const char* materialName = (p.color == 0) ? "white" : "black";
@@ -350,8 +383,33 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
                 _scene->remove(e);
             }
         }];
-        // y comes from the scene so the move-arc hop lifts the piece; resting pieces stay at y=0.
         [self setInstanceTransform:inst pos:{ p.x, p.y, p.z } rotYDeg:p.rotY scale:kModelScale];
+    }
+    
+    for (int slot = 0; slot < kMaxHighlights; ++slot) {
+        gltfio::FilamentInstance* inst = (*_instances)[kMaxPieces + 1 + slot];
+        if (!inst) continue;
+
+        if (slot >= (int)highlights.size()) {
+            [self forEachRenderable:inst do:^(Entity e, const char*) { _scene->remove(e); }];
+            continue;
+        }
+
+        const HighlightWire& h = highlights[slot];
+
+        // No material binding: the Plane mesh carries its own `highlight` material (alphaMode BLEND)
+        // in chess.glb. Tinting one of the OPAQUE glTF materials at runtime cannot work — gltfio
+        // selects the ubershader blending variant from alphaMode when the asset loads.
+        [self forEachRenderable:inst do:^(Entity e, const char* name) {
+            if (std::strcmp(name, "Highlight") == 0) {
+                _scene->addEntity(e);
+            } else {
+                _scene->remove(e);
+            }
+        }];
+        // The Plane node's baked local translation was zeroed in chess.glb, so the square centre
+        // applies directly; kHighlightLiftY clears the tile to avoid z-fighting.
+        [self setInstanceTransform:inst pos:{ h.x, kHighlightLiftY, h.z } rotYDeg:0.0f scale:kModelScale];
     }
 }
 

@@ -40,9 +40,13 @@ private const val IBL_INTENSITY = 11_500f
 
 /** A chess board holds at most 32 pieces (promotion replaces a pawn, never adds). */
 private val MAX_PIECES = ChessSetConventions.MAX_PIECES
+private val MAX_HIGHLIGHTS = ChessSetConventions.MAX_HIGHLIGHTS
 
 /** chess.glb square-size conversion (2-unit glb squares -> 1-unit game squares). */
 private val PIECE_SCALE = ChessSetConventions.PIECE_SCALE
+
+/** Lifts the highlight quad off the tile just enough to beat z-fighting. */
+private const val HIGHLIGHT_LIFT_Y = 0.005f
 
 internal fun selectPieceMaterialName(materialNames: List<String>, color: PieceColor): String? {
     val expected = ChessSetMeshNames.getMaterialName(color)
@@ -86,7 +90,7 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
     val modelInstances = remember(modelLoader, glbBytes) {
         val buffer = ByteBuffer.allocateDirect(glbBytes.size).order(ByteOrder.nativeOrder())
         buffer.put(glbBytes).rewind()
-        runCatching { modelLoader.createInstancedModel(buffer, MAX_PIECES + 1) }.getOrNull().orEmpty()
+        runCatching { modelLoader.createInstancedModel(buffer, MAX_PIECES + 1 + MAX_HIGHLIGHTS) }.getOrNull().orEmpty()
     }
 
     val environment = remember(envLoader) {
@@ -178,7 +182,7 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                     apply = {
                         val hiddenNames = PieceKind.entries
                             .map { kind -> ChessSetMeshNames.getMeshName(kind, PieceColor.WHITE) }
-                            .toSet() + "Plane"
+                            .toSet() + "Plane" + "Highlight"
                         renderableNodes.forEach { rn ->
                             rn.isVisible = rn.name !in hiddenNames
                         }
@@ -230,6 +234,40 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                 }
             }
 
+            // Highlight nodes: a fixed pool of translucent quads marking the squares the move coach
+            // cites. Same reconcile-a-pool shape as the piece nodes above, and for the same reason.
+            //
+            // The ModelNode call MUST stay unconditional. `apply` runs inside SceneView's `remember`,
+            // i.e. *during composition*, so making the call conditional on state that `apply` itself
+            // writes invalidates the scope, drops the ModelNode call on the very next pass, and
+            // Compose then disposes the node — NodeLifecycle's onDispose calls Node.destroy(), which
+            // tears down every entity in the instance. That compacts Filament's component managers
+            // (swap-with-last), and SceneView caches EntityInstance handles forever
+            // (Node._transformInstance), so nodes created *after* these instances — the camera and
+            // both lights — are left holding stale transform instances. The visible symptom is not a
+            // crash: the camera silently freezes, which also desyncs tap-picking from the drawn board.
+            repeat(MAX_HIGHLIGHTS) { i ->
+                val highlight = boardScene?.highlightedSquares?.getOrNull(i)
+                val instance = modelInstances.getOrNull(MAX_PIECES + 1 + i)
+                if (instance != null) {
+                    val center = highlight?.let { BoardGeometry.squareCenter(it) }
+                    ModelNode(
+                        modelInstance = instance,
+                        // chess.glb's `Plane` node carried a baked local translation (the only node in
+                        // the file that did); it was zeroed so squareCenter applies directly, matching
+                        // the piece-template convention noted above. y is lifted a hair off the tile to
+                        // avoid z-fighting with the marble underneath.
+                        position = Float3(center?.x ?: 0f, HIGHLIGHT_LIFT_Y, center?.z ?: 0f),
+                        scale = Float3(PIECE_SCALE, PIECE_SCALE, PIECE_SCALE),
+                        isVisible = highlight != null,
+                        // No material work here: the Plane mesh carries its own `highlight` material
+                        // (alphaMode BLEND) in the GLB. Runtime tinting cannot work — gltfio picks the
+                        // ubershader blending variant from alphaMode at load time, so setting alpha on
+                        // one of the OPAQUE glTF materials renders fully opaque.
+                        apply = { renderableNodes.forEach { rn -> rn.isVisible = rn.name == "Highlight" } }
+                    ) {}
+                }
+            }
         }
 
         // Transparent gesture overlay (see Box comment above). Sized by `modifier`
