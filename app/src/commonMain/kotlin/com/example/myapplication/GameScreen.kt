@@ -235,6 +235,7 @@ fun GameScreen(
     val board3DCameraSession = remember { Board3DSessionState() }
     var isEntering3D by remember { mutableStateOf(false) }
     var isTearingDown3D by remember { mutableStateOf(false) }
+    var showResetConfirmation by remember { mutableStateOf(false) }
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
     LaunchedEffect(gameState.winState, gameState.fullmoveNumber, openingExplainerStateHolder) {
@@ -271,9 +272,10 @@ fun GameScreen(
             // between games, or hideWindow flips). Keyed on the result token so a genuinely new
             // finished game can be saved even if the previous popup wasn't dismissed.
             var gameSaved by remember(gameState.winState, gameState.fullmoveNumber) { mutableStateOf(false) }
-            val resetGame = { reset: Boolean ->
+            val resetGame: (Boolean) -> Unit = { reset: Boolean ->
                 if (reset) {
                     viewModel.resetGame(show3D = board3DEnabled)
+                    moveCoachManager?.hideWindow()
                 } else {
                     viewModel.hideWindow()
                 }
@@ -598,7 +600,7 @@ fun GameScreen(
                     animState = animState,
                     viewState = viewState,
                     viewModel = viewModel,
-                    onResetGame = { viewModel.resetGame(show3D = board3DEnabled) },
+                    onResetGame = { showResetConfirmation = true },
                     transparentButtons = true,
                 )
                 if (coachState !is MoveCoachUiState.Hidden) {
@@ -655,7 +657,7 @@ fun GameScreen(
                         animState = animState,
                         viewState = viewState,
                         viewModel = viewModel,
-                        onResetGame = { viewModel.resetGame(show3D = board3DEnabled) }
+                        onResetGame = { showResetConfirmation = true }
                     )
 
                     // Move Coach panel. Unlike the 3D branch (which overlays a non-scrollable
@@ -671,6 +673,37 @@ fun GameScreen(
                             onToggleExplainMode = moveCoachManager?.let { { explainMode = !explainMode } },
                             contentColor = MaterialTheme.colorScheme.onSurface,
                         )
+                    }
+                }
+            }
+        }
+
+        if (showResetConfirmation) {
+            PopupWindow(
+                onDismiss = { showResetConfirmation = false }
+            ) {
+                Text(
+                    modifier = Modifier.padding(bottom = 16.dp),
+                    text = "Are you sure you want to reset the game?",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        modifier = Modifier.padding(5.dp),
+                        onClick = {
+                            showResetConfirmation = false
+                            viewModel.resetGame(show3D = board3DEnabled)
+                            moveCoachManager?.hideWindow()
+                        }
+                    ) {
+                        Text("Yes")
+                    }
+                    Button(
+                        modifier = Modifier.padding(5.dp),
+                        onClick = { showResetConfirmation = false }
+                    ) {
+                        Text("No")
                     }
                 }
             }
@@ -752,6 +785,18 @@ private fun GameControls(
                 text = stringResource(Res.string.board_3d_unavailable),
                 color = Color.Red,
                 modifier = Modifier.testTag("board_3d_unavailable")
+            )
+        }
+        
+        val hintText by viewModel.hintText.collectAsState()
+        if (hintText != null) {
+            Text(
+                text = hintText!!,
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier
+                    .padding(bottom = 8.dp)
+                    .testTag("hint_text")
             )
         }
 
