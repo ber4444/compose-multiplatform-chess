@@ -180,6 +180,10 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                     modelInstance = boardInstance,
                     scale = Float3(PIECE_SCALE, PIECE_SCALE, PIECE_SCALE),
                     apply = {
+                        // `Plane` is hidden here but must stay in the asset: it is the only
+                        // primitive bound to the `black` material, which is what keeps that
+                        // MaterialInstance alive for the piece pool. Repointing or deleting it
+                        // turns every black piece silvery. See ChessSetMeshNames.getMaterialName.
                         val hiddenNames = PieceKind.entries
                             .map { kind -> ChessSetMeshNames.getMeshName(kind, PieceColor.WHITE) }
                             .toSet() + "Plane" + "Highlight"

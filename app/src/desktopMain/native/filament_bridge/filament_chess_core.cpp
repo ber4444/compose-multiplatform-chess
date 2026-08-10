@@ -331,6 +331,9 @@ struct FilamentChessCore::Impl {
                         break;
                     }
                 }
+                // "Plane" is hidden but must stay in the asset: it is the only primitive bound to
+                // the "black" material, which is what keeps that MaterialInstance alive for the
+                // piece pool. See ChessSetMeshNames.getMaterialName in commonMain.
                 bool hidden = isTemplate || std::strcmp(name, "Plane") == 0
                         || std::strcmp(name, "Highlight") == 0;
                 if (hidden) scene->remove(e); else scene->addEntity(e);

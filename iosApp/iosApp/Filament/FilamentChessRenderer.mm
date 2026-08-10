@@ -325,6 +325,9 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
         [self forEachRenderable:board do:^(Entity e, const char* name) {
             bool isTemplate = false;
             for (int k = 0; k < 6; ++k) if (std::strcmp(name, kMeshForKind[k]) == 0) isTemplate = true;
+            // "Plane" is hidden but must stay in the asset: it is the only primitive bound to the
+            // "black" material, which is what keeps that MaterialInstance alive for the piece
+            // pool. See ChessSetMeshNames.getMaterialName in commonMain.
             bool hidden = isTemplate || std::strcmp(name, "Plane") == 0
                           || std::strcmp(name, "Highlight") == 0;
             if (hidden) _scene->remove(e); else _scene->addEntity(e);

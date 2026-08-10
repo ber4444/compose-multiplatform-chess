@@ -245,6 +245,9 @@ window.chess3dFilament = {
     configureInstanceVisibility() {
         const board = this.instances[0];
         this.forEachRenderable(board, (e, name) => {
+            // 'Plane' is hidden but must stay in the asset: it is the only primitive bound to the
+            // 'black' material, which keeps that MaterialInstance alive for the piece pool.
+            // See ChessSetMeshNames.getMaterialName in commonMain.
             const hide = KIND_NAMES.indexOf(name) !== -1 || name === 'Plane' || name === 'Highlight';
             if (hide) this.scene.remove(e); else this.scene.addEntity(e);
         });
