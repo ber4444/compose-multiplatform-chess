@@ -358,14 +358,16 @@ val desktopFilamentNativeLibraryPath = desktopFilamentCmakeDir.map { cmakeDir ->
         .joinToString(File.pathSeparator) { it.absolutePath }
 }
 
+val desktopFilamentBridgeSourceDir = layout.projectDirectory.dir("src/desktopMain/native/filament_bridge")
+val desktopFilamentSdkDir = layout.projectDirectory.dir("src/desktopMain/filament/filament")
+
 val configureDesktopFilamentBridge by tasks.registering(Exec::class) {
-    val sourceDir = layout.projectDirectory.dir("src/desktopMain/native/filament_bridge")
-    inputs.dir(sourceDir)
-    inputs.dir(layout.projectDirectory.dir("src/desktopMain/filament/filament")).optional()
+    inputs.dir(desktopFilamentBridgeSourceDir).withPropertyName("filamentBridgeSources")
+    inputs.dir(desktopFilamentSdkDir).optional().withPropertyName("filamentSdk")
     outputs.dir(desktopFilamentCmakeDir)
     commandLine(
         "cmake",
-        "-S", sourceDir.asFile.absolutePath,
+        "-S", desktopFilamentBridgeSourceDir.asFile.absolutePath,
         "-B", desktopFilamentCmakeDir.get().asFile.absolutePath,
         "-DCMAKE_BUILD_TYPE=Release",
     )
@@ -373,6 +375,14 @@ val configureDesktopFilamentBridge by tasks.registering(Exec::class) {
 
 val buildDesktopFilamentBridge by tasks.registering(Exec::class) {
     dependsOn(configureDesktopFilamentBridge)
+    // The C++ sources must be inputs of *this* task, not only of the configure step above. Gradle
+    // treats a task that declares outputs and no inputs as UP-TO-DATE whenever its outputs exist, so
+    // without these an edit to filament_chess_core.cpp re-ran cmake's configure step and then
+    // skipped the compile entirely — leaving a stale .dylib that desktopTest happily rendered
+    // against. That silently cost a debugging session: a highlight fix looked like it did nothing
+    // because the test was exercising the previous day's binary.
+    inputs.dir(desktopFilamentBridgeSourceDir).withPropertyName("filamentBridgeSources")
+    inputs.dir(desktopFilamentSdkDir).optional().withPropertyName("filamentSdk")
     outputs.files(
         desktopFilamentCmakeDir.map { it.file(desktopFilamentBridgeLibName) },
         desktopFilamentCmakeDir.map { it.file("Release/$desktopFilamentBridgeLibName") },
