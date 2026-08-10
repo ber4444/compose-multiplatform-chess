@@ -344,6 +344,12 @@ window.chess3dFilament = {
             this.forEachRenderable(inst, (e, name) => {
                 if (name === "Highlight") {
                     this.scene.addEntity(e);
+                    const rm = this.renderableManager;
+                    const ri = rm.getInstance(e);
+                    if (ri) {
+                        rm.setCastShadows(ri, false);
+                        rm.setReceiveShadows(ri, false);
+                    }
                 } else {
                     this.scene.remove(e);
                 }

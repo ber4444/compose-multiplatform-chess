@@ -468,6 +468,12 @@ struct FilamentChessCore::Impl {
             forEachRenderable(inst, [this](Entity e, const char* name) {
                 if (std::strcmp(name, "Highlight") == 0) {
                     scene->addEntity(e);
+                    auto& rm = engine->getRenderableManager();
+                    auto ri = rm.getInstance(e);
+                    if (ri) {
+                        rm.setCastShadows(ri, false);
+                        rm.setReceiveShadows(ri, false);
+                    }
                 } else {
                     scene->remove(e);
                 }

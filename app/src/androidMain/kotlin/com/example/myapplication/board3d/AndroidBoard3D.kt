@@ -188,6 +188,10 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                             .map { kind -> ChessSetMeshNames.getMeshName(kind, PieceColor.WHITE) }
                             .toSet() + "Plane" + "Highlight"
                         renderableNodes.forEach { rn ->
+                            if (rn.name == "Highlight" || rn.name == "Plane") {
+                                rn.isShadowCaster = false
+                                rn.isShadowReceiver = false
+                            }
                             rn.isVisible = rn.name !in hiddenNames
                         }
                     }
@@ -268,7 +272,15 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                         // (alphaMode BLEND) in the GLB. Runtime tinting cannot work — gltfio picks the
                         // ubershader blending variant from alphaMode at load time, so setting alpha on
                         // one of the OPAQUE glTF materials renders fully opaque.
-                        apply = { renderableNodes.forEach { rn -> rn.isVisible = rn.name == "Highlight" } }
+                        apply = {
+                            renderableNodes.forEach { rn ->
+                                rn.isVisible = rn.name == "Highlight"
+                                if (rn.name == "Highlight") {
+                                    rn.isShadowCaster = false
+                                    rn.isShadowReceiver = false
+                                }
+                            }
+                        }
                     ) {}
                 }
             }

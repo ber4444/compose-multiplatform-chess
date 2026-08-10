@@ -406,6 +406,12 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
         [self forEachRenderable:inst do:^(Entity e, const char* name) {
             if (std::strcmp(name, "Highlight") == 0) {
                 _scene->addEntity(e);
+                auto& rm = _engine->getRenderableManager();
+                auto ri = rm.getInstance(e);
+                if (ri) {
+                    rm.setCastShadows(ri, false);
+                    rm.setReceiveShadows(ri, false);
+                }
             } else {
                 _scene->remove(e);
             }

@@ -76,6 +76,7 @@ class CactusTextGenerator(
     private var initJob: Deferred<Unit>? = null
     private var progressJob: Job? = null
     private val initMutex = Mutex()
+    private val generationMutex = Mutex()
     private val initScope = CoroutineScope(SupervisorJob() + engineDispatcher)
 
     override suspend fun status(): AiAvailability {
@@ -119,27 +120,29 @@ class CactusTextGenerator(
         }
 
         val start = System.currentTimeMillis()
-        val result = try {
-            activeLm.generateCompletion(
-                messages = listOf(
-                    ChatMessage(content = request.systemPrompt, role = "system"),
-                    ChatMessage(content = request.userPrompt, role = "user"),
-                ),
-                params = CactusCompletionParams(
-                    temperature = request.temperature,
-                    maxTokens = request.maxOutputTokens,
-                    stopSequences = request.stopSequences.ifEmpty { TURN_TERMINATORS },
-                ),
-            )
-        } finally {
-            // This instance is reused across every move ("keeps the model warm" below), but
-            // Cactus's own maintainers flag the native context's session state as fragile across
-            // repeated completions (upstream cactus-compute/cactus#572 — session-scoped KV-cache
-            // state lives on the same handle as the long-lived model). We hit a real SIGSEGV in
-            // GemmaModel::build_attention/CactusGraph::set_input after several successive Move
-            // Coach calls, consistent with that cross-call corruption. reset() clears the native
-            // context cheaply (no weight/model reload) so each move starts from a clean session.
-            activeLm.reset()
+        val result = generationMutex.withLock {
+            try {
+                activeLm.generateCompletion(
+                    messages = listOf(
+                        ChatMessage(content = request.systemPrompt, role = "system"),
+                        ChatMessage(content = request.userPrompt, role = "user"),
+                    ),
+                    params = CactusCompletionParams(
+                        temperature = request.temperature,
+                        maxTokens = request.maxOutputTokens,
+                        stopSequences = request.stopSequences.ifEmpty { TURN_TERMINATORS },
+                    ),
+                )
+            } finally {
+                // This instance is reused across every move ("keeps the model warm" below), but
+                // Cactus's own maintainers flag the native context's session state as fragile across
+                // repeated completions (upstream cactus-compute/cactus#572 — session-scoped KV-cache
+                // state lives on the same handle as the long-lived model). We hit a real SIGSEGV in
+                // GemmaModel::build_attention/CactusGraph::set_input after several successive Move
+                // Coach calls, consistent with that cross-call corruption. reset() clears the native
+                // context cheaply (no weight/model reload) so each move starts from a clean session.
+                activeLm.reset()
+            }
         }
 
         val text = stripModelArtifacts(result?.response.orEmpty())
