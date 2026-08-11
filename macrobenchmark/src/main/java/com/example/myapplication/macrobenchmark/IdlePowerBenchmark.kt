@@ -3,6 +3,8 @@ package com.example.myapplication.macrobenchmark
 import android.content.Intent
 import androidx.benchmark.macro.ExperimentalMetricApi
 import androidx.benchmark.macro.Metric
+import androidx.benchmark.macro.PowerCategory
+import androidx.benchmark.macro.PowerCategoryDisplayLevel
 import androidx.benchmark.macro.PowerMetric
 import androidx.benchmark.macro.TraceSectionMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
@@ -176,9 +178,19 @@ class IdlePowerBenchmark {
     @OptIn(ExperimentalMetricApi::class)
     private fun powerMetricOrNull(): Metric? = when {
         // ODPM rails. Note the library's own error text points at a `deviceSupportsPowerEnergy()`
-        // that does not exist in benchmark-macro 1.3.0 — the real predicate is this one.
+        // that does not exist in benchmark-macro — the real predicate is this one, and all it does
+        // is grep `dumpsys powerstats` for `ChannelId:`. It has nothing to do with being plugged in.
         PowerMetric.deviceSupportsHighPrecisionTracking() ->
-            PowerMetric(PowerMetric.Type.Energy())
+            // Categories are NOT optional in practice. `Type.Energy()` defaults to an empty map,
+            // and PowerMetric emits one metric per requested category — so the default reports
+            // *nothing at all*, silently. That is not a device limitation and it is not visible in
+            // the output; it just looks like a device with no power support. Ask for every
+            // category: rails the device does not expose are simply absent from the result.
+            PowerMetric(
+                PowerMetric.Type.Energy(
+                    PowerCategory.entries.associateWith { PowerCategoryDisplayLevel.TOTAL }
+                )
+            )
 
         // Whole-device battery delta. Coarse, and it needs enough charge that the library's own
         // guard (>= 50%) lets the run start; PowerMetric suspends USB charging itself for the
