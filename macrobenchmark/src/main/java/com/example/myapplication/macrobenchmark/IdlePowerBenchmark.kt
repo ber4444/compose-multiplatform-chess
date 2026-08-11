@@ -1,11 +1,13 @@
 package com.example.myapplication.macrobenchmark
 
+import android.content.Intent
 import androidx.benchmark.macro.ExperimentalMetricApi
 import androidx.benchmark.macro.Metric
 import androidx.benchmark.macro.PowerMetric
 import androidx.benchmark.macro.TraceSectionMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Until
 import org.junit.Rule
@@ -72,12 +74,22 @@ class IdlePowerBenchmark {
             // that startup cost is the measurement. Launching in setupBlock instead means the
             // window opens on an already-warm, already-drawn board.
             setupBlock = {
-                // Home first, so the following launch always resumes the activity and always
-                // produces a fresh frame. Without it `startActivityAndWait` can be handed an
-                // already-foregrounded activity and wait for a frame that — once the render loop
-                // is fixed and the board is genuinely idle — never arrives.
+                // Home first, so the following launch always resumes the activity rather than
+                // finding it already foregrounded.
                 pressHome()
-                startActivityAndWait()
+                // Deliberately NOT MacrobenchmarkScope.startActivityAndWait(). That confirms
+                // launch by polling `dumpsys gfxinfo <pkg> framestats`, which reports HWUI frames
+                // — and this app has none while the 3D board is up: SceneView draws into a
+                // SurfaceView through Filament's own threads, so HWUI never records a frame for
+                // it. On a Pixel 7a / Android 17 that means framestats stays empty and the helper
+                // fails the run outright with "Unable to confirm activity launch completion
+                // [... lastFrameNs=null]". It is the same blind spot that rules out
+                // FrameTimingMetric here (see the class KDoc), and it gets worse, not better,
+                // once the render loop is fixed and the board genuinely stops producing frames.
+                //
+                // UiAutomator observes the window instead, which is true for both boards on
+                // every device this has run on.
+                launchTargetApp()
                 device.wait(Until.hasObject(By.pkg(TARGET_PACKAGE).depth(0)), UI_TIMEOUT_MS)
                 // Let the entry choreography (3D surface mount, model load, board transition)
                 // finish before measuring, so its frames are not counted as idle frames.
@@ -88,6 +100,19 @@ class IdlePowerBenchmark {
             // Deliberately empty apart from the wait: the board is untouched for the whole window.
             Thread.sleep(IDLE_WINDOW_MS)
         }
+    }
+
+    /**
+     * Cold-neutral launch of the app under test through its launcher intent, using the
+     * instrumentation's own context. Returns as soon as the intent is dispatched; readiness is
+     * established by the UiAutomator wait at the call site.
+     */
+    private fun launchTargetApp() {
+        val context = InstrumentationRegistry.getInstrumentation().context
+        val intent = requireNotNull(context.packageManager.getLaunchIntentForPackage(TARGET_PACKAGE)) {
+            "$TARGET_PACKAGE has no launcher activity — is the app installed for this user?"
+        }.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
     }
 
     private companion object {
