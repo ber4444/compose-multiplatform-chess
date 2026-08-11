@@ -26,7 +26,7 @@ class IdlePowerBenchmark {
             packageName = "io.github.ber4444.chess",
             metrics = listOf(
                 FrameTimingMetric(),
-                PowerMetric(PowerMetric.Type.Battery())
+                PowerMetric(PowerMetric.Type.Energy())
             ),
             iterations = 5,
             startupMode = StartupMode.COLD,
