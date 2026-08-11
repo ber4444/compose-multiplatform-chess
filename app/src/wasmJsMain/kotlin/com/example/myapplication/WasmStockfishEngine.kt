@@ -11,7 +11,9 @@ class WasmStockfishEngine(
     /** False on handshake timeout (e.g. worker file 404) — caller then skips attachEngine. */
     suspend fun start(): Boolean = client.start()
 
-    override suspend fun getBestMove(fen: String): BestMoveResult? = client.bestMove(fen)
+    override suspend fun getBestMove(fen: String, thinkTimeMs: Long?): BestMoveResult? =
+        // UciProtocolClient already defaults this to its configured budget.
+        if (thinkTimeMs == null) client.bestMove(fen) else client.bestMove(fen, thinkTimeMs)
 
     override suspend fun evaluate(fen: String, thinkTimeMs: Long?): Int? = client.evaluate(fen, thinkTimeMs = thinkTimeMs)
 

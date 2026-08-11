@@ -97,6 +97,9 @@ class MainActivity : ComponentActivity() {
                 moveCoachManager = holder.moveCoachManager,
                 gameSummaryManager = holder.gameSummaryManager,
                 entitlements = entitlements
+                    // Stays UnconfiguredEntitlements even in debug: the dev unlock is
+                    // forceProUnlocked below, which covers all five Pro surfaces *and* leaves
+                    // PaywallScreen — which reads LocalEntitlements directly — inspectable.
                     ?: androidx.compose.runtime.remember { UnconfiguredEntitlements() },
                 forceProUnlocked = isDebug,
                 isDebug = isDebug,

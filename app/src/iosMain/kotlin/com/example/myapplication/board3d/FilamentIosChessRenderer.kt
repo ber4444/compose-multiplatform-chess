@@ -95,6 +95,7 @@ class FilamentIosChessRenderer(factory: FilamentChessViewFactory) : Chess3DBoard
     override fun updatePosition(fen: String) = delegate.updatePosition(fen)
     override fun updatePosition(fen: String, transition: Board3DTransition?) = delegate.updatePosition(fen, transition)
     override fun setSelectedSquare(square: BoardSquare?) = delegate.setSelectedSquare(square)
+    override fun setHighlightedSquares(squares: List<BoardSquare>) = delegate.setHighlightedSquares(squares)
     override fun onUserInteraction(event: Board3DInput) = delegate.onUserInteraction(event)
     override fun dispose() = delegate.dispose()
 }

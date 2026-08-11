@@ -38,7 +38,7 @@ final class StockfishChessEngineTests: XCTestCase {
         var move: String?
 
         DispatchQueue.global().async {
-            engine.getBestMove(fen: self.startFen) { bestMove, _ in
+            engine.getBestMove(fen: self.startFen, thinkTimeMs: nil) { bestMove, _ in
                 move = bestMove?.uci
                 exp.fulfill()
             }
@@ -89,7 +89,7 @@ final class StockfishChessEngineTests: XCTestCase {
         var move: String? = "initial"
 
         DispatchQueue.global().async {
-            engine.getBestMove(fen: self.startFen) { bestMove, _ in
+            engine.getBestMove(fen: self.startFen, thinkTimeMs: nil) { bestMove, _ in
                 move = bestMove?.uci
                 exp.fulfill()
             }

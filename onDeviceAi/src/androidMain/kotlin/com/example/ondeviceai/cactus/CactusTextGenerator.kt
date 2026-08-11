@@ -78,6 +78,7 @@ class CactusTextGenerator(
     private var initJob: Deferred<Unit>? = null
     private var progressJob: Job? = null
     private val initMutex = Mutex()
+    private val generationMutex = Mutex()
     private val initScope = CoroutineScope(SupervisorJob() + engineDispatcher)
 
     override suspend fun status(): AiAvailability {
@@ -121,38 +122,40 @@ class CactusTextGenerator(
         }
 
         val start = System.currentTimeMillis()
-        val result = try {
-            val cactusTools = request.tools.map { spec ->
-                createTool(
-                    name = spec.name,
-                    description = spec.description,
-                    parameters = spec.parameters.mapValues { (_, param) ->
-                        ToolParameter(type = param.type, description = param.description)
-                    }
+        val result = generationMutex.withLock {
+            try {
+                val cactusTools = request.tools.map { spec ->
+                    createTool(
+                        name = spec.name,
+                        description = spec.description,
+                        parameters = spec.parameters.mapValues { (_, param) ->
+                            ToolParameter(type = param.type, description = param.description)
+                        }
+                    )
+                }
+                activeLm.generateCompletion(
+                    messages = listOf(
+                        ChatMessage(content = request.systemPrompt, role = "system"),
+                        ChatMessage(content = request.userPrompt, role = "user"),
+                    ),
+                    params = CactusCompletionParams(
+                        temperature = request.temperature,
+                        maxTokens = request.maxOutputTokens,
+                        stopSequences = request.stopSequences.ifEmpty { TURN_TERMINATORS },
+                        tools = cactusTools,
+                        forceTools = if (cactusTools.isNotEmpty()) true else null,
+                    ),
                 )
+            } finally {
+                // This instance is reused across every move ("keeps the model warm" below), but
+                // Cactus's own maintainers flag the native context's session state as fragile across
+                // repeated completions (upstream cactus-compute/cactus#572 — session-scoped KV-cache
+                // state lives on the same handle as the long-lived model). We hit a real SIGSEGV in
+                // GemmaModel::build_attention/CactusGraph::set_input after several successive Move
+                // Coach calls, consistent with that cross-call corruption. reset() clears the native
+                // context cheaply (no weight/model reload) so each move starts from a clean session.
+                activeLm.reset()
             }
-            activeLm.generateCompletion(
-                messages = listOf(
-                    ChatMessage(content = request.systemPrompt, role = "system"),
-                    ChatMessage(content = request.userPrompt, role = "user"),
-                ),
-                params = CactusCompletionParams(
-                    temperature = request.temperature,
-                    maxTokens = request.maxOutputTokens,
-                    stopSequences = request.stopSequences.ifEmpty { TURN_TERMINATORS },
-                    tools = cactusTools,
-                    forceTools = if (cactusTools.isNotEmpty()) true else null,
-                ),
-            )
-        } finally {
-            // This instance is reused across every move ("keeps the model warm" below), but
-            // Cactus's own maintainers flag the native context's session state as fragile across
-            // repeated completions (upstream cactus-compute/cactus#572 — session-scoped KV-cache
-            // state lives on the same handle as the long-lived model). We hit a real SIGSEGV in
-            // GemmaModel::build_attention/CactusGraph::set_input after several successive Move
-            // Coach calls, consistent with that cross-call corruption. reset() clears the native
-            // context cheaply (no weight/model reload) so each move starts from a clean session.
-            activeLm.reset()
         }
 
         result?.toolCalls?.forEach { toolCall ->

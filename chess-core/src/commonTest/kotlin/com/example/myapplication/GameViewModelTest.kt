@@ -428,19 +428,20 @@ class GameViewModelTest {
 
         // 1. Without attached engine, requestHint does nothing
         vm.requestHint()
-        assertNull(vm.hintText.value)
+        assertTrue(vm.hintSquares.value.isEmpty())
 
         // 2. Attach a fake engine
         val fakeEngine = object : ChessEngine {
             override suspend fun configure(difficulty: EngineDifficulty) {}
-            override suspend fun getBestMove(fen: String): BestMoveResult? = BestMoveResult("e2e4", evaluationCp = 30)
+            override suspend fun getBestMove(fen: String, thinkTimeMs: Long?): BestMoveResult? = BestMoveResult("e2e4", evaluationCp = 30)
             override fun close() {}
         }
         vm.attachEngine(fakeEngine)
 
         // 3. Request hint on player turn
-        val hint = vm.computeHintDirectly()
-        assertTrue(hint != null && hint.startsWith("Hint: Try "), "Expected hint starting with 'Hint: Try ' but got $hint")
+        vm.computeHintDirectly()
+        val hint = vm.hintSquares.value
+        assertTrue(hint.isNotEmpty(), "Expected hint squares to be populated but got $hint")
 
         // Assert player side has legal moves
         val legalMoves = getAllLegalMoves(
@@ -455,7 +456,7 @@ class GameViewModelTest {
 
         // Clear hint works
         vm.clearHint()
-        assertNull(vm.hintText.value)
+        assertTrue(vm.hintSquares.value.isEmpty())
     }
 
     /**
@@ -476,7 +477,7 @@ class GameViewModelTest {
                 configured += difficulty
             }
 
-            override suspend fun getBestMove(fen: String): BestMoveResult? {
+            override suspend fun getBestMove(fen: String, thinkTimeMs: Long?): BestMoveResult? {
                 kotlinx.coroutines.delay(10_000)
                 return BestMoveResult("e2e4", evaluationCp = 30)
             }

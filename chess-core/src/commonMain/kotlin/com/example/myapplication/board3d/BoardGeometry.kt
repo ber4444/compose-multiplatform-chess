@@ -1,6 +1,6 @@
 package com.example.myapplication.board3d
 
-internal object BoardGeometry {
+object BoardGeometry {
     const val SQUARE_SIZE: Float = 1f
     const val BOARD_HALF_EXTENT: Float = 4f * SQUARE_SIZE
 

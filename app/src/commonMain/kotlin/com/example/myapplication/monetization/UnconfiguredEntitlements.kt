@@ -18,9 +18,9 @@ import kotlinx.coroutines.flow.asStateFlow
  * platform with no store, and a bypass on one that has it.
  *
  * Reached on Android/iOS when no RevenueCat key is configured, which is the state of any fresh
- * clone. **Consequence worth knowing:** the five Pro AI surfaces are gated off in that build. That
- * is correct rather than convenient — an unkeyed build genuinely cannot sell anything — but it does
- * mean a keyless dev build shows the free tier. Desktop keeps everything unlocked for development.
+ * clone: that build genuinely cannot sell anything, so the five Pro AI surfaces are gated off.
+ * A *debug* build keeps this class — its dev unlock is [LocalProUnlockOverride], which opens all
+ * five surfaces without touching the entitlement, so the paywall stays inspectable.
  */
 class UnconfiguredEntitlements : Entitlements {
     private val _isProUnlocked = MutableStateFlow(false)

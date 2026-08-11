@@ -10,7 +10,7 @@ class DrawAgreementTest {
 
     private fun mockEngine(eval: Int?): ChessEngine {
         return object : ChessEngine {
-            override suspend fun getBestMove(fen: String): BestMoveResult? = null
+            override suspend fun getBestMove(fen: String, thinkTimeMs: Long?): BestMoveResult? = null
             override suspend fun evaluate(fen: String, thinkTimeMs: Long?): Int? = eval
             override fun close() {}
         }

@@ -178,24 +178,36 @@ final class StockfishChessEngine: NSObject, ChessEngine {
         _ = SharedStockfishCore.shared
     }
 
-    func getBestMove(fen: String, completionHandler: @escaping (BestMoveResult?, Error?) -> Void) {
+    /// Conformance to Kotlin `ChessEngine.getBestMove(fen:thinkTimeMs:)`. The `thinkTimeMs` override
+    /// exists so B16's idle analysis can bound one search by the configured difficulty budget and
+    /// use its score as `cpBest`; `nil` means "use the configured play movetime", exactly as in
+    /// `evaluate`. Note this parameter is part of the Obj-C selector — dropping it silently breaks
+    /// the protocol conformance and the Kotlin side falls back to the embedded CPU engine.
+    func getBestMove(fen: String, thinkTimeMs: KotlinLong?, completionHandler: @escaping (BestMoveResult?, Error?) -> Void) {
         let checkClosed = { [weak self] in self?.localQueue.sync { self?.isClosed ?? true } ?? true }
         // The first search after engine init can fail on slow/contended CI runners — the engine's
         // async response pipeline isn't fully primed yet, so the bestmove response is missed and
         // runSearch returns nil after the full timeout. A single retry reliably produces a move
         // because by the second attempt the pipeline is warmed up.
-        let moveTimeMs = SharedStockfishCore.shared.stateQueue.sync { SharedStockfishCore.shared.moveTimeMs }
+        let moveTimeMs = thinkTimeMs != nil
+            ? Int(truncating: thinkTimeMs!)
+            : SharedStockfishCore.shared.stateQueue.sync { SharedStockfishCore.shared.moveTimeMs }
+        // A caller-supplied budget can exceed the fixed timeout, which would time out a search that
+        // was going to answer. Same proportional rule evaluate() uses.
+        let responseTimeout = thinkTimeMs != nil
+            ? TimeInterval(moveTimeMs) / 1000.0 + 5.0
+            : sharedBestMoveResponseTimeout
         var move = SharedStockfishCore.shared.runSearch(
             fen: fen,
             go: .go(movetime: moveTimeMs),
-            timeout: sharedBestMoveResponseTimeout,
+            timeout: responseTimeout,
             checkClosed: checkClosed
         )
         if move == nil && !checkClosed() {
             move = SharedStockfishCore.shared.runSearch(
                 fen: fen,
                 go: .go(movetime: moveTimeMs),
-                timeout: sharedBestMoveResponseTimeout,
+                timeout: responseTimeout,
                 checkClosed: checkClosed
             )
         }

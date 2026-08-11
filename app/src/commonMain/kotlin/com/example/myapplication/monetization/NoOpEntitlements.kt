@@ -17,8 +17,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * Deliberately *not* the default on Android/iOS — a free unlock there would hand out Pro for a tap
  * on exactly the two platforms where money is meant to change hands. Those use
  * [RevenueCatEntitlements], falling back to [UnconfiguredEntitlements] when no API key is
- * configured (§0.4). [initialUnlocked] still defaults to `false` so an accidental bare
- * `NoOpEntitlements()` starts locked rather than open.
+ * configured (§0.4) — including in a debug build, whose dev unlock goes through
+ * [LocalProUnlockOverride] instead, so that `PaywallScreen` stays inspectable there.
+ * [initialUnlocked] still defaults to `false` so an accidental bare `NoOpEntitlements()` starts
+ * locked rather than open.
  *
  * @param onUnlockChanged persistence hook — desktop and wasm pass `AppSettings::setProUnlocked` so
  *   the unlock survives a restart. Without it every launch would re-show the paywall, which reads

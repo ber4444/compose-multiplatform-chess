@@ -35,7 +35,7 @@ class MoveCoachManager(
 
     private var coachJob: Job? = null
     private var orchestrator: AiCoachOrchestrator? = null
-    /** The last request built by [triggerCoach], replayed by [retry]. */
+    /** The last request handed to [launchCoach], replayed by [retry]. */
     private var lastRequest: com.example.ondeviceai.MoveCoachRequest? = null
 
     /**
@@ -129,9 +129,49 @@ class MoveCoachManager(
         launchCoach(lastRequest ?: return)
     }
 
+    /**
+     * Ask the coach about a square the user tapped (B16's Explain mode), rather than about a move
+     * that was just played.
+     *
+     * The request is built here rather than by the screen for the same reason [triggerCoach]'s is:
+     * `launchCoach` is private, the free-tier and cancellation rules live behind it, and two call
+     * sites (the 2D board and the 3D board) would otherwise assemble the same `MoveCoachRequest`
+     * by hand and drift apart.
+     *
+     * [square] is algebraic (`"e4"`). [headline] and [explanation] come from `SquareInsight`, which
+     * needs the board state the screen holds.
+     *
+     * **No model runs here**, unlike [triggerCoach]. The analysis is exact attacker counts and a
+     * verdict derived from them, and a small on-device rewriter paraphrases numbers into false ones
+     * — "You cover it once, Black twice" came back from gemma3-270m as "with Black twice covering it
+     * once". `MoveCoachResponseValidator` cannot catch that: the sentence is still short, grounded
+     * and fluent, it is merely wrong. A move needs narration because its assessment is a centipawn
+     * score; a square's answer *is* the detection, so there is nothing left to narrate.
+     */
+    fun explainSquare(square: String, headline: String, explanation: String) {
+        coachJob?.cancel()
+        _coachUiState.value = MoveCoachUiState.Ready(
+            com.example.ondeviceai.MoveCoachExplanation(
+                headline = headline,
+                explanation = explanation,
+                confidence = com.example.ondeviceai.ExplanationConfidence.HIGH,
+                route = SQUARE_INSIGHT_ROUTE,
+                metrics = com.example.ondeviceai.AiInferenceMetrics(
+                    firstTokenMs = null,
+                    completeMs = 0L,
+                    tokenCount = 0,
+                    route = SQUARE_INSIGHT_ROUTE,
+                ),
+            )
+        )
+    }
+
     private fun launchCoach(request: com.example.ondeviceai.MoveCoachRequest) {
         lastRequest = request
         val orchestrator = this.orchestrator ?: return
+        // Recorded here, not in triggerCoach, so retry() replays whichever request actually ran —
+        // an Explain-mode square query is as retryable as a coached move.
+        lastRequest = request
         coachJob?.cancel()
 
         if (!proUnlocked) {
@@ -160,14 +200,15 @@ class MoveCoachManager(
             return
         }
 
-        _coachUiState.value = MoveCoachUiState.Loading(request.moveDisplay)
+        _coachUiState.value = MoveCoachUiState.Loading(request.deterministicHeadline, request.deterministicExplanation)
         coachJob = scope.launch {
             try {
                 orchestrator.explainMoveStreaming(request).collect { event ->
                     when (event) {
                         is MoveCoachEvent.Streaming ->
                             _coachUiState.value = MoveCoachUiState.Streaming(
-                                move = request.moveDisplay,
+                                headline = request.deterministicHeadline,
+                                explanation = request.deterministicExplanation,
                                 text = CitationSanitizer.sanitizeStreaming(event.partialText),
                             )
                         is MoveCoachEvent.Complete -> when (val result = event.result) {
@@ -228,10 +269,13 @@ class MoveCoachManager(
         scope.cancel()
     }
 
-    private companion object {
+    // internal, not private: [squaresNamedIn] is the one member the module reaches for — a private
+    // companion hides even its internal members, so `MoveCoachSquareParsingTest` could not see it.
+    // Everything else here stays private.
+    internal companion object {
         /** Enough to break a rut, short enough that the ban list stays a hint and not a paragraph. */
-        const val MAX_REMEMBERED_FRAMES = 3
-        const val FRAME_WORDS = 3
+        private const val MAX_REMEMBERED_FRAMES = 3
+        private const val FRAME_WORDS = 3
 
         /** Keeps the per-move debug line to an identifying excerpt rather than the whole answer. */
         private const val LOG_EXCERPT_CHARS = 120
@@ -242,5 +286,35 @@ class MoveCoachManager(
                 "free tier: deterministic coach",
             ),
         )
+
+        /** Provenance of an Explain-mode answer: read off the board, on every tier. */
+        private val SQUARE_INSIGHT_ROUTE = com.example.ondeviceai.AiRoute.Fallback(
+            com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.Other(
+                "square insight: computed from the position",
+            ),
+        )
+
+        /**
+         * A board square, in plain algebraic ("e4") or SAN with a piece letter ("Nf3", "Bxc4").
+         * The capture marker is optional; the file/rank pair is what gets kept.
+         */
+        private val SQUARE_REFERENCE = Regex("[KQRBN]?x?[a-h][1-8]")
+
+        /**
+         * Board squares named in a coach line, for B16's board highlighting.
+         *
+         * `\\b[a-h][1-8]\\b` does not work here: a word boundary cannot occur between `N` and `f3`,
+         * so it matched plain algebraic and silently skipped SAN — which is how the coach writes
+         * nearly every square it mentions ("Nf3", "Bxc4+", "Qd1"), so the highlight almost never
+         * fired. Matching an optional piece letter and keeping the file/rank pair catches both.
+         *
+         * Call it with sanitized text: a citation id containing a square-shaped substring is
+         * already gone by then.
+         */
+        internal fun squaresNamedIn(text: String): List<String> =
+            SQUARE_REFERENCE.findAll(text)
+                .map { it.value.takeLast(2).lowercase() }
+                .distinct()
+                .toList()
     }
 }
