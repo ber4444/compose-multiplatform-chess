@@ -27,9 +27,8 @@ object DeterministicCoach {
         val move = record.san.ifBlank { record.uci }
         val assessment = record.assessment
         
-        if (assessment == null) {
-            return "You played $move"
-        }
+        // No assessment (no engine attached) means no verdict to name, so the move stands alone.
+        if (assessment == null) return move
 
         val className = when (assessment.moveClass) {
             MoveClass.BEST -> "Best move"
@@ -85,10 +84,10 @@ object DeterministicCoach {
             }
         }
 
-        val move = record.san.ifBlank { record.uci }
-        val finalReason = "You played $move. $reason"
-
-        return if (finalReason.length <= MAX_FALLBACK_CHARS) finalReason
-        else finalReason.take(MAX_FALLBACK_CHARS - 1).trimEnd() + "…"
+        // No "You played <move>." prefix: the user just played it, the headline names it, and the
+        // board tints it. Spending the first third of a 300-char budget restating the input left
+        // less room for the only part that is news — the reason.
+        return if (reason.length <= MAX_FALLBACK_CHARS) reason
+        else reason.take(MAX_FALLBACK_CHARS - 1).trimEnd() + "…"
     }
 }

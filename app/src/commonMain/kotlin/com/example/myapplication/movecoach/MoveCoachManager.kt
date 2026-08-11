@@ -164,7 +164,8 @@ class MoveCoachManager(
                     tokenCount = 0,
                     route = SQUARE_INSIGHT_ROUTE,
                 ),
-            )
+            ),
+            squares = listOf(square),
         )
     }
 
@@ -181,6 +182,8 @@ class MoveCoachManager(
         // fallback ones: the colour is a property of the *move*, not of which text path answered,
         // so a deterministic line about a blunder must still paint the board red.
         val tone = MoveClass.entries.firstOrNull { it.name == request.moveClassName }.toHighlightTone()
+        // From/to, straight off the UCI, so the board tints the move whatever the sentence says.
+        val squares = squaresOf(request.moveUci)
 
         if (!proUnlocked) {
             // Free tier: render the deterministic line as a finished answer, not a Fallback. It is
@@ -205,12 +208,15 @@ class MoveCoachManager(
                     ),
                 ),
                 tone = tone,
+                squares = squares,
             )
             return
         }
 
         _coachUiState.value =
-            MoveCoachUiState.Loading(request.deterministicHeadline, request.deterministicExplanation, tone)
+            MoveCoachUiState.Loading(
+                request.deterministicHeadline, request.deterministicExplanation, tone, squares,
+            )
         coachJob = scope.launch {
             try {
                 orchestrator.explainMoveStreaming(request).collect { event ->
@@ -221,6 +227,7 @@ class MoveCoachManager(
                                 explanation = request.deterministicExplanation,
                                 text = CitationSanitizer.sanitizeStreaming(event.partialText),
                                 tone = tone,
+                                squares = squares,
                             )
                         is MoveCoachEvent.Complete -> when (val result = event.result) {
                             is MoveCoachResult.Success -> {
@@ -232,6 +239,7 @@ class MoveCoachManager(
                                         explanation = shown,
                                     ),
                                     tone = tone,
+                                    squares = squares,
                                 )
                                 rememberOpeningFrame(shown)
                             }
@@ -241,6 +249,7 @@ class MoveCoachManager(
                                     CitationSanitizer.sanitize(result.text),
                                     result.reason,
                                     tone = tone,
+                                    squares = squares,
                                 )
                             }
                             is MoveCoachResult.Failed -> {
@@ -286,6 +295,13 @@ class MoveCoachManager(
     // companion hides even its internal members, so `MoveCoachSquareParsingTest` could not see it.
     // Everything else here stays private.
     internal companion object {
+        /**
+         * The from/to squares of a UCI move (`"d2d4"` -> `["d2", "d4"]`), or empty if it isn't one.
+         * Promotions carry a fifth character, which is not part of either square.
+         */
+        private fun squaresOf(uci: String): List<String> =
+            if (uci.length >= 4) listOf(uci.substring(0, 2), uci.substring(2, 4)) else emptyList()
+
         /** Enough to break a rut, short enough that the ban list stays a hint and not a paragraph. */
         private const val MAX_REMEMBERED_FRAMES = 3
         private const val FRAME_WORDS = 3

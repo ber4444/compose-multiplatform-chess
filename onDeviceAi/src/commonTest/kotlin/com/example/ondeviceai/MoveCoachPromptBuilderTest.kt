@@ -3,6 +3,7 @@ package com.example.ondeviceai
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -27,7 +28,7 @@ class MoveCoachPromptBuilderTest {
         moveUci = "g1f3",
         moveDisplay = "Nf3",
         deterministicHeadline = "Good — Nf3",
-        deterministicExplanation = "You played Nf3. It develops a piece to an active square.",
+        deterministicExplanation = "It develops a piece to an active square.",
         engineDifficultyName = "Medium",
     )
 
@@ -111,7 +112,8 @@ class MoveCoachPromptBuilderTest {
 
         assertTrue("Nf3" in prompt, prompt)
         assertTrue("blunder" in prompt, "the move class is lowercased into prose: $prompt")
-        assertTrue("240" in prompt, prompt)
+        // The magnitude, not the number: see centipawnCountNeverReachesThePrompt.
+        assertTrue("much weaker" in prompt, prompt)
         assertTrue("fork" in prompt, prompt)
     }
 
@@ -177,5 +179,36 @@ class MoveCoachPromptBuilderTest {
 
         assertFalse("Do not start" in system, system)
         assertEquals(MoveCoachPromptBuilder.systemPrompt(emptyList()), system)
+    }
+
+    @Test
+    fun centipawnCountNeverReachesThePrompt() {
+        // "It gives up about 4 centipawns" came back from gemma3-270m as "It gave up about 4 cents",
+        // then as "it gives up less than four". The unit is jargon the model cannot represent and
+        // the reader cannot use, so only the magnitude is stated.
+        val prompt = MoveCoachPromptBuilder.userPrompt(request.copy(centipawnLoss = 4))
+        assertFalse(prompt.contains("centipawn", ignoreCase = true), prompt)
+        assertFalse(prompt.contains(" 4 "), prompt)
+    }
+
+    @Test
+    fun centipawnBandsFollowMoveClassThresholds() {
+        // Same 10/30/60/100/300 boundaries as MoveClass, so the phrase can never contradict the
+        // class stated one line above it.
+        assertNull(MoveCoachPromptBuilder.centipawnLossPhrase(null))
+        assertNull(MoveCoachPromptBuilder.centipawnLossPhrase(0))
+        assertNull(MoveCoachPromptBuilder.centipawnLossPhrase(9), "below noise floor: invents a fault")
+        assertEquals("a shade weaker", MoveCoachPromptBuilder.centipawnLossPhrase(10))
+        assertEquals("slightly weaker", MoveCoachPromptBuilder.centipawnLossPhrase(30))
+        assertEquals("clearly weaker", MoveCoachPromptBuilder.centipawnLossPhrase(60))
+        assertEquals("much weaker", MoveCoachPromptBuilder.centipawnLossPhrase(100))
+        assertEquals("far weaker", MoveCoachPromptBuilder.centipawnLossPhrase(300))
+    }
+
+    @Test
+    fun promptAsksForPlainProse() {
+        // Belt to InlineMarkdown's braces: asking costs nothing and works often enough to matter.
+        val prompt = MoveCoachPromptBuilder.systemPrompt(bannedOpeningFrames = emptyList())
+        assertTrue(prompt.contains("markdown", ignoreCase = true), prompt)
     }
 }

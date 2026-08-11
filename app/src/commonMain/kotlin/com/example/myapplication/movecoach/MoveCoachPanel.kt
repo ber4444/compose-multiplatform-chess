@@ -140,7 +140,9 @@ fun MoveCoachPanel(
                 )
             }
             Text(
-                text = text,
+                // Rendered, not shown as syntax: a model that reaches for **bold** should read as
+                // bold rather than as asterisks. See InlineMarkdown.
+                text = com.example.myapplication.ui.InlineMarkdown.render(text),
                 style = MaterialTheme.typography.bodySmall,
                 color = contentColor,
             )

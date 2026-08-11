@@ -216,9 +216,12 @@ fun GameScreen(
      */
     val coachHighlights = remember(coachState) {
         val tone = coachState.highlightTone
-        MoveCoachManager.squaresNamedIn(coachState.narratedText.orEmpty())
-            .mapNotNull(::algebraicToSquare)
-            .map { HighlightedSquare(it, tone) }
+        // Stated squares first: the manager knows the move's from/to exactly. Prose parsing is the
+        // fallback, for squares only the model brought up — it cannot be the primary source, or the
+        // tint quietly depends on a template still spelling the move out.
+        val stated = (coachState as? MoveCoachUiState.Toned)?.squares.orEmpty()
+        val named = stated.ifEmpty { MoveCoachManager.squaresNamedIn(coachState.narratedText.orEmpty()) }
+        named.mapNotNull(::algebraicToSquare).map { HighlightedSquare(it, tone) }
     }
     val hintSquares by viewModel.hintSquares.collectAsState()
     // Hints stay NEUTRAL: a hint is a suggestion, not a verdict on something the player did, and

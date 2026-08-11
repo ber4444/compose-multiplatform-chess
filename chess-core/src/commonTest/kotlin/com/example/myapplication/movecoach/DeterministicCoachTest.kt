@@ -42,7 +42,9 @@ class DeterministicCoachTest {
     @Test
     fun `headline degrades to the move when there is no assessment`() {
         // Backfill hasn't run, or the engine was unavailable — must still say something true.
-        assertEquals("You played Nf3", DeterministicCoach.buildHeadline(record()))
+        // Just the move: with no assessment there is no verdict to name, and "You played Nf3" only
+        // restated an action the user had taken two seconds earlier.
+        assertEquals("Nf3", DeterministicCoach.buildHeadline(record()))
     }
 
     @Test
@@ -125,13 +127,39 @@ class DeterministicCoachTest {
     }
 
     @Test
-    fun `explanation never exceeds the 300-char panel cap`() {
+    fun `no explanation template exceeds the 300-char panel cap`() {
         // The cap is a layout constraint — the panel sits under a board on a phone. A Nano run was
         // rejected at 314 chars for repeating itself; the deterministic path must not do the same.
-        val explanation = DeterministicCoach.buildExplanation(
-            record(san = "N".repeat(400), assessment = assessment(motifs = listOf("hangs-piece"))),
+        //
+        // This used to force truncation by handing in a 400-character SAN, which worked only while
+        // the explanation opened with "You played <move>." Dropping that prefix left the move out of
+        // the body entirely, so no input can inflate it any more and the truncation branch in
+        // buildExplanation is now purely defensive. What is still worth pinning is the real claim:
+        // every template, plus the no-assessment and evaluation fallbacks, fits.
+        val motifs = listOf(
+            "hangs-piece", "defends", "material-swing", "recapture", "threatens", "fork", "pin",
+            "skewer", "discovered-attack", "center-control", "develops", "king-safety",
+            "castle-kingside", "castle-queenside", "pawn-push",
         )
-        assertTrue(explanation.length <= 300, "was ${explanation.length}: $explanation")
-        assertTrue(explanation.endsWith("…"), explanation)
+        val explanations = motifs.map { motif ->
+            DeterministicCoach.buildExplanation(record(assessment = assessment(motifs = listOf(motif))))
+        } + listOf(
+            DeterministicCoach.buildExplanation(record()),
+            DeterministicCoach.buildExplanation(record(assessment = assessment(cpPlayed = 900))),
+            DeterministicCoach.buildExplanation(record(assessment = assessment(cpPlayed = 0))),
+        )
+        for (explanation in explanations) {
+            assertTrue(explanation.isNotBlank(), "blank explanation")
+            assertTrue(explanation.length <= 300, "was ${explanation.length}: $explanation")
+        }
+    }
+
+    @Test
+    fun `explanation does not restate the move`() {
+        val explanation = DeterministicCoach.buildExplanation(
+            record(assessment = assessment(motifs = listOf("develops"))),
+        )
+        assertTrue("Nf3" !in explanation, explanation)
+        assertTrue("You played" !in explanation, explanation)
     }
 }

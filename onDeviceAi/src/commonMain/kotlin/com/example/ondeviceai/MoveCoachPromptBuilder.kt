@@ -26,7 +26,37 @@ object MoveCoachPromptBuilder {
         appendLine("You are a chess coach.")
         appendLine("Explain the move in 1-2 short, conversational sentences.")
         appendLine("Use only the facts you are given. Never invent moves, squares, or evaluations.")
+        // Asking is cheap and works often enough to be worth it; InlineMarkdown on the display path
+        // is what makes it safe when it doesn't. gemma3-270m reaches for **bold** and bullet lists
+        // unprompted, and the free tier has no validator between the model and the panel.
+        appendLine("Write plain prose. No markdown, no asterisks, no bullet points, no headings.")
         appendLine("Do not mention openings by name, engine depth, or ratings.")
+    }
+
+    /**
+     * A centipawn loss as words, or null when there is nothing worth saying.
+     *
+     * The raw number must not reach the prompt. "It gives up about 4 centipawns against the best
+     * move" came back from gemma3-270m as **"It gave up about 4 cents"**, and then, on the second
+     * mention, as "it gives up less than four" — the unit dropped entirely. That is the expected
+     * failure: a 270M model has no representation of a word this rare, so it substitutes the
+     * nearest common one and the sentence becomes confidently wrong about money.
+     *
+     * It is also jargon the reader has no use for. A centipawn is a hundredth of a pawn on
+     * *Stockfish's* scale; "4" of them is beneath the noise floor of the model's own evaluation.
+     * The magnitude is what carries meaning, so the magnitude is what gets said.
+     *
+     * Bands are `MoveClass`'s own thresholds (10/30/60/100/300 cp), so the phrase can never
+     * contradict the class stated on the line above it. Below 10 cp returns null: at that size the
+     * move is a best move for any practical purpose and mentioning a gap invents a fault.
+     */
+    internal fun centipawnLossPhrase(centipawnLoss: Int?): String? = when {
+        centipawnLoss == null || centipawnLoss < 10 -> null
+        centipawnLoss < 30 -> "a shade weaker"
+        centipawnLoss < 60 -> "slightly weaker"
+        centipawnLoss < 100 -> "clearly weaker"
+        centipawnLoss < 300 -> "much weaker"
+        else -> "far weaker"
     }
 
     /**
@@ -95,9 +125,7 @@ object MoveCoachPromptBuilder {
     internal fun userPrompt(request: MoveCoachRequest): String = buildString {
         appendLine("The player just played ${request.moveDisplay}.")
         request.moveClassName?.let { appendLine("Engine assessment of that move: ${it.lowercase()}.") }
-        request.centipawnLoss?.takeIf { it > 0 }?.let {
-            appendLine("It gives up about $it centipawns against the best move.")
-        }
+        centipawnLossPhrase(request.centipawnLoss)?.let { appendLine("It is $it than the best move.") }
         if (request.motifs.isNotEmpty()) {
             appendLine(
                 "Tactical features detected: " +
