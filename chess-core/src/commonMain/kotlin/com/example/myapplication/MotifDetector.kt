@@ -168,12 +168,9 @@ object MotifDetector {
                         val firstEnemy = enemyPiecesAfter[firstEnemyIdx]
                         val secondEnemy = enemyPiecesAfter[secondEnemyIdx]
                         
-                        val val1 = pieceValue(firstEnemy)
-                        val val2 = pieceValue(secondEnemy)
-                        
-                        if (val1 < val2) {
+                        if (isPin(firstEnemy, secondEnemy)) {
                             pinFound = true
-                        } else if (val1 > val2) {
+                        } else if (isSkewer(firstEnemy, secondEnemy)) {
                             skewerFound = true
                         }
                     }
@@ -198,6 +195,132 @@ object MotifDetector {
         // Returned in declared priority order rather than detection order, so the headline is chosen
         // by how newsworthy a motif is and not by where its detection happens to sit in this file.
         return motifs.distinct().sortedBy { ALL_MOTIFS.indexOf(it) }
+    }
+
+    /**
+     * [detectMotifs], plus a sentence per motif naming the pieces and squares actually involved.
+     *
+     * The generic templates in `DeterministicCoach` are *definitions*: "It pins an enemy piece
+     * against a more valuable one." says what a pin is, not what happened on this board, and reads
+     * like a glossary. The information to do better was already being computed — the pin detector
+     * finds the attacker, the pinned piece and the piece behind it in order to classify the move —
+     * and then thrown away.
+     *
+     * Details are best-effort and sparse. A motif with nothing specific to add simply has no entry
+     * and the coach keeps its definition.
+     */
+    fun detectDetailed(
+        stateBefore: GameUiState,
+        stateAfter: GameUiState,
+        movingSide: Set,
+        toSquare: Pair<Int, Int>,
+        fromSquare: Pair<Int, Int>? = null,
+        promoted: Boolean = false,
+        previousToSquare: Pair<Int, Int>? = null,
+    ): Detected {
+        val motifs = detectMotifs(
+            stateBefore, stateAfter, movingSide, toSquare, fromSquare, promoted, previousToSquare,
+        )
+        return Detected(motifs, describe(motifs, stateBefore, stateAfter, movingSide, toSquare, fromSquare))
+    }
+
+    data class Detected(val motifs: List<String>, val details: Map<String, String>)
+
+    private fun describe(
+        motifs: List<String>,
+        stateBefore: GameUiState,
+        stateAfter: GameUiState,
+        movingSide: Set,
+        toSquare: Pair<Int, Int>,
+        fromSquare: Pair<Int, Int>?,
+    ): Map<String, String> {
+        val white = movingSide == Set.WHITE
+        val allyPieces = if (white) stateAfter.piecesWhite else stateAfter.piecesBlack
+        val allyPositions = if (white) stateAfter.positionsWhite else stateAfter.positionsBlack
+        val enemyPieces = if (white) stateAfter.piecesBlack else stateAfter.piecesWhite
+        val enemyPositions = if (white) stateAfter.positionsBlack else stateAfter.positionsWhite
+
+        val movedIndex = allyPositions.indexOf(toSquare)
+        val moved = allyPieces.getOrNull(movedIndex) ?: return emptyMap()
+        val movedName = moved.name.lowercase()
+        val at = UciMoveConverter.positionToUciSquare(toSquare)
+        val details = mutableMapOf<String, String>()
+
+        val attacked = SquareInsight.attacked(stateAfter, moved, toSquare)
+        val hitEnemies = attacked.filter { it in enemyPositions }
+            .map { square ->
+                val piece = enemyPieces[enemyPositions.indexOf(square)]
+                "${piece.name.lowercase()} on ${UciMoveConverter.positionToUciSquare(square)}"
+            }
+
+        if (FORK in motifs && hitEnemies.size >= 2) {
+            details[FORK] = "Your $movedName on $at hits the ${hitEnemies[0]} and the ${hitEnemies[1]} at once."
+        }
+        if (THREATENS in motifs && hitEnemies.isNotEmpty()) {
+            details[THREATENS] = "Your $movedName on $at attacks the ${hitEnemies[0]}."
+        }
+        for (motif in listOf(PIN, SKEWER)) {
+            if (motif !in motifs) continue
+            lineDetail(motif, allyPieces, allyPositions, enemyPieces, enemyPositions)?.let { details[motif] = it }
+        }
+        if (HANGS_PIECE in motifs) {
+            details[HANGS_PIECE] = "Your $movedName on $at is attacked and nothing defends it."
+        }
+        if (CAPTURE in motifs || RECAPTURE in motifs || MATERIAL_SWING in motifs) {
+            val enemyBefore = if (white) stateBefore.positionsBlack else stateBefore.positionsWhite
+            val enemyPiecesBefore = if (white) stateBefore.piecesBlack else stateBefore.piecesWhite
+            val takenIndex = enemyBefore.indexOf(toSquare)
+            if (takenIndex != -1) {
+                val taken = enemyPiecesBefore[takenIndex].name.lowercase()
+                if (MATERIAL_SWING in motifs) details[MATERIAL_SWING] = "It wins the $taken on $at."
+                if (CAPTURE in motifs) details[CAPTURE] = "It takes the $taken on $at."
+                if (RECAPTURE in motifs) details[RECAPTURE] = "It takes back on $at, levelling the trade."
+            }
+        }
+        if (DEVELOPS in motifs && fromSquare != null) {
+            details[DEVELOPS] = "It brings the $movedName out to $at."
+        }
+        if (CENTER_CONTROL in motifs) {
+            val centres = (listOf(toSquare) + attacked).filter { it in CENTER_SQUARES }
+                .map { UciMoveConverter.positionToUciSquare(it) }
+                .distinct()
+            if (centres.isNotEmpty()) {
+                details[CENTER_CONTROL] = "Your $movedName covers ${centres.joinToString(" and ")}."
+            }
+        }
+        return details
+    }
+
+    /** Names both ends of a pin or skewer, which the ray scan above already had to identify. */
+    private fun lineDetail(
+        motif: String,
+        allyPieces: List<Piece>,
+        allyPositions: List<Pair<Int, Int>>,
+        enemyPieces: List<Piece>,
+        enemyPositions: List<Pair<Int, Int>>,
+    ): String? {
+        for (i in allyPieces.indices) {
+            val attacker = allyPieces[i]
+            if (attacker !is Bishop && attacker !is Rook && attacker !is Queen) continue
+            for (dir in getRayDirections(attacker)) {
+                val ray = castRay(allyPositions[i], dir, enemyPositions, allyPositions)
+                val enemyHits = ray.filter { it in enemyPositions }
+                if (enemyHits.size < 2 || ray.any { it in allyPositions }) continue
+                val front = enemyPieces[enemyPositions.indexOf(enemyHits[0])]
+                val back = enemyPieces[enemyPositions.indexOf(enemyHits[1])]
+                // Same predicates as the detection above, or this would narrate a line the
+                // detector already refused to call a pin.
+                val matches = if (motif == PIN) isPin(front, back) else isSkewer(front, back)
+                if (!matches) continue
+                val attackerAt = UciMoveConverter.positionToUciSquare(allyPositions[i])
+                val frontAt = UciMoveConverter.positionToUciSquare(enemyHits[0])
+                val backAt = UciMoveConverter.positionToUciSquare(enemyHits[1])
+                val verb = if (motif == PIN) "pins" else "skewers"
+                return "Your ${attacker.name.lowercase()} on $attackerAt $verb the " +
+                    "${front.name.lowercase()} on $frontAt against the ${back.name.lowercase()} on $backAt."
+            }
+        }
+        return null
     }
 
     /**
@@ -329,6 +452,26 @@ object MotifDetector {
         }
         return hits
     }
+
+    /**
+     * A pin worth naming: the shielded piece behind must be one the player would actually refuse to
+     * expose — a rook, queen or king.
+     *
+     * Value order alone is not enough. Bb5 in the Ruy Lopez lines up on the knight at c6 with the
+     * **pawn** on d7 behind it, and "front is cheaper than back" called that a pin against a pawn.
+     * That was tolerable while the sentence was the generic "It pins an enemy piece against a more
+     * valuable one." and became a confidently wrong claim the moment the coach started naming the
+     * squares. A specific wrong sentence is worse than a vague true one.
+     */
+    private fun isPin(front: Piece, back: Piece): Boolean =
+        pieceValue(front) < pieceValue(back) && pieceValue(back) >= pieceValue(Rook(Set.WHITE))
+
+    /**
+     * A skewer worth naming: the piece behind must be worth capturing once the front one steps
+     * aside. Winning a pawn this way is not a skewer in any sense the player benefits from hearing.
+     */
+    private fun isSkewer(front: Piece, back: Piece): Boolean =
+        pieceValue(front) > pieceValue(back) && back !is Pawn
 
     private fun pieceValue(piece: Piece): Int = when (piece) {
         is Queen -> 900

@@ -607,7 +607,7 @@ class GameViewModel(
         val (fromSquare, toSquare) = UciMoveConverter.parseUciMove(playerRecord.uci)
         val movingSide = if (targetIndex % 2 == 0) Set.WHITE else Set.BLACK
         val stateAfterObj = FenConverter.fenToGameState(playerRecord.fenAfter)
-        val motifs = MotifDetector.detectMotifs(
+        val detected = MotifDetector.detectDetailed(
             stateBefore = stateBeforeObj,
             stateAfter = stateAfterObj,
             movingSide = movingSide,
@@ -624,7 +624,8 @@ class GameViewModel(
             cpBefore = cpBest, // By definition, eval of board before move is the eval of the best move
             cpPlayed = cpPlayed,
             cpBest = cpBest,
-            motifs = motifs,
+            motifs = detected.motifs,
+            motifDetails = detected.details,
             bestMoveUci = bestMoveResult?.uci,
             // Resolved here because `stateBeforeObj` is the position the alternative would be played
             // from, and nothing downstream has it. Null when the engine named no move, or named one

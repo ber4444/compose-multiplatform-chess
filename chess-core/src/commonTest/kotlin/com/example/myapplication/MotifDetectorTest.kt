@@ -250,4 +250,67 @@ class MotifDetectorTest {
         )
         assertEquals(MotifDetector.CHECKMATE, motifs.firstOrNull(), "got $motifs")
     }
+
+    // --- naming the pieces, and not naming ones that aren't there -------------------------------
+
+    @Test
+    fun `a real pin names both ends of the line`() {
+        // Bb5 with d7 empty: the knight on c6 genuinely cannot move without exposing the king.
+        val detected = MotifDetector.detectDetailed(
+            FenConverter.fenToGameState("r1bqkbnr/ppp2ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 4"),
+            FenConverter.fenToGameState("r1bqkbnr/ppp2ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 1 4"),
+            Set.WHITE,
+            toSquare = Pair(3, 1),
+            fromSquare = Pair(7, 5),
+        )
+        assertTrue(MotifDetector.PIN in detected.motifs, "expected a pin, got ${detected.motifs}")
+        val detail = detected.details[MotifDetector.PIN]
+        assertTrue(detail != null && "c6" in detail && "e8" in detail, "detail was $detail")
+    }
+
+    @Test
+    fun `a piece shielded only by a pawn is neither pinned nor skewered`() {
+        // The Ruy Lopez proper: Bb5 lines up on the c6 knight with the *pawn* on d7 behind it. Value
+        // order alone called that a skewer, and once details landed the coach said "Your bishop on b5
+        // skewers the knight on c6 against the pawn on d7." — fluent, specific, and false. A wrong
+        // sentence naming real squares is worse than a vague true one.
+        val detected = MotifDetector.detectDetailed(
+            FenConverter.fenToGameState("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 3 3"),
+            FenConverter.fenToGameState("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 4 3"),
+            Set.WHITE,
+            toSquare = Pair(3, 1),
+            fromSquare = Pair(7, 5),
+        )
+        assertTrue(MotifDetector.PIN !in detected.motifs, "claimed a pin: ${detected.motifs}")
+        assertTrue(MotifDetector.SKEWER !in detected.motifs, "claimed a skewer: ${detected.motifs}")
+    }
+
+    @Test
+    fun `a fork names the pieces it hits`() {
+        val detected = MotifDetector.detectDetailed(
+            FenConverter.fenToGameState("k7/8/8/8/8/8/8/3N3K w - - 0 1"),
+            FenConverter.fenToGameState("8/8/8/8/2k3r1/4N3/8/7K b - - 0 1"),
+            Set.WHITE,
+            toSquare = Pair(5, 4),
+            fromSquare = Pair(7, 3),
+        )
+        val detail = detected.details[MotifDetector.FORK]
+        assertTrue(detail != null && "g4" in detail && "c4" in detail, "detail was $detail")
+    }
+
+    @Test
+    fun `details never describe a motif that was not detected`() {
+        // The renderer re-runs the ray scan, so it must apply the same predicates the detector did.
+        val detected = MotifDetector.detectDetailed(
+            FenConverter.fenToGameState("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
+            FenConverter.fenToGameState("rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1"),
+            Set.WHITE,
+            toSquare = Pair(5, 5),
+            fromSquare = Pair(7, 6),
+        )
+        assertTrue(
+            detected.details.keys.all { it in detected.motifs },
+            "described motifs that were not detected: ${detected.details.keys - detected.motifs.toSet()}",
+        )
+    }
 }

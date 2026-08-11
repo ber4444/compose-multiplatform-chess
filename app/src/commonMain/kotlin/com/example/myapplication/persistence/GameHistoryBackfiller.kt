@@ -82,10 +82,10 @@ class GameHistoryBackfiller(
                 val cpBest = bestMoveResult?.evaluationCp ?: engine.evaluate(fenBefore) ?: return
 
                 val moveAppFormat = UciMoveConverter.uciMoveToAppMove(record.uci, emptyList())
-                val motifs = if (moveAppFormat != null) {
+                val detected = if (moveAppFormat != null) {
                     val stateBefore = FenConverter.fenToGameState(fenBefore)
                     val stateAfter = FenConverter.fenToGameState(record.fenAfter)
-                    MotifDetector.detectMotifs(
+                    MotifDetector.detectDetailed(
                         stateBefore = stateBefore,
                         stateAfter = stateAfter,
                         movingSide = Set.WHITE,
@@ -95,13 +95,14 @@ class GameHistoryBackfiller(
                         previousToSquare = game.moveRecords.getOrNull(unassessedIndex - 1)
                             ?.let { UciMoveConverter.parseUciMove(it.uci).second },
                     )
-                } else emptyList()
+                } else MotifDetector.Detected(emptyList(), emptyMap())
 
                 val assessment = MoveAssessor.assessMove(
                     cpBefore = cpBest,
                     cpPlayed = cpPlayed,
                     cpBest = cpBest,
-                    motifs = motifs,
+                    motifs = detected.motifs,
+                    motifDetails = detected.details,
                     bestMoveUci = bestMoveResult?.uci,
                     bestMoveSan = bestMoveResult?.uci
                         ?.takeIf { it != record.uci }

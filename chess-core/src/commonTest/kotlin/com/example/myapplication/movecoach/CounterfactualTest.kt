@@ -52,17 +52,16 @@ class CounterfactualTest {
     @Test
     fun `the wording escalates with the class`() {
         fun tail(moveClass: MoveClass) = DeterministicCoach.buildExplanation(record(moveClass = moveClass))
-        assertTrue("a shade sharper" in tail(MoveClass.GOOD), tail(MoveClass.GOOD))
         assertTrue("was stronger" in tail(MoveClass.INACCURACY), tail(MoveClass.INACCURACY))
         assertTrue("much stronger" in tail(MoveClass.MISTAKE), tail(MoveClass.MISTAKE))
         assertTrue("far better" in tail(MoveClass.BLUNDER), tail(MoveClass.BLUNDER))
     }
 
     @Test
-    fun `a best move is not told it could have been better`() {
-        // Within 10cp the gap is inside the engine's own noise at these movetimes. Naming an
-        // improvement the user cannot feel is how a coach loses their trust.
-        for (moveClass in listOf(MoveClass.BEST, MoveClass.BOOK)) {
+    fun `a move the board paints green is never told it could have been better`() {
+        // "Be2 was a shade sharper." beside a green square says "well done, but no". Every class
+        // that tints green is silent, so the sentence and the colour agree.
+        for (moveClass in listOf(MoveClass.BEST, MoveClass.EXCELLENT, MoveClass.GOOD, MoveClass.BOOK)) {
             val explanation = DeterministicCoach.buildExplanation(record(moveClass = moveClass))
             // The claim is "no alternative is named", not "the word better never appears" — the
             // evaluation sentence legitimately says "Black is measurably better after this move".

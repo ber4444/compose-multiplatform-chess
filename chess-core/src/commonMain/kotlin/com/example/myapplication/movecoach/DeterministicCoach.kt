@@ -129,7 +129,10 @@ object DeterministicCoach {
             return "It is a standard choice for this position."
         }
 
-        val reason = byPriority(assessment.motifs).firstNotNullOfOrNull { MOTIF_EXPLANATIONS[it] }
+        // The specific sentence wins over the definition: "Your bishop on b5 pins the knight on c6
+        // against the queen on d8." rather than "It pins an enemy piece against a more valuable one."
+        val reason = byPriority(assessment.motifs)
+            .firstNotNullOfOrNull { assessment.motifDetails[it] ?: MOTIF_EXPLANATIONS[it] }
             ?: run {
                 val eval = assessment.cpPlayed
                 val who = if (eval > 50) "White" else if (eval < -50) "Black" else "Neither side"
@@ -171,8 +174,12 @@ object DeterministicCoach {
         val assessment = record.assessment ?: return null
         val better = assessment.bestMoveSan?.takeIf { it.isNotBlank() } ?: return null
         return when (assessment.moveClass) {
-            MoveClass.BEST, MoveClass.BOOK -> null
-            MoveClass.EXCELLENT, MoveClass.GOOD -> "$better was a shade sharper."
+            // Silent for everything the board paints green. "Be2 was a shade sharper." next to a
+            // green square tells the user they did well and then immediately takes it back, over a
+            // gap of at most 60cp that no human can feel. The counterfactual only earns its place
+            // once the move actually cost something — which is exactly when the board stops being
+            // green, so the sentence and the colour now say the same thing.
+            MoveClass.BEST, MoveClass.EXCELLENT, MoveClass.GOOD, MoveClass.BOOK -> null
             MoveClass.INACCURACY -> "$better was stronger."
             MoveClass.MISTAKE -> "$better was much stronger."
             MoveClass.BLUNDER -> "$better would have been far better."
