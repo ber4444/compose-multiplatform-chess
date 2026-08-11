@@ -85,7 +85,16 @@ class GameHistoryBackfiller(
                 val motifs = if (moveAppFormat != null) {
                     val stateBefore = FenConverter.fenToGameState(fenBefore)
                     val stateAfter = FenConverter.fenToGameState(record.fenAfter)
-                    MotifDetector.detectMotifs(stateBefore, stateAfter, Set.WHITE, moveAppFormat.position)
+                    MotifDetector.detectMotifs(
+                        stateBefore = stateBefore,
+                        stateAfter = stateAfter,
+                        movingSide = Set.WHITE,
+                        toSquare = moveAppFormat.position,
+                        fromSquare = UciMoveConverter.parseUciMove(record.uci).first,
+                        promoted = record.uci.length > 4,
+                        previousToSquare = game.moveRecords.getOrNull(unassessedIndex - 1)
+                            ?.let { UciMoveConverter.parseUciMove(it.uci).second },
+                    )
                 } else emptyList()
 
                 val assessment = MoveAssessor.assessMove(

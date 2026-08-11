@@ -2,6 +2,7 @@ package com.example.myapplication.movecoach
 
 import com.example.myapplication.MoveRecord
 import com.example.myapplication.MoveClass
+import com.example.myapplication.MotifDetector
 import kotlin.math.abs
 
 object DeterministicCoach {
@@ -19,7 +20,75 @@ object DeterministicCoach {
         "pin" to "pins",
         "skewer" to "skewers",
         "discovered-attack" to "opens a discovered attack",
+        "recapture" to "recaptures",
+        "material-swing" to "wins material",
+        "develops" to "develops a piece",
+        "center-control" to "takes the centre",
+        "king-safety" to "walks the king to safety",
+        "pawn-push" to "pushes a pawn",
+        "defends" to "shores up the defence",
+        "threatens" to "creates a threat",
     )
+
+    /**
+     * Motifs in `MotifDetector.ALL_MOTIFS` order, so the headline and the explanation are chosen by
+     * one declared priority instead of two.
+     *
+     * Sorted here rather than relied on from the caller. `detectMotifs` does return them ordered,
+     * but assessments persisted before that existed do not, nor does a hand-built list from a test
+     * or from the React Native consumer — and an unordered list silently picks whichever motif
+     * happens to be first, which is how "Best move — develops a piece | It fights for the center."
+     * (a line disagreeing with itself) appeared. Unknown motifs sort last rather than first.
+     */
+    private fun byPriority(motifs: List<String>): List<String> =
+        motifs.sortedBy { motif ->
+            MotifDetector.ALL_MOTIFS.indexOf(motif).let { if (it < 0) Int.MAX_VALUE else it }
+        }
+
+    /**
+     * Motif to sentence, **most newsworthy first** — the first entry whose motif is present wins.
+     *
+     * A declared table rather than a `when` chain so [handledMotifs] can be derived from it. The
+     * chain version could not be inspected, so nothing could check that the motifs it branched on
+     * were ones anything actually emitted — and eleven of them were not, leaving the coach with
+     * sentences it could never reach and a fallthrough that read "The position stays roughly
+     * balanced." on any ordinary move.
+     *
+     * **Unordered on purpose.** Priority lives in `MotifDetector.ALL_MOTIFS` and nowhere else;
+     * [buildExplanation] and [buildHeadline] both scan the record's motif list, which `detectMotifs`
+     * has already sorted by it.
+     */
+    private val MOTIF_EXPLANATIONS: Map<String, String> = mapOf(
+        "checkmate" to "It ends the game — that's checkmate.",
+        "promotion" to "It promotes the pawn into a new piece.",
+        "hangs-piece" to "It leaves a piece completely undefended.",
+        "defends" to "It defends a piece.",
+        "material-swing" to "It wins material.",
+        "recapture" to "It recaptures, restoring material balance.",
+        "capture" to "It takes a piece off the board.",
+        "check" to "It puts the enemy king in check.",
+        "threatens" to "It creates a concrete threat.",
+        "fork" to "It attacks two pieces at once.",
+        "pin" to "It pins an enemy piece against a more valuable one.",
+        "skewer" to "It skewers two pieces on one line.",
+        "discovered-attack" to "It uncovers an attack from the piece behind it.",
+        "center-control" to "It fights for the center.",
+        "develops" to "It develops a piece to an active square.",
+        "king-safety" to "It improves king safety.",
+        "castle-kingside" to "It castles kingside, tucking the king to safety.",
+        "castle-queenside" to "It castles queenside, tucking the king to safety.",
+        "pawn-push" to "It gains space and opens lines.",
+    )
+
+    /**
+     * Every motif this coach has words for, headline or explanation.
+     *
+     * Derived from the two tables so it cannot drift from them. `MotifDetectorTest` asserts this is
+     * a subset of `MotifDetector.ALL_MOTIFS` — the check that was missing while eleven of these
+     * were unreachable.
+     */
+    fun handledMotifs(): kotlin.collections.Set<String> =
+        MOTIF_EXPLANATIONS.keys + MOTIF_HEADLINES.keys
 
     private const val MAX_FALLBACK_CHARS = 300
 
@@ -45,7 +114,7 @@ object DeterministicCoach {
         // leading unmapped entry — "opening" in the golden set, or whichever tactic MotifDetector
         // happened to append first — silently suppressed the motif and fell through to the bare
         // move. Every headline in the eval set was "Best move — Nf3" for exactly that reason.
-        val motifText = assessment.motifs.firstNotNullOfOrNull { MOTIF_HEADLINES[it] }
+        val motifText = byPriority(assessment.motifs).firstNotNullOfOrNull { MOTIF_HEADLINES[it] }
 
         return if (motifText != null) {
             "$className — $motifText"
@@ -60,29 +129,13 @@ object DeterministicCoach {
             return "It is a standard choice for this position."
         }
 
-        val reason = when {
-            assessment.motifs.contains("hangs-piece") -> "It leaves a piece completely undefended."
-            assessment.motifs.contains("defends") -> "It defends a piece."
-            assessment.motifs.contains("material-swing") -> "It wins material."
-            assessment.motifs.contains("recapture") -> "It recaptures, restoring material balance."
-            assessment.motifs.contains("threatens") -> "It creates a concrete threat."
-            assessment.motifs.contains("fork") -> "It attacks two pieces at once."
-            assessment.motifs.contains("pin") -> "It pins an enemy piece against a more valuable one."
-            assessment.motifs.contains("skewer") -> "It skewers two pieces on one line."
-            assessment.motifs.contains("discovered-attack") -> "It uncovers an attack from the piece behind it."
-            assessment.motifs.contains("center-control") -> "It fights for the center."
-            assessment.motifs.contains("develops") -> "It develops a piece to an active square."
-            assessment.motifs.contains("king-safety") -> "It improves king safety."
-            assessment.motifs.contains("castle-kingside") -> "It castles kingside, tucking the king to safety."
-            assessment.motifs.contains("castle-queenside") -> "It castles queenside, tucking the king to safety."
-            assessment.motifs.contains("pawn-push") -> "It gains space and opens lines."
-            else -> {
+        val reason = byPriority(assessment.motifs).firstNotNullOfOrNull { MOTIF_EXPLANATIONS[it] }
+            ?: run {
                 val eval = assessment.cpPlayed
                 val who = if (eval > 50) "White" else if (eval < -50) "Black" else "Neither side"
                 if (abs(eval) > 50) "$who is measurably better after this move."
                 else "The position stays roughly balanced."
             }
-        }
 
         // No "You played <move>." prefix: the user just played it, the headline names it, and the
         // board tints it. Spending the first third of a 300-char budget restating the input left

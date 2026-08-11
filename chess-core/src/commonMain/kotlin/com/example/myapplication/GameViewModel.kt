@@ -604,10 +604,21 @@ class GameViewModel(
 
         // Motif detection (fast)
         val stateBeforeObj = FenConverter.fenToGameState(fenBefore)
-        val toSquare = UciMoveConverter.parseUciMove(playerRecord.uci).second
+        val (fromSquare, toSquare) = UciMoveConverter.parseUciMove(playerRecord.uci)
         val movingSide = if (targetIndex % 2 == 0) Set.WHITE else Set.BLACK
         val stateAfterObj = FenConverter.fenToGameState(playerRecord.fenAfter)
-        val motifs = MotifDetector.detectMotifs(stateBeforeObj, stateAfterObj, movingSide, toSquare)
+        val motifs = MotifDetector.detectMotifs(
+            stateBefore = stateBeforeObj,
+            stateAfter = stateAfterObj,
+            movingSide = movingSide,
+            toSquare = toSquare,
+            fromSquare = fromSquare,
+            promoted = playerRecord.uci.length > 4,
+            // The previous ply's destination, so a capture on the same square reads as a recapture
+            // rather than as winning material.
+            previousToSquare = history.getOrNull(targetIndex - 1)
+                ?.let { UciMoveConverter.parseUciMove(it.uci).second },
+        )
 
         val assessment = MoveAssessor.assessMove(
             cpBefore = cpBest, // By definition, eval of board before move is the eval of the best move

@@ -92,6 +92,43 @@ object SquareInsight {
         square in attacksFrom(piece, positions[index], occupied)
     }
 
+    /**
+     * How many pieces of each side attack [square], as (defenders, attackers) from [side]'s view.
+     *
+     * Exposed for `MotifDetector`, which needs the same question B16 already answers for Explain
+     * mode — "is this square contested, and by whom?" — to decide `hangs-piece`, `defends` and
+     * `threatens`. Sharing it keeps one ray implementation: a second copy would drift, and the two
+     * would then disagree about whether a piece is hanging depending on which surface asked.
+     */
+    internal fun contest(
+        state: GameUiState,
+        square: Pair<Int, Int>,
+        side: Set,
+    ): Pair<Int, Int> {
+        val white = side == Set.WHITE
+        val ownPieces = if (white) state.piecesWhite else state.piecesBlack
+        val ownPositions = if (white) state.positionsWhite else state.positionsBlack
+        val foePieces = if (white) state.piecesBlack else state.piecesWhite
+        val foePositions = if (white) state.positionsBlack else state.positionsWhite
+        val occupied = (ownPositions + foePositions).toSet()
+        // A piece does not defend the square it stands on, so exclude it from its own defender count.
+        val defenders = ownPieces.filterIndexed { i, piece ->
+            ownPositions[i] != square && square in attacksFrom(piece, ownPositions[i], occupied)
+        }
+        val attackers = attackersOf(square, foePieces, foePositions, occupied)
+        return defenders.size to attackers.size
+    }
+
+    /** Squares [piece] at [from] attacks in [state]. Shared for the same reason as [contest]. */
+    internal fun attacked(
+        state: GameUiState,
+        piece: Piece,
+        from: Pair<Int, Int>,
+    ): List<Pair<Int, Int>> {
+        val occupied = (state.positionsWhite + state.positionsBlack).toSet()
+        return attacksFrom(piece, from, occupied)
+    }
+
     /** Ordering only — used to name the cheapest attacker, never to score a position. */
     private fun Piece.exchangeRank(): Int = when (this) {
         is Pawn -> 0
