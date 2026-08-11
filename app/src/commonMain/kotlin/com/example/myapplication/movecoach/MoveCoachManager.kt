@@ -35,7 +35,8 @@ class MoveCoachManager(
 
     private var coachJob: Job? = null
     private var orchestrator: AiCoachOrchestrator? = null
-    /** The last request handed to [launchCoach], replayed by [retry]. */
+    /** The last request [launchCoach] actually ran, replayed by [retry]. Never set by
+     *  [explainSquare], which computes its answer outright and has nothing to re-run. */
     private var lastRequest: com.example.ondeviceai.MoveCoachRequest? = null
 
     /**
@@ -167,10 +168,11 @@ class MoveCoachManager(
     }
 
     private fun launchCoach(request: com.example.ondeviceai.MoveCoachRequest) {
-        lastRequest = request
         val orchestrator = this.orchestrator ?: return
-        // Recorded here, not in triggerCoach, so retry() replays whichever request actually ran —
-        // an Explain-mode square query is as retryable as a coached move.
+        // Recorded here rather than in triggerCoach, and after the orchestrator check rather than
+        // before it, so lastRequest only ever holds a request that actually ran. Recording one that
+        // returned at the line above would give retry() something to replay that never produced a
+        // state to retry from.
         lastRequest = request
         coachJob?.cancel()
 
