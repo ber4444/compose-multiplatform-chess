@@ -186,9 +186,9 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                         // turns every black piece silvery. See ChessSetMeshNames.getMaterialName.
                         val hiddenNames = PieceKind.entries
                             .map { kind -> ChessSetMeshNames.getMeshName(kind, PieceColor.WHITE) }
-                            .toSet() + "Plane" + "Highlight"
+                            .toSet() + "Plane" + ChessSetConventions.HIGHLIGHT_NODE_NAMES
                         renderableNodes.forEach { rn ->
-                            if (rn.name == "Highlight" || rn.name == "Plane") {
+                            if (rn.name in ChessSetConventions.HIGHLIGHT_NODE_NAMES || rn.name == "Plane") {
                                 rn.isShadowCaster = false
                                 rn.isShadowReceiver = false
                             }
@@ -258,7 +258,7 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                 val highlight = boardScene?.highlightedSquares?.getOrNull(i)
                 val instance = modelInstances.getOrNull(MAX_PIECES + 1 + i)
                 if (instance != null) {
-                    val center = highlight?.let { BoardGeometry.squareCenter(it) }
+                    val center = highlight?.let { BoardGeometry.squareCenter(it.square) }
                     ModelNode(
                         modelInstance = instance,
                         // chess.glb's `Plane` node carried a baked local translation (the only node in
@@ -268,14 +268,18 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                         position = Float3(center?.x ?: 0f, HIGHLIGHT_LIFT_Y, center?.z ?: 0f),
                         scale = Float3(PIECE_SCALE, PIECE_SCALE, PIECE_SCALE),
                         isVisible = highlight != null,
-                        // No material work here: the Plane mesh carries its own `highlight` material
-                        // (alphaMode BLEND) in the GLB. Runtime tinting cannot work — gltfio picks the
-                        // ubershader blending variant from alphaMode at load time, so setting alpha on
-                        // one of the OPAQUE glTF materials renders fully opaque.
+                        // No material work here, by design: the GLB carries one quad per
+                        // HighlightTone and the tone picks which node to show. Recolouring a single
+                        // quad at runtime looks simpler and does not work — the blue is the
+                        // material's `emissiveFactor`, not `baseColorFactor`, and its ubershader
+                        // name moves between Filament versions. See ChessSetConventions.
                         apply = {
+                            val wanted = ChessSetConventions.highlightNodeName(
+                                (highlight?.tone ?: HighlightTone.NEUTRAL).ordinal
+                            )
                             renderableNodes.forEach { rn ->
-                                rn.isVisible = rn.name == "Highlight"
-                                if (rn.name == "Highlight") {
+                                rn.isVisible = rn.name == wanted
+                                if (rn.isVisible) {
                                     rn.isShadowCaster = false
                                     rn.isShadowReceiver = false
                                 }

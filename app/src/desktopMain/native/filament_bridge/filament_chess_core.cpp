@@ -61,6 +61,14 @@ static constexpr int kMaxPieces = 32;
 static constexpr int kMaxHighlights = 4;
 // Lifts the highlight quad off the tile just enough to beat z-fighting.
 static constexpr float kHighlightLiftY = 0.005f;
+// One quad per HighlightTone, ordinal order. Keep in sync with
+// ChessSetConventions.HIGHLIGHT_NODE_NAMES in commonMain — the tone travels as its ordinal on the
+// wire, and the asset carries a differently-coloured quad per tone because the highlight's colour
+// is its material's emissiveFactor, which is not settable by a stable ubershader parameter name.
+static const char* kHighlightNodeNames[4] = {
+    "Highlight", "HighlightGood", "HighlightInaccurate", "HighlightBad"
+};
+static constexpr int kHighlightToneCount = 4;
 static constexpr int kInstanceCount = kMaxPieces + kMaxHighlights + 1;
 static constexpr int kInitialWidth = 1;
 static constexpr int kInitialHeight = 1;
@@ -81,6 +89,7 @@ struct HighlightWire {
     float x = 0.0f;
     float y = 0.0f;
     float z = 0.0f;
+    int tone = 0;  // HighlightTone ordinal; 0 (NEUTRAL) is the authored blue.
 };
 
 std::vector<std::string> split(const std::string& s, char delim) {
@@ -123,6 +132,9 @@ std::vector<HighlightWire> parseSceneHighlights(const std::string& encoded) {
         h.x = std::strtof(fields[0].c_str(), nullptr);
         h.y = std::strtof(fields[1].c_str(), nullptr);
         h.z = std::strtof(fields[2].c_str(), nullptr);
+        // Absent on an old-format record, which then reads as NEUTRAL.
+        if (fields.size() > 3) h.tone = std::atoi(fields[3].c_str());
+        if (h.tone < 0 || h.tone >= kHighlightToneCount) h.tone = 0;
         out.push_back(h);
     }
     return out;
@@ -334,8 +346,11 @@ struct FilamentChessCore::Impl {
                 // "Plane" is hidden but must stay in the asset: it is the only primitive bound to
                 // the "black" material, which is what keeps that MaterialInstance alive for the
                 // piece pool. See ChessSetMeshNames.getMaterialName in commonMain.
-                bool hidden = isTemplate || std::strcmp(name, "Plane") == 0
-                        || std::strcmp(name, "Highlight") == 0;
+                bool isHighlight = false;
+                for (const char* hn : kHighlightNodeNames) {
+                    if (std::strcmp(name, hn) == 0) { isHighlight = true; break; }
+                }
+                bool hidden = isTemplate || std::strcmp(name, "Plane") == 0 || isHighlight;
                 if (hidden) scene->remove(e); else scene->addEntity(e);
             });
             setInstanceTransform(board, {0.0f, 0.0f, 0.0f}, 0.0f, kModelScale);
@@ -462,11 +477,12 @@ struct FilamentChessCore::Impl {
 
             const HighlightWire& h = highlights[slot];
 
-            // No material binding: the Plane mesh carries its own `highlight` material (alphaMode
-            // BLEND) in chess.glb. Tinting one of the OPAQUE glTF materials at runtime cannot work —
-            // gltfio selects the ubershader blending variant from alphaMode when the asset loads.
-            forEachRenderable(inst, [this](Entity e, const char* name) {
-                if (std::strcmp(name, "Highlight") == 0) {
+            // No material binding: chess.glb carries one quad per tone and the tone picks which
+            // node to show. Recolouring one quad at runtime cannot work the obvious way — the colour
+            // is the material's emissiveFactor, not baseColorFactor. See ChessSetConventions.
+            const char* wanted = kHighlightNodeNames[h.tone];
+            forEachRenderable(inst, [this, wanted](Entity e, const char* name) {
+                if (std::strcmp(name, wanted) == 0) {
                     scene->addEntity(e);
                     auto& rm = engine->getRenderableManager();
                     auto ri = rm.getInstance(e);

@@ -3,6 +3,7 @@ package com.example.myapplication.movecoach
 import co.touchlab.kermit.Logger
 import com.example.myapplication.GameUiState
 import com.example.myapplication.GameViewModel
+import com.example.myapplication.MoveClass
 import com.example.myapplication.ui.CitationSanitizer
 import com.example.myapplication.PromotionType
 import com.example.myapplication.Set
@@ -176,6 +177,11 @@ class MoveCoachManager(
         lastRequest = request
         coachJob?.cancel()
 
+        // The verdict rides on every state this request produces, including the free-tier and
+        // fallback ones: the colour is a property of the *move*, not of which text path answered,
+        // so a deterministic line about a blunder must still paint the board red.
+        val tone = MoveClass.entries.firstOrNull { it.name == request.moveClassName }.toHighlightTone()
+
         if (!proUnlocked) {
             // Free tier: render the deterministic line as a finished answer, not a Fallback. It is
             // a complete, correct explanation — labelling it a fallback would tell the user their
@@ -197,12 +203,14 @@ class MoveCoachManager(
                         tokenCount = 0,
                         route = FREE_TIER_ROUTE,
                     ),
-                )
+                ),
+                tone = tone,
             )
             return
         }
 
-        _coachUiState.value = MoveCoachUiState.Loading(request.deterministicHeadline, request.deterministicExplanation)
+        _coachUiState.value =
+            MoveCoachUiState.Loading(request.deterministicHeadline, request.deterministicExplanation, tone)
         coachJob = scope.launch {
             try {
                 orchestrator.explainMoveStreaming(request).collect { event ->
@@ -212,6 +220,7 @@ class MoveCoachManager(
                                 headline = request.deterministicHeadline,
                                 explanation = request.deterministicExplanation,
                                 text = CitationSanitizer.sanitizeStreaming(event.partialText),
+                                tone = tone,
                             )
                         is MoveCoachEvent.Complete -> when (val result = event.result) {
                             is MoveCoachResult.Success -> {
@@ -221,7 +230,8 @@ class MoveCoachManager(
                                     explanation = result.explanation.copy(
                                         headline = CitationSanitizer.sanitize(result.explanation.headline),
                                         explanation = shown,
-                                    )
+                                    ),
+                                    tone = tone,
                                 )
                                 rememberOpeningFrame(shown)
                             }
@@ -230,6 +240,7 @@ class MoveCoachManager(
                                 _coachUiState.value = MoveCoachUiState.Fallback(
                                     CitationSanitizer.sanitize(result.text),
                                     result.reason,
+                                    tone = tone,
                                 )
                             }
                             is MoveCoachResult.Failed -> {

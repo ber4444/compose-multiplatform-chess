@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.example.myapplication.board3d.HighlightTone
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import game.app.generated.resources.Res
@@ -53,10 +54,15 @@ fun MoveCoachPanel(
     val presentation = (state as? MoveCoachUiState.Fallback)?.let {
         FallbackPresentation.of(it.reason)
     }
+    // B19: when the board is painting the verdict, the headline stops saying it. "Good — a3" beside
+    // a green a3 is the same fact twice, and the text version is the one that reads like a grade.
+    // Tones the colour cannot express keep their headline: Explain mode's subject square, a book
+    // move, and anything with no assessment behind it are all NEUTRAL and still need their words.
+    val verdictIsOnTheBoard = state.highlightTone != HighlightTone.NEUTRAL
     val label: String? = when (state) {
-        is MoveCoachUiState.Ready -> state.explanation.headline
-        is MoveCoachUiState.Streaming -> state.headline
-        is MoveCoachUiState.Loading -> state.headline
+        is MoveCoachUiState.Ready -> state.explanation.headline.takeUnless { verdictIsOnTheBoard }
+        is MoveCoachUiState.Streaming -> state.headline.takeUnless { verdictIsOnTheBoard }
+        is MoveCoachUiState.Loading -> state.headline.takeUnless { verdictIsOnTheBoard }
         is MoveCoachUiState.Fallback -> when (presentation) {
             is FallbackPresentation.Labeled -> presentation.label
             is FallbackPresentation.Retryable -> presentation.label

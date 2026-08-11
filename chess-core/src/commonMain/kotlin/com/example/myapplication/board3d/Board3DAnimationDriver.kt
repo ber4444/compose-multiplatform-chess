@@ -39,7 +39,7 @@ class Board3DAnimationDriver(
     private var moveStart = clock.markNow()
     private var selected: BoardSquare? = null
     private var selectStart = clock.markNow()
-    private var highlighted: List<BoardSquare> = emptyList()
+    private var highlighted: List<HighlightedSquare> = emptyList()
     private var job: Job? = null
 
     /**
@@ -72,7 +72,7 @@ class Board3DAnimationDriver(
     }
 
     /** Set the highlighted squares (for move coach). */
-    fun setHighlighted(squares: List<BoardSquare>) {
+    fun setHighlighted(squares: List<HighlightedSquare>) {
         if (squares == highlighted) return
         highlighted = squares
         if (move == null && selected == null) {

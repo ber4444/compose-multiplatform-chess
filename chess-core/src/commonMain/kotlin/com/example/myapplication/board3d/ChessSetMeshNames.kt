@@ -74,6 +74,30 @@ object ChessSetConventions {
      */
     const val MAX_HIGHLIGHTS: Int = 4
 
+    /**
+     * glTF node name for each [HighlightTone], in ordinal order. One quad per tone, same geometry,
+     * differing only in material.
+     *
+     * **The tone is chosen in the asset, not at runtime, and that is deliberate.** The obvious
+     * alternative — one quad whose `MaterialInstance` gets recoloured per frame — founders on what
+     * actually makes this quad blue: the colour is the material's `emissiveFactor`, *not*
+     * `baseColorFactor` (which is white), and the see-through look is `KHR_materials_transmission`,
+     * *not* alpha blending (`alphaMode` is OPAQUE). Comments across this repo asserted the opposite
+     * for both, so anyone "fixing" the colour by setting `baseColorFactor` gets a silent no-op. The
+     * emissive parameter's ubershader name is also Filament-version-dependent, and four backends
+     * pin different Filament versions. Selecting a node by name is something all four already do.
+     *
+     * Regenerate the added quads with `tools/add_highlight_tones_to_glb.py` (idempotent). Every
+     * backend must hide **all** of these on its board and piece instances — leaving one out parks a
+     * stray quad at the origin.
+     */
+    val HIGHLIGHT_NODE_NAMES: List<String> =
+        listOf("Highlight", "HighlightGood", "HighlightInaccurate", "HighlightBad")
+
+    /** Node name for a wire tone ordinal, falling back to [HighlightTone.NEUTRAL]'s quad. */
+    fun highlightNodeName(toneOrdinal: Int): String =
+        HIGHLIGHT_NODE_NAMES.getOrElse(toneOrdinal) { HIGHLIGHT_NODE_NAMES[0] }
+
     /** glTF model asset filename. */
     const val GLB_ASSET: String = "chess.glb"
 

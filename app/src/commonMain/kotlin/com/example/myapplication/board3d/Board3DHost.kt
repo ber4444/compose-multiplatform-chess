@@ -33,7 +33,7 @@ fun Board3D(
     cameraSession: Board3DSessionState = remember { Board3DSessionState() },
     onRendererReady: () -> Unit = {},
     selectedSquare: BoardSquare? = null,
-    highlightedSquares: List<BoardSquare> = emptyList(),
+    highlightedSquares: List<HighlightedSquare> = emptyList(),
     onSquareTapped: (BoardSquare) -> Unit = {},
 ) {
     var renderer by remember { mutableStateOf<Chess3DBoardRenderer?>(null) }

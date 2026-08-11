@@ -1,6 +1,8 @@
 package com.example.myapplication.movecoach
 
 import androidx.compose.runtime.Immutable
+import com.example.myapplication.MoveClass
+import com.example.myapplication.board3d.HighlightTone
 import com.example.ondeviceai.MoveCoachExplanation
 
 /**
@@ -26,19 +28,46 @@ sealed interface MoveCoachUiState {
      *  distinguish "warming up" from "genuinely missing" (the [Unavailable] state). */
     data class LoadingModel(val message: String, val progress: Float? = null) : MoveCoachUiState
 
-    data class Loading(val headline: String, val explanation: String) : MoveCoachUiState
-    data class Streaming(val headline: String, val explanation: String, val text: String) : MoveCoachUiState
+    data class Loading(
+        val headline: String,
+        val explanation: String,
+        override val tone: HighlightTone = HighlightTone.NEUTRAL,
+    ) : MoveCoachUiState, Toned
+    data class Streaming(
+        val headline: String,
+        val explanation: String,
+        val text: String,
+        override val tone: HighlightTone = HighlightTone.NEUTRAL,
+    ) : MoveCoachUiState, Toned
     /** Provenance (B11) is read off [MoveCoachExplanation.route] — the state does not copy it, so
      *  the badge can't disagree with what the orchestrator recorded. */
-    data class Ready(val explanation: MoveCoachExplanation) : MoveCoachUiState
+    data class Ready(
+        val explanation: MoveCoachExplanation,
+        override val tone: HighlightTone = HighlightTone.NEUTRAL,
+    ) : MoveCoachUiState, Toned
     /** [reason] stays typed so the panel can pick a designed state via [FallbackPresentation];
      *  flattening it to a string here is what made every fallback render identically (B17). It is
      *  also the whole provenance of this state: the text is engine-derived by construction. */
     data class Fallback(
         val text: String,
         val reason: com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason,
-    ) : MoveCoachUiState
+        override val tone: HighlightTone = HighlightTone.NEUTRAL,
+    ) : MoveCoachUiState, Toned
     data class Error(val message: String) : MoveCoachUiState
+
+    /**
+     * The states that can carry a verdict on the move being discussed.
+     *
+     * It is on the state rather than in a second `StateFlow` on the manager so the text and the
+     * board colour can never disagree: they are read from one value in one composition. A parallel
+     * flow would let a recomposition see the new line beside the previous move's colour.
+     *
+     * Every tone defaults to [HighlightTone.NEUTRAL], so a path that has no verdict to report —
+     * Explain mode, a book move, any fallback — keeps the board's authored blue by doing nothing.
+     */
+    sealed interface Toned : MoveCoachUiState {
+        val tone: HighlightTone
+    }
 }
 
 /**
@@ -60,3 +89,22 @@ val MoveCoachUiState.narratedText: String?
         is MoveCoachUiState.Loading -> "$headline $explanation"
         else -> null
     }
+
+/** The tone this state paints its squares in; [HighlightTone.NEUTRAL] for states with no verdict. */
+val MoveCoachUiState.highlightTone: HighlightTone
+    get() = (this as? MoveCoachUiState.Toned)?.tone ?: HighlightTone.NEUTRAL
+
+/**
+ * The engine's verdict on a ply, as a board colour.
+ *
+ * `BOOK` maps to [HighlightTone.NEUTRAL] deliberately: opening theory is not the player getting it
+ * right or wrong, and painting the board green for following a book line credits them for a move
+ * the book chose. A null class — no engine attached, so no assessment — is neutral for the same
+ * reason: nothing was measured.
+ */
+fun MoveClass?.toHighlightTone(): HighlightTone = when (this) {
+    MoveClass.BEST, MoveClass.EXCELLENT, MoveClass.GOOD -> HighlightTone.GOOD
+    MoveClass.INACCURACY -> HighlightTone.INACCURATE
+    MoveClass.MISTAKE, MoveClass.BLUNDER -> HighlightTone.BAD
+    MoveClass.BOOK, null -> HighlightTone.NEUTRAL
+}

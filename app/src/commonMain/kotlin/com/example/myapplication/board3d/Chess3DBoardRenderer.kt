@@ -29,15 +29,19 @@ interface Chess3DBoardRenderer {
      *
      * All four Filament backends implement this, each over a fixed pool of `chess.glb` `Plane`
      * instances capped at [ChessSetConventions.MAX_HIGHLIGHTS]; the 2D board tints the same squares
-     * in `GameScreen.Square`. The blue translucency comes from the asset — the `Plane` mesh carries
-     * its own `highlight` material with `alphaMode: BLEND` — **not** from runtime tinting, which
-     * cannot work: gltfio picks the ubershader blending variant from `alphaMode` at load time, so
-     * setting alpha on one of the GLB's OPAQUE materials renders fully opaque.
+     * in `GameScreen.Square`.
+     *
+     * The translucency comes from the asset — the `Highlight` mesh carries its own `highlight`
+     * material with `alphaMode: BLEND` — and **only** the colour is set at runtime, from
+     * [HighlightedSquare.tone] via [ChessSetConventions.highlightColor]. That distinction is
+     * load-bearing: gltfio picks the ubershader blending variant from `alphaMode` at load time, so
+     * one of the GLB's OPAQUE materials can never be made translucent at runtime, while this
+     * already-BLEND one can be recoloured.
      *
      * A renderer that delegates to [FilamentEncodedChessRenderer] must forward this explicitly;
      * inheriting this no-op default silently swallows every highlight.
      */
-    fun setHighlightedSquares(squares: List<BoardSquare>) {}
+    fun setHighlightedSquares(squares: List<HighlightedSquare>) {}
 }
 
 /** Marker for a platform drawing target. Platform impls wrap native handles

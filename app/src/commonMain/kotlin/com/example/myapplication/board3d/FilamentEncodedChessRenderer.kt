@@ -80,7 +80,7 @@ class FilamentEncodedChessRenderer(
         driver.setSelected(square)
     }
 
-    override fun setHighlightedSquares(squares: List<BoardSquare>) {
+    override fun setHighlightedSquares(squares: List<HighlightedSquare>) {
         if (isDisposed) return
         driver.setHighlighted(squares)
     }
