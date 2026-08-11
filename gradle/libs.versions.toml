@@ -9,7 +9,11 @@ androidx-activityCompose = "1.13.0"
 androidx-coreKtx = "1.18.0"
 androidx-lifecycleRuntimeCompose = "2.10.0"
 androidx-testExtJunit = "1.3.0"
-benchmarkMacroJunit4 = "1.3.0"
+# 1.4.1, not 1.3.0: 1.3.0 unconditionally kills every process named `perfetto` before tracing and
+# hard-fails when one will not die. Retail devices ship long-lived statsd/GMS perfetto sessions
+# owned by uid `statsd`, which adb shell cannot kill, so the benchmark could not start at all.
+# 1.4.1 makes that step opt-out (androidx.benchmark.killExistingPerfettoRecordings).
+benchmarkMacroJunit4 = "1.4.1"
 uiautomator = "2.3.0"
 espressoDevice = "1.1.0"
 junit = "4.13.2"
