@@ -87,7 +87,42 @@ object DeterministicCoach {
         // No "You played <move>." prefix: the user just played it, the headline names it, and the
         // board tints it. Spending the first third of a 300-char budget restating the input left
         // less room for the only part that is news — the reason.
-        return if (reason.length <= MAX_FALLBACK_CHARS) reason
-        else reason.take(MAX_FALLBACK_CHARS - 1).trimEnd() + "…"
+        val full = listOfNotNull(reason, counterfactual(record)).joinToString(" ")
+        return if (full.length <= MAX_FALLBACK_CHARS) full
+        else full.take(MAX_FALLBACK_CHARS - 1).trimEnd() + "…"
+    }
+
+    /**
+     * How much better the best move was, in words, or null when there is nothing to say.
+     *
+     * This is the sentence the panel was missing. Everything else here describes the move the user
+     * just made — which they can see, and whose verdict the board is already colouring — so on a
+     * quiet position the whole line degraded to "The position stays roughly balanced.", true and
+     * worth nothing. *What to have played instead* is the one thing the user cannot work out by
+     * looking, and the engine has been computing it all along: `runIdleAnalysis` asks for the best
+     * move to get `cpBest`, stores its UCI, and until now nothing read it.
+     *
+     * Silent in three cases, each for its own reason:
+     * - **No alternative recorded** — no engine attached, or a search that named no move.
+     * - **The played move *was* the best one** — `bestMoveSan` is null then by construction, and
+     *   "Nf3 was stronger" about the move you just played is nonsense.
+     * - **[MoveClass.BEST] or [MoveClass.BOOK]** — within 10cp the difference sits inside the
+     *   engine's own noise at these movetimes, and naming an "improvement" the user cannot feel
+     *   teaches them to distrust the coach. The boundary is [MoveAssessor]'s own, so this can never
+     *   disagree with the class in the headline.
+     *
+     * The wording escalates with the class rather than quoting a centipawn count — the number is
+     * jargon, and `MoveCoachPromptBuilder` already learned that the hard way.
+     */
+    private fun counterfactual(record: MoveRecord): String? {
+        val assessment = record.assessment ?: return null
+        val better = assessment.bestMoveSan?.takeIf { it.isNotBlank() } ?: return null
+        return when (assessment.moveClass) {
+            MoveClass.BEST, MoveClass.BOOK -> null
+            MoveClass.EXCELLENT, MoveClass.GOOD -> "$better was a shade sharper."
+            MoveClass.INACCURACY -> "$better was stronger."
+            MoveClass.MISTAKE -> "$better was much stronger."
+            MoveClass.BLUNDER -> "$better would have been far better."
+        }
     }
 }

@@ -126,6 +126,9 @@ object MoveCoachPromptBuilder {
         appendLine("The player just played ${request.moveDisplay}.")
         request.moveClassName?.let { appendLine("Engine assessment of that move: ${it.lowercase()}.") }
         centipawnLossPhrase(request.centipawnLoss)?.let { appendLine("It is $it than the best move.") }
+        request.betterMoveDisplay?.takeIf { it.isNotBlank() }?.let {
+            appendLine("The engine preferred $it.")
+        }
         if (request.motifs.isNotEmpty()) {
             appendLine(
                 "Tactical features detected: " +

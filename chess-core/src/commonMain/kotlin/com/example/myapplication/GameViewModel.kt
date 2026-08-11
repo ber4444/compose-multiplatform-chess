@@ -615,6 +615,12 @@ class GameViewModel(
             cpBest = cpBest,
             motifs = motifs,
             bestMoveUci = bestMoveResult?.uci,
+            // Resolved here because `stateBeforeObj` is the position the alternative would be played
+            // from, and nothing downstream has it. Null when the engine named no move, or named one
+            // this position cannot play — the coach then simply doesn't offer an alternative.
+            bestMoveSan = bestMoveResult?.uci
+                ?.takeIf { it != playerRecord.uci }
+                ?.let { SanConverter.sanForUci(stateBeforeObj, it) },
         )
 
         // Update history safely

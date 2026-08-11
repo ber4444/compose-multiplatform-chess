@@ -117,6 +117,7 @@ class MoveCoachManager(
             moveClassName = moveRecord.assessment?.moveClass?.name,
             motifs = moveRecord.assessment?.motifs.orEmpty(),
             centipawnLoss = moveRecord.assessment?.cpLoss,
+            betterMoveDisplay = moveRecord.assessment?.bestMoveSan,
         )
         launchCoach(request)
     }

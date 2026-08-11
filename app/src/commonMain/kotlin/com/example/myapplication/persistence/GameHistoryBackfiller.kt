@@ -6,6 +6,7 @@ import com.example.myapplication.FenConverter
 import com.example.myapplication.GameUiState
 import com.example.myapplication.MotifDetector
 import com.example.myapplication.MoveAssessor
+import com.example.myapplication.SanConverter
 import com.example.myapplication.UciMoveConverter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,8 +72,14 @@ class GameHistoryBackfiller(
                 } else {
                     game.moveRecords[unassessedIndex - 1].fenAfter
                 }
-                // evaluate returns from the perspective of the player to move (White).
-                val cpBest = engine.evaluate(fenBefore) ?: return
+                // One search does both jobs, as runIdleAnalysis already does for live games: the
+                // score it reports *is* the eval of the best move, and its UCI is what the coach
+                // needs to name the alternative. This used to call evaluate(), which answers the
+                // first question and discards the second — so a backfilled game could never offer a
+                // "X was stronger" line, and the difference was invisible because the assessment
+                // otherwise looked complete.
+                val bestMoveResult = engine.getBestMove(fenBefore)
+                val cpBest = bestMoveResult?.evaluationCp ?: engine.evaluate(fenBefore) ?: return
 
                 val moveAppFormat = UciMoveConverter.uciMoveToAppMove(record.uci, emptyList())
                 val motifs = if (moveAppFormat != null) {
@@ -85,7 +92,11 @@ class GameHistoryBackfiller(
                     cpBefore = cpBest,
                     cpPlayed = cpPlayed,
                     cpBest = cpBest,
-                    motifs = motifs
+                    motifs = motifs,
+                    bestMoveUci = bestMoveResult?.uci,
+                    bestMoveSan = bestMoveResult?.uci
+                        ?.takeIf { it != record.uci }
+                        ?.let { SanConverter.sanForUci(FenConverter.fenToGameState(fenBefore), it) },
                 )
 
                 val updatedRecords = game.moveRecords.toMutableList()
