@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Compose-observable state holder implementing [Chess3DBoardRenderer] for the SceneView backend.
@@ -29,8 +30,13 @@ class AndroidSceneViewChessRenderer(
     private var _cameraParams by mutableStateOf(OrbitCameraController.DEFAULT_WHITE_VIEW)
     val cameraParams: CameraParams get() = _cameraParams
 
+    private var _isAnimating by mutableStateOf(false)
+    private var _isInteracting by mutableStateOf(false)
+    val needsRender: Boolean get() = _isAnimating || _isInteracting
+
     private val animScope = CoroutineScope(Dispatchers.Main)
-    private val driver = Board3DAnimationDriver(animScope) { scene -> _boardScene = scene }
+    private val driver = Board3DAnimationDriver(animScope, onAnimationStateChanged = { _isAnimating = it }) { scene -> _boardScene = scene }
+    private var interactJob: kotlinx.coroutines.Job? = null
 
     override fun attach(surface: Chess3DSurface) {}
     override fun detach() {}
@@ -43,7 +49,15 @@ class AndroidSceneViewChessRenderer(
 
     override fun onUserInteraction(event: Board3DInput) {
         when (event) {
-            is Board3DInput.SetCamera -> _cameraParams = event.camera
+            is Board3DInput.SetCamera -> {
+                _cameraParams = event.camera
+                _isInteracting = true
+                interactJob?.cancel()
+                interactJob = animScope.launch {
+                    kotlinx.coroutines.delay(200)
+                    _isInteracting = false
+                }
+            }
             is Board3DInput.Resize -> {
                 if (event.heightPx > 0) {
                     _cameraParams = _cameraParams.copy(aspect = event.widthPx.toFloat() / event.heightPx.toFloat())
@@ -62,6 +76,7 @@ class AndroidSceneViewChessRenderer(
     }
 
     override fun dispose() {
+        interactJob?.cancel()
         driver.cancel()
         animScope.cancel()
     }

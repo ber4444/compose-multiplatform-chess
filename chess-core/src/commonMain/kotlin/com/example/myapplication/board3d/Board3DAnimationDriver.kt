@@ -31,6 +31,7 @@ import kotlin.time.TimeSource
 class Board3DAnimationDriver(
     private val scope: CoroutineScope,
     private val frameBudgetMs: Long = 16L,
+    private val onAnimationStateChanged: (Boolean) -> Unit = {},
     private val render: (Board3DScene) -> Unit,
 ) {
     private val clock = TimeSource.Monotonic
@@ -90,6 +91,7 @@ class Board3DAnimationDriver(
     fun cancel() {
         job?.cancel()
         job = null
+        onAnimationStateChanged(false)
     }
 
     private fun renderResting() {
@@ -103,43 +105,48 @@ class Board3DAnimationDriver(
     private fun ensureLoop() {
         if (job?.isActive == true) return
         job = scope.launch {
-            while (isActive) {
-                val rest = resting ?: break
-                val frameStart = clock.markNow()
-
-                var scene = rest
-                val mv = move
-                if (mv != null) {
-                    val progress = (moveStart.elapsedNow().inWholeMilliseconds.toFloat() / PIECE_MOVE_DURATION_MS)
-                        .coerceIn(0f, 1f)
-                    scene = Board3DMoveAnimator.interpolate(rest, mv, progress)
-                    if (progress >= 1f) move = null
+            onAnimationStateChanged(true)
+            try {
+                while (isActive) {
+                    val rest = resting ?: break
+                    val frameStart = clock.markNow()
+    
+                    var scene = rest
+                    val mv = move
+                    if (mv != null) {
+                        val progress = (moveStart.elapsedNow().inWholeMilliseconds.toFloat() / PIECE_MOVE_DURATION_MS)
+                            .coerceIn(0f, 1f)
+                        scene = Board3DMoveAnimator.interpolate(rest, mv, progress)
+                        if (progress >= 1f) move = null
+                    }
+    
+                    // apply selection and highlights
+                    scene = scene.copy(
+                        selectedSquare = selected,
+                        highlightedSquares = highlighted
+                    )
+                    // Bounce the selected piece only while it's resting (not mid-move).
+                    val sel = selected
+                    val out = if (move == null && sel != null) {
+                        scene.withSelectionLift(sel, selectionBounceOffset(selectStart.elapsedNow().inWholeMilliseconds))
+                    } else {
+                        scene
+                    }
+                    render(out)
+    
+                    // Nothing left to animate: settle on the resting position and stop ticking. Still
+                    // carries selected/highlighted (selected is null here by the branch condition, but
+                    // highlighted may not be) — settling must not re-render the bare scene and drop them.
+                    if (move == null && selected == null) {
+                        render(rest.copy(selectedSquare = selected, highlightedSquares = highlighted))
+                        break
+                    }
+    
+                    val spent = frameStart.elapsedNow().inWholeMilliseconds
+                    delay((frameBudgetMs - spent).coerceAtLeast(0L))
                 }
-
-                // apply selection and highlights
-                scene = scene.copy(
-                    selectedSquare = selected,
-                    highlightedSquares = highlighted
-                )
-                // Bounce the selected piece only while it's resting (not mid-move).
-                val sel = selected
-                val out = if (move == null && sel != null) {
-                    scene.withSelectionLift(sel, selectionBounceOffset(selectStart.elapsedNow().inWholeMilliseconds))
-                } else {
-                    scene
-                }
-                render(out)
-
-                // Nothing left to animate: settle on the resting position and stop ticking. Still
-                // carries selected/highlighted (selected is null here by the branch condition, but
-                // highlighted may not be) — settling must not re-render the bare scene and drop them.
-                if (move == null && selected == null) {
-                    render(rest.copy(selectedSquare = selected, highlightedSquares = highlighted))
-                    break
-                }
-
-                val spent = frameStart.elapsedNow().inWholeMilliseconds
-                delay((frameBudgetMs - spent).coerceAtLeast(0L))
+            } finally {
+                onAnimationStateChanged(false)
             }
         }
     }
