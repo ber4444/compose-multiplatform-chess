@@ -217,6 +217,14 @@ fun GameScreen(
         MoveCoachManager.squaresNamedIn(coachState.narratedText.orEmpty())
             .mapNotNull(::algebraicToSquare)
     }
+    val hintSquares by viewModel.hintSquares.collectAsState()
+    val allHighlights = remember(coachHighlights, hintSquares) {
+        if (hintSquares.isNotEmpty()) {
+            coachHighlights + hintSquares.map { BoardSquare(it.first, it.second) }
+        } else {
+            coachHighlights
+        }
+    }
     val openingExplainerStateHolder = LocalOpeningExplainerStateHolder.current
     val openingExplainerState = openingExplainerStateHolder?.state?.collectAsState()?.value
         ?: OpeningExplainerUiState.Hidden
@@ -524,7 +532,7 @@ fun GameScreen(
                     selectedSquare = gameState.selectedSquare
                         .takeIf { it != INVALID_POSITION }
                         ?.let { BoardSquare(it.first, it.second) },
-                    highlightedSquares = coachHighlights,
+                    highlightedSquares = allHighlights,
                     onSquareTapped = onSquareTapped@{ sq ->
                     // Explain mode is opt-in and one-shot (see explainMode). Outside it, a tap is a
                     // move — the board must never stop accepting moves because a panel is open.
@@ -602,14 +610,14 @@ fun GameScreen(
                     viewModel = viewModel,
                     onResetGame = { showResetConfirmation = true },
                     transparentButtons = true,
+                    explainMode = explainMode,
+                    onToggleExplainMode = moveCoachManager?.let { { explainMode = !explainMode } },
                 )
                 if (coachState !is MoveCoachUiState.Hidden) {
                     MoveCoachPanel(
                         state = coachState,
                         modifier = Modifier.weight(1f, fill = false),
                         onRetry = moveCoachManager?.let { { it.retry() } },
-                        explainMode = explainMode,
-                        onToggleExplainMode = moveCoachManager?.let { { explainMode = !explainMode } },
                     )
                 }
             }
@@ -641,7 +649,7 @@ fun GameScreen(
                         playerMove = viewModel::playerMove,
                         animationEnd = viewModel::animationEnd,
                         boardMaxSize = boardMaxSize,
-                        highlightedSquares = coachHighlights,
+                        highlightedSquares = allHighlights,
                         onSquareTapped = if (explainMode && moveCoachManager != null) {
                             { pos ->
                                 explainSquareAt(pos, gameState, viewModel.playerSide, moveCoachManager)
@@ -657,7 +665,9 @@ fun GameScreen(
                         animState = animState,
                         viewState = viewState,
                         viewModel = viewModel,
-                        onResetGame = { showResetConfirmation = true }
+                        onResetGame = { showResetConfirmation = true },
+                        explainMode = explainMode,
+                        onToggleExplainMode = moveCoachManager?.let { { explainMode = !explainMode } },
                     )
 
                     // Move Coach panel. Unlike the 3D branch (which overlays a non-scrollable
@@ -669,8 +679,6 @@ fun GameScreen(
                             state = coachState,
                             modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
                             onRetry = moveCoachManager?.let { { it.retry() } },
-                            explainMode = explainMode,
-                            onToggleExplainMode = moveCoachManager?.let { { explainMode = !explainMode } },
                             contentColor = MaterialTheme.colorScheme.onSurface,
                         )
                     }
@@ -774,6 +782,8 @@ private fun GameControls(
     viewModel: GameViewModel,
     onResetGame: () -> Unit,
     transparentButtons: Boolean = false,
+    explainMode: Boolean = false,
+    onToggleExplainMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -785,18 +795,6 @@ private fun GameControls(
                 text = stringResource(Res.string.board_3d_unavailable),
                 color = Color.Red,
                 modifier = Modifier.testTag("board_3d_unavailable")
-            )
-        }
-        
-        val hintText by viewModel.hintText.collectAsState()
-        if (hintText != null) {
-            Text(
-                text = hintText!!,
-                color = MaterialTheme.colorScheme.primary,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier
-                    .padding(bottom = 8.dp)
-                    .testTag("hint_text")
             )
         }
 
@@ -811,6 +809,14 @@ private fun GameControls(
                         enabled = gameState.turn == viewModel.playerSide && gameState.winState == WinState.NONE && animState.pieceToAnimate == null,
                         modifier = Modifier.testTag("hint_button")
                     ) { Text("Hint") }
+                }
+                if (onToggleExplainMode != null) {
+                    TransparentUnderlineButton(
+                        onClick = onToggleExplainMode,
+                        modifier = Modifier.testTag("move_coach_explain_toggle")
+                    ) {
+                        Text(if (explainMode) "Cancel Explain" else "Explain")
+                    }
                 }
                 TransparentUnderlineButton(
                     onClick = viewModel::requestDrawOffer,
@@ -828,6 +834,14 @@ private fun GameControls(
                         modifier = Modifier.testTag("hint_button")
                     ) { Text("Hint") }
                 }
+                if (onToggleExplainMode != null) {
+                    Button(
+                        onClick = onToggleExplainMode,
+                        modifier = Modifier.testTag("move_coach_explain_toggle")
+                    ) {
+                        Text(if (explainMode) "Cancel Explain" else "Explain")
+                    }
+                }
                 Button(
                     onClick = viewModel::requestDrawOffer,
                     enabled = canOfferDraw(gameState, viewModel.playerSide) && animState.pieceToAnimate == null,
@@ -839,6 +853,7 @@ private fun GameControls(
         if (gameState.drawOfferDeclinedBy == Set.BLACK) {
             Text(
                 text = stringResource(Res.string.draw_offer_declined),
+                color = if (transparentButtons) Color.White else Color.Unspecified,
                 modifier = Modifier.testTag("draw_offer_declined_text")
             )
         }

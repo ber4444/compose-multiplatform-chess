@@ -8,6 +8,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -40,8 +41,8 @@ class GameViewModel(
     private val _viewState = MutableStateFlow(ViewState(show3D = initialShow3D))
     val viewState: StateFlow<ViewState> = _viewState
 
-    private val _hintText = MutableStateFlow<String?>(null)
-    val hintText: StateFlow<String?> = _hintText
+    private val _hintSquares = MutableStateFlow<List<Pair<Int, Int>>>(emptyList())
+    val hintSquares: StateFlow<List<Pair<Int, Int>>> = _hintSquares
     private var hintJob: Job? = null
 
     /**
@@ -63,23 +64,26 @@ class GameViewModel(
         hintJob = scope.launch { computeHintDirectly() }
     }
 
-    suspend fun computeHintDirectly(): String? {
+    suspend fun computeHintDirectly() {
         val current = _gameState.value
-        if (current.turn != playerSide || current.winState != WinState.NONE) return null
-        val engine = chessEngine ?: return null
+        if (current.turn != playerSide || current.winState != WinState.NONE) return
+        val engine = chessEngine ?: return
 
         val allyPositions = if (current.turn == Set.WHITE) current.positionsWhite else current.positionsBlack
         val allyPieces = if (current.turn == Set.WHITE) current.piecesWhite else current.piecesBlack
         val enemyPositions = if (current.turn == Set.WHITE) current.positionsBlack else current.positionsWhite
         val enemyPieces = if (current.turn == Set.WHITE) current.piecesBlack else current.piecesWhite
 
-        return engineStrengthMutex.withLock {
+        engineStrengthMutex.withLock {
             try {
                 engine.configure(EngineDifficulty.HARD)
                 val move = pickMoveStockfish(engine, current, enemyPositions, enemyPieces, allyPositions, allyPieces)
-                val hint = formatHint(current, move, allyPositions, allyPieces, enemyPositions)
-                _hintText.value = hint
-                hint
+                if (move.position != INVALID_POSITION && move.pieceIndex != -1) {
+                    val from = allyPositions[move.pieceIndex]
+                    _hintSquares.value = listOf(from, move.position)
+                } else {
+                    _hintSquares.value = emptyList()
+                }
             } finally {
                 // NonCancellable is load-bearing. `requestHint()` cancels the previous hintJob on
                 // every tap, and `ChessEngine.configure` is a *suspend* function: in a cancelled
@@ -92,41 +96,8 @@ class GameViewModel(
         }
     }
 
-    private fun formatHint(
-        current: GameUiState,
-        move: SelectedMove,
-        allyPositions: List<Pair<Int, Int>>,
-        allyPieces: List<Piece>,
-        enemyPositions: List<Pair<Int, Int>>,
-    ): String {
-        if (move.position != INVALID_POSITION && move.pieceIndex != -1) {
-            val from = allyPositions[move.pieceIndex]
-            val to = move.position
-            val movingPiece = allyPieces[move.pieceIndex]
-            val isCapture = enemyPositions.contains(to) || (to == current.enPassantTarget && movingPiece is Pawn)
-            val san = SanConverter.toSan(
-                preMove = current,
-                pieceIndex = move.pieceIndex,
-                from = from,
-                to = to,
-                movingPiece = movingPiece,
-                isCapture = isCapture,
-                promotion = move.promotion,
-                castleRook = castlingRookMove(movingPiece, from, to),
-                // Deliberately no "+"/"#": the real move path derives those from the *post-move*
-                // state (see deriveNewGameState), and speculatively applying the candidate move
-                // just to decorate a hint would run the autosave/move-record side effects too.
-                // A hint reads fine as "Try Qh5"; it does not need to announce mate.
-                checkSuffix = "",
-            )
-            return "Hint: Try $san"
-        } else {
-            return "Hint: No legal moves available"
-        }
-    }
-
     fun clearHint() {
-        _hintText.value = null
+        _hintSquares.value = emptyList()
     }
 
     private var gameMoves: Job? = null
@@ -235,6 +206,7 @@ class GameViewModel(
                 return
             }
 
+            clearHint()
             analysisJob?.cancel()
             val movingPiece = if (playerSide == Set.WHITE) gameState.value.piecesWhite[selectedPieceIndex] else gameState.value.piecesBlack[selectedPieceIndex]
             val preMovePosition = if (playerSide == Set.WHITE) gameState.value.positionsWhite[selectedPieceIndex] else gameState.value.positionsBlack[selectedPieceIndex]
@@ -361,6 +333,12 @@ class GameViewModel(
                 drawOffer = null,
                 drawOfferDeclinedBy = engineSide
             )
+            scope.launch {
+                delay(3000)
+                if (_gameState.value.drawOfferDeclinedBy == engineSide) {
+                    _gameState.value = _gameState.value.copy(drawOfferDeclinedBy = null)
+                }
+            }
         }
     }
 
