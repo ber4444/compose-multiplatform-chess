@@ -18,7 +18,28 @@ object ChessSetMeshNames {
         PieceKind.PAWN -> "pawn"
     }
 
-    /** glTF material name for each colour, per the spike (`white` / `black`). */
+    /**
+     * glTF material name for each colour, per the spike (`white` / `black`). Every backend resolves
+     * a piece's material by looking this name up in its `FilamentInstance`'s material-instance list
+     * and rebinding the primitive to it.
+     *
+     * > [!CAUTION]
+     * > **`black` is kept alive by one hidden quad, and nothing else in the asset references it.**
+     * > All six piece templates in `chess.glb` are authored to `white`; the *only* primitive bound to
+     * > `black` is the hidden `Plane` node (mesh `Plane.064`). gltfio instantiates a `MaterialInstance`
+     * > only for materials some primitive actually uses, so if `Plane` stops referencing `black` the
+     * > instance is never created, the lookup here returns null, and **every black piece silently
+     * > falls back to its authored `white` material** — the whole set renders silvery. There is no
+     * > crash and no log line.
+     * >
+     * > This was hit for real: the B16 highlight quad was first built by repointing `Plane` at a new
+     * > translucent material, which turned all the black pieces white on every backend at once. The
+     * > highlight now lives on its own `Highlight` node so `Plane` can keep carrying `black`.
+     * >
+     * > So: do not repoint, delete, or merge the `Plane` node, and do not "clean up" `black` as an
+     * > apparently-unused material. If you need to touch it, first give the piece templates a real
+     * > per-colour material binding so the runtime lookup no longer depends on a hidden quad.
+     */
     fun getMaterialName(color: PieceColor): String = when (color) {
         PieceColor.WHITE -> "white"
         PieceColor.BLACK -> "black"
@@ -41,6 +62,17 @@ object ChessSetConventions {
 
     /** A chess board holds at most 32 pieces (promotion replaces a pawn, never adds). */
     const val MAX_PIECES: Int = 32
+
+    /**
+     * Highlight-quad pool size, mirroring [MAX_PIECES] for the coach's cited squares.
+     *
+     * Deliberately small: every slot is a full instance of `chess.glb` (72 nodes) on all four
+     * Filament backends, created eagerly at init, so each one costs ~72 entities and material
+     * instances to draw a single quad. The coach cites a move, i.e. a from/to pair, so 4 leaves
+     * headroom without paying for 10. Callers must cap their list to this — the backends silently
+     * drop the overflow.
+     */
+    const val MAX_HIGHLIGHTS: Int = 4
 
     /** glTF model asset filename. */
     const val GLB_ASSET: String = "chess.glb"

@@ -128,6 +128,10 @@ class DesktopFilamentChessRenderer(
         renderScope.launch { delegate.setSelectedSquare(square) }
     }
 
+    override fun setHighlightedSquares(squares: List<BoardSquare>) {
+        renderScope.launch { delegate.setHighlightedSquares(squares) }
+    }
+
     override fun dispose() {
         runBlocking {
             withContext(dispatcher) {

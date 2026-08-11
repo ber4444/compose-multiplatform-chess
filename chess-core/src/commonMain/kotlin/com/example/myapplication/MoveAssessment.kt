@@ -9,7 +9,8 @@ data class MoveAssessment(
     val cpBest: Int,
     val cpLoss: Int,
     val moveClass: MoveClass,
-    val motifs: List<String>
+    val motifs: List<String>,
+    val bestMoveUci: String? = null
 )
 
 @Serializable

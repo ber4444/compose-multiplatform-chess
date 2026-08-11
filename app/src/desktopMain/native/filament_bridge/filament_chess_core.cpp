@@ -57,7 +57,11 @@ namespace {
 
 static constexpr float kModelScale = 0.5f;
 static constexpr int kMaxPieces = 32;
-static constexpr int kInstanceCount = kMaxPieces + 1;
+// Keep in sync with ChessSetConventions.MAX_HIGHLIGHTS in commonMain.
+static constexpr int kMaxHighlights = 4;
+// Lifts the highlight quad off the tile just enough to beat z-fighting.
+static constexpr float kHighlightLiftY = 0.005f;
+static constexpr int kInstanceCount = kMaxPieces + kMaxHighlights + 1;
 static constexpr int kInitialWidth = 1;
 static constexpr int kInitialHeight = 1;
 static constexpr double kPi = 3.14159265358979323846;
@@ -71,6 +75,12 @@ struct PieceWire {
     float y = 0.0f;
     float z = 0.0f;
     float rotY = 0.0f;
+};
+
+struct HighlightWire {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
 };
 
 std::vector<std::string> split(const std::string& s, char delim) {
@@ -87,7 +97,7 @@ std::vector<std::string> split(const std::string& s, char delim) {
     return out;
 }
 
-std::vector<PieceWire> parseScene(const std::string& encoded) {
+std::vector<PieceWire> parseScenePieces(const std::string& encoded) {
     std::vector<PieceWire> out;
     for (const std::string& record : split(encoded, ';')) {
         std::vector<std::string> fields = split(record, ',');
@@ -100,6 +110,20 @@ std::vector<PieceWire> parseScene(const std::string& encoded) {
         p.z = std::strtof(fields[4].c_str(), nullptr);
         p.rotY = std::strtof(fields[5].c_str(), nullptr);
         out.push_back(p);
+    }
+    return out;
+}
+
+std::vector<HighlightWire> parseSceneHighlights(const std::string& encoded) {
+    std::vector<HighlightWire> out;
+    for (const std::string& record : split(encoded, ';')) {
+        std::vector<std::string> fields = split(record, ',');
+        if (fields.size() < 3) continue;
+        HighlightWire h;
+        h.x = std::strtof(fields[0].c_str(), nullptr);
+        h.y = std::strtof(fields[1].c_str(), nullptr);
+        h.z = std::strtof(fields[2].c_str(), nullptr);
+        out.push_back(h);
     }
     return out;
 }
@@ -307,7 +331,11 @@ struct FilamentChessCore::Impl {
                         break;
                     }
                 }
-                bool hidden = isTemplate || std::strcmp(name, "Plane") == 0;
+                // "Plane" is hidden but must stay in the asset: it is the only primitive bound to
+                // the "black" material, which is what keeps that MaterialInstance alive for the
+                // piece pool. See ChessSetMeshNames.getMaterialName in commonMain.
+                bool hidden = isTemplate || std::strcmp(name, "Plane") == 0
+                        || std::strcmp(name, "Highlight") == 0;
                 if (hidden) scene->remove(e); else scene->addEntity(e);
             });
             setInstanceTransform(board, {0.0f, 0.0f, 0.0f}, 0.0f, kModelScale);
@@ -375,7 +403,17 @@ struct FilamentChessCore::Impl {
 
     void setSceneEncoded(const std::string& encoded) {
         if (!ready) return;
-        std::vector<PieceWire> pieces = parseScene(encoded);
+        
+        std::string piecesStr = encoded;
+        std::string highlightsStr = "";
+        size_t pipePos = encoded.find('|');
+        if (pipePos != std::string::npos) {
+            piecesStr = encoded.substr(0, pipePos);
+            highlightsStr = encoded.substr(pipePos + 1);
+        }
+        
+        std::vector<PieceWire> pieces = parseScenePieces(piecesStr);
+        std::vector<HighlightWire> highlights = parseSceneHighlights(highlightsStr);
 
         for (int slot = 0; slot < kMaxPieces; ++slot) {
             gltfio::FilamentInstance* inst = instances[slot + 1];
@@ -398,16 +436,52 @@ struct FilamentChessCore::Impl {
                     if (targetMaterial) {
                         auto& rm = engine->getRenderableManager();
                         auto ri = rm.getInstance(e);
-                        size_t prims = rm.getPrimitiveCount(ri);
-                        for (size_t pr = 0; pr < prims; ++pr) {
-                            rm.setMaterialInstanceAt(ri, pr, targetMaterial);
+                        if (ri) {
+                            size_t prims = rm.getPrimitiveCount(ri);
+                            for (size_t pr = 0; pr < prims; ++pr) {
+                                rm.setMaterialInstanceAt(ri, pr, targetMaterial);
+                            }
                         }
                     }
                 } else {
                     scene->remove(e);
                 }
             });
-            setInstanceTransform(inst, {piece.x, piece.y, piece.z}, piece.rotY, kModelScale);
+
+            setInstanceTransform(inst, float3{piece.x, piece.y, piece.z}, piece.rotY, kModelScale);
+        }
+        
+        for (int slot = 0; slot < kMaxHighlights; ++slot) {
+            gltfio::FilamentInstance* inst = instances[kMaxPieces + 1 + slot];
+            if (!inst) continue;
+
+            if (slot >= static_cast<int>(highlights.size())) {
+                forEachRenderable(inst, [this](Entity e, const char*) { scene->remove(e); });
+                continue;
+            }
+
+            const HighlightWire& h = highlights[slot];
+
+            // No material binding: the Plane mesh carries its own `highlight` material (alphaMode
+            // BLEND) in chess.glb. Tinting one of the OPAQUE glTF materials at runtime cannot work —
+            // gltfio selects the ubershader blending variant from alphaMode when the asset loads.
+            forEachRenderable(inst, [this](Entity e, const char* name) {
+                if (std::strcmp(name, "Highlight") == 0) {
+                    scene->addEntity(e);
+                    auto& rm = engine->getRenderableManager();
+                    auto ri = rm.getInstance(e);
+                    if (ri) {
+                        rm.setCastShadows(ri, false);
+                        rm.setReceiveShadows(ri, false);
+                    }
+                } else {
+                    scene->remove(e);
+                }
+            });
+
+            // The Plane node's baked local translation was zeroed in chess.glb, so the square centre
+            // applies directly; kHighlightLiftY clears the tile to avoid z-fighting.
+            setInstanceTransform(inst, float3{h.x, kHighlightLiftY, h.z}, 0.0f, kModelScale);
         }
     }
 

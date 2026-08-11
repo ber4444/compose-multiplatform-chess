@@ -74,8 +74,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
 import com.example.myapplication.monetization.ProGate
 import com.example.myapplication.movecoach.FallbackPresentation
+import com.example.myapplication.movecoach.MoveCoachManager
 import com.example.myapplication.movecoach.MoveCoachPanel
+import com.example.myapplication.movecoach.SquareInsight
 import com.example.myapplication.movecoach.MoveCoachUiState
+import com.example.myapplication.movecoach.narratedText
 import com.example.myapplication.movecoach.GameSummaryUiState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.CircularProgressIndicator
@@ -140,6 +143,34 @@ private fun TransparentUnderlineButton(
     )
 }
 
+/**
+ * Parses an algebraic square ("e4") into board coordinates, or null if it isn't one.
+ *
+ * Explicit bounds rather than a try/catch: the input comes from model prose via
+ * `MoveCoachManager.squaresNamedIn`, so "not a square" is an ordinary outcome to filter out, not
+ * an exception to swallow.
+ */
+internal fun algebraicToSquare(algebraic: String): BoardSquare? {
+    if (algebraic.length != 2) return null
+    val col = algebraic[0] - 'a'
+    val row = '8' - algebraic[1]
+    return if (col in 0..7 && row in 0..7) BoardSquare(row, col) else null
+}
+
+/** Reads the strategic situation on [pos] and hands it to the coach. Shared by the 2D and 3D boards. */
+private fun explainSquareAt(
+    pos: Pair<Int, Int>,
+    gameState: GameUiState,
+    viewer: Set,
+    moveCoachManager: com.example.myapplication.movecoach.MoveCoachManager,
+) {
+    moveCoachManager.explainSquare(
+        square = UciMoveConverter.positionToUciSquare(pos),
+        headline = SquareInsight.buildHeadline(gameState, pos, viewer),
+        explanation = SquareInsight.buildExplanation(gameState, pos, viewer),
+    )
+}
+
 @Composable
 fun GameScreen(
     windowSize: WindowWidthSizeClass,
@@ -159,6 +190,41 @@ fun GameScreen(
     val viewState by viewModel.viewState.collectAsState()
     val moveCoachManager = LocalMoveCoachManager.current
     val coachState = moveCoachManager?.coachUiState?.collectAsState()?.value ?: MoveCoachUiState.Hidden
+
+    /**
+     * B16 Explain mode: while on, the next board tap asks the coach about that square instead of
+     * moving a piece.
+     *
+     * Opt-in and one-shot, both deliberately. Keying it off "the coach panel is visible" instead
+     * makes the board unplayable: `MoveCoachManager` only returns to `Hidden` on attach or
+     * `hideWindow()`, so from the second move onward the panel is always showing something and
+     * every tap would be swallowed. One-shot means even a mis-tap on the toggle costs one tap, not
+     * a stuck mode.
+     */
+    var explainMode by remember { mutableStateOf(false) }
+    // Leaving the mode armed across a move would fire it on an unrelated later tap.
+    LaunchedEffect(gameState.moveHistory.size) { explainMode = false }
+
+    /**
+     * Squares the coach line currently on screen names, as board coordinates.
+     *
+     * Parsed from the text the panel is displaying rather than from a field carried on the Ready
+     * state: only a model-authored `Ready` ever populated that field, so the tint was dead on the
+     * two paths that produce most of the lines a user actually sees — the deterministic fallback
+     * and the free tier — and on Explain mode, which usually lands on one of them.
+     */
+    val coachHighlights = remember(coachState) {
+        MoveCoachManager.squaresNamedIn(coachState.narratedText.orEmpty())
+            .mapNotNull(::algebraicToSquare)
+    }
+    val hintSquares by viewModel.hintSquares.collectAsState()
+    val allHighlights = remember(coachHighlights, hintSquares) {
+        if (hintSquares.isNotEmpty()) {
+            coachHighlights + hintSquares.map { BoardSquare(it.first, it.second) }
+        } else {
+            coachHighlights
+        }
+    }
     val openingExplainerStateHolder = LocalOpeningExplainerStateHolder.current
     val openingExplainerState = openingExplainerStateHolder?.state?.collectAsState()?.value
         ?: OpeningExplainerUiState.Hidden
@@ -177,6 +243,7 @@ fun GameScreen(
     val board3DCameraSession = remember { Board3DSessionState() }
     var isEntering3D by remember { mutableStateOf(false) }
     var isTearingDown3D by remember { mutableStateOf(false) }
+    var showResetConfirmation by remember { mutableStateOf(false) }
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
     LaunchedEffect(gameState.winState, gameState.fullmoveNumber, openingExplainerStateHolder) {
@@ -213,9 +280,10 @@ fun GameScreen(
             // between games, or hideWindow flips). Keyed on the result token so a genuinely new
             // finished game can be saved even if the previous popup wasn't dismissed.
             var gameSaved by remember(gameState.winState, gameState.fullmoveNumber) { mutableStateOf(false) }
-            val resetGame = { reset: Boolean ->
+            val resetGame: (Boolean) -> Unit = { reset: Boolean ->
                 if (reset) {
                     viewModel.resetGame(show3D = board3DEnabled)
+                    moveCoachManager?.hideWindow()
                 } else {
                     viewModel.hideWindow()
                 }
@@ -464,7 +532,16 @@ fun GameScreen(
                     selectedSquare = gameState.selectedSquare
                         .takeIf { it != INVALID_POSITION }
                         ?.let { BoardSquare(it.first, it.second) },
+                    highlightedSquares = allHighlights,
                     onSquareTapped = onSquareTapped@{ sq ->
+                    // Explain mode is opt-in and one-shot (see explainMode). Outside it, a tap is a
+                    // move — the board must never stop accepting moves because a panel is open.
+                    if (explainMode && moveCoachManager != null) {
+                        explainSquareAt(Pair(sq.row, sq.col), gameState, viewModel.playerSide, moveCoachManager)
+                        explainMode = false
+                        return@onSquareTapped
+                    }
+
                     // Route a 3D tap through the same selection/move logic the 2D board uses.
                     if (animState.pieceToAnimate != null || gameState.turn != Set.WHITE) return@onSquareTapped
                     val pos = Pair(sq.row, sq.col)
@@ -531,8 +608,10 @@ fun GameScreen(
                     animState = animState,
                     viewState = viewState,
                     viewModel = viewModel,
-                    onResetGame = { viewModel.resetGame(show3D = board3DEnabled) },
+                    onResetGame = { showResetConfirmation = true },
                     transparentButtons = true,
+                    explainMode = explainMode,
+                    onToggleExplainMode = moveCoachManager?.let { { explainMode = !explainMode } },
                 )
                 if (coachState !is MoveCoachUiState.Hidden) {
                     MoveCoachPanel(
@@ -570,6 +649,13 @@ fun GameScreen(
                         playerMove = viewModel::playerMove,
                         animationEnd = viewModel::animationEnd,
                         boardMaxSize = boardMaxSize,
+                        highlightedSquares = allHighlights,
+                        onSquareTapped = if (explainMode && moveCoachManager != null) {
+                            { pos ->
+                                explainSquareAt(pos, gameState, viewModel.playerSide, moveCoachManager)
+                                explainMode = false
+                            }
+                        } else null,
                     )
 
                     Spacer(modifier = Modifier.padding(8.dp))
@@ -579,7 +665,9 @@ fun GameScreen(
                         animState = animState,
                         viewState = viewState,
                         viewModel = viewModel,
-                        onResetGame = { viewModel.resetGame(show3D = board3DEnabled) }
+                        onResetGame = { showResetConfirmation = true },
+                        explainMode = explainMode,
+                        onToggleExplainMode = moveCoachManager?.let { { explainMode = !explainMode } },
                     )
 
                     // Move Coach panel. Unlike the 3D branch (which overlays a non-scrollable
@@ -591,7 +679,39 @@ fun GameScreen(
                             state = coachState,
                             modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
                             onRetry = moveCoachManager?.let { { it.retry() } },
+                            contentColor = MaterialTheme.colorScheme.onSurface,
                         )
+                    }
+                }
+            }
+        }
+
+        if (showResetConfirmation) {
+            PopupWindow(
+                onDismiss = { showResetConfirmation = false }
+            ) {
+                Text(
+                    modifier = Modifier.padding(bottom = 16.dp),
+                    text = "Are you sure you want to reset the game?",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        modifier = Modifier.padding(5.dp),
+                        onClick = {
+                            showResetConfirmation = false
+                            viewModel.resetGame(show3D = board3DEnabled)
+                            moveCoachManager?.hideWindow()
+                        }
+                    ) {
+                        Text("Yes")
+                    }
+                    Button(
+                        modifier = Modifier.padding(5.dp),
+                        onClick = { showResetConfirmation = false }
+                    ) {
+                        Text("No")
                     }
                 }
             }
@@ -662,6 +782,8 @@ private fun GameControls(
     viewModel: GameViewModel,
     onResetGame: () -> Unit,
     transparentButtons: Boolean = false,
+    explainMode: Boolean = false,
+    onToggleExplainMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -688,6 +810,14 @@ private fun GameControls(
                         modifier = Modifier.testTag("hint_button")
                     ) { Text("Hint") }
                 }
+                if (onToggleExplainMode != null) {
+                    TransparentUnderlineButton(
+                        onClick = onToggleExplainMode,
+                        modifier = Modifier.testTag("move_coach_explain_toggle")
+                    ) {
+                        Text(if (explainMode) "Cancel Explain" else "Explain")
+                    }
+                }
                 TransparentUnderlineButton(
                     onClick = viewModel::requestDrawOffer,
                     enabled = canOfferDraw(gameState, viewModel.playerSide) && animState.pieceToAnimate == null,
@@ -704,6 +834,14 @@ private fun GameControls(
                         modifier = Modifier.testTag("hint_button")
                     ) { Text("Hint") }
                 }
+                if (onToggleExplainMode != null) {
+                    Button(
+                        onClick = onToggleExplainMode,
+                        modifier = Modifier.testTag("move_coach_explain_toggle")
+                    ) {
+                        Text(if (explainMode) "Cancel Explain" else "Explain")
+                    }
+                }
                 Button(
                     onClick = viewModel::requestDrawOffer,
                     enabled = canOfferDraw(gameState, viewModel.playerSide) && animState.pieceToAnimate == null,
@@ -715,6 +853,7 @@ private fun GameControls(
         if (gameState.drawOfferDeclinedBy == Set.BLACK) {
             Text(
                 text = stringResource(Res.string.draw_offer_declined),
+                color = if (transparentButtons) Color.White else Color.Unspecified,
                 modifier = Modifier.testTag("draw_offer_declined_text")
             )
         }
@@ -744,6 +883,8 @@ fun RowScope.Square(
     squareType: SquareType = SquareType.Empty,
     clickable: Boolean = false,
     testTag: String,
+    /** B16: this square is named in the current coach line. */
+    coachHighlighted: Boolean = false,
     onClick: (SquareType) -> Unit = {},
     content: @Composable () -> Unit
 ) {
@@ -762,6 +903,9 @@ fun RowScope.Square(
             .background(
                 color = if (isDarkSquare) MaterialTheme.colorScheme.secondary else Color.White
             )
+            // Tinted rather than bordered: the border slot already encodes selection and legal
+            // moves, and a second border there would be read as a move hint.
+            .then(if (coachHighlighted) Modifier.background(COACH_HIGHLIGHT_COLOR) else Modifier)
             .border(borderWidth, borderColor, shapeType)
             .clickable(enabled = clickable, onClick = { onClick(squareType) })
             .testTag(testTag),
@@ -770,6 +914,9 @@ fun RowScope.Square(
         content()
     }
 }
+
+/** Wash for a square the coach mentioned. Translucent so the piece and square colour show through. */
+private val COACH_HIGHLIGHT_COLOR = Color(0x553F51B5)
 
 @Composable
 fun Board(
@@ -782,10 +929,17 @@ fun Board(
     /** Caps the board's size so it fits within the viewport on wide/landscape windows.
      *  On portrait this equals the full width; on landscape it equals ~85% of the height. */
     boardMaxSize: Dp = Dp.Unspecified,
+    /** Squares named in the current coach line (B16). Rendered on the 2D board as a tint. */
+    highlightedSquares: List<BoardSquare> = emptyList(),
+    onSquareTapped: ((Pair<Int, Int>) -> Unit)? = null,
 ) {
     val squareSizePx = remember { mutableStateOf(IntSize.Zero) }
     val squareAvgSizePx = remember { mutableStateOf(IntSize.Zero) }
     val selectedPossibleMoves = remember { mutableStateOf(emptyList<Pair<Int, Int>>()) }
+    // A set, not the list: this is tested once per square, 64 times per recomposition.
+    val highlightedPositions = remember(highlightedSquares) {
+        highlightedSquares.map { it.row to it.col }.toSet()
+    }
 
     if (gameState.selectedSquare != INVALID_POSITION) {
         val pieceIndex = gameState.positionsWhite.indexOf(gameState.selectedSquare)
@@ -845,7 +999,7 @@ fun Board(
                             }
                         }
 
-                        val clickable = squareType == SquareType.PossibleMove ||
+                        val clickable = onSquareTapped != null || squareType == SquareType.PossibleMove ||
                             squareType == SquareType.PossibleCapture ||
                             squareType == SquareType.WhitePiece
 
@@ -862,8 +1016,17 @@ fun Board(
                             squareType = squareType,
                             clickable = clickable,
                             testTag = squareTestTag(currentSquare, squareType),
+                            coachHighlighted = currentSquare in highlightedPositions,
                             onClick = { currentSquareType ->
-                                when (currentSquareType) {
+                                // `onSquareTapped` is non-null only while Explain mode is armed, and
+                                // it is what made every square clickable above — so in that mode any
+                                // square is a valid target, including empty ones the move logic
+                                // would reject. `else` rather than an early return: two lambdas are
+                                // passed to Square(), so `return@Square` is ambiguous to read even
+                                // where it resolves.
+                                if (onSquareTapped != null) {
+                                    onSquareTapped(currentSquare)
+                                } else when (currentSquareType) {
                                     SquareType.PossibleMove, SquareType.PossibleCapture -> {
                                         val moveIndex = gameState.selectedSquare
                                         updateSelected(INVALID_POSITION)

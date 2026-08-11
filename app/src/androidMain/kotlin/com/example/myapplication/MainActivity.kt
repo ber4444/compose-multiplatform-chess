@@ -23,6 +23,7 @@ import com.example.myapplication.share.androidPgnSharer
 import android.content.pm.ApplicationInfo
 import com.example.myapplication.movecoach.MoveCoachManager
 import com.example.myapplication.movecoach.GameSummaryManager
+import com.example.myapplication.monetization.NoOpEntitlements
 import com.example.myapplication.monetization.RevenueCatEntitlements
 import com.example.myapplication.monetization.UnconfiguredEntitlements
 import com.example.myapplication.monetization.revenueCatApiKey
@@ -97,7 +98,13 @@ class MainActivity : ComponentActivity() {
                 moveCoachManager = holder.moveCoachManager,
                 gameSummaryManager = holder.gameSummaryManager,
                 entitlements = entitlements
-                    ?: androidx.compose.runtime.remember { UnconfiguredEntitlements() },
+                    // With no key there is no store to buy through, so UnconfiguredEntitlements
+                    // locks Pro permanently — correct for release, but it also makes the Pro
+                    // surfaces unreachable on a dev build. Debug starts unlocked instead.
+                    ?: androidx.compose.runtime.remember {
+                        if (isDebug) NoOpEntitlements(initialUnlocked = true)
+                        else UnconfiguredEntitlements()
+                    },
             )
         }
     }

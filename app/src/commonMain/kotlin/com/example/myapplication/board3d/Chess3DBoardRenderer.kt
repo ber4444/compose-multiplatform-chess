@@ -23,6 +23,21 @@ interface Chess3DBoardRenderer {
      *  FEN; selection state lives in Compose per the issue). Default no-op so backends that don't
      *  render a highlight still compile. */
     fun setSelectedSquare(square: BoardSquare?) {}
+
+    /**
+     * Render the squares the coach line names (B16). Default no-op.
+     *
+     * All four Filament backends implement this, each over a fixed pool of `chess.glb` `Plane`
+     * instances capped at [ChessSetConventions.MAX_HIGHLIGHTS]; the 2D board tints the same squares
+     * in `GameScreen.Square`. The blue translucency comes from the asset — the `Plane` mesh carries
+     * its own `highlight` material with `alphaMode: BLEND` — **not** from runtime tinting, which
+     * cannot work: gltfio picks the ubershader blending variant from `alphaMode` at load time, so
+     * setting alpha on one of the GLB's OPAQUE materials renders fully opaque.
+     *
+     * A renderer that delegates to [FilamentEncodedChessRenderer] must forward this explicitly;
+     * inheriting this no-op default silently swallows every highlight.
+     */
+    fun setHighlightedSquares(squares: List<BoardSquare>) {}
 }
 
 /** Marker for a platform drawing target. Platform impls wrap native handles

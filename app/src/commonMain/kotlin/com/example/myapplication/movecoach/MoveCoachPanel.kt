@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -27,7 +28,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import game.app.generated.resources.Res
-import game.app.generated.resources.move_coach_loading
 import game.app.generated.resources.move_coach_unavailable
 import org.jetbrains.compose.resources.stringResource
 import kotlinx.coroutines.delay
@@ -37,6 +37,13 @@ fun MoveCoachPanel(
     state: MoveCoachUiState,
     modifier: Modifier = Modifier,
     onRetry: (() -> Unit)? = null,
+    /**
+     * Defaults to white for the 3D branch, where the panel overlays the rendered board rather than
+     * a themed surface and no color-scheme role describes what is behind it. The 2D branch sits on
+     * `surface` and passes `onSurface` — left at the default there, the whole line is white on a
+     * near-white background.
+     */
+    contentColor: Color = Color.White,
 ) {
     if (state is MoveCoachUiState.Hidden) return
 
@@ -46,16 +53,22 @@ fun MoveCoachPanel(
     val presentation = (state as? MoveCoachUiState.Fallback)?.let {
         FallbackPresentation.of(it.reason)
     }
-    val label: String? = when (presentation) {
-        is FallbackPresentation.Labeled -> presentation.label
-        is FallbackPresentation.Retryable -> presentation.label
-        FallbackPresentation.Silent, null -> null
+    val label: String? = when (state) {
+        is MoveCoachUiState.Ready -> state.explanation.headline
+        is MoveCoachUiState.Streaming -> state.headline
+        is MoveCoachUiState.Loading -> state.headline
+        is MoveCoachUiState.Fallback -> when (presentation) {
+            is FallbackPresentation.Labeled -> presentation.label
+            is FallbackPresentation.Retryable -> presentation.label
+            else -> null
+        }
+        else -> null
     }
 
     val text: String = when (state) {
         is MoveCoachUiState.Ready -> state.explanation.explanation
-        is MoveCoachUiState.Streaming -> state.text.ifBlank { "Generating…" }
-        is MoveCoachUiState.Loading -> stringResource(Res.string.move_coach_loading, state.move)
+        is MoveCoachUiState.Streaming -> state.text.ifBlank { state.explanation }
+        is MoveCoachUiState.Loading -> state.explanation
         is MoveCoachUiState.LoadingModel -> state.message
         is MoveCoachUiState.Fallback -> state.text
         is MoveCoachUiState.Error -> state.message
@@ -94,6 +107,11 @@ fun MoveCoachPanel(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            // Bounds this scroll's own height. The 2D branch of GameScreen hosts the panel inside a
+            // verticalScroll Column, which hands children an infinite max height — and a scrollable
+            // measured with one throws rather than degrading, so 2D plus any visible coach line
+            // crashed on launch.
+            .heightIn(max = 180.dp)
             .verticalScroll(scrollState)
             .testTag("move_coach_panel")
             .padding(horizontal = 12.dp, vertical = 4.dp),
@@ -111,14 +129,14 @@ fun MoveCoachPanel(
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.7f),
+                    color = contentColor.copy(alpha = 0.7f),
                     modifier = Modifier.testTag("move_coach_fallback_label"),
                 )
             }
             Text(
                 text = text,
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.White,
+                color = contentColor,
             )
 
             // Determinate only when the runtime can say how far along it is: Cactus reports a
@@ -140,9 +158,9 @@ fun MoveCoachPanel(
                 Spacer(modifier = Modifier.size(4.dp))
                 com.example.myapplication.ui.ProvenanceBadge(
                     route = route,
-                    // This panel paints its own white-on-dark palette; the badge's default
-                    // onSurfaceVariant would not match it.
-                    color = Color.White,
+                    // The badge's default onSurfaceVariant is a surface role; this panel may be
+                    // overlaying the 3D board instead, so it follows the panel's own color.
+                    color = contentColor,
                     modifier = Modifier.testTag("move_coach_provenance")
                 )
             }

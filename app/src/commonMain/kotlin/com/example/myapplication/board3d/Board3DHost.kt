@@ -33,6 +33,7 @@ fun Board3D(
     cameraSession: Board3DSessionState = remember { Board3DSessionState() },
     onRendererReady: () -> Unit = {},
     selectedSquare: BoardSquare? = null,
+    highlightedSquares: List<BoardSquare> = emptyList(),
     onSquareTapped: (BoardSquare) -> Unit = {},
 ) {
     var renderer by remember { mutableStateOf<Chess3DBoardRenderer?>(null) }
@@ -78,6 +79,14 @@ fun Board3D(
             currentRenderer.updatePosition(fen, transition)
         }
         LaunchedEffect(currentRenderer, selectedSquare) { currentRenderer.setSelectedSquare(selectedSquare) }
+        // Capped here rather than in the backends: each slot is a fixed, eagerly-created instance of
+        // chess.glb, so the pool is a hard limit. Truncating at the boundary keeps the drop explicit
+        // instead of leaving four renderers to silently ignore the overflow.
+        LaunchedEffect(currentRenderer, highlightedSquares) {
+            currentRenderer.setHighlightedSquares(
+                highlightedSquares.take(ChessSetConventions.MAX_HIGHLIGHTS),
+            )
+        }
 
         // Closed briefly after each renderer creation to swallow SceneView's one-shot
         // surface-creation pinch (see SPURIOUS_ZOOM_GUARD_MS); zoom only — orbit/pan stay live.

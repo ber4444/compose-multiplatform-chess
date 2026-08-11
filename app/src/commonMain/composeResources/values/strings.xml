@@ -14,7 +14,6 @@
     <string name="board_3d_toggle_label">3D</string>
     <string name="board_3d_unavailable">3D renderer failed to initialize</string>
     <string name="move_coach_title">Move Coach</string>
-    <string name="move_coach_loading">Coach is thinking about %1$s…</string>
     <string name="move_coach_loading_model">Local model loading… %1$s</string>
     <string name="move_coach_unavailable">Move Coach unavailable</string>
     <string name="move_coach_unavailable_hint">Move Coach unavailable: %1$s</string>
