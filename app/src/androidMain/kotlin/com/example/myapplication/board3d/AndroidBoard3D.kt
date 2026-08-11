@@ -259,6 +259,9 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                 val instance = modelInstances.getOrNull(MAX_PIECES + 1 + i)
                 if (instance != null) {
                     val center = highlight?.let { BoardGeometry.squareCenter(it.square) }
+                    val nodeState = remember {
+                        androidx.compose.runtime.mutableStateOf<io.github.sceneview.node.ModelNode?>(null)
+                    }
                     ModelNode(
                         modelInstance = instance,
                         // chess.glb's `Plane` node carried a baked local translation (the only node in
@@ -268,24 +271,33 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                         position = Float3(center?.x ?: 0f, HIGHLIGHT_LIFT_Y, center?.z ?: 0f),
                         scale = Float3(PIECE_SCALE, PIECE_SCALE, PIECE_SCALE),
                         isVisible = highlight != null,
-                        // No material work here, by design: the GLB carries one quad per
-                        // HighlightTone and the tone picks which node to show. Recolouring a single
-                        // quad at runtime looks simpler and does not work — the blue is the
-                        // material's `emissiveFactor`, not `baseColorFactor`, and its ubershader
-                        // name moves between Filament versions. See ChessSetConventions.
-                        apply = {
-                            val wanted = ChessSetConventions.highlightNodeName(
-                                (highlight?.tone ?: HighlightTone.NEUTRAL).ordinal
-                            )
-                            renderableNodes.forEach { rn ->
-                                rn.isVisible = rn.name == wanted
-                                if (rn.isVisible) {
-                                    rn.isShadowCaster = false
-                                    rn.isShadowReceiver = false
-                                }
+                        // Only capture the node here. `apply` runs once, when SceneView creates the
+                        // node — fine for state that never changes, which is what this used to be
+                        // (it always showed the single "Highlight" child). The tone does change, so
+                        // choosing the child in here pinned every quad to whichever tone was current
+                        // at creation: null, i.e. NEUTRAL, i.e. blue for the rest of the session.
+                        // The piece pool above hit this first and solved it the same way.
+                        apply = { nodeState.value = this }
+                    ) {}
+
+                    // No material work, by design: the GLB carries one quad per HighlightTone and
+                    // the tone picks which child to show. Recolouring a single quad at runtime looks
+                    // simpler and does not work — the colour is the material's `emissiveFactor`, not
+                    // `baseColorFactor`, and its ubershader name moves between Filament versions.
+                    // See ChessSetConventions.
+                    val wantedNode = ChessSetConventions.highlightNodeName(
+                        (highlight?.tone ?: HighlightTone.NEUTRAL).ordinal
+                    )
+                    androidx.compose.runtime.LaunchedEffect(nodeState.value, wantedNode) {
+                        val node = nodeState.value ?: return@LaunchedEffect
+                        node.renderableNodes.forEach { rn ->
+                            rn.isVisible = rn.name == wantedNode
+                            if (rn.isVisible) {
+                                rn.isShadowCaster = false
+                                rn.isShadowReceiver = false
                             }
                         }
-                    ) {}
+                    }
                 }
             }
         }
