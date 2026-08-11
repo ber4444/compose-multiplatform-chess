@@ -97,9 +97,7 @@ import game.app.generated.resources.promotion_prompt
 import game.app.generated.resources.reset_button
 import game.app.generated.resources.accept_button
 import game.app.generated.resources.decline_button
-import game.app.generated.resources.draw_offer_declined
 import game.app.generated.resources.draw_offer_prompt
-import game.app.generated.resources.offer_draw_button
 import game.app.generated.resources.board_3d_unavailable
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -800,31 +798,32 @@ private fun GameControls(
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (transparentButtons) {
-                TransparentUnderlineButton(onClick = onResetGame) {
-                    Text(stringResource(Res.string.reset_button))
-                }
-                if (viewModel.engineAttached) {
-                    TransparentUnderlineButton(
-                        onClick = viewModel::requestHint,
-                        enabled = gameState.turn == viewModel.playerSide && gameState.winState == WinState.NONE && animState.pieceToAnimate == null,
-                        modifier = Modifier.testTag("hint_button")
-                    ) { Text("Hint") }
-                }
-                if (onToggleExplainMode != null) {
-                    TransparentUnderlineButton(
-                        onClick = onToggleExplainMode,
-                        modifier = Modifier.testTag("move_coach_explain_toggle")
-                    ) {
-                        Text(if (explainMode) "Cancel Explain" else "Explain")
-                    }
-                }
                 TransparentUnderlineButton(
-                    onClick = viewModel::requestDrawOffer,
-                    enabled = canOfferDraw(gameState, viewModel.playerSide) && animState.pieceToAnimate == null,
-                    modifier = Modifier.testTag("offer_draw_button")
-                ) { Text(stringResource(Res.string.offer_draw_button)) }
+                    onClick = onResetGame,
+                    modifier = Modifier.testTag("reset_button")
+                ) {
+                    Text(stringResource(Res.string.reset_button))
+                }
+                if (viewModel.engineAttached) {
+                    TransparentUnderlineButton(
+                        onClick = viewModel::requestHint,
+                        enabled = gameState.turn == viewModel.playerSide && gameState.winState == WinState.NONE && animState.pieceToAnimate == null,
+                        modifier = Modifier.testTag("hint_button")
+                    ) { Text("Hint") }
+                }
+                if (onToggleExplainMode != null) {
+                    TransparentUnderlineButton(
+                        onClick = onToggleExplainMode,
+                        modifier = Modifier.testTag("move_coach_explain_toggle")
+                    ) {
+                        Text(if (explainMode) "Cancel Explain" else "Explain")
+                    }
+                }
             } else {
-                Button(onClick = onResetGame) {
+                Button(
+                    onClick = onResetGame,
+                    modifier = Modifier.testTag("reset_button")
+                ) {
                     Text(stringResource(Res.string.reset_button))
                 }
                 if (viewModel.engineAttached) {
@@ -842,20 +841,7 @@ private fun GameControls(
                         Text(if (explainMode) "Cancel Explain" else "Explain")
                     }
                 }
-                Button(
-                    onClick = viewModel::requestDrawOffer,
-                    enabled = canOfferDraw(gameState, viewModel.playerSide) && animState.pieceToAnimate == null,
-                    modifier = Modifier.testTag("offer_draw_button")
-                ) { Text(stringResource(Res.string.offer_draw_button)) }
             }
-        }
-
-        if (gameState.drawOfferDeclinedBy == Set.BLACK) {
-            Text(
-                text = stringResource(Res.string.draw_offer_declined),
-                color = if (transparentButtons) Color.White else Color.Unspecified,
-                modifier = Modifier.testTag("draw_offer_declined_text")
-            )
         }
     }
 }

@@ -25,7 +25,7 @@ class GameScreenUiTest {
         onNodeWithTag("chess_board").assertExists()
         onNodeWithTag("board_square_WhitePiece_7_4", useUnmergedTree = true).assertExists() // white king e1
         onNodeWithTag("board_square_BlackPiece_0_4", useUnmergedTree = true).assertExists() // black king e8
-        onNodeWithTag("offer_draw_button").assertExists() // draw button
+        onNodeWithTag("reset_button").assertExists() // the one control present on every build
 
         viewModel.close()
     }
