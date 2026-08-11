@@ -301,4 +301,68 @@ class MoveCoachResponseValidatorTest {
         val fits = "Nf3 develops the knight."
         assertEquals(fits, MoveCoachResponseValidator.trimToBudget(fits, 300))
     }
+
+    // --- prompt echo (the fourth thing this model has copied out of its own context) -------------
+
+    @Test
+    fun `rejects the verbatim prompt echo observed on-device`() {
+        // Copied off the screen of a real game, both cases.
+        val withMotifs = MoveCoachResponseValidator.validate(
+            "The player just played hxg3. Engine assessment of that move: best. " +
+                "Tactical features detected: discovered attack, pin. " +
+                "Baseline explanation: \"It pins a good piece against a more valuable one.\"",
+            request.copy(
+                moveUci = "h4g3",
+                moveDisplay = "hxg3",
+                moveClassName = "BEST",
+                motifs = listOf("discovered-attack", "pin"),
+                deterministicExplanation = "It pins a good piece against a more valuable one.",
+            ),
+        )
+        val invalid = assertIs<MoveCoachResponseValidator.Result.Invalid>(withMotifs)
+        assertTrue(invalid.reason.startsWith("echoed the prompt"), invalid.reason)
+
+        val withoutMotifs = MoveCoachResponseValidator.validate(
+            "The player just played e3. Engine assessment of that move: best. " +
+                "Baseline explanation: \"The position stays roughly balanced.\"",
+            request.copy(
+                moveUci = "e2e3",
+                moveDisplay = "e3",
+                moveClassName = "BEST",
+                deterministicExplanation = "The position stays roughly balanced.",
+            ),
+        )
+        assertIs<MoveCoachResponseValidator.Result.Invalid>(withoutMotifs)
+    }
+
+    @Test
+    fun `a single echoed prompt line is enough to reject`() {
+        // The model does not have to copy the whole block to have answered with it.
+        val v = MoveCoachResponseValidator.validate(
+            "Engine assessment of that move: best. So the knight is well placed.",
+            request.copy(moveClassName = "BEST"),
+        )
+        assertIs<MoveCoachResponseValidator.Result.Invalid>(v)
+    }
+
+    @Test
+    fun `a real answer that happens to name the move is not an echo`() {
+        // The guard must not fire on ordinary prose. "Nf3" and "develops" appear in the prompt too.
+        val v = MoveCoachResponseValidator.validate(
+            "Nf3 develops the knight and takes aim at the centre.",
+            request.copy(moveClassName = "BEST", motifs = listOf("develops")),
+        )
+        assertIs<MoveCoachResponseValidator.Result.Valid>(v)
+    }
+
+    @Test
+    fun `restating the baseline explanation is weak but not an echo`() {
+        // The prompt line carries a "Baseline explanation:" label, so the fingerprints differ. A
+        // model that paraphrases the floor has answered badly, not copied.
+        val v = MoveCoachResponseValidator.validate(
+            request.deterministicExplanation,
+            request,
+        )
+        assertIs<MoveCoachResponseValidator.Result.Valid>(v)
+    }
 }

@@ -50,6 +50,9 @@ object MoveCoachResponseValidator {
         if (isEchoedScaffolding(dedupedText)) {
             return Result.Invalid("echoed a prompt example instead of describing the move")
         }
+        if (isEchoedPrompt(dedupedText, request)) {
+            return Result.Invalid("echoed the prompt instead of answering it")
+        }
         // Grounding check: accept if the response mentions the move (UCI squares,
         // display text) OR contains chess-relevant vocabulary (piece names,
         // tactical terms).
@@ -232,6 +235,43 @@ object MoveCoachResponseValidator {
         if (fingerprint.isEmpty()) return false
         return SCAFFOLDING_FINGERPRINTS.any { fingerprint.contains(it) }
     }
+
+    /**
+     * True if [text] reproduces a line of the prompt it was given.
+     *
+     * The third time this model has answered by copying the nearest text in its context: first the
+     * style examples, then the `Bad:` counter-example added to forbid them, then the JSON schema's
+     * placeholder strings. Each time the copied thing was removed and it moved on to the next. With
+     * all of those gone it started returning the *facts block* — verbatim, on-device:
+     *
+     *     The player just played hxg3. Engine assessment of that move: best. Tactical features
+     *     detected: discovered attack, pin. Baseline explanation: "It pins a good piece against a
+     *     more valuable one."
+     *
+     * [isEchoedScaffolding] did not catch it: that only knows the one filler sentence. Nothing
+     * checked the far more basic property the comment above it already claims — *never show the
+     * user the prompt back*.
+     *
+     * Lines are compared as fingerprints and derived from the builder, never hand-copied, so
+     * rephrasing the prompt cannot leave this matching a line that no longer exists. Short lines are
+     * skipped: a blank or a two-word line would match ordinary prose by accident.
+     *
+     * Note this cannot fire on an answer that merely reuses the *baseline explanation* — the prompt
+     * line carries its `Baseline explanation:` label, so the fingerprints differ. Returning the
+     * baseline in the model's own words is a weak answer, not an echo.
+     */
+    private fun isEchoedPrompt(text: String, request: MoveCoachRequest): Boolean {
+        val fingerprint = fingerprintOf(text)
+        if (fingerprint.isEmpty()) return false
+        return MoveCoachPromptBuilder.userPrompt(request)
+            .lineSequence()
+            .map(::fingerprintOf)
+            .filter { it.length >= MIN_ECHOED_LINE_CHARS }
+            .any { fingerprint.contains(it) }
+    }
+
+    /** Below this a prompt line is too short to distinguish an echo from a coincidence. */
+    private const val MIN_ECHOED_LINE_CHARS = 24
 
     private fun fingerprintOf(s: String): String =
         s.lowercase().filter { it.isLetterOrDigit() }
