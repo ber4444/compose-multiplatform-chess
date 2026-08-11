@@ -12,6 +12,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
+import androidx.benchmark.macro.FrameTimingMetric
+
 @RunWith(AndroidJUnit4::class)
 class IdlePowerBenchmark {
     @get:Rule
@@ -22,7 +24,10 @@ class IdlePowerBenchmark {
     fun benchmarkIdlePower() {
         benchmarkRule.measureRepeated(
             packageName = "io.github.ber4444.chess",
-            metrics = listOf(PowerMetric(PowerMetric.Type.Energy())),
+            metrics = listOf(
+                FrameTimingMetric(),
+                PowerMetric(PowerMetric.Type.Battery())
+            ),
             iterations = 5,
             startupMode = StartupMode.COLD,
             setupBlock = {
