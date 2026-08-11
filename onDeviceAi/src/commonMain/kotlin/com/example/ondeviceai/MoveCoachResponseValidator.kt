@@ -66,12 +66,50 @@ object MoveCoachResponseValidator {
         if (!mentionsMove && !mentionsChess) {
             return Result.Invalid("response is not grounded in the move or chess vocabulary")
         }
-        // Length check runs after deduplication so a verbatim sentence repeat (e.g. Gemini Nano)
-        // is deduplicated into a valid response rather than rejected for length.
-        if (dedupedText.length > MoveCoachPromptBuilder.MAX_OUTPUT_CHARS) {
-            return Result.Invalid("response exceeds ${MoveCoachPromptBuilder.MAX_OUTPUT_CHARS} chars")
+        // Length runs last, after deduplication, and **trims rather than rejects**.
+        //
+        // Every rule above is a quality judgement — an echoed example, an ungrounded answer and a
+        // forbidden phrase are all things the user must not see. Length is not: it is a layout
+        // constraint, the panel sits under a board on a phone. Rejecting on it threw away answers
+        // that were correct, grounded and about the right move for being a sentence too long, and
+        // handed the user the template instead. Measured on-device (gemma3-270m via Cactus): every
+        // coached move logged `Validation failed: response exceeds 300 chars` -> `coach fell back`,
+        // so the model was running, succeeding, and being discarded on all of them.
+        //
+        // This is the same defect the Rules Q&A grounding floor exists for, and the same fix: a
+        // usable answer is never downgraded to the fallback, it is degraded to what fits.
+        val fitted = trimToBudget(dedupedText, MoveCoachPromptBuilder.MAX_OUTPUT_CHARS)
+            ?: return Result.Invalid(
+                "no complete sentence fits in ${MoveCoachPromptBuilder.MAX_OUTPUT_CHARS} chars",
+            )
+        return Result.Valid(fitted)
+    }
+
+    /**
+     * The longest whole-sentence prefix of [text] that fits in [budget], or null if not even the
+     * first sentence does.
+     *
+     * Null means the model produced one unbroken run-on longer than the whole panel budget, which is
+     * degenerate output rather than a long answer — the deterministic line is genuinely better, so
+     * that is the one case that still rejects.
+     *
+     * Cuts a prefix of the original string instead of splitting and rejoining. [deduplicateSentences]
+     * documents why: a rejoin injects a space into "0.5" and "e.g.". For the same reason a period is
+     * only a boundary when it is followed by whitespace or ends the text, and never when it follows
+     * a digit — otherwise "1. e4" and "0.5" both read as sentence ends.
+     */
+    internal fun trimToBudget(text: String, budget: Int): String? {
+        if (text.length <= budget) return text
+        var cut = -1
+        for (i in 0 until minOf(text.length, budget)) {
+            val c = text[i]
+            if (c != '.' && c != '!' && c != '?') continue
+            if (c == '.' && i > 0 && text[i - 1].isDigit()) continue
+            if (i < text.lastIndex && !text[i + 1].isWhitespace()) continue
+            cut = i
         }
-        return Result.Valid(dedupedText)
+        if (cut < 0) return null
+        return text.substring(0, cut + 1).trim()
     }
 
     /**

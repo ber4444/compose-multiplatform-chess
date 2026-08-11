@@ -32,11 +32,15 @@ class MoveCoachResponseValidatorTest {
     }
 
     @Test
-    fun `rejects too-long response`() {
+    fun `rejects an over-long response with no sentence boundary to trim at`() {
+        // Was `rejects too-long response`, asserting "response exceeds ...". Length no longer
+        // rejects on its own — it trims (see the trimming tests below), because it is a layout
+        // constraint and not a quality judgement. This input still fails only because it is a single
+        // 300-character run-on: there is no whole sentence to keep.
         val long = "Nf3 " + "x".repeat(MoveCoachPromptBuilder.MAX_OUTPUT_CHARS)
         val v = MoveCoachResponseValidator.validate(long, request)
         assertIs<MoveCoachResponseValidator.Result.Invalid>(v)
-        assertTrue(v.reason.startsWith("response exceeds"))
+        assertTrue(v.reason.startsWith("no complete sentence fits"), v.reason)
     }
 
     @Test
@@ -258,5 +262,43 @@ class MoveCoachResponseValidatorTest {
         val v = MoveCoachResponseValidator.validate(text, request)
         assertIs<MoveCoachResponseValidator.Result.Valid>(v)
         assertEquals(text, v.text)
+    }
+
+    // --- length trims, it does not reject (measured: this was rejecting every on-device answer) ---
+
+    @Test
+    fun `an over-long but valid answer is trimmed to whole sentences rather than discarded`() {
+        // The logged production case: gemma3-270m answered well and ran past 300 chars, so the user
+        // got the template on every single move.
+        val long = "Nf3 develops the knight toward the centre. " +
+            "It eyes e5 and d4 and prepares to castle. ".repeat(6)
+        val result = MoveCoachResponseValidator.validate(long, request)
+
+        val valid = assertIs<MoveCoachResponseValidator.Result.Valid>(result)
+        assertTrue(valid.text.length <= MoveCoachPromptBuilder.MAX_OUTPUT_CHARS, "was ${valid.text.length}")
+        assertTrue(valid.text.startsWith("Nf3 develops the knight"), valid.text)
+        assertTrue(valid.text.endsWith("."), "must end on a sentence boundary: ${valid.text}")
+    }
+
+    @Test
+    fun `one unbroken run-on longer than the budget is still rejected`() {
+        // Not a long answer — degenerate output. The deterministic line is genuinely better.
+        val runOn = "the knight " + "and then and then ".repeat(40)
+        assertIs<MoveCoachResponseValidator.Result.Invalid>(
+            MoveCoachResponseValidator.validate(runOn, request),
+        )
+    }
+
+    @Test
+    fun `trimming does not cut inside a decimal or a move number`() {
+        // splitSentences' documented hazard: "0.5" and "1. e4" both look like sentence ends.
+        assertEquals("Up 0.5 pawns.", MoveCoachResponseValidator.trimToBudget("Up 0.5 pawns. More text here.", 14))
+        assertEquals(null, MoveCoachResponseValidator.trimToBudget("1. e4 is a fine opening move", 10))
+    }
+
+    @Test
+    fun `text already within budget is returned untouched`() {
+        val fits = "Nf3 develops the knight."
+        assertEquals(fits, MoveCoachResponseValidator.trimToBudget(fits, 300))
     }
 }
