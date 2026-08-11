@@ -64,9 +64,11 @@ fun MoveCoachPanel(
         is MoveCoachUiState.Streaming -> state.headline.takeUnless { verdictIsOnTheBoard }
         is MoveCoachUiState.Loading -> state.headline.takeUnless { verdictIsOnTheBoard }
         is MoveCoachUiState.Fallback -> when (presentation) {
+            // Quota and timeout outrank the headline: they tell the user something about what to do
+            // next, which the verdict does not.
             is FallbackPresentation.Labeled -> presentation.label
             is FallbackPresentation.Retryable -> presentation.label
-            else -> null
+            else -> state.headline.takeUnless { verdictIsOnTheBoard || it.isEmpty() }
         }
         else -> null
     }
@@ -146,6 +148,19 @@ fun MoveCoachPanel(
                 style = MaterialTheme.typography.bodySmall,
                 color = contentColor,
             )
+
+            // Debug builds name the reason, mirroring RulesQaScreen. Most fallbacks present as
+            // Silent — correct for a user, and it also means a device that never once reached the
+            // model looks identical to one that did. Without this the only way to tell "no model"
+            // from "the validator vetoed it" is a log line nobody is watching.
+            if (com.example.myapplication.LocalIsDebug.current && state is MoveCoachUiState.Fallback) {
+                Text(
+                    text = "fallback: ${state.reason.description}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = contentColor.copy(alpha = 0.6f),
+                    modifier = Modifier.testTag("move_coach_fallback_reason"),
+                )
+            }
 
             // Determinate only when the runtime can say how far along it is: Cactus reports a
             // fraction by watching the partial file grow, LiteRT-LM (desktop/wasm) reports none.

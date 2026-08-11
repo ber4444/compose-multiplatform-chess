@@ -108,11 +108,36 @@ class MoveCoachToneTest {
             manager.close()
         }
 
+    /**
+     * Waits for the *terminal* state. [MoveCoachUiState.Loading] is also `Toned`, so stopping at the
+     * first toned state raced the orchestrator and read the placeholder.
+     */
     private suspend fun waitForToned(manager: MoveCoachManager) {
         repeat(200) {
-            if (manager.coachUiState.value is MoveCoachUiState.Toned) return
+            val state = manager.coachUiState.value
+            if (state is MoveCoachUiState.Toned && state !is MoveCoachUiState.Loading) return
             kotlinx.coroutines.delay(10)
         }
-        assertTrue(false, "coach never produced a toned state: ${manager.coachUiState.value}")
+        assertTrue(false, "coach never produced a terminal toned state: ${manager.coachUiState.value}")
+    }
+
+    @Test
+    fun `a fallback does not repeat the verdict the board is already showing`() = runTest {
+        // The orchestrator concatenates "<headline> <explanation>". Left whole, the most common
+        // state in the app was the one state that still said "Best move — Qc2" next to a green Qc2.
+        val manager = manager(
+            MoveCoachResult.FellBack(
+                text = "Blunder — forks It attacks two pieces at once.",
+                reason = AiRoutePolicyDecider.FallbackReason.NoLocalModel,
+            ),
+        )
+        coach(blunder())
+        waitForToned(manager)
+
+        val state = manager.coachUiState.value as MoveCoachUiState.Fallback
+        assertEquals("It attacks two pieces at once.", state.text)
+        assertEquals("Blunder — forks", state.headline)
+        manager.close()
+        vm.close()
     }
 }

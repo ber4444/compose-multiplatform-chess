@@ -56,6 +56,15 @@ sealed interface MoveCoachUiState {
         val reason: com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason,
         override val tone: HighlightTone = HighlightTone.NEUTRAL,
         override val squares: List<String> = emptyList(),
+        /**
+         * Split out of [text] rather than left inside it.
+         *
+         * The orchestrator builds its fallback as `"$headline $explanation"`, so a fallback stated
+         * the verdict in prose no matter what the board was doing — "Best move — Qc2" sat beside a
+         * green Qc2. Every other state already separates the two; this lets the panel apply one
+         * rule to all of them instead of exempting the most common state in the app.
+         */
+        val headline: String = "",
     ) : MoveCoachUiState, Toned
     data class Error(val message: String) : MoveCoachUiState
 

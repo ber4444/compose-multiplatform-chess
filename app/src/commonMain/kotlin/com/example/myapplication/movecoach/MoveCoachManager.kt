@@ -245,11 +245,20 @@ class MoveCoachManager(
                             }
                             is MoveCoachResult.FellBack -> {
                                 logger.d { "coach fell back: ${result.reason}" }
+                                // The orchestrator hands back "<headline> <explanation>"; the panel
+                                // wants them apart so the headline obeys the same
+                                // don't-repeat-the-board rule as every other state.
+                                val sanitized = CitationSanitizer.sanitize(result.text)
                                 _coachUiState.value = MoveCoachUiState.Fallback(
-                                    CitationSanitizer.sanitize(result.text),
-                                    result.reason,
+                                    text = sanitized
+                                        .removePrefix(request.deterministicHeadline)
+                                        .trimStart(),
+                                    reason = result.reason,
                                     tone = tone,
                                     squares = squares,
+                                    headline = request.deterministicHeadline
+                                        .takeIf { sanitized.startsWith(it) }
+                                        .orEmpty(),
                                 )
                             }
                             is MoveCoachResult.Failed -> {
