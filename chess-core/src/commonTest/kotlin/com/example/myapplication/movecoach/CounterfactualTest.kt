@@ -30,7 +30,7 @@ class CounterfactualTest {
     ) = MoveRecord(
         uci = uci,
         san = san,
-        fenAfter = "",
+        fenAfter = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1",
         assessment = MoveAssessment(
             cpBefore = 0,
             cpPlayed = -80,
@@ -110,5 +110,34 @@ class CounterfactualTest {
         assertNull(SanConverter.sanForUci(start, "e7e5"), "black's move, white to move")
         assertNull(SanConverter.sanForUci(start, "a3a4"), "no piece on a3")
         assertNull(SanConverter.sanForUci(start, "zz"), "not a UCI move")
+    }
+
+    // --- a red board must not be paired with a congratulation ------------------------------------
+
+    private fun blunderThatAlsoWins(moveClass: MoveClass) = MoveRecord(
+        uci = "h5g6", san = "hxg6", fenAfter = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1",
+        assessment = MoveAssessment(
+            cpBefore = 0, cpPlayed = -400, cpBest = 0, cpLoss = 400,
+            moveClass = moveClass,
+            motifs = listOf("material-swing"),
+            motifDetails = mapOf("material-swing" to "It wins the pawn on g6."),
+            bestMoveUci = "g1f3", bestMoveSan = "Nf3",
+        ),
+    )
+
+    @Test
+    fun `a move the board paints red is not congratulated for winning material`() {
+        // Reported from a real game: a red square beside "It wins the pawn on g6." A move can win a
+        // pawn and lose the game, and the player learns nothing about what went wrong.
+        val explanation = DeterministicCoach.buildExplanation(blunderThatAlsoWins(MoveClass.BLUNDER))
+        assertTrue("wins the pawn" !in explanation, "congratulated a blunder: $explanation")
+        assertTrue("Nf3" in explanation, "should say what to have played instead: $explanation")
+    }
+
+    @Test
+    fun `the same motif still speaks on a move the board is not scolding`() {
+        // The rule is about contradiction, not about suppressing material-swing everywhere.
+        val explanation = DeterministicCoach.buildExplanation(blunderThatAlsoWins(MoveClass.BEST))
+        assertTrue("wins the pawn" in explanation, explanation)
     }
 }

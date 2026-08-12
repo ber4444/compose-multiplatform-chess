@@ -105,15 +105,15 @@ class MoveCoachPromptBuilderTest {
         val prompt = MoveCoachPromptBuilder.userPrompt(
             request.copy(
                 moveClassName = "BLUNDER",
-                centipawnLoss = 240,
+                winPercentLost = 20.0,
                 motifs = listOf("fork"),
             ),
         )
 
         assertTrue("Nf3" in prompt, prompt)
         assertTrue("blunder" in prompt, "the move class is lowercased into prose: $prompt")
-        // The magnitude, not the number: see centipawnCountNeverReachesThePrompt.
-        assertTrue("much weaker" in prompt, prompt)
+        // The magnitude, not the number: see winPercentNeverReachesThePrompt.
+        assertTrue("drops your winning chances" in prompt, prompt)
         assertTrue("fork" in prompt, prompt)
     }
 
@@ -124,17 +124,17 @@ class MoveCoachPromptBuilderTest {
         val prompt = MoveCoachPromptBuilder.userPrompt(request).lowercase()
 
         assertFalse("engine assessment" in prompt, prompt)
-        assertFalse("centipawns" in prompt, prompt)
+        assertFalse("winning chances" in prompt, prompt)
         assertFalse("tactical features" in prompt, prompt)
     }
 
     @Test
-    fun `a zero centipawn loss is not reported as a loss`() {
-        // BEST moves carry cpLoss = 0. "It gives up about 0 centipawns" invites the model to say
+    fun `a zero win percent loss is not reported as a loss`() {
+        // BEST moves carry winPercentLost = 0. "It gives up about 0 percent" invites the model to say
         // the move lost something.
-        val prompt = MoveCoachPromptBuilder.userPrompt(request.copy(centipawnLoss = 0)).lowercase()
+        val prompt = MoveCoachPromptBuilder.userPrompt(request.copy(winPercentLost = 0.0)).lowercase()
 
-        assertFalse("centipawns" in prompt, prompt)
+        assertFalse("winning chances" in prompt, prompt)
     }
 
     @Test
@@ -182,27 +182,20 @@ class MoveCoachPromptBuilderTest {
     }
 
     @Test
-    fun centipawnCountNeverReachesThePrompt() {
-        // "It gives up about 4 centipawns" came back from gemma3-270m as "It gave up about 4 cents",
-        // then as "it gives up less than four". The unit is jargon the model cannot represent and
-        // the reader cannot use, so only the magnitude is stated.
-        val prompt = MoveCoachPromptBuilder.userPrompt(request.copy(centipawnLoss = 4))
-        assertFalse(prompt.contains("centipawn", ignoreCase = true), prompt)
-        assertFalse(prompt.contains(" 4 "), prompt)
+    fun winPercentNeverReachesThePromptWhenFractional() {
+        // fractional numbers like 0.5% aren't useful, it's casted to int in the prompt builder
+        val prompt = MoveCoachPromptBuilder.userPrompt(request.copy(winPercentLost = 4.5))
+        assertTrue(prompt.contains(" 4%"), prompt)
+        assertFalse(prompt.contains(" 4.5"), prompt)
     }
 
     @Test
-    fun centipawnBandsFollowMoveClassThresholds() {
-        // Same 10/30/60/100/300 boundaries as MoveClass, so the phrase can never contradict the
-        // class stated one line above it.
-        assertNull(MoveCoachPromptBuilder.centipawnLossPhrase(null))
-        assertNull(MoveCoachPromptBuilder.centipawnLossPhrase(0))
-        assertNull(MoveCoachPromptBuilder.centipawnLossPhrase(9), "below noise floor: invents a fault")
-        assertEquals("a shade weaker", MoveCoachPromptBuilder.centipawnLossPhrase(10))
-        assertEquals("slightly weaker", MoveCoachPromptBuilder.centipawnLossPhrase(30))
-        assertEquals("clearly weaker", MoveCoachPromptBuilder.centipawnLossPhrase(60))
-        assertEquals("much weaker", MoveCoachPromptBuilder.centipawnLossPhrase(100))
-        assertEquals("far weaker", MoveCoachPromptBuilder.centipawnLossPhrase(300))
+    fun winPercentBandsFollowMoveClassThresholds() {
+        assertNull(MoveCoachPromptBuilder.winPercentLossPhrase(null))
+        assertNull(MoveCoachPromptBuilder.winPercentLossPhrase(0.0))
+        assertNull(MoveCoachPromptBuilder.winPercentLossPhrase(0.9), "below 1.0 floor: invents a fault")
+        assertEquals("It drops your winning chances by 10%", MoveCoachPromptBuilder.winPercentLossPhrase(10.0))
+        assertEquals("It drops your winning chances by 30%", MoveCoachPromptBuilder.winPercentLossPhrase(30.0))
     }
 
     @Test

@@ -36,9 +36,36 @@ object MoveCoachResponseValidator {
 
     fun validate(rawText: String, request: MoveCoachRequest): Result {
         val text = normalize(rawText)
-        if (text.isEmpty()) return Result.Invalid("empty response")
+        if (text.isEmpty()) {
+            // Distinguished because the two want opposite fixes and looked identical in the log:
+            // "empty response" sends you hunting for a broken generator, when the generator worked
+            // fine and simply ran out of budget mid-deliberation. See MAX_OUTPUT_TOKENS_STRICT.
+            val unterminatedThink = rawText.contains("<think>", ignoreCase = true) &&
+                !rawText.contains("</think>", ignoreCase = true)
+            return Result.Invalid(
+                if (unterminatedThink) "model spent its entire budget reasoning and never answered"
+                else "empty response",
+            )
+        }
         val dedupedText = deduplicateSentences(text)
-        val lower = dedupedText.lowercase()
+        
+        // Length runs first, after deduplication, and **trims rather than rejects**.
+        //
+        // Every rule below is a quality judgement — an echoed example, an ungrounded answer and a
+        // forbidden phrase are all things the user must not see. Length is not: it is a layout
+        // constraint, the panel sits under a board on a phone. Rejecting on it threw away answers
+        // that were correct, grounded and about the right move for being a sentence too long, and
+        // handed the user the template instead.
+        //
+        // Trimming must happen *before* quality checks, so that we validate exactly what the user
+        // will see. Otherwise, an answer might pass the `explains` check because of a concept word
+        // in a sentence that is subsequently trimmed away.
+        val fitted = trimToBudget(dedupedText, MoveCoachPromptBuilder.MAX_OUTPUT_CHARS)
+            ?: return Result.Invalid(
+                "no complete sentence fits in ${MoveCoachPromptBuilder.MAX_OUTPUT_CHARS} chars",
+            )
+
+        val lower = fitted.lowercase()
         FORBIDDEN_PHRASES.firstOrNull { lower.contains(it) }?.let { phrase ->
             return Result.Invalid("forbidden phrase: $phrase")
         }
@@ -47,45 +74,100 @@ object MoveCoachResponseValidator {
         // Rejecting here routes the orchestrator straight to the deterministic fallback (there is
         // no retry loop — a validation failure emits MoveCoachFallback immediately), which is
         // actually about *this* move. Never show the user the prompt back.
-        if (isEchoedScaffolding(dedupedText)) {
+        if (isEchoedScaffolding(fitted)) {
             return Result.Invalid("echoed a prompt example instead of describing the move")
         }
-        if (isEchoedPrompt(dedupedText, request)) {
+        if (isEchoedPrompt(fitted, request)) {
             return Result.Invalid("echoed the prompt instead of answering it")
         }
-        // Grounding check: accept if the response mentions the move (UCI squares,
-        // display text) OR contains chess-relevant vocabulary (piece names,
-        // tactical terms).
+        // Grounded *and* explanatory. Naming the move used to be enough on its own, so "You played
+        // Nf3." passed: grounded, short, not a forbidden phrase, not a verbatim prompt line — and
+        // worth nothing. That mattered little while the fallback was "The position stays roughly
+        // balanced.", and matters a lot now the fallback names the pieces involved, because an
+        // accepted restatement *replaces* a sentence that actually said something.
+        //
+        // So the bar is a concept, not a noun. Piece names and squares are the "what", which the
+        // user watched themselves play; only [CONCEPT_VOCAB] is the "why".
         val tokens = groundingTokens(request)
-        val chessVocab = listOf(
-            "knight", "bishop", "rook", "queen", "king", "pawn",
-            "develop", "center", "centre", "attack", "defend", "defends",
-            "control", "threat", "pressure", "castle", "promot",
-            "capture", "check", "space", "square", "file", "rank",
-            "pin", "fork", "skewer", "battery", "open", "block",
-        )
         val mentionsMove = tokens.any { lower.contains(it) }
-        val mentionsChess = chessVocab.any { lower.contains(it) }
-        if (!mentionsMove && !mentionsChess) {
+        val explains = CONCEPT_VOCAB.any { lower.contains(it) }
+        if (!mentionsMove && !explains) {
             return Result.Invalid("response is not grounded in the move or chess vocabulary")
         }
-        // Length runs last, after deduplication, and **trims rather than rejects**.
-        //
-        // Every rule above is a quality judgement — an echoed example, an ungrounded answer and a
-        // forbidden phrase are all things the user must not see. Length is not: it is a layout
-        // constraint, the panel sits under a board on a phone. Rejecting on it threw away answers
-        // that were correct, grounded and about the right move for being a sentence too long, and
-        // handed the user the template instead. Measured on-device (gemma3-270m via Cactus): every
-        // coached move logged `Validation failed: response exceeds 300 chars` -> `coach fell back`,
-        // so the model was running, succeeding, and being discarded on all of them.
-        //
-        // This is the same defect the Rules Q&A grounding floor exists for, and the same fix: a
-        // usable answer is never downgraded to the fallback, it is degraded to what fits.
-        val fitted = trimToBudget(dedupedText, MoveCoachPromptBuilder.MAX_OUTPUT_CHARS)
-            ?: return Result.Invalid(
-                "no complete sentence fits in ${MoveCoachPromptBuilder.MAX_OUTPUT_CHARS} chars",
-            )
+        if (!explains) {
+            return Result.Invalid("restates the move without explaining it")
+        }
+
+        val reasonFaithfulnessError = validateReasonFaithfulness(fitted, request)
+        if (reasonFaithfulnessError != null) {
+            return Result.Invalid(reasonFaithfulnessError)
+        }
+
+        val pieceTypeError = validatePieceType(fitted, request)
+        if (pieceTypeError != null) {
+            return Result.Invalid(pieceTypeError)
+        }
+
         return Result.Valid(fitted)
+    }
+
+    private fun containsWord(text: String, word: String): Boolean {
+        return text.lowercase().split(Regex("[^a-z0-9]+")).contains(word)
+    }
+
+    internal fun validateReasonFaithfulness(text: String, request: MoveCoachRequest): String? {
+        val moveLower = request.moveDisplay.lowercase()
+        val hasCheckFact = moveLower.contains("+") || moveLower.contains("#") || request.motifs.contains("check") || request.motifs.contains("checkmate")
+        val hasMateFact = moveLower.contains("#") || request.motifs.contains("checkmate")
+        val hasCaptureFact = moveLower.contains("x") || request.motifs.any { it in setOf("capture", "recapture", "material-swing", "hangs-piece") }
+
+        if (!hasMateFact && (containsWord(text, "mate") || containsWord(text, "checkmate"))) {
+            return "unsupported claim: mate"
+        }
+        if (!hasCheckFact && containsWord(text, "check")) {
+            return "unsupported claim: check"
+        }
+        if (!hasCaptureFact && (containsWord(text, "capture") || containsWord(text, "captures") || containsWord(text, "material") || containsWord(text, "takes") || containsWord(text, "take"))) {
+            return "unsupported claim: capture/material"
+        }
+
+        return null
+    }
+
+    internal fun validatePieceType(text: String, request: MoveCoachRequest): String? {
+        val allPieces = setOf("pawn", "pawns", "knight", "knights", "bishop", "bishops", "rook", "rooks", "queen", "queens", "king", "kings")
+        val allowed = mutableSetOf<String>()
+
+        fun addAllowed(moveStr: String) {
+            val clean = moveStr.trim()
+            if (clean.startsWith("O-O")) {
+                allowed.addAll(listOf("king", "kings", "rook", "rooks"))
+                return
+            }
+            val first = clean.firstOrNull { it.isLetter() }
+            when (first) {
+                'K' -> allowed.addAll(listOf("king", "kings"))
+                'Q' -> allowed.addAll(listOf("queen", "queens"))
+                'R' -> allowed.addAll(listOf("rook", "rooks"))
+                'B' -> allowed.addAll(listOf("bishop", "bishops"))
+                'N' -> allowed.addAll(listOf("knight", "knights"))
+                in 'a'..'h' -> allowed.addAll(listOf("pawn", "pawns"))
+            }
+            if (clean.contains("=Q")) allowed.addAll(listOf("queen", "queens"))
+            if (clean.contains("=R")) allowed.addAll(listOf("rook", "rooks"))
+            if (clean.contains("=B")) allowed.addAll(listOf("bishop", "bishops"))
+            if (clean.contains("=N")) allowed.addAll(listOf("knight", "knights"))
+        }
+
+        addAllowed(request.moveDisplay)
+        request.betterMoveDisplay?.takeIf { it.isNotBlank() }?.let { addAllowed(it) }
+
+        for (piece in allPieces) {
+            if (piece !in allowed && containsWord(text, piece)) {
+                return "named a piece other than the one moved: $piece"
+            }
+        }
+        return null
     }
 
     /**
@@ -114,6 +196,26 @@ object MoveCoachResponseValidator {
         if (cut < 0) return null
         return text.substring(0, cut + 1).trim()
     }
+
+    /**
+     * Words that carry an *explanation*, as opposed to naming what moved where.
+     *
+     * Deliberately excludes piece names and the bare positional nouns ("square", "file", "rank"):
+     * "You played the knight to f3" contains a piece name and still tells the reader nothing they
+     * did not just do themselves. Every entry here asserts something about the position.
+     *
+     * Erring toward rejection is correct while the fallback is the better writer. A model that
+     * cannot clear this bar has not earned the panel, and `DeterministicCoach` will say something
+     * specific in its place.
+     */
+    internal val CONCEPT_VOCAB = listOf(
+        "develop", "center", "centre", "attack", "defend", "defence", "defense",
+        "control", "threat", "pressure", "castle", "promot", "capture", "check",
+        "space", "pin", "fork", "skewer", "battery", "open", "block", "trade",
+        "material", "tempo", "safe", "weak", "strong", "activ", "cover", "support",
+        "undefended", "hanging", "outpost", "initiative", "solid", "positional",
+        "win", "chance", "better"
+    )
 
     /**
      * Splits sentences character-by-character without regex lookbehinds for KMP / JS IR compatibility.
@@ -165,7 +267,8 @@ object MoveCoachResponseValidator {
      * so behavior is identical on every JVM/JS/Wasm/Native/Android runtime (and can't hit the ICU-vs-JVM regex divergence).
      */
     internal fun normalize(rawText: String): String {
-        val filteredLines = rawText.lineSequence()
+        val cleanedText = stripThinkBlocks(rawText)
+        val filteredLines = cleanedText.lineSequence()
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .map { unwrapQuotes(stripFewShotLabel(it)) }
@@ -174,6 +277,22 @@ object MoveCoachResponseValidator {
             .trim()
         
         return stripConversationalFiller(filteredLines)
+    }
+
+    private fun stripThinkBlocks(text: String): String {
+        var result = text
+        while (true) {
+            val start = result.indexOf("<think>", ignoreCase = true)
+            if (start == -1) break
+            val end = result.indexOf("</think>", startIndex = start, ignoreCase = true)
+            if (end != -1) {
+                result = result.substring(0, start) + result.substring(end + 8)
+            } else {
+                result = result.substring(0, start)
+                break
+            }
+        }
+        return result
     }
 
     /**
@@ -271,7 +390,7 @@ object MoveCoachResponseValidator {
     }
 
     /** Below this a prompt line is too short to distinguish an echo from a coincidence. */
-    private const val MIN_ECHOED_LINE_CHARS = 24
+    private const val MIN_ECHOED_LINE_CHARS = 20
 
     private fun fingerprintOf(s: String): String =
         s.lowercase().filter { it.isLetterOrDigit() }

@@ -54,13 +54,14 @@ internal object GameSummaryPromptBuilder {
             } else null
         }
 
-        // Rank by cpLoss descending, take top 3
-        val topMistakes = playerMoves.sortedByDescending { it.second.assessment!!.cpLoss }.take(3)
+        // Rank by winPercentLost descending, take top 3
+        val topMistakes = playerMoves.sortedByDescending { it.second.assessment!!.winPercentLost(playerSide) }.take(3)
 
         return topMistakes.sortedBy { it.first }.map { (ply, record) ->
             val assessment = record.assessment!!
-            val intuition = mapToIntuition(assessment)
-            "[move-$ply]: You played ${record.san}. This was a ${assessment.moveClass.name.lowercase()}. $intuition"
+            val intuition = mapToIntuition(assessment, playerSide)
+            val better = assessment.bestMoveSan?.takeIf { it.isNotBlank() }?.let { " The engine preferred $it." } ?: ""
+            "[move-$ply]: You played ${record.san}. This was a ${assessment.moveClass.name.lowercase()}.$better $intuition"
         }
     }
 
@@ -77,14 +78,14 @@ internal object GameSummaryPromptBuilder {
         MotifDetector.DISCOVERED_ATTACK,
     )
 
-    private fun mapToIntuition(assessment: MoveAssessment): String {
+    private fun mapToIntuition(assessment: MoveAssessment, playerSide: Set): String {
         if (assessment.motifs.any { it in TACTICAL_MOTIFS }) {
             return "You missed a tactical sequence or allowed a tactic."
         }
         
-        if (assessment.cpLoss > 300) {
+        if (assessment.winPercentLost(playerSide) > 20.0) {
             return "This move lost significant material or allowed a forced mate."
-        } else if (assessment.cpLoss > 100) {
+        } else if (assessment.winPercentLost(playerSide) > 10.0) {
             return "This move gave up a significant positional or material advantage."
         }
         return "This move was slightly inaccurate."

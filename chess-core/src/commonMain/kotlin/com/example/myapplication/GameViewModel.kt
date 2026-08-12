@@ -620,7 +620,7 @@ class GameViewModel(
                 ?.let { UciMoveConverter.parseUciMove(it.uci).second },
         )
 
-        val assessment = MoveAssessor.assessMove(
+        val baseAssessment = MoveAssessor.assessMove(
             cpBefore = cpBest, // By definition, eval of board before move is the eval of the best move
             cpPlayed = cpPlayed,
             cpBest = cpBest,
@@ -634,6 +634,39 @@ class GameViewModel(
                 ?.takeIf { it != playerRecord.uci }
                 ?.let { SanConverter.sanForUci(stateBeforeObj, it) },
         )
+        
+        val assessment = if (bestMoveResult != null && bestMoveResult.uci != playerRecord.uci && bestMoveResult.uci.length >= 4) {
+            val uci = bestMoveResult.uci
+            val (bestFrom, bestTo) = runCatching { UciMoveConverter.parseUciMove(uci) }.getOrNull() ?: Pair(INVALID_POSITION, INVALID_POSITION)
+            if (bestFrom != INVALID_POSITION && bestTo != INVALID_POSITION) {
+                val allyPositions = if (movingSide == Set.WHITE) stateBeforeObj.positionsWhite else stateBeforeObj.positionsBlack
+                val bPieceIndex = allyPositions.indexOf(bestFrom).takeIf { it >= 0 }
+                if (bPieceIndex != null) {
+                    val bestPromoted = uci.length > 4
+                    val bestPromotion = if (bestPromoted) PromotionType.entries.firstOrNull { it.uciChar == uci[4] } else null
+                    val stateAfterBest = runCatching { applyMove(stateBeforeObj, bPieceIndex, bestTo, bestPromotion) }.getOrNull()
+                    if (stateAfterBest != null) {
+                        val bestDetected = MotifDetector.detectDetailed(
+                            stateBefore = stateBeforeObj,
+                            stateAfter = stateAfterBest,
+                            movingSide = movingSide,
+                            toSquare = bestTo,
+                            fromSquare = bestFrom,
+                            promoted = bestPromoted,
+                            previousToSquare = history.getOrNull(targetIndex - 1)?.let {
+                                runCatching { UciMoveConverter.parseUciMove(it.uci).second }.getOrNull()
+                            }
+                        )
+                        baseAssessment.copy(
+                            bestMoveMotifs = bestDetected.motifs,
+                            bestMoveMotifDetails = bestDetected.details
+                        )
+                    } else baseAssessment
+                } else baseAssessment
+            } else baseAssessment
+        } else {
+            baseAssessment
+        }
 
         // Update history safely
         val currentHistory = _gameState.value.moveHistory.toMutableList()

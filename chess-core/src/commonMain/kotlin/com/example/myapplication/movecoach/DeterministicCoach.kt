@@ -1,8 +1,10 @@
 package com.example.myapplication.movecoach
 
+import com.example.myapplication.MoveAssessment
 import com.example.myapplication.MoveRecord
 import com.example.myapplication.MoveClass
 import com.example.myapplication.MotifDetector
+import com.example.myapplication.Set
 import kotlin.math.abs
 
 object DeterministicCoach {
@@ -40,6 +42,35 @@ object DeterministicCoach {
      * happens to be first, which is how "Best move — develops a piece | It fights for the center."
      * (a line disagreeing with itself) appeared. Unknown motifs sort last rather than first.
      */
+    /**
+     * Motifs on a mistake that are still worth saying — i.e. the ones that explain the *damage*.
+     *
+     * A move can win a pawn and lose the game. The panel showed "It wins the pawn on g6." beside a
+     * **red** square, which is the same contradiction as praising a move the board is scolding: the
+     * colour says you erred and the sentence congratulates you, and the reader learns nothing about
+     * what went wrong. Reported from a real game.
+     *
+     * So once the engine says the move cost something, only the motifs that describe a cost may
+     * speak. Everything else falls through to the evaluation sentence and the counterfactual, which
+     * are about the mistake and are what the player actually needs. On a move the board is not
+     * scolding, every motif is fair game.
+     */
+    private fun explanatoryMotifs(assessment: MoveAssessment): List<String> = when (assessment.moveClass) {
+        MoveClass.BEST, MoveClass.EXCELLENT, MoveClass.GOOD, MoveClass.BOOK -> assessment.motifs
+        MoveClass.INACCURACY, MoveClass.MISTAKE, MoveClass.BLUNDER ->
+            assessment.motifs.filter { it in COSTLY_MOTIFS }
+    }
+
+    /** The motifs that describe something going wrong, rather than something going right. */
+    private val COSTLY_MOTIFS = setOf(MotifDetector.HANGS_PIECE)
+
+    /**
+     * Who moved, from the FEN after the move — `getOrNull` because a record may carry no FEN at all.
+     * Only a fallback; prefer passing the side explicitly.
+     */
+    private fun MoveRecord.inferMoverSide(): Set =
+        if (fenAfter.split(" ").getOrNull(1) == "w") Set.BLACK else Set.WHITE
+
     private fun byPriority(motifs: List<String>): List<String> =
         motifs.sortedBy { motif ->
             MotifDetector.ALL_MOTIFS.indexOf(motif).let { if (it < 0) Int.MAX_VALUE else it }
@@ -123,7 +154,20 @@ object DeterministicCoach {
         }
     }
 
-    fun buildExplanation(record: MoveRecord): String {
+    /**
+     * [playerSide] is passed in, not inferred.
+     *
+     * It used to be read off `fenAfter`'s side-to-move field, which crashed with
+     * `IndexOutOfBoundsException` the moment a record carried a blank or malformed FEN — and every
+     * `MoveRecord` built in a test does. It was also only *accidentally* right: that field says who
+     * moves next, which is the mover's opponent, and equals the player only because the coach
+     * happens to run on player moves. `MoveCoachManager` has `gameViewModel.playerSide` and can
+     * simply say so.
+     *
+     * The default keeps the old inference for callers that have no side to give, but reads the FEN
+     * defensively so a missing field degrades to White instead of throwing.
+     */
+    fun buildExplanation(record: MoveRecord, playerSide: Set = record.inferMoverSide()): String {
         val assessment = record.assessment
         if (assessment == null) {
             return "It is a standard choice for this position."
@@ -131,13 +175,15 @@ object DeterministicCoach {
 
         // The specific sentence wins over the definition: "Your bishop on b5 pins the knight on c6
         // against the queen on d8." rather than "It pins an enemy piece against a more valuable one."
-        val reason = byPriority(assessment.motifs)
+        val reason = byPriority(explanatoryMotifs(assessment))
             .firstNotNullOfOrNull { assessment.motifDetails[it] ?: MOTIF_EXPLANATIONS[it] }
             ?: run {
-                val eval = assessment.cpPlayed
-                val who = if (eval > 50) "White" else if (eval < -50) "Black" else "Neither side"
-                if (abs(eval) > 50) "$who is measurably better after this move."
-                else "The position stays roughly balanced."
+                val winLost = assessment.winPercentLost(playerSide)
+                if (winLost >= 1.0) {
+                    "It drops your winning chances by ${winLost.toInt()}%."
+                } else {
+                    "It is a solid, positional move."
+                }
             }
 
         // No "You played <move>." prefix: the user just played it, the headline names it, and the
@@ -180,9 +226,24 @@ object DeterministicCoach {
             // once the move actually cost something — which is exactly when the board stops being
             // green, so the sentence and the colour now say the same thing.
             MoveClass.BEST, MoveClass.EXCELLENT, MoveClass.GOOD, MoveClass.BOOK -> null
-            MoveClass.INACCURACY -> "$better was stronger."
-            MoveClass.MISTAKE -> "$better was much stronger."
-            MoveClass.BLUNDER -> "$better would have been far better."
+            MoveClass.INACCURACY, MoveClass.MISTAKE, MoveClass.BLUNDER -> {
+                val bestMotifText = byPriority(assessment.bestMoveMotifs)
+                    .firstNotNullOfOrNull { assessment.bestMoveMotifDetails[it] ?: MOTIF_EXPLANATIONS[it] }
+
+                val suffix = if (bestMotifText != null) {
+                    val lower = bestMotifText.replaceFirstChar { it.lowercase() }
+                    " — ${lower.trimEnd('.')}"
+                } else ""
+
+                val base = when (assessment.moveClass) {
+                    MoveClass.INACCURACY -> "$better was stronger"
+                    MoveClass.MISTAKE -> "$better was much stronger"
+                    MoveClass.BLUNDER -> "$better would have been far better"
+                    else -> "" // Unreachable due to the outer when, but required by compiler if exhaustive check is weird
+                }
+
+                "$base$suffix."
+            }
         }
     }
 }

@@ -37,7 +37,9 @@ class MoveCoachResponseValidatorTest {
         // rejects on its own — it trims (see the trimming tests below), because it is a layout
         // constraint and not a quality judgement. This input still fails only because it is a single
         // 300-character run-on: there is no whole sentence to keep.
-        val long = "Nf3 " + "x".repeat(MoveCoachPromptBuilder.MAX_OUTPUT_CHARS)
+        // Carries a concept word so it reaches the length rule; without one it is now rejected
+        // earlier, as a restatement, and this case would stop testing what it is named for.
+        val long = "Nf3 develops " + "x".repeat(MoveCoachPromptBuilder.MAX_OUTPUT_CHARS)
         val v = MoveCoachResponseValidator.validate(long, request)
         assertIs<MoveCoachResponseValidator.Result.Invalid>(v)
         assertTrue(v.reason.startsWith("no complete sentence fits"), v.reason)
@@ -197,6 +199,22 @@ class MoveCoachResponseValidatorTest {
     }
 
     @Test
+    fun `strips think blocks from the response`() {
+        assertEquals(
+            "Nf3 develops a piece toward the center.",
+            MoveCoachResponseValidator.normalize("<think>Let me see. The user played Nf3.</think>Nf3 develops a piece toward the center."),
+        )
+    }
+
+    @Test
+    fun `strips unclosed think blocks from the response`() {
+        assertEquals(
+            "",
+            MoveCoachResponseValidator.normalize("<think>Let me see. The user played Nf3."),
+        )
+    }
+
+    @Test
     fun `strips a preamble that ends in a colon`() {
         assertEquals(
             "Nf3 develops a piece toward the center.",
@@ -258,8 +276,8 @@ class MoveCoachResponseValidatorTest {
     fun `leaves a decimal intact when nothing is duplicated`() {
         // splitSentences breaks on every '.', so a naive split/rejoin would emit "up 0. 5 pawns".
         // Non-duplicated text must come back byte-identical.
-        val text = "Nf3 develops the knight and leaves you up 0.5 pawns. Keep the initiative."
-        val v = MoveCoachResponseValidator.validate(text, request)
+        val text = "e4 develops the pawn and leaves you up 0.5 pawns. Keep the initiative."
+        val v = MoveCoachResponseValidator.validate(text, request.copy(moveDisplay = "e4"))
         assertIs<MoveCoachResponseValidator.Result.Valid>(v)
         assertEquals(text, v.text)
     }
@@ -349,7 +367,7 @@ class MoveCoachResponseValidatorTest {
     fun `a real answer that happens to name the move is not an echo`() {
         // The guard must not fire on ordinary prose. "Nf3" and "develops" appear in the prompt too.
         val v = MoveCoachResponseValidator.validate(
-            "Nf3 develops the knight and takes aim at the centre.",
+            "Nf3 develops the knight and points at the centre.",
             request.copy(moveClassName = "BEST", motifs = listOf("develops")),
         )
         assertIs<MoveCoachResponseValidator.Result.Valid>(v)
@@ -364,5 +382,48 @@ class MoveCoachResponseValidatorTest {
             request,
         )
         assertIs<MoveCoachResponseValidator.Result.Valid>(v)
+    }
+
+    // --- restatement: grounded, short, and worth nothing -----------------------------------------
+
+    @Test
+    fun `rejects a restatement of the move`() {
+        // Reported on-device once the length rule stopped discarding everything: gemma3-270m answers
+        // by naming the move back. Grounded, brief, not a forbidden phrase and not a verbatim prompt
+        // line — so it passed, and an accepted restatement *replaces* a deterministic sentence that
+        // names the pieces involved. Being wordy about nothing is worse than the template.
+        for (restatement in listOf(
+            "You played Nf3.",
+            "The move is Nf3.",
+            "Nf3.",
+            "The player moved the knight to f3.",
+        )) {
+            val v = MoveCoachResponseValidator.validate(restatement, request)
+            val invalid = assertIs<MoveCoachResponseValidator.Result.Invalid>(v, restatement)
+            assertTrue(invalid.reason.startsWith("restates the move"), "$restatement -> ${invalid.reason}")
+        }
+    }
+
+    @Test
+    fun `a piece name alone is not an explanation`() {
+        // "knight" was in the accepted vocabulary, so naming the piece counted as chess content.
+        val v = MoveCoachResponseValidator.validate("This knight move is fine.", request)
+        assertIs<MoveCoachResponseValidator.Result.Invalid>(v)
+    }
+
+    @Test
+    fun `keeps an answer that says why`() {
+        // The bar must not reject real explanations; each of these clears it on one concept word.
+        val requestsAndText = listOf(
+            request to "Nf3 develops the knight.",
+            request to "It covers e5 and keeps the centre.",
+            request.copy(moveDisplay = "Bc4") to "That leaves the bishop undefended.",
+            request.copy(moveDisplay = "Nf3+", motifs = listOf("check")) to "It gives check.",
+        )
+        for ((req, good) in requestsAndText) {
+            assertIs<MoveCoachResponseValidator.Result.Valid>(
+                MoveCoachResponseValidator.validate(good, req), good,
+            )
+        }
     }
 }

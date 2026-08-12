@@ -34,7 +34,13 @@ data class MoveAssessment(
      * deserialize.
      */
     val motifDetails: Map<String, String> = emptyMap(),
-)
+    val bestMoveMotifs: List<String> = emptyList(),
+    val bestMoveMotifDetails: Map<String, String> = emptyMap(),
+) {
+    fun winPercentBefore(playerSide: Set): Double = UciEvaluation.winPercent(if (playerSide == Set.WHITE) cpBefore else -cpBefore)
+    fun winPercentAfter(playerSide: Set): Double = UciEvaluation.winPercent(if (playerSide == Set.WHITE) cpPlayed else -cpPlayed)
+    fun winPercentLost(playerSide: Set): Double = winPercentBefore(playerSide) - winPercentAfter(playerSide)
+}
 
 @Serializable
 enum class MoveClass {

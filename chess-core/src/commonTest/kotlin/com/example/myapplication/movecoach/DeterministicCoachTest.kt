@@ -22,7 +22,7 @@ class DeterministicCoachTest {
         san: String = "Nf3",
         uci: String = "g1f3",
         assessment: MoveAssessment? = null,
-    ) = MoveRecord(uci = uci, san = san, fenAfter = "", assessment = assessment)
+    ) = MoveRecord(uci = uci, san = san, fenAfter = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1", assessment = assessment)
 
     private fun assessment(
         moveClass: MoveClass = MoveClass.GOOD,
@@ -114,16 +114,22 @@ class DeterministicCoachTest {
     }
 
     @Test
-    fun `explanation falls back to the evaluation when no motif matches`() {
-        val white = DeterministicCoach.buildExplanation(
-            record(assessment = assessment(cpPlayed = 300)),
+    fun `explanation falls back to win probability or positional claim when no motif matches`() {
+        val blunder = DeterministicCoach.buildExplanation(
+            record(assessment = MoveAssessment(
+                cpBefore = 300, cpPlayed = 0, cpBest = 300, cpLoss = 300,
+                moveClass = MoveClass.BLUNDER, motifs = emptyList()
+            )),
         )
-        assertTrue("White is measurably better" in white, white)
+        assertTrue("drops your winning chances by" in blunder, blunder)
 
-        val balanced = DeterministicCoach.buildExplanation(
-            record(assessment = assessment(cpPlayed = 10)),
+        val solid = DeterministicCoach.buildExplanation(
+            record(assessment = MoveAssessment(
+                cpBefore = 0, cpPlayed = 0, cpBest = 0, cpLoss = 0,
+                moveClass = MoveClass.GOOD, motifs = emptyList()
+            )),
         )
-        assertTrue("roughly balanced" in balanced, balanced)
+        assertTrue("solid, positional move" in solid, solid)
     }
 
     @Test

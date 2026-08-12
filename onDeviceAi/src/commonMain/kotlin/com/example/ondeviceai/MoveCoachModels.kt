@@ -27,7 +27,7 @@ data class MoveCoachRequest(
      */
     val moveClassName: String? = null,
     val motifs: List<String> = emptyList(),
-    val centipawnLoss: Int? = null,
+    val winPercentLost: Double? = null,
     /**
      * The move the engine preferred, in SAN, when it differs from the one played. The single most
      * useful fact the coach has — everything else describes a move the user can already see.

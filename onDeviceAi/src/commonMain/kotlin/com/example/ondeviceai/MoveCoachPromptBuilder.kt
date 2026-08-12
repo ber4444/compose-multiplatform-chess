@@ -34,29 +34,11 @@ object MoveCoachPromptBuilder {
     }
 
     /**
-     * A centipawn loss as words, or null when there is nothing worth saying.
-     *
-     * The raw number must not reach the prompt. "It gives up about 4 centipawns against the best
-     * move" came back from gemma3-270m as **"It gave up about 4 cents"**, and then, on the second
-     * mention, as "it gives up less than four" — the unit dropped entirely. That is the expected
-     * failure: a 270M model has no representation of a word this rare, so it substitutes the
-     * nearest common one and the sentence becomes confidently wrong about money.
-     *
-     * It is also jargon the reader has no use for. A centipawn is a hundredth of a pawn on
-     * *Stockfish's* scale; "4" of them is beneath the noise floor of the model's own evaluation.
-     * The magnitude is what carries meaning, so the magnitude is what gets said.
-     *
-     * Bands are `MoveClass`'s own thresholds (10/30/60/100/300 cp), so the phrase can never
-     * contradict the class stated on the line above it. Below 10 cp returns null: at that size the
-     * move is a best move for any practical purpose and mentioning a gap invents a fault.
+     * Win percentage loss as a simple phrase, or null when there is nothing worth saying.
      */
-    internal fun centipawnLossPhrase(centipawnLoss: Int?): String? = when {
-        centipawnLoss == null || centipawnLoss < 10 -> null
-        centipawnLoss < 30 -> "a shade weaker"
-        centipawnLoss < 60 -> "slightly weaker"
-        centipawnLoss < 100 -> "clearly weaker"
-        centipawnLoss < 300 -> "much weaker"
-        else -> "far weaker"
+    internal fun winPercentLossPhrase(winPercentLost: Double?): String? {
+        if (winPercentLost == null || winPercentLost < 1.0) return null
+        return "It drops your winning chances by ${winPercentLost.toInt()}%"
     }
 
     /**
@@ -125,7 +107,7 @@ object MoveCoachPromptBuilder {
     internal fun userPrompt(request: MoveCoachRequest): String = buildString {
         appendLine("The player just played ${request.moveDisplay}.")
         request.moveClassName?.let { appendLine("Engine assessment of that move: ${it.lowercase()}.") }
-        centipawnLossPhrase(request.centipawnLoss)?.let { appendLine("It is $it than the best move.") }
+        winPercentLossPhrase(request.winPercentLost)?.let { appendLine("$it.") }
         request.betterMoveDisplay?.takeIf { it.isNotBlank() }?.let {
             appendLine("The engine preferred $it.")
         }
@@ -144,6 +126,26 @@ object MoveCoachPromptBuilder {
         )
     }
 
-    const val MAX_OUTPUT_TOKENS_STRICT = 100
+    /**
+     * Generation budget in **tokens**, which is not [MAX_OUTPUT_CHARS] divided by anything.
+     *
+     * 100 was derived from the 300-character display cap, and that is the wrong quantity: the cap
+     * bounds what the *user reads*, while this bounds what the *model produces*, and a reasoning
+     * model spends most of the second on text nobody ever sees. Qwen3 opens with `<think>`, and at
+     * 100 tokens it never reached `</think>` — `MoveCoachResponseValidator.stripThinkBlocks` then
+     * discarded the unterminated block, which is the whole output, and every single move logged
+     * `Validation failed: empty response`.
+     *
+     * **This is the third time this repo has made this exact mistake.** `LlmChatComposer` learned it
+     * first (2048, with a comment); the cloud opening route repeated it at 90 and is documented in
+     * CLAUDE.md as `MAX_OUTPUT_TOKENS was 90, derived from the 300-character output cap — the wrong
+     * quantity`; this is the on-device copy. If you are tempted to tie a token budget to a character
+     * cap again, that is the bug.
+     *
+     * Sized for a short answer *plus* a short deliberation, rather than for the answer alone —
+     * on-device generation is slow enough that the cloud's 2048 would cost a visible pause on every
+     * move, and [suppressReasoning] keeps the common case near the answer length anyway.
+     */
+    const val MAX_OUTPUT_TOKENS_STRICT = 384
     const val MAX_OUTPUT_CHARS = 300
 }

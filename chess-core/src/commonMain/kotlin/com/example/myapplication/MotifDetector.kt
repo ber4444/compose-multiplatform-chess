@@ -256,8 +256,12 @@ object MotifDetector {
         if (FORK in motifs && hitEnemies.size >= 2) {
             details[FORK] = "Your $movedName on $at hits the ${hitEnemies[0]} and the ${hitEnemies[1]} at once."
         }
-        if (THREATENS in motifs && hitEnemies.isNotEmpty()) {
-            details[THREATENS] = "Your $movedName on $at attacks the ${hitEnemies[0]}."
+        if (THREATENS in motifs) {
+            winnableTargets(stateAfter, attacked, movingSide, moved).firstOrNull()?.let { square ->
+                val target = enemyPieces[enemyPositions.indexOf(square)]
+                details[THREATENS] = "Your $movedName on $at wins the ${target.name.lowercase()} " +
+                    "on ${UciMoveConverter.positionToUciSquare(square)} if it stays there."
+            }
         }
         for (motif in listOf(PIN, SKEWER)) {
             if (motif !in motifs) continue
@@ -289,6 +293,32 @@ object MotifDetector {
             }
         }
         return details
+    }
+
+    /**
+     * Enemy pieces on [covered] that are actually worth attacking: undefended, or worth more than
+     * the attacker.
+     *
+     * Shared by the detection and the sentence, so the coach can never name a target the detector
+     * did not count — the mistake that produced a confident line about a defended bishop.
+     */
+    private fun winnableTargets(
+        state: GameUiState,
+        covered: List<Pair<Int, Int>>,
+        movingSide: Set,
+        attacker: Piece,
+    ): List<Pair<Int, Int>> {
+        val white = movingSide == Set.WHITE
+        val enemySide = if (white) Set.BLACK else Set.WHITE
+        val enemyPositions = if (white) state.positionsBlack else state.positionsWhite
+        val enemyPieces = if (white) state.piecesBlack else state.piecesWhite
+        return covered.filter { square ->
+            val index = enemyPositions.indexOf(square)
+            if (index == -1) return@filter false
+            val target = enemyPieces[index]
+            val undefended = SquareInsight.contest(state, square, enemySide).first == 0
+            undefended || pieceValue(target) > pieceValue(attacker)
+        }
     }
 
     /** Names both ends of a pin or skewer, which the ray scan above already had to identify. */
@@ -401,11 +431,16 @@ object MotifDetector {
             motifs.add(CENTER_CONTROL)
         }
 
-        // Threatens is the general case of fork/pin/skewer/discovered-attack, and
-        // DeterministicCoach reaches it *before* all four, so it is suppressed when any applies.
+        // Threatens is the general case of the four tactics, so it is suppressed when any applies.
+        //
+        // "Attacks an enemy piece" is not a threat. A rook on c1 sees a defended bishop on c8 down
+        // an open file; taking it loses the exchange, and reporting "Your rook on c1 attacks the
+        // bishop on c8." states a fact about the board that costs the player money to act on. A
+        // threat has to be *winnable*: the target is undefended, or worth more than the attacker.
         val enemyPiecesAfter = if (white) stateAfter.piecesBlack else stateAfter.piecesWhite
-        val attacksEnemy = coveredAfter.any { it in enemyAfter }
-        if (attacksEnemy && tactical.isEmpty()) motifs.add(THREATENS)
+        if (tactical.isEmpty() && winnableTargets(stateAfter, coveredAfter, movingSide, movedPiece).isNotEmpty()) {
+            motifs.add(THREATENS)
+        }
 
         // Defends: the moved piece now covers a friendly piece the enemy is attacking.
         val allyAfter = if (white) stateAfter.positionsWhite else stateAfter.positionsBlack

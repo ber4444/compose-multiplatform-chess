@@ -135,7 +135,7 @@ class CactusTextGenerator(
                 }
                 activeLm.generateCompletion(
                     messages = listOf(
-                        ChatMessage(content = request.systemPrompt, role = "system"),
+                        ChatMessage(content = suppressReasoning(request.systemPrompt), role = "system"),
                         ChatMessage(content = request.userPrompt, role = "user"),
                     ),
                     params = CactusCompletionParams(
@@ -184,6 +184,24 @@ class CactusTextGenerator(
         ngramSize = request.noRepeatNgramSize,
         stopSequences = request.stopSequences.ifEmpty { TURN_TERMINATORS },
     ).flowOn(engineDispatcher)
+
+    /**
+     * Turns Qwen3's deliberation off, because the coach never shows it and the phone pays for it.
+     *
+     * Qwen3 opens every answer with a `<think>` block. That is invisible to the user by design —
+     * `MoveCoachResponseValidator.stripThinkBlocks` removes it — so every reasoning token is latency
+     * and battery spent on text that is deleted before display. Worse, at the old 100-token budget
+     * the model never reached `</think>`, the stripper discarded the unterminated block, and every
+     * move failed validation as an empty response.
+     *
+     * `/no_think` is Qwen3's own switch, interpreted by its chat template. Applied here rather than
+     * in `MoveCoachPromptBuilder` because it is one model family's convention: in the shared prompt
+     * it would be dead text to Gemma and Foundation Models, and a model that echoes its context
+     * would put it on screen.
+     */
+    private fun suppressReasoning(systemPrompt: String): String =
+        if (modelSlug.startsWith("qwen", ignoreCase = true)) "$systemPrompt\n/no_think"
+        else systemPrompt
 
     /**
      * Strip Gemma chat-template artifacts. Cactus surfaces the raw completion, so gemma3-270m's
@@ -308,18 +326,23 @@ class CactusTextGenerator(
     )
 
     companion object {
-        const val DEFAULT_MODEL = "gemma3-270m"
+        const val DEFAULT_MODEL = "qwen3-0.6"
         const val DEFAULT_CONTEXT_SIZE = 2048
 
         /** How often the partial model file is stat-ed for a progress fraction. */
         private const val PROGRESS_POLL_INTERVAL_MS = 250L
 
         // Gemma turn terminators — text at/after these is the template boundary, not the answer.
-        private val TURN_TERMINATORS = listOf("<end_of_turn>", "<eos>")
+        // Gemma's turn markers plus Qwen3's, since the generator now serves both. A terminator that
+        // belongs to another family is inert, so listing all of them costs nothing and forgetting
+        // one leaks template text into the panel.
+        private val TURN_TERMINATORS = listOf("<end_of_turn>", "<eos>", "<|im_end|>", "<|endoftext|>")
         // Special tokens to scrub if they appear inline (e.g. an echoed template prefix).
         private val SPECIAL_TOKENS = listOf(
             "<start_of_turn>model", "<start_of_turn>user", "<start_of_turn>",
             "<bos>", "<eos>", "<end_of_turn>",
+            "<|im_start|>assistant", "<|im_start|>user", "<|im_start|>system", "<|im_start|>",
+            "<|im_end|>", "<|endoftext|>",
         )
     }
 }

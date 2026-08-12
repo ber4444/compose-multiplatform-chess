@@ -108,7 +108,9 @@ class MoveCoachManager(
             moveUci = moveRecord.uci,
             moveDisplay = moveRecord.san,
             deterministicHeadline = DeterministicCoach.buildHeadline(moveRecord),
-            deterministicExplanation = DeterministicCoach.buildExplanation(moveRecord),
+            // The side is known here; inferring it from the FEN inside the coach both crashed on a
+            // blank record and was only coincidentally correct.
+            deterministicExplanation = DeterministicCoach.buildExplanation(moveRecord, gameViewModel.playerSide),
             engineDifficultyName = engineDifficultyName,
             bannedOpeningFrames = recentOpeningFrames.toList(),
             // The code-detected facts, so the on-device model can reason about this ply instead of
@@ -116,7 +118,7 @@ class MoveCoachManager(
             // attached), which degrades the prompt to the baseline explanation alone.
             moveClassName = moveRecord.assessment?.moveClass?.name,
             motifs = moveRecord.assessment?.motifs.orEmpty(),
-            centipawnLoss = moveRecord.assessment?.cpLoss,
+            winPercentLost = moveRecord.assessment?.winPercentLost(gameViewModel.playerSide),
             betterMoveDisplay = moveRecord.assessment?.bestMoveSan,
         )
         launchCoach(request)

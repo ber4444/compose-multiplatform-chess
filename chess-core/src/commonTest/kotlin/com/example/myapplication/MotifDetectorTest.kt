@@ -53,7 +53,7 @@ class MotifDetectorTest {
     fun `motif vocabulary is understood by DeterministicCoach`() {
         MotifDetector.ALL_MOTIFS.forEach { motif ->
             val record = MoveRecord(
-                uci = "g1f3", san = "Nf3", fenAfter = "",
+                uci = "g1f3", san = "Nf3", fenAfter = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1",
                 assessment = MoveAssessment(0, 0, 0, 0, MoveClass.GOOD, listOf(motif)),
             )
             assertFalse(
@@ -312,5 +312,35 @@ class MotifDetectorTest {
             detected.details.keys.all { it in detected.motifs },
             "described motifs that were not detected: ${detected.details.keys - detected.motifs.toSet()}",
         )
+    }
+
+    // Rc1 down an open c-file at a bishop on c8. The two cases differ by **one piece** — the rook on
+    // a8 that defends it — so the pair isolates the rule rather than the geometry.
+    private val defendedBishop = "r1b1k1nr/p2ppp1p/8/8/8/8/P2PPP1P/R3K1NR w KQkq - 0 1"
+    private val undefendedBishop = "2b1k1nr/p2ppp1p/8/8/8/8/P2PPP1P/R3K1NR w KQk - 0 1"
+
+    private fun rookToC1(before: String) = MotifDetector.detectDetailed(
+        FenConverter.fenToGameState(before),
+        FenConverter.fenToGameState(before.replace("/R3K1NR w", "/2R1K1NR w")),
+        Set.WHITE,
+        toSquare = Pair(7, 2),
+        fromSquare = Pair(7, 0),
+    )
+
+    @Test
+    fun `attacking a defended piece of lower value is not a threat`() {
+        // Reported on-device: "Your rook on c1 attacks the bishop on c8." True, and acting on it
+        // loses the exchange — a rook does not win a defended bishop. A claim the player pays for.
+        val detected = rookToC1(defendedBishop)
+        assertTrue(MotifDetector.THREATENS !in detected.motifs, "claimed a threat: ${detected.motifs}")
+    }
+
+    @Test
+    fun `attacking an undefended piece is a threat and names it`() {
+        // Same position minus the a8 rook, so the bishop really is winnable.
+        val detected = rookToC1(undefendedBishop)
+        assertTrue(MotifDetector.THREATENS in detected.motifs, "expected a threat, got ${detected.motifs}")
+        val detail = detected.details[MotifDetector.THREATENS]
+        assertTrue(detail != null && "c8" in detail, "detail was $detail")
     }
 }
