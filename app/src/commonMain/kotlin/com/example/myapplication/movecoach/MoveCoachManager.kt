@@ -68,9 +68,17 @@ class MoveCoachManager(
     @Volatile var proUnlocked: Boolean = true
 
     init {
-        // Register the callback to automatically trigger the coach on engine moves
+        // Register the callback to automatically trigger the coach on engine moves.
+        //
+        // Deliberately **not** gated on `orchestrator != null` any more. That was the second of two
+        // places a missing orchestrator silently suppressed the whole panel — fixing only
+        // `launchCoach` would have left this one, and the symptom is identical either way: nothing
+        // renders at all. A platform with no model still has a deterministic line to show, and it is
+        // a complete answer rather than a placeholder, so the trigger has to fire regardless.
+        //
+        // `aiCoachEnabled` stays: that is the user's own Settings switch, and off means off.
         gameViewModel.onMoveCoached = { fenBefore, moveRecord ->
-            if (gameViewModel.aiCoachEnabled && orchestrator != null) {
+            if (gameViewModel.aiCoachEnabled) {
                 triggerCoach(fenBefore, moveRecord)
             }
         }
@@ -173,11 +181,10 @@ class MoveCoachManager(
     }
 
     private fun launchCoach(request: com.example.ondeviceai.MoveCoachRequest) {
-        val orchestrator = this.orchestrator ?: return
-        // Recorded here rather than in triggerCoach, and after the orchestrator check rather than
-        // before it, so lastRequest only ever holds a request that actually ran. Recording one that
-        // returned at the line above would give retry() something to replay that never produced a
-        // state to retry from.
+        val orchestrator = this.orchestrator
+        // Recorded here rather than in triggerCoach, so lastRequest holds whatever the manager
+        // actually acted on. retry() is only ever surfaced from a Retryable fallback (a timeout),
+        // which none of the deterministic paths below can produce, so recording theirs is inert.
         lastRequest = request
         coachJob?.cancel()
 
@@ -188,26 +195,37 @@ class MoveCoachManager(
         // From/to, straight off the UCI, so the board tints the move whatever the sentence says.
         val squares = squaresOf(request.moveUci)
 
-        if (!proUnlocked) {
-            // Free tier: render the deterministic line as a finished answer, not a Fallback. It is
-            // a complete, correct explanation — labelling it a fallback would tell the user their
-            // own product tier is a degraded state.
-            // B11: the route still has to say Fallback, because no model wrote this text — the
-            // badge would otherwise credit a model for DeterministicCoach's output. The reason is
-            // FREE_TIER_ROUTE's and not NoLocalModel: a local model may well exist and be warm,
-            // the user simply hasn't unlocked it, and a wrong reason is a wrong log line and a
-            // wrong FallbackPresentation decision the moment either starts reading it.
+        // Two ways to have no model, and both render the deterministic line as a *finished answer*
+        // rather than a Fallback: it is complete and correct, and labelling it a degraded state
+        // would be a lie about the product.
+        //
+        // **The orchestrator check moved down here, and that is the point.** It used to be the very
+        // first line of this function, above everything, so a build that attaches no orchestrator at
+        // all rendered nothing — no panel, no line. That was survivable while every platform
+        // attached one; it stopped being survivable when Android went deterministic-only, where it
+        // would have shipped a blank panel to every user. The deterministic coach must not need a
+        // model orchestrator in order to be seen.
+        //
+        // B11: the route still says Fallback either way, because no model wrote this text and the
+        // badge would otherwise credit one. The *reason* differs, and the distinction is load
+        // bearing for the log line and for FallbackPresentation: free tier means a model may well
+        // exist and be warm and the user simply hasn't unlocked it, while no orchestrator means
+        // there is no model on this platform at all.
+        if (orchestrator == null || !proUnlocked) {
+            // No-model outranks free-tier when both apply: telling a free user to unlock a model
+            // this platform does not have would be an upsell for something that does not exist.
+            val deterministicRoute = if (orchestrator == null) NO_MODEL_ROUTE else FREE_TIER_ROUTE
             _coachUiState.value = MoveCoachUiState.Ready(
                 com.example.ondeviceai.MoveCoachExplanation(
                     headline = request.deterministicHeadline,
                     explanation = request.deterministicExplanation,
                     confidence = com.example.ondeviceai.ExplanationConfidence.HIGH,
-                    route = FREE_TIER_ROUTE,
+                    route = deterministicRoute,
                     metrics = com.example.ondeviceai.AiInferenceMetrics(
                         firstTokenMs = null,
                         completeMs = 0L,
                         tokenCount = 0,
-                        route = FREE_TIER_ROUTE,
+                        route = deterministicRoute,
                     ),
                 ),
                 tone = tone,
@@ -326,6 +344,15 @@ class MoveCoachManager(
             com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.Other(
                 "free tier: deterministic coach",
             ),
+        )
+
+        /**
+         * Provenance when this build has no coach orchestrator at all — Android since the on-device
+         * models were measured and none beat the deterministic line. Distinct from
+         * [FREE_TIER_ROUTE]: the user has not been denied anything they could unlock.
+         */
+        private val NO_MODEL_ROUTE = com.example.ondeviceai.AiRoute.Fallback(
+            com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.NoLocalModel,
         )
 
         /** Provenance of an Explain-mode answer: read off the board, on every tier. */

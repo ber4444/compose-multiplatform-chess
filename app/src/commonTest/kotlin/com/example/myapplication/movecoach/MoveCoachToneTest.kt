@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /**
@@ -57,6 +58,13 @@ class MoveCoachToneTest {
             this.proUnlocked = proUnlocked
             attachCoachOrchestrator(orchestrator(result))
         }
+    }
+
+    /** A manager with no orchestrator at all — Android, and any build with no on-device model. */
+    private fun managerWithoutOrchestrator(): MoveCoachManager {
+        vm = GameViewModel()
+        vm.aiCoachEnabled = true
+        return MoveCoachManager(vm).apply { proUnlocked = true }
     }
 
     /** triggerCoach is private; it fires through the VM callback the manager registers in `init`. */
@@ -137,6 +145,43 @@ class MoveCoachToneTest {
         val state = manager.coachUiState.value as MoveCoachUiState.Fallback
         assertEquals("It attacks two pieces at once.", state.text)
         assertEquals("Blunder — forks", state.headline)
+        manager.close()
+        vm.close()
+    }
+
+    // --- no orchestrator is a product state, not a dead panel ------------------------------------
+
+    @Test
+    fun `a build with no orchestrator still shows the deterministic line`() = runTest {
+        // Two separate gates used to suppress the panel entirely when no model was attached: the
+        // `orchestrator != null` condition on the onMoveCoached callback, and the early return at
+        // the top of launchCoach. Either one alone leaves a blank panel, which is what Android would
+        // have shipped once it stopped attaching an orchestrator. The deterministic coach is a
+        // complete answer and must not need a model in order to be seen.
+        val manager = managerWithoutOrchestrator()
+        coach(blunder())
+        waitForToned(manager)
+
+        val state = manager.coachUiState.value
+        val ready = assertIs<MoveCoachUiState.Ready>(state)
+        assertTrue(ready.explanation.explanation.isNotBlank(), "no deterministic text")
+        assertEquals(HighlightTone.BAD, state.highlightTone, "a blunder must still be red")
+        manager.close()
+        vm.close()
+    }
+
+    @Test
+    fun `no orchestrator is reported as no local model rather than the free tier`() = runTest {
+        // The distinction reaches the log line and FallbackPresentation. Free tier means a model may
+        // exist and the user simply hasn't unlocked it; no orchestrator means this platform has none
+        // to unlock, and an upsell for it would be selling something that does not exist.
+        val manager = managerWithoutOrchestrator()
+        coach(blunder())
+        waitForToned(manager)
+
+        val ready = assertIs<MoveCoachUiState.Ready>(manager.coachUiState.value)
+        val route = assertIs<com.example.ondeviceai.AiRoute.Fallback>(ready.explanation.route)
+        assertEquals(AiRoutePolicyDecider.FallbackReason.NoLocalModel, route.reason)
         manager.close()
         vm.close()
     }

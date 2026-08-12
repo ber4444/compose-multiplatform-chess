@@ -8,7 +8,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
-import com.example.ondeviceai.DefaultAiCoachOrchestrator
 import com.example.ondeviceai.DefaultGameSummaryOrchestrator
 import com.example.ondeviceai.VendorRouteExecutor
 import com.example.ondeviceai.VendorRoute
@@ -68,8 +67,9 @@ class MainActivity : ComponentActivity() {
         // equivalent but is not: process death also restores a bundle, and there the holder is a
         // brand-new ViewModel with no orchestrator, so the coach would stay dead for the whole
         // session.
-        if (!holder.moveCoachManager.hasOrchestrator) {
-            attachMoveCoach()
+        if (!holder.aiAttached) {
+            holder.aiAttached = true
+            attachGameSummaryModel()
         }
 
         val appSettings = AppSettings(createSettings("chess"))
@@ -124,21 +124,24 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Attach the on-device move coach using Cactus.
-     * Cactus downloads the model from Hugging Face on first launch (~200 MB for
-     * gemma3-270m) and caches it locally. Subsequent launches use the cached
-     * model (~1-2s init). This replaces the earlier LiteRT-LM path (557 MB,
-     * 7-9s cold start) and ML Kit Prompt API (AICore, narrow device support).
+     * Attach the on-device model for **Game Summary only**.
+     *
+     * The Move Coach deliberately gets no orchestrator on Android. Every model available to this
+     * platform was benchmarked on hardware and none of them beat the deterministic coach on either
+     * latency or truth — see `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md`:
+     * 20-36 s for a reasoning model whose deliberation cannot be switched off through Cactus,
+     * 5-20 s of generic waffle from `gemma3-1b`, and confidently false statements from `lfm2-700m`
+     * that no validator gate can catch. `MoveCoachManager` renders `DeterministicCoach` directly
+     * when no orchestrator is attached, instantly and with no download.
+     *
+     * ML Kit/AICore stays wired but dormant: `probeAvailableLocalVendors` still offers it, and it
+     * reports Unavailable on every device tested (a Pixel 10 Pro XL answers
+     * `FEATURE_NOT_FOUND: Feature 645`), so it costs nothing and lights up by itself if a device
+     * ever provisions the feature.
      */
-    private fun attachMoveCoach() {
+    private fun attachGameSummaryModel() {
         // Initialize Cactus native runtime (required before any CactusLM use)
         initializeCactus(this)
-
-        holder.moveCoachManager.setCoachModelState(
-            com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
-                message = "Downloading Gemma 270M model (first launch only)…"
-            )
-        )
 
         CoroutineScope(Dispatchers.IO).launch {
             val executor = VendorRouteExecutor()
@@ -149,13 +152,6 @@ class MainActivity : ComponentActivity() {
                     userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
                 )
             }
-
-            holder.moveCoachManager.attachCoachOrchestrator(
-                DefaultAiCoachOrchestrator(
-                    executor = executor,
-                    contextProvider = contextProvider,
-                )
-            )
 
             holder.gameSummaryManager.attachOrchestrator(
                 DefaultGameSummaryOrchestrator(
@@ -179,36 +175,14 @@ class MainActivity : ComponentActivity() {
                 val decision = com.example.ondeviceai.AiRoutePolicyDecider.decide(policy, context)
                 val generator = (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
                     ?.let { executor.execute(it.route) }
-                // Join the download so the panel's terminal state reflects the real outcome. The
-                // panel must never be left on a LoadingModel spinner that nothing clears.
-                val warmupJob = launch {
-                    (generator as? com.example.ondeviceai.cactus.CactusTextGenerator)?.awaitWarmup()
-                        ?: generator?.warmup()
-                }
-                // Poll rather than observe: neither Cactus nor the OnDeviceTextGenerator seam
-                // exposes a progress callback, so status() is the only signal. It is deliberately
-                // off the engine dispatcher (see CactusTextGenerator.status) so it answers during
-                // the download instead of queueing behind it.
-                try {
-                    while (warmupJob.isActive) {
-                        val status = generator?.status()
-                        if (status is com.example.ondeviceai.AiAvailability.Downloading) {
-                            val percent = status.progress?.let { " (${(it * 100).toInt()}%)" } ?: ""
-                            holder.moveCoachManager.setCoachModelState(
-                                com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
-                                    message = "Downloading the coach model (first launch only)$percent…",
-                                    progress = status.progress,
-                                )
-                            )
-                        }
-                        kotlinx.coroutines.delay(MODEL_PROGRESS_POLL_INTERVAL_MS)
-                    }
-                } finally {
-                    // The loop exits as soon as the job goes inactive, which happens fractionally
-                    // before it completes; join so the status() read below sees the real outcome.
-                    // In a finally because a cancelled attach must not leave the job unawaited.
-                    warmupJob.join()
-                }
+                // B18's determinate progress UI is gone with the coach orchestrator: it wrote into
+                // the Move Coach panel, and that panel now answers instantly from
+                // DeterministicCoach on every move regardless of the model. Showing a download
+                // spinner over a line that is already on screen would be a lie about what the user
+                // is waiting for. Game Summary is pull-based and reports its own state when pressed,
+                // so the download can simply proceed quietly.
+                (generator as? com.example.ondeviceai.cactus.CactusTextGenerator)?.awaitWarmup()
+                    ?: generator?.warmup()
 
                 (generator?.status() as? com.example.ondeviceai.AiAvailability.Error)?.let {
                     // Logged, not surfaced: the deterministic coach still answers every move, so
@@ -217,10 +191,6 @@ class MainActivity : ComponentActivity() {
                 }
             } catch (e: Exception) {
                 Logger.e("MainActivity") { "Failed to warmup model: ${e.message}" }
-            } finally {
-                // Always clears the LoadingModel placeholder — the panel must not be able to end
-                // on a spinner no matter which branch above ran.
-                holder.moveCoachManager.hideWindow()
             }
         }
     }
@@ -237,14 +207,22 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         private const val SYSTEM_BAR_SCRIM = 0x66000000
-
-        /** How often the coach panel re-reads download progress during first-launch warmup. */
-        private const val MODEL_PROGRESS_POLL_INTERVAL_MS = 250L
     }
 }
 
 class AndroidGameViewModel : ViewModel() {
     @Volatile var isForeground: Boolean = true
+
+    /**
+     * Whether the on-device model has already been attached for this retained holder.
+     *
+     * Replaces the old `moveCoachManager.hasOrchestrator` check, which stopped working the moment
+     * the coach stopped taking an orchestrator — it would have been false forever, re-running the
+     * attach and its warmup on every configuration change. Same reasoning as before: a retained
+     * holder means a rotation, a fresh one means process death, and `savedInstanceState` cannot
+     * tell those apart.
+     */
+    @Volatile var aiAttached: Boolean = false
     // Autosave + resume-later (Phase 2): the store is created once for the holder's lifetime
     // (survives config changes) and seeded into the VM. A saved game is loaded here so the VM
     // starts from the restored state; if the saved game was already over it's cleared and a fresh
