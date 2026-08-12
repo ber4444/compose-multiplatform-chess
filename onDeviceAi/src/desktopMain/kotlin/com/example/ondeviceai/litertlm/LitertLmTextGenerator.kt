@@ -34,7 +34,8 @@ import java.util.concurrent.Executors
  * Desktop [OnDeviceTextGenerator] backed by LiteRT-LM (Google AI Edge)
  * via the `litertlm-jvm` Maven artifact.
  *
- * Mirrors [com.example.ondeviceai.cactus.CactusTextGenerator] on Android:
+ * Mirrors the Cactus generator Android used to carry (removed 2026-08; see
+ * `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md`):
  * same [OnDeviceTextGenerator] contract, same single-thread serialization of
  * native calls, same no-op [close] (keeps the model warm across moves). The
  * only differences are the underlying runtime (LiteRT-LM vs Cactus)
@@ -43,7 +44,7 @@ import java.util.concurrent.Executors
  *
  * All native calls are serialized through [engineDispatcher] (single-threaded)
  * to avoid races when a coach job is cancelled mid-inference and the next move
- * starts a new one — the same reason `CactusTextGenerator` does it.
+ * starts a new one — the same reason the removed Cactus generator did.
  *
  * Native libs for `litertlm-jvm` are bundled inside the jar for
  * linux-x86_64 / linux-aarch64 / darwin-aarch64 / win-x86_64. On Intel Mac
@@ -63,7 +64,7 @@ class LitertLmTextGenerator(
     @Volatile private var engine: Engine? = null
     @Volatile private var initializationFailed: String? = null
 
-    /** One shared initialization; see [CactusTextGenerator]'s `initJob` for why this can't be a
+    /** One shared initialization; the removed Cactus generator's `initJob` documented why this can't be a
      *  plain re-entrant call (the model fetch releases [engineDispatcher] mid-flight). */
     private var initJob: Deferred<Unit>? = null
     private val initMutex = Mutex()
@@ -203,7 +204,7 @@ class LitertLmTextGenerator(
         stopSequences = request.stopSequences,
     ).flowOn(engineDispatcher)
 
-    /** No-op — keeps the model warm across moves (mirrors CactusTextGenerator). */
+    /** No-op — keeps the model warm across moves. */
     override suspend fun release() {}
 
     private fun ensureInitialized() {
