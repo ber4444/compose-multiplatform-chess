@@ -9,6 +9,7 @@ import com.example.ondeviceai.AiCoachOrchestrator
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
 import com.example.ondeviceai.MoveCoachRequest
 import com.example.ondeviceai.bench.BenchProbe
+import com.example.ondeviceai.cactus.CactusTextGenerator
 import com.example.ondeviceai.VendorRouteExecutor
 import com.example.ondeviceai.VendorRoute
 import kotlinx.coroutines.flow.collect
@@ -111,7 +112,12 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
         val route = (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
             ?.route ?: return
         val generator = executor.execute(route) ?: return
-        generator.warmup()
+        // awaitWarmup, not warmup. warmup() returns as soon as init *starts* (B18, so the board
+        // stays usable during the download), so the generation below began while the model was
+        // still loading and the orchestrator reported `no local model` on every row — a benchmark
+        // measuring nothing but its own race. CLAUDE.md states the rule: entry points that report a
+        // terminal state must await. A bench is exactly that.
+        (generator as? CactusTextGenerator)?.awaitWarmup() ?: generator.warmup()
         probe.onInitEnd()
         
         val orchestrator = DefaultAiCoachOrchestrator(
@@ -135,7 +141,10 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
             deviceModel = deviceModel,
             osVersion = osVersion,
             appVersion = appVersion,
-            modelIdentifier = "gemma3-270m",
+            // Read from the generator, never restated. Hardcoding it meant the JSONL labelled every
+            // row `gemma3-270m` after Android had moved to qwen3-0.6 — the one field a benchmark
+            // must get right, since the whole file is worthless if you cannot tell what produced it.
+            modelIdentifier = CactusTextGenerator.DEFAULT_MODEL,
             isWarm = isWarm,
             timestampMs = System.currentTimeMillis(),
             initStartMs = initStart,

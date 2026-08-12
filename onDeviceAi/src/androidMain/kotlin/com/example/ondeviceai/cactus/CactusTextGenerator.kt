@@ -135,8 +135,8 @@ class CactusTextGenerator(
                 }
                 activeLm.generateCompletion(
                     messages = listOf(
-                        ChatMessage(content = suppressReasoning(request.systemPrompt), role = "system"),
-                        ChatMessage(content = request.userPrompt, role = "user"),
+                        ChatMessage(content = request.systemPrompt, role = "system"),
+                        ChatMessage(content = suppressReasoning(request.userPrompt), role = "user"),
                     ),
                     params = CactusCompletionParams(
                         temperature = request.temperature,
@@ -194,14 +194,17 @@ class CactusTextGenerator(
      * the model never reached `</think>`, the stripper discarded the unterminated block, and every
      * move failed validation as an empty response.
      *
-     * `/no_think` is Qwen3's own switch, interpreted by its chat template. Applied here rather than
-     * in `MoveCoachPromptBuilder` because it is one model family's convention: in the shared prompt
-     * it would be dead text to Gemma and Foundation Models, and a model that echoes its context
-     * would put it on screen.
+     * `/no_think` is Qwen3's own switch, and its template reads it from the **latest user turn** —
+     * in the system prompt it is inert, which is how the first attempt shipped 20-36 s of
+     * deliberation per move on real hardware.
+     *
+     * Applied here rather than in `MoveCoachPromptBuilder` because it is one model family's
+     * convention: in the shared prompt it would be dead text to Gemma and Foundation Models, and a
+     * model that echoes its context would put it on screen.
      */
-    private fun suppressReasoning(systemPrompt: String): String =
-        if (modelSlug.startsWith("qwen", ignoreCase = true)) "$systemPrompt\n/no_think"
-        else systemPrompt
+    private fun suppressReasoning(userPrompt: String): String =
+        if (modelSlug.startsWith("qwen", ignoreCase = true)) "$userPrompt\n/no_think"
+        else userPrompt
 
     /**
      * Strip Gemma chat-template artifacts. Cactus surfaces the raw completion, so gemma3-270m's
@@ -240,6 +243,9 @@ class CactusTextGenerator(
             // Probe MUST run before `lm = instance` to prevent the first-ask race condition.
             try {
                 val models = instance.getModels()
+                // Logged in full: choosing a model is the highest-leverage decision on this path and
+                // the catalog is the only source of truth for what the device can actually run.
+                logger.i { "Cactus catalog: " + models.joinToString { "${it.slug}(${it.size_mb}MB)" } }
                 val targetModel = models.find { it.slug == modelSlug }
                 supportsTools = targetModel?.supports_tool_calling == true
                 logger.i { "supports_tool_calling = $supportsTools" }
@@ -326,7 +332,23 @@ class CactusTextGenerator(
     )
 
     companion object {
-        const val DEFAULT_MODEL = "qwen3-0.6"
+        /**
+         * Back to the smallest model in the catalog, pending a product decision.
+         *
+         * `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md` measured every viable
+         * Cactus model on a Galaxy Z Fold 3 and none of them beat the deterministic coach:
+         * `qwen3-0.6` needs 20-36 s because every `qwen3-*` is a reasoning model and `/no_think` is
+         * inert through Cactus; `gemma3-1b` takes 5-20 s to produce generic waffle and the occasional
+         * refusal; `lfm2-700m` is fast enough and confidently wrong ("Nh3 ... immediately controls
+         * the center"), passing every validator gate while doing it.
+         *
+         * There is no Gemma 4 in the catalog — `gemma3-1b` is the newest Gemma offered.
+         *
+         * This stays at the 172 MB model because it is the cheapest download to keep the path warm
+         * while the real question is decided: whether Android should attach a coach orchestrator at
+         * all, or run deterministic-only and skip the download entirely.
+         */
+        const val DEFAULT_MODEL = "gemma3-270m"
         const val DEFAULT_CONTEXT_SIZE = 2048
 
         /** How often the partial model file is stat-ed for a progress fraction. */
