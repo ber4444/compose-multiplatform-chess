@@ -185,6 +185,7 @@ fun AppRoot(
                 Screen.SETTINGS -> SettingsScreen(
                     onBack = { screen = Screen.GAME },
                     board3D = board3D,
+                    onOpenPaywall = { screen = Screen.PAYWALL },
                 )
                 // Branching here rather than wrapping in ProGate: RulesQaScreen supplies its own
                 // SubScreenScaffold, so nesting would render two title bars when unlocked.

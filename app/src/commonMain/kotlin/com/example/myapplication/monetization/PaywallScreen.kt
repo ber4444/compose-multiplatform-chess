@@ -21,6 +21,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import com.example.myapplication.LocalMoveCoachManager
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -79,12 +80,12 @@ fun PaywallScreen(
         Text("Chess Coach Pro", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Unlimited play, both boards, every engine level and the quick coach stay free. " +
-                "Pro adds the AI surfaces:",
+            "Unlimited play, both boards, every engine level and the move coach stay free. " +
+                "Pro adds:",
             style = MaterialTheme.typography.bodyMedium,
         )
         Spacer(Modifier.height(12.dp))
-        PRO_FEATURES.forEach { feature ->
+        proFeatures().forEach { feature ->
             Text("•  $feature", style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(4.dp))
         }
@@ -214,10 +215,27 @@ private fun PlanRow(plan: ProPlan, selected: Boolean, onSelect: () -> Unit) {
     }
 }
 
-private val PRO_FEATURES = listOf(
-    "Move Coach explanations written by the on-device model",
-    "Game Summary after every finished game",
-    "Position Chat — ask about the board as you play",
-    "Opening Explainer",
-    "Rules Q&A",
-)
+/**
+ * What Pro actually adds **on this build** — never a fixed list.
+ *
+ * "Move Coach explanations written by the on-device model" was sold unconditionally, and on a build
+ * with no model it is a promise that cannot be kept: a paying user gets the identical coach line to
+ * a free one, because `MoveCoachManager` renders `DeterministicCoach` either way. Android ships no
+ * model at all (see `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md`), so that line
+ * would have been false on every Android install.
+ *
+ * Keyed off the same signal the coach itself uses, so it cannot drift: if a device ever has a model
+ * attached the line returns with no code change, and if it doesn't, Pro advertises only the four
+ * surfaces it really unlocks.
+ */
+@Composable
+private fun proFeatures(): List<String> {
+    val hasModel = LocalMoveCoachManager.current?.hasOrchestrator == true
+    return listOfNotNull(
+        "Move Coach explanations written by the on-device model".takeIf { hasModel },
+        "Game Summary after every finished game",
+        "Position Chat — ask about the board as you play",
+        "Opening Explainer",
+        "Rules Q&A",
+    )
+}

@@ -146,11 +146,15 @@ object MoveCoachPromptBuilder {
      * on-device generation is slow enough that the cloud's 2048 would cost a visible pause on every
      * move.
      *
-     * **Still load-bearing after Cactus was removed**, and it is worth saying why so nobody
-     * "simplifies" it down to the answer length: desktop runs `Qwen3-0.6B-int4` through LiteRT-LM,
-     * which is a reasoning model and emits a `<think>` block exactly like the Android attempt did.
-     * iOS Foundation Models answers this prompt in ~10 tokens and never approaches the cap, so the
-     * budget costs it nothing.
+     * **Who actually reads this** — checked, because an earlier version of this comment claimed it
+     * was load-bearing for desktop and desktop did not read it at all. iOS Foundation Models, the
+     * wasm LiteRT-LM worker and ML Kit all pass it to their engine. The desktop LiteRT-LM generator
+     * ignored it entirely, leaving that runtime unbounded; it now floors the value at its own
+     * `REASONING_TOKEN_FLOOR`, because this number is sized for an *answer* and a reasoning model
+     * needs room for the deliberation in front of it.
+     *
+     * iOS answers this prompt in ~10 tokens and never approaches the cap, so the budget costs it
+     * nothing there.
      */
     const val MAX_OUTPUT_TOKENS_STRICT = 384
     const val MAX_OUTPUT_CHARS = 300

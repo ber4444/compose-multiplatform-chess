@@ -156,6 +156,18 @@ class LitertLmTextGenerator(
                     if (firstTokenMs == null) firstTokenMs = System.currentTimeMillis() - start
                     output.append(text)
                 }
+                // This runtime is the only one that ignored `request.maxOutputTokens` — iOS, wasm
+                // and ML Kit all pass it to their engine — so a desktop generation was unbounded and
+                // a reasoning model could deliberate for as long as it liked with nothing to stop it.
+                //
+                // Bounded here rather than by handing the request's own number to the engine,
+                // because that number is sized for an *answer*: applying 384 to a model that opens
+                // with a <think> block is precisely how the Android attempt produced an unterminated
+                // block, stripped to the empty string, on every single move. The floor keeps room
+                // for the deliberation the answer sits behind.
+                if (approxTokens(output.length) >= maxTokensFor(request)) {
+                    conversation.cancelProcess()
+                }
             }
 
             if (output.isNotEmpty()) {
@@ -274,6 +286,23 @@ class LitertLmTextGenerator(
          * cleaned text, trimmed. If no `<think>` is present, returns the text
          * trimmed. Public on the companion so it can be unit-tested directly.
          */
+        /**
+         * Generation ceiling for this runtime: the caller's budget, floored at enough room for a
+         * reasoning model's `<think>` block plus the answer behind it.
+         *
+         * Measured on the same model family: Android's `qwen3-0.6` produced 387-514 tokens, almost
+         * all of it deliberation, so a ceiling at the caller's answer-sized 384 would cut every
+         * generation off mid-thought.
+         */
+        internal fun maxTokensFor(request: AiGenerationRequest): Int =
+            maxOf(request.maxOutputTokens, REASONING_TOKEN_FLOOR)
+
+        /** Rough tokens-from-characters; only ever used to decide when to stop, never reported. */
+        internal fun approxTokens(chars: Int): Int = chars / 4
+
+        /** Headroom for a `<think>` block plus a short answer. */
+        internal const val REASONING_TOKEN_FLOOR = 1024
+
         fun stripThinkBlocks(text: String): String {
             var cleaned = THINK_BLOCK.replace(text, "")
             cleaned = THINK_UNTERMINATED.replace(cleaned, "")
