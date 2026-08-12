@@ -18,9 +18,6 @@ actual suspend fun probeAvailableLocalVendors(): List<VendorRoute> {
         vendors.add(VendorRoute.MlKitPrompt(ModelPreference.FAST))
     }
     
-    if (isCactusInitialized()) {
-        vendors.add(VendorRoute.CactusLocal())
-    }
     
     return vendors
 }

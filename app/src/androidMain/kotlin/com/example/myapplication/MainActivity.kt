@@ -8,10 +8,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
-import com.example.ondeviceai.DefaultGameSummaryOrchestrator
-import com.example.ondeviceai.VendorRouteExecutor
-import com.example.ondeviceai.VendorRoute
-import com.example.ondeviceai.initializeCactus
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.CurrentGameStore
 import com.example.myapplication.persistence.CurrentGameStoreSupport
@@ -43,12 +39,17 @@ class MainActivity : ComponentActivity() {
             Logger.setMinSeverity(Severity.Assert)
         }
 
+        if (isDebug && intent.hasExtra("bench_summary_iterations")) {
+            val iterations = intent.getIntExtra("bench_summary_iterations", 1)
+            CoroutineScope(Dispatchers.IO).launch {
+                com.example.myapplication.bench.runAndroidSummaryBench(this@MainActivity, iterations)
+                finish()
+            }
+            return
+        }
+
         if (isDebug && intent.hasExtra("bench_iterations")) {
             val iterations = intent.getIntExtra("bench_iterations", 1)
-            // Without this, CactusTextGenerator's underlying context is never set up and every
-            // run silently falls back with 0 tokens generated (getCactus()'s own comment warns
-            // "otherwise this will throw" — in practice the caller swallows it into a fallback).
-            initializeCactus(this)
             CoroutineScope(Dispatchers.IO).launch {
                 runAndroidBench(this@MainActivity, iterations)
                 finish()
@@ -67,10 +68,12 @@ class MainActivity : ComponentActivity() {
         // equivalent but is not: process death also restores a bundle, and there the holder is a
         // brand-new ViewModel with no orchestrator, so the coach would stay dead for the whole
         // session.
-        if (!holder.aiAttached) {
-            holder.aiAttached = true
-            attachGameSummaryModel()
-        }
+        // No on-device model on Android, by measurement rather than by omission: every model in
+        // the Cactus catalog was benchmarked on hardware and all of them lost to the deterministic
+        // text on latency, truth, or both — see
+        // docs/benchmarks/on-device-ai/android-model-latency-2026-08.md. The Move Coach renders
+        // DeterministicCoach with no orchestrator; Game Summary composes its turning points.
+        holder.gameSummaryManager.enableDeterministic()
 
         val appSettings = AppSettings(createSettings("chess"))
         // PgnSharer needs the host Activity (for ACTION_SEND), so it's built here, not in the holder.
@@ -123,78 +126,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Attach the on-device model for **Game Summary only**.
-     *
-     * The Move Coach deliberately gets no orchestrator on Android. Every model available to this
-     * platform was benchmarked on hardware and none of them beat the deterministic coach on either
-     * latency or truth — see `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md`:
-     * 20-36 s for a reasoning model whose deliberation cannot be switched off through Cactus,
-     * 5-20 s of generic waffle from `gemma3-1b`, and confidently false statements from `lfm2-700m`
-     * that no validator gate can catch. `MoveCoachManager` renders `DeterministicCoach` directly
-     * when no orchestrator is attached, instantly and with no download.
-     *
-     * ML Kit/AICore stays wired but dormant: `probeAvailableLocalVendors` still offers it, and it
-     * reports Unavailable on every device tested (a Pixel 10 Pro XL answers
-     * `FEATURE_NOT_FOUND: Feature 645`), so it costs nothing and lights up by itself if a device
-     * ever provisions the feature.
-     */
-    private fun attachGameSummaryModel() {
-        // Initialize Cactus native runtime (required before any CactusLM use)
-        initializeCactus(this)
-
-        CoroutineScope(Dispatchers.IO).launch {
-            val executor = VendorRouteExecutor()
-            val contextProvider: suspend () -> com.example.ondeviceai.AiContextSnapshot = {
-                com.example.ondeviceai.AiContextSnapshot(
-                    availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
-                    isAppForegrounded = holder.isForeground,
-                    userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
-                )
-            }
-
-            holder.gameSummaryManager.attachOrchestrator(
-                DefaultGameSummaryOrchestrator(
-                    executor = executor,
-                    contextProvider = contextProvider,
-                )
-            )
-            // B18: the orchestrator is attached BEFORE warmup finishes on purpose. Every surface
-            // stays live during the ~200 MB first-run download — a coached move routes through the
-            // orchestrator, sees AiAvailability.Downloading, and renders the deterministic line
-            // (FallbackPresentation.Silent), which is the product rather than an error.
-            try {
-                val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
-                val context = com.example.ondeviceai.AiContextSnapshot(
-                    availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
-                    isAppForegrounded = true,
-                    userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
-                )
-                // Warm up only the route the decider actually picks; any other decision means
-                // there is nothing local to warm.
-                val decision = com.example.ondeviceai.AiRoutePolicyDecider.decide(policy, context)
-                val generator = (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
-                    ?.let { executor.execute(it.route) }
-                // B18's determinate progress UI is gone with the coach orchestrator: it wrote into
-                // the Move Coach panel, and that panel now answers instantly from
-                // DeterministicCoach on every move regardless of the model. Showing a download
-                // spinner over a line that is already on screen would be a lie about what the user
-                // is waiting for. Game Summary is pull-based and reports its own state when pressed,
-                // so the download can simply proceed quietly.
-                (generator as? com.example.ondeviceai.cactus.CactusTextGenerator)?.awaitWarmup()
-                    ?: generator?.warmup()
-
-                (generator?.status() as? com.example.ondeviceai.AiAvailability.Error)?.let {
-                    // Logged, not surfaced: the deterministic coach still answers every move, so
-                    // a permanent "unavailable" banner would be noise. Same rule as B17's Silent.
-                    Logger.e("MainActivity") { "Cactus failed to load: ${it.message}" }
-                }
-            } catch (e: Exception) {
-                Logger.e("MainActivity") { "Failed to warmup model: ${e.message}" }
-            }
-        }
-    }
-
     override fun onStart() {
         super.onStart()
         holder.isForeground = true
@@ -213,16 +144,6 @@ class MainActivity : ComponentActivity() {
 class AndroidGameViewModel : ViewModel() {
     @Volatile var isForeground: Boolean = true
 
-    /**
-     * Whether the on-device model has already been attached for this retained holder.
-     *
-     * Replaces the old `moveCoachManager.hasOrchestrator` check, which stopped working the moment
-     * the coach stopped taking an orchestrator — it would have been false forever, re-running the
-     * attach and its warmup on every configuration change. Same reasoning as before: a retained
-     * holder means a rotation, a fresh one means process death, and `savedInstanceState` cannot
-     * tell those apart.
-     */
-    @Volatile var aiAttached: Boolean = false
     // Autosave + resume-later (Phase 2): the store is created once for the holder's lifetime
     // (survives config changes) and seeded into the VM. A saved game is loaded here so the VM
     // starts from the restored state; if the saved game was already over it's cleared and a fresh

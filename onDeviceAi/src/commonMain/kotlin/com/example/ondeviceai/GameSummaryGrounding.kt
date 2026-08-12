@@ -35,6 +35,20 @@ object GameSummaryGrounding {
         return (listOf(lead) + turningPoints).joinToString(" ")
     }
 
+    /**
+     * [compose] over the turning points of [request] — the whole floor in one call.
+     *
+     * Exists so `:app` can render a summary with no orchestrator at all (Android, after the on-device
+     * models were measured) without `extractTurningPoints` having to become public API.
+     */
+    fun composeFor(request: GameSummaryRequest): String = compose(
+        GameSummaryPromptBuilder.extractTurningPoints(
+            request.moveHistory,
+            request.playerSide,
+            request.engineDifficultyName,
+        ),
+    )
+
     /** `extractTurningPoints` caps at 3, so [compose]'s lead never needs a larger number. */
     const val CLEAN_GAME = "No major mistakes this game — you kept the position under control throughout."
 }

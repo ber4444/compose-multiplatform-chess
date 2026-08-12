@@ -57,8 +57,8 @@ The project is split into focused Gradle modules:
   `storeMain` source set shared by Android and iOS only.
 - **`:androidApp`** — thin Android application wrapper (manifest, launcher icons) that depends on `:app`.
 - **`:onDeviceAi`** — on-device AI orchestration (move coach, rules Q&A, opening explainer, route
-  policy) in `commonMain`, with platform-specific LLM runtimes injected (Cactus on Android, Foundation
-  Models on iOS, deterministic fallback on desktop/wasm/JS). Published to GitHub Packages as
+  policy) in `commonMain`, with platform-specific LLM runtimes injected (none on Android — the coach is
+  deterministic there — Foundation Models on iOS, deterministic fallback on desktop/wasm/JS). Published to GitHub Packages as
   **`io.github.ber4444:onDeviceAi`** (tag-driven: push `on-device-ai-v*` → `publish-on-device-ai.yml`
   publishes both `:onDeviceAi` and `:coachApi` together). Consumed by `:app` and by the
   [React Native port](https://github.com/ber4444/react-native-kotlin-multiplatform-chess).
@@ -198,7 +198,7 @@ no single switch that turns "AI" on or off everywhere:
 
 | Feature | Android | iOS | Desktop | Web |
 |---|---|---|---|---|
-| **Move Coach**, **Game Summary** | All builds, debug and release; first launch downloads ~172 MB in the background (see [First-run model download](#first-run-model-download)) | iOS 26.0+, a Foundation-Models-eligible device, and Apple Intelligence on in Settings (`SystemLanguageModel.default.availability`), probed at launch on every build | `CHESS_ENABLE_COACH=1 ./gradlew :app:run` | `?coach=1` on the page URL; Chrome/Edge only, since it needs WebGPU |
+| **Move Coach**, **Game Summary** | All builds — **deterministic: no model, no download, answers instantly.** Every on-device model available to Android was benchmarked and lost to the templates (see [No first-run model download](#no-first-run-model-download)) | iOS 26.0+, a Foundation-Models-eligible device, and Apple Intelligence on in Settings (`SystemLanguageModel.default.availability`), probed at launch on every build | `CHESS_ENABLE_COACH=1 ./gradlew :app:run` | `?coach=1` on the page URL; Chrome/Edge only, since it needs WebGPU |
 | **Rules Q&A** | All builds — the answerer is unconditionally available and falls back to corpus retrieval if the model has not initialized yet | Same iOS 26+ / Apple Intelligence gate as the coach | Unavailable: `defaultRulesQaAnswerer` returns `null`, and the **Rules** screen reports itself unavailable rather than rendering a dead input box | Unavailable, same as desktop |
 | **Opening Explainer**, **Position Chat** | A `coach.baseUrl` / `CHESS_COACH_BASE_URL` baked in at build time — identical precedence on all four targets (see [App-side wiring](#opening-explainer-service)) | ↑ | ↑ | ↑ |
 
@@ -212,7 +212,7 @@ off. Neither Rules Q&A nor the two cloud surfaces has a Settings switch.
 
 | Target | Runtime | Model |
 |---|---|---|
-| Android | Cactus (`com.cactuscompute:cactus:1.4.1-beta`) | `gemma3-270m`, ~172 MB `.cact`, fetched from Hugging Face into `filesDir` on first launch — no model ships in the APK (debug APK ~258 MB), and `AndroidManifest.xml` declares `INTERNET` for it. Cold start ~1–2 s *(manual hardware measurement)*. See `docs/benchmarks/on-device-ai/android-delivery-decision.md` |
+| Android | none — deterministic | No model ships and none is downloaded: every model in the Cactus catalog was benchmarked on hardware and all lost to the deterministic text on latency, truth, or both. `MoveCoachManager` renders `DeterministicCoach`; `GameSummaryManager` composes the turning points. ML Kit/AICore stays wired but dormant (`Unavailable` on every device tested). See `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md` |
 | iOS | Foundation Models, via `FoundationMoveCoachBridge` registered into `FoundationModelsBridgeRegistry` from `iOSApp.swift` | The system model. Every Foundation Models call is individually `@available(iOS 26.0, *)`-gated; the app's own deployment target is 16.0, set by ChessKitEngine |
 | Desktop | LiteRT-LM (`com.google.ai.edge.litertlm:litertlm-jvm`), native libs bundled inside the jar: linux-x86_64/aarch64, darwin-aarch64, win-x86_64 — **no Intel Mac**, which falls back | Qwen3-0.6B-int4, ~347 MB `.litertlm`, downloaded on first launch and cached under `~/.chess-coach-models/`. See `docs/benchmarks/on-device-ai/desktop-wasm-litert-lm.md` |
 | Web (Wasm) | `@litert-lm/core` loaded from the jsdelivr CDN at runtime, running in a module Web Worker so inference stays off the main thread | `gemma-4-E2B-it-web.litertlm`, ~2 GB — the only model `@litert-lm/core` documents for web. Without WebGPU the generator reports unavailable and the orchestrator falls back to `MoveCoachFallback` |
@@ -226,7 +226,7 @@ so no platform code can reach a different conclusion than the policy allows. The
 have two narrow jobs and never see an `AiRoutePolicy`:
 
 - `probeAvailableLocalVendors()` reports **what this device can run**, as an ordered
-  `List<VendorRoute>` on `AiContextSnapshot` (Android returns ML Kit *then* Cactus, so the
+  `List<VendorRoute>` on `AiContextSnapshot` (Android returns ML Kit alone, so the
   "no AICore on this device" fallback is a list entry rather than a hidden branch).
 - `VendorRouteExecutor.execute(route)` builds **the one generator it is handed** — an exhaustive
   `when` with no `else`, which throws if it is ever given another platform's route.
@@ -262,8 +262,8 @@ off-device at all."
   up with BM25 (`BundledRuleLookupTool`); see
   `docs/benchmarks/on-device-ai/rules-qa-retrieval-decision.md` for why BM25 rather than a bundled
   embedding model. iOS uses a native Foundation Models `Tool` conformance with `NLEmbedding`
-  query-time ranking; Android uses native Cactus tool calling (if supported by the model) or
-  structured-output prompting — the model emits a
+  query-time ranking; Android has no model, so BM25 retrieval answers on its own through the
+  grounding floor. Where a model is present it emits a
   `{"tool":"lookup_rule","query":"…"}` envelope, Kotlin performs the real lookup, and a second
   generation turn cites the passage. An answer that fails validation falls back to composing the
   retrieved passage directly.
@@ -283,24 +283,21 @@ off-device at all."
   engine-independent 45 s `withTimeout` around the whole turn. Server-side streaming, validation and
   fallbacks: [Position Chat service](#position-chat-service).
 
-#### First-run model download
+#### No first-run model download
 
-The Android model is fetched by Cactus on first launch (~172 MB). Nothing waits for it:
+Android ships no on-device model and downloads none. Every model in the Cactus catalog was
+benchmarked on a Galaxy Z Fold 3, and all of them lost to the deterministic text on latency, on
+truth, or both — up to 36 s to answer, and in one case a fluent claim that a knight on h3 "controls
+the center". On Game Summary, which has no response validator, one model invented a bishop sacrifice
+on move 1 and another answered in German; both were accepted.
 
-- `CactusTextGenerator.warmup()` returns as soon as the download **starts**, and `status()` reports
-  `AiAvailability.Downloading` while it runs.
-- The orchestrator is attached *before* warmup finishes, so a coached move during the download routes
-  normally, sees `Downloading`, and renders the deterministic line. The board, the engine, and the
-  coach panel are all fully usable throughout — the model arriving just upgrades the prose.
-- Initialization goes through **one shared job**, so a re-entrant `ensureInitialized()` cannot start
-  a second download of the same model. `LitertLmTextGenerator` (desktop) mirrors the same structure.
-- Entry points that report a terminal state call `awaitWarmup()` rather than `warmup()`, so an init
-  failure surfaces instead of sitting behind a spinner.
+So the Move Coach answers instantly from `DeterministicCoach`, and Game Summary composes the same
+turning points a model was given and could not use. ML Kit/AICore remains wired but dormant: it costs
+no download, reports `Unavailable` on every device tested, and lights up by itself if a device ever
+provisions the feature.
 
-There is **no determinate progress bar**: Cactus exposes no progress callback.
-`docs/benchmarks/on-device-ai/cactus-download-progress.md` records the file-polling design
-(`CactusModel.size_mb` vs the partial file's length) that would give a real percentage and the
-on-disk-layout coupling it would cost.
+See [the benchmark](docs/benchmarks/on-device-ai/android-model-latency-2026-08.md) for the numbers,
+the raw outputs, and why AICore cannot be tested on an emulator.
 
 #### Fallback states
 

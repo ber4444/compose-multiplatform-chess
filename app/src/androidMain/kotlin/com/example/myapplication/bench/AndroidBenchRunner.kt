@@ -9,7 +9,6 @@ import com.example.ondeviceai.AiCoachOrchestrator
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
 import com.example.ondeviceai.MoveCoachRequest
 import com.example.ondeviceai.bench.BenchProbe
-import com.example.ondeviceai.cactus.CactusTextGenerator
 import com.example.ondeviceai.VendorRouteExecutor
 import com.example.ondeviceai.VendorRoute
 import kotlinx.coroutines.flow.collect
@@ -112,12 +111,11 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
         val route = (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
             ?.route ?: return
         val generator = executor.execute(route) ?: return
-        // awaitWarmup, not warmup. warmup() returns as soon as init *starts* (B18, so the board
-        // stays usable during the download), so the generation below began while the model was
-        // still loading and the orchestrator reported `no local model` on every row — a benchmark
-        // measuring nothing but its own race. CLAUDE.md states the rule: entry points that report a
-        // terminal state must await. A bench is exactly that.
-        (generator as? CactusTextGenerator)?.awaitWarmup() ?: generator.warmup()
+        // A bench reports a terminal state, so it must await warmup rather than fire and forget —
+        // generation that starts while the model is still loading reports "no local model" on every
+        // row, which looks like data. Only Cactus ever exposed an awaitable warmup; with it gone the
+        // remaining routes initialise synchronously inside warmup().
+        generator.warmup()
         probe.onInitEnd()
         
         val orchestrator = DefaultAiCoachOrchestrator(
@@ -148,7 +146,6 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
             // tell what produced it.
             modelIdentifier = when (route) {
                 is VendorRoute.MlKitPrompt -> "mlkit-aicore-${route.preference.name.lowercase()}"
-                is VendorRoute.CactusLocal -> CactusTextGenerator.DEFAULT_MODEL
                 else -> route::class.simpleName ?: "unknown"
             },
             isWarm = isWarm,

@@ -144,7 +144,13 @@ object MoveCoachPromptBuilder {
      *
      * Sized for a short answer *plus* a short deliberation, rather than for the answer alone —
      * on-device generation is slow enough that the cloud's 2048 would cost a visible pause on every
-     * move, and [suppressReasoning] keeps the common case near the answer length anyway.
+     * move.
+     *
+     * **Still load-bearing after Cactus was removed**, and it is worth saying why so nobody
+     * "simplifies" it down to the answer length: desktop runs `Qwen3-0.6B-int4` through LiteRT-LM,
+     * which is a reasoning model and emits a `<think>` block exactly like the Android attempt did.
+     * iOS Foundation Models answers this prompt in ~10 tokens and never approaches the cap, so the
+     * budget costs it nothing.
      */
     const val MAX_OUTPUT_TOKENS_STRICT = 384
     const val MAX_OUTPUT_CHARS = 300

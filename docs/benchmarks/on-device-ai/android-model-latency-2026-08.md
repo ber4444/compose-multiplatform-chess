@@ -237,3 +237,39 @@ Note this needs the **real app**, not `:app:iosSimulatorArm64Test` — the Found
 Models bridge is registered into `FoundationModelsBridgeRegistry` from
 `iOSApp.swift`, so the Kotlin/Native test runner reports no vendors at all. Same
 constraint as `tools/ios_3d_screenshot.sh` and for the same reason.
+
+
+---
+
+# Game Summary, measured on its own terms — and also disqualified
+
+Game Summary has a different contract from the coach: a deliberate button press with a spinner at
+game end, not an automatic per-move panel. A wait that disqualifies the coach could be perfectly
+acceptable here, so it was benchmarked separately (`AndroidSummaryBench`, `--ei
+bench_summary_iterations 3`) against `gemma3-1b` — the best of the catalog — on the Fold 3, over a
+24-ply game with three real turning points.
+
+**The bar was set before the numbers were seen:** ~15 s, and truth as the hard gate, because this
+surface has **no response validator at all** — any non-blank text is accepted and shipped.
+
+| Run | Time | Result |
+|---|---|---|
+| 0 | **22.1 s** | *"Okay, let's analyze this game and highlight the key mistakes."* Generic waffle. **Cited none of the three turning points it was given.** |
+| 1 | **23.7 s** | *"White sacrificed their Bishop (move-1)"* — **fabricated.** Move 1 was `e4`, a pawn. |
+| 2 | **16.8 s** | **Answered in German.** *"Nachspielung der Partie ist sehr interessant…"* |
+
+Every one was returned as `Success`. Nothing rejected them, because there is nothing to reject them
+with — so all three would have reached the user verbatim: the waffle, the invented bishop sacrifice,
+and the German.
+
+Both gates failed, and the truth gate failed badly. A model that ignores the turning points it was
+handed, invents a piece sacrifice on move 1, and switches language is not a summariser; it is a
+liability on the one surface with no guard rail.
+
+**Verdict: Cactus is removed.** Android's Move Coach and Game Summary are both deterministic.
+`GameSummaryGrounding` composes the same turning points the model was given and could not use:
+
+> Three moments decided this game. [move-5]: You played Qh5. This was a blunder. The engine
+> preferred Nf3. This move lost significant material or allowed a forced mate. …
+
+Instant, correct, cites every turning point, and in the user's language.

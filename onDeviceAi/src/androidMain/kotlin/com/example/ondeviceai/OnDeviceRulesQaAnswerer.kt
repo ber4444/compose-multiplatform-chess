@@ -1,15 +1,9 @@
-package com.example.ondeviceai.cactus
+package com.example.ondeviceai
 
 import co.touchlab.kermit.Logger
 import com.example.ondeviceai.AiAvailability
-import com.example.ondeviceai.AiGenerationRequest
-import com.example.ondeviceai.AiTokenOrFinal
-import com.example.ondeviceai.OnDeviceTextGenerator
-import com.example.ondeviceai.RuleLookupTool
 import com.example.ondeviceai.RulePassage
-import com.example.ondeviceai.RulesQaAnswerer
 import com.example.ondeviceai.RulesQaGrounding
-import com.example.ondeviceai.RulesQaModelOutput
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -19,11 +13,7 @@ import kotlin.math.max
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
 
-import com.example.ondeviceai.AiToolParameter
-import com.example.ondeviceai.AiToolSpec
-import com.example.ondeviceai.AiRouteExecutor
 import com.example.ondeviceai.AiRoutePolicies
-import com.example.ondeviceai.VendorRoute
 
 /**
  * Android rules Q&A uses either native tool calling or structured-output prompting, depending on

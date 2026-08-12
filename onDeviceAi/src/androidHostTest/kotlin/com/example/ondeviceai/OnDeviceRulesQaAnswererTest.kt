@@ -1,13 +1,7 @@
-package com.example.ondeviceai.cactus
+package com.example.ondeviceai
 
 import com.example.ondeviceai.AiAvailability
-import com.example.ondeviceai.AiGenerationRequest
-import com.example.ondeviceai.AiRouteExecutor
-import com.example.ondeviceai.AiTokenOrFinal
-import com.example.ondeviceai.OnDeviceTextGenerator
-import com.example.ondeviceai.RuleLookupTool
 import com.example.ondeviceai.RulePassage
-import com.example.ondeviceai.VendorRoute
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
