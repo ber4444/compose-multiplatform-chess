@@ -10,13 +10,20 @@ import com.example.ondeviceai.MoveCoachEvent
 import com.example.ondeviceai.MoveCoachRequest
 import com.example.ondeviceai.MoveCoachResult
 import com.example.ondeviceai.AiRoutePolicyDecider
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+
+/** Real milliseconds, since the coach runs off the test scheduler. Well under `runTest`'s own bound. */
+private const val TERMINAL_STATE_TIMEOUT_MS = 5_000L
 
 /**
  * The gap between "the renderer paints tones" (`DesktopRendererSmokeTest`) and "a blunder is red on
@@ -119,14 +126,26 @@ class MoveCoachToneTest {
     /**
      * Waits for the *terminal* state. [MoveCoachUiState.Loading] is also `Toned`, so stopping at the
      * first toned state raced the orchestrator and read the placeholder.
+     *
+     * The wait deliberately runs on [Dispatchers.Default] rather than on `runTest`'s scheduler.
+     * [MoveCoachManager] owns a real `Dispatchers.Default` scope, so its progress is invisible to
+     * virtual time: the poll loop this replaced spent its whole nominal two-second budget in a few
+     * hundred microseconds of wall clock, and whether the coach had finished by then was pure luck.
+     * It won on a warm developer machine and lost on a loaded CI runner. Suspending on the flow
+     * instead of polling also means the common case costs one dispatch, not 200.
      */
     private suspend fun waitForToned(manager: MoveCoachManager) {
-        repeat(200) {
-            val state = manager.coachUiState.value
-            if (state is MoveCoachUiState.Toned && state !is MoveCoachUiState.Loading) return
-            kotlinx.coroutines.delay(10)
+        val terminal = withContext(Dispatchers.Default) {
+            withTimeoutOrNull(TERMINAL_STATE_TIMEOUT_MS) {
+                manager.coachUiState.first {
+                    it is MoveCoachUiState.Toned && it !is MoveCoachUiState.Loading
+                }
+            }
         }
-        assertTrue(false, "coach never produced a terminal toned state: ${manager.coachUiState.value}")
+        assertTrue(
+            terminal != null,
+            "coach never produced a terminal toned state: ${manager.coachUiState.value}",
+        )
     }
 
     @Test
