@@ -141,10 +141,16 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
             deviceModel = deviceModel,
             osVersion = osVersion,
             appVersion = appVersion,
-            // Read from the generator, never restated. Hardcoding it meant the JSONL labelled every
-            // row `gemma3-270m` after Android had moved to qwen3-0.6 — the one field a benchmark
-            // must get right, since the whole file is worthless if you cannot tell what produced it.
-            modelIdentifier = CactusTextGenerator.DEFAULT_MODEL,
+            // Derived from the route that actually ran, never restated. This was hardcoded to
+            // `gemma3-270m`, then briefly to whatever Cactus's default was — both wrong the moment
+            // the decider picks ML Kit, which serves AICore's own model and has no Cactus slug at
+            // all. The one field a benchmark must get right: the file is worthless if you cannot
+            // tell what produced it.
+            modelIdentifier = when (route) {
+                is VendorRoute.MlKitPrompt -> "mlkit-aicore-${route.preference.name.lowercase()}"
+                is VendorRoute.CactusLocal -> CactusTextGenerator.DEFAULT_MODEL
+                else -> route::class.simpleName ?: "unknown"
+            },
             isWarm = isWarm,
             timestampMs = System.currentTimeMillis(),
             initStartMs = initStart,

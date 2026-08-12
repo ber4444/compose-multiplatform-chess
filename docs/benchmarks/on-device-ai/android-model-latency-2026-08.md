@@ -1,4 +1,4 @@
-# Android on-device coach: every Cactus model measured (2026-08-11)
+# On-device coach measured: Android catalog, AICore, and iOS (2026-08-11)
 
 Status: **Measured on hardware.** Galaxy Z Fold 3 (SM-F926U, Android 15), Cactus
 1.4.1-beta, `:androidApp` debug build driven by
@@ -97,8 +97,8 @@ could be read as an argument for a bigger one. This is the same conclusion at
 
 - It does not say a *good* model would lose. It says the models that fit in a
   phone download and answer in reasonable time, in this catalog, do.
-- It does not measure iOS. Foundation Models is a different runtime, is
-  system-provided at no download cost, and has not been benchmarked here.
+- It does not generalise to iOS — see the Foundation Models section below, which
+  is the same pipeline succeeding in 1.8 s.
 - Three cases per model. That disqualifies; it does not rank.
 
 ## Reproducing
@@ -118,8 +118,90 @@ Two bugs were fixed in the harness to get these numbers, both of which made ever
 row meaningless in a way that still looked like data:
 
 - `modelIdentifier` was hardcoded to `"gemma3-270m"`, so the JSONL mislabelled
-  every row after the model changed. It now reads `CactusTextGenerator.DEFAULT_MODEL`.
+  every row after the model changed. It now derives from the route that actually
+  ran, since the ML Kit route has no Cactus slug at all.
 - The runner called `warmup()`, which returns as soon as init *starts* (B18), so
   generation began before the model had loaded and every row reported
   `fallbackTriggered: true, "no local model"`. It now calls `awaitWarmup()`, which
   `CLAUDE.md` already required of any caller reporting a terminal state.
+
+
+---
+
+# AICore / ML Kit Prompt API — not available (Pixel 10 Pro XL)
+
+Tested on a Pixel 10 Pro XL (`mustang`, AICore
+`0.thirdpartyexperimental.ffdf_aicore_20260723`), which does run AICore.
+
+`MlKitPromptGenerator` reported `Unavailable`, and the reason was two bugs stacked
+on a genuine gate:
+
+1. **`releaseStage = ModelReleaseStage.PREVIEW`** asked for a feature the device
+   does not provision, and the failure was opaque:
+   `[ErrorCode 606] FEATURE_NOT_FOUND: Feature -1 is not available`. `-1` is the
+   enum failing to resolve at all. Changed to `STABLE`, the only other value the
+   AAR defines, and the id resolves: `Feature 645`.
+2. **`download()` was never called.** `GenerativeModel` exposes
+   `download(): Flow<DownloadStatus>`; `warmup()` was an empty stub, so a device
+   reporting `DOWNLOADABLE` would have stayed that way forever — the probe would
+   report not-Available, the decider would pick Cactus, and warmup would never
+   run to trigger the download that would have fixed it. Now wired, along with
+   `getBaseModelName()` logging.
+
+With both fixed, AICore still answers **`Feature 645 is not available`**. The
+third-party Prompt API is gated separately from AICore itself: a device can ship
+AICore models for Google's own features and still not expose the generic Prompt
+API to third-party apps. `com.google.mlkit:genai-prompt` is `1.0.0-beta4`.
+
+So the ML Kit route could not be benchmarked here. `CLAUDE.md` already recorded
+the reason it was rejected once — *"narrow AICore device support"* — and this is
+that, confirmed on current hardware, with the two client-side bugs removed so the
+next attempt starts from a working client.
+
+---
+
+# iOS Foundation Models — and yes, the Simulator works
+
+**The Simulator does support Foundation Models**, on an Apple Silicon host whose
+macOS has Apple Intelligence enabled (here: macOS 26.5.2, opted in). Verified end
+to end, not inferred: the app log shows the framework probing
+(`com.apple.GenerativeModels:availability`) and then actually running inference
+(`com.apple.tokengeneration:Inference — Scrubbing entire prompt as use case is
+Foundation Models`). No physical iPhone needed.
+
+Measured on an iPhone 17 Pro simulator:
+
+| Route | To answer | Tokens | Validation | Output |
+|---|---|---|---|---|
+| `FoundationModels` | **1.8 s** | 10 | passed | *"e4 is a good move because it controls the center."* |
+
+Correct, specific, grounded, and one sentence — and e4 really does control the
+centre, unlike `lfm2-700m`'s identical claim about a knight on h3.
+
+**This is the on-device coach working.** Against the Android table above — 20-36 s,
+or 5-20 s of waffle, or 6 s of confident falsehood — the same pipeline, the same
+prompt and the same validator produce a good answer in under two seconds on iOS.
+The problem was never the architecture; it is that Android has no comparable
+model available to it.
+
+## Running it
+
+```bash
+xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug \
+  -sdk iphonesimulator -destination "platform=iOS Simulator,name=iPhone 17 Pro" \
+  -derivedDataPath build/ios-dd CODE_SIGNING_ALLOWED=NO build
+xcrun simctl install "iPhone 17 Pro" "$(find build/ios-dd/Build/Products -maxdepth 2 -name '*.app' | head -1)"
+SIMCTL_CHILD_BENCHMARK_MODE=1 xcrun simctl launch "iPhone 17 Pro" io.github.ber4444.chess
+```
+
+`BENCHMARK_MODE` selects `BenchmarkView` (`iosApp/iosApp/iOSApp.swift`), which calls
+`runIosBench`. Results land in the app container:
+
+```bash
+find "$(xcrun simctl get_app_container 'iPhone 17 Pro' io.github.ber4444.chess data)" -name bench_results.jsonl
+```
+
+Note this needs the **real app**, not `:app:iosSimulatorArm64Test` — the Foundation
+Models bridge is registered into `FoundationModelsBridgeRegistry` from
+`iOSApp.swift`, so the Kotlin/Native test runner reports no vendors at all. Same
+constraint as `tools/ios_3d_screenshot.sh` and for the same reason.

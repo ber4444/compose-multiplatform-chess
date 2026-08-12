@@ -15,7 +15,12 @@ import com.google.mlkit.genai.prompt.modelConfig
 class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.ModelPreference) : OnDeviceTextGenerator {
     
     private val modelConfig = modelConfig {
-        releaseStage = ModelReleaseStage.PREVIEW
+        // STABLE, not PREVIEW. PREVIEW asks AICore for a feature most builds do not provision, and
+        // the failure is opaque: `[ErrorCode 606] FEATURE_NOT_FOUND: Feature -1 is not available`,
+        // caught by status() and reported as a plain Unavailable, so the device silently fell
+        // through to Cactus and looked like it simply had no AICore. Observed on a Pixel 10 Pro XL
+        // with AICore present and working.
+        releaseStage = ModelReleaseStage.STABLE
         preference = if (this@MlKitPromptGenerator.routePreference == com.example.ondeviceai.ModelPreference.FAST) {
             ModelPreference.FAST
         } else {
@@ -50,7 +55,20 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
     }
 
     override suspend fun warmup() {
-        // Optional warmup logic if ML Kit requires
+        // The feature is delivered on demand and `download()` was never called, so a device
+        // reporting DOWNLOADABLE stayed that way forever: status() answered "not Available", the
+        // decider fell through to Cactus, and AICore looked absent on hardware that has it.
+        // `download()` is a Flow and completes when the feature is installed.
+        runCatching {
+            android.util.Log.d("MlKitPrompt", "base model: " + model.getBaseModelName())
+        }
+        runCatching {
+            if (model.checkStatus() == FeatureStatus.DOWNLOADABLE) {
+                android.util.Log.d("MlKitPrompt", "feature downloadable; requesting")
+                model.download().collect { android.util.Log.d("MlKitPrompt", "download: $it") }
+            }
+        }.onFailure { android.util.Log.w("MlKitPrompt", "download failed", it) }
+        runCatching { model.warmup() }
     }
 
     override fun generate(request: AiGenerationRequest): Flow<AiTokenOrFinal> = flow {
