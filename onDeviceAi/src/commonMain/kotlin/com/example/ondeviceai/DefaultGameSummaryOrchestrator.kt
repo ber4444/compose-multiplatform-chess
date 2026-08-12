@@ -145,9 +145,20 @@ class DefaultGameSummaryOrchestrator(
         data class Completed(val outcome: GenerationOutcome) : CollectResult
     }
 
+    /**
+     * Every give-up path lands here, and it now composes the turning points rather than apologising.
+     *
+     * The old text — "No summary available. Review the PGN to spot your mistakes!" — was returned
+     * while holding the player's three worst moves, each already a finished sentence, because that
+     * list was only ever used as prompt input. See [GameSummaryGrounding].
+     */
     private fun fallback(request: GameSummaryRequest, reason: AiRoutePolicyDecider.FallbackReason): GameSummaryEvent.Complete {
-        val fallbackText = "No summary available. Review the PGN to spot your mistakes!"
-        return complete(GameSummaryResult.FellBack(fallbackText, reason))
+        val turningPoints = GameSummaryPromptBuilder.extractTurningPoints(
+            request.moveHistory,
+            request.playerSide,
+            request.engineDifficultyName,
+        )
+        return complete(GameSummaryResult.FellBack(GameSummaryGrounding.compose(turningPoints), reason))
     }
 
     private fun success(

@@ -37,7 +37,15 @@ internal object GameSummaryPromptBuilder {
         )
     }
 
-    private fun extractTurningPoints(moveHistory: List<MoveRecord>, playerSide: Set, difficulty: String): List<String> {
+    /**
+     * The turning points, already written as finished sentences.
+     *
+     * `internal` rather than private because [GameSummaryGrounding] composes the same list into the
+     * answer itself. These were only ever *prompt input* — a model was asked to paraphrase them and,
+     * if it could not, the user got "No summary available" instead of the very sentences that were
+     * sitting right here.
+     */
+    internal fun extractTurningPoints(moveHistory: List<MoveRecord>, playerSide: Set, difficulty: String): List<String> {
         val threshold = when (difficulty) {
             "EASY" -> 300 // BLUNDER only
             "MEDIUM" -> 100 // MISTAKE and BLUNDER
