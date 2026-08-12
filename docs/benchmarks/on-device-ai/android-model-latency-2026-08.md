@@ -153,6 +153,38 @@ third-party Prompt API is gated separately from AICore itself: a device can ship
 AICore models for Google's own features and still not expose the generic Prompt
 API to third-party apps. `com.google.mlkit:genai-prompt` is `1.0.0-beta4`.
 
+## The Android emulator cannot substitute
+
+Asked directly, and answered on the machine: **no.** The API 37
+`google_apis_playstore` image (`sdk_gphone16k_arm64`) does not ship
+`com.google.android.aicore` at all —
+
+```
+$ adb shell pm list packages | grep -i aicore
+(nothing)
+$ adb shell pm list packages | grep -iE "gms|vending"
+package:com.android.vending
+package:com.google.android.gms
+```
+
+Play Store and GMS are present; AICore is not, and it is not installable from
+Play — it is a device-gated system component, not an app.
+
+Running the probe on the emulator confirms it end to end: `MLKit status:
+Unavailable`, and — the useful part — **no `ErrorCode 606` at all**. The two
+failures are distinguishable, which is worth knowing before debugging the next
+one:
+
+| Where | Signature | Meaning |
+|---|---|---|
+| Emulator | `Unavailable`, no error code | No AICore on the image |
+| Pixel 10 Pro XL | `606 FEATURE_NOT_FOUND: Feature 645` | AICore present, Prompt API not provisioned to third parties |
+
+This is the opposite of iOS, where the Simulator *does* provide Foundation Models
+through the host Mac. There is no equivalent host-passthrough on Android: testing
+the ML Kit route needs physical hardware that provisions the feature, and the
+Pixel 10 Pro XL above does not.
+
 So the ML Kit route could not be benchmarked here. `CLAUDE.md` already recorded
 the reason it was rejected once — *"narrow AICore device support"* — and this is
 that, confirmed on current hardware, with the two client-side bugs removed so the
