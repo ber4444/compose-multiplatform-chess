@@ -46,6 +46,8 @@ import com.example.myapplication.opening.cloudCoachConfigured
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.example.myapplication.rules.RulesQaScreen
 import com.example.myapplication.rules.RulesQaStateHolder
+import com.example.myapplication.habits.HabitsManager
+import com.example.myapplication.habits.HabitsScreen
 import com.example.ondeviceai.AiContextSnapshot
 import com.example.ondeviceai.AiUserSetting
 import com.example.ondeviceai.DefaultRulesQaOrchestrator
@@ -67,7 +69,7 @@ import com.example.myapplication.monetization.isProUnlocked
  * Replaces the per-platform `MyApplicationTheme { ChessApp(...) }` duplication. New screens
  * (History, Settings) are added here as the lifecycle/persistence work lands.
  */
-enum class Screen { GAME, HISTORY, SETTINGS, RULES, CHAT, PAYWALL }
+enum class Screen { GAME, HISTORY, SETTINGS, RULES, CHAT, PAYWALL, HABITS }
 
 val LocalMoveCoachManager = staticCompositionLocalOf<MoveCoachManager?> { null }
 val LocalGameSummaryManager = staticCompositionLocalOf<GameSummaryManager?> { null }
@@ -116,11 +118,18 @@ fun AppRoot(
             },
         )
     }
+    // Unlike the AI managers below, this needs no platform runtime — it's a pure aggregation over
+    // gameHistory — so AppRoot can own it directly instead of entry points threading it through.
+    // Null exactly when gameHistory is null, mirroring how the Save/Share buttons already gate.
+    val habitsManager = remember(gameHistory) { gameHistory?.let { HabitsManager(it) } }
     DisposableEffect(openingExplainerStateHolder) {
         onDispose { openingExplainerStateHolder.close() }
     }
     DisposableEffect(chatViewModel) {
         onDispose { chatViewModel.close() }
+    }
+    DisposableEffect(habitsManager) {
+        onDispose { habitsManager?.close() }
     }
     CompositionLocalProvider(
         LocalAppSettings provides settings,
@@ -170,6 +179,7 @@ fun AppRoot(
                     onOpenRules = { screen = Screen.RULES },
                     onOpenChat = { screen = Screen.CHAT },
                     onOpenPaywall = { screen = Screen.PAYWALL },
+                    onOpenHabits = { screen = Screen.HABITS },
                 )
                 Screen.HISTORY -> if (gameHistory != null) {
                     GameHistoryScreen(
@@ -204,6 +214,30 @@ fun AppRoot(
                             featureName = "Rules Q&A",
                             pitch = "Ask any rules question and get an answer cited to the " +
                                 "rulebook, entirely on your device.",
+                            onOpenPaywall = { screen = Screen.PAYWALL },
+                            modifier = Modifier.padding(16.dp),
+                        )
+                    }
+                }
+                // Branching here rather than wrapping in ProGate, same reason as RULES above:
+                // HabitsScreen supplies its own SubScreenScaffold. `habitsManager == null` (no
+                // gameHistory at this entry point — there's nothing to aggregate) short-circuits the
+                // gate the same way `rulesQaAnswerer == null` does, so the feature is never sold on
+                // a build where it can't work.
+                Screen.HABITS -> if (habitsManager == null || isProUnlocked()) {
+                    if (habitsManager != null) {
+                        HabitsScreen(manager = habitsManager, onBack = { screen = Screen.GAME })
+                    } else {
+                        SubScreenScaffold(title = "Habits", onBack = { screen = Screen.GAME }, showBackButton = !isAndroidPlatform) {
+                            Text("Habits needs game history, which isn't available on this build.")
+                        }
+                    }
+                } else {
+                    SubScreenScaffold(title = "Habits", onBack = { screen = Screen.GAME }, showBackButton = !isAndroidPlatform) {
+                        ProUpsellCard(
+                            featureName = "Habits",
+                            pitch = "See the mistakes that keep recurring across your games, with the " +
+                                "exact positions to practice — computed from your own play, not a model.",
                             onOpenPaywall = { screen = Screen.PAYWALL },
                             modifier = Modifier.padding(16.dp),
                         )
