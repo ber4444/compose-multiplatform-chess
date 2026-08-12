@@ -14,7 +14,7 @@ from 651 MB with the bundled LiteRT-LM model).
 | Runtime | Verdict | Reason |
 |---|---|---|
 | **Cactus (llama.cpp)** | **Shipped** | Resolves from Maven Central, CPU-only (no per-SoC dispatch libraries), model download handled by the library, ~1–2 s cold start. |
-| LiteRT-LM | Rejected | Slow (7–9 s cold init on `qwen3-0.6`) and the streaming path crashed during the spike. The published Maven coordinate for `com.google.ai.edge.litertlm` never resolved (probed `0.0.x`–`0.2.x` on 2026-06-16; all 404), forcing a reflection-gated PoC. |
+| LiteRT-LM | Rejected | Slow (7–9 s cold init on `gemma3-270m`) and the streaming path crashed during the spike. The published Maven coordinate for `com.google.ai.edge.litertlm` never resolved (probed `0.0.x`–`0.2.x` on 2026-06-16; all 404), forcing a reflection-gated PoC. |
 | ML Kit GenAI Prompt API (AICore) | Rejected for default | Gemini Nano path, not Gemma; AICore availability is narrow (recent Pixel/Samsung only). Kept as an optional higher-tier route, not the default. |
 | ExecuTorch | Rejected | Requires authoring a `.pte` conversion pipeline for Gemma; no first-party Gemma `.pte` artifact was available. |
 | ONNX Runtime | Rejected | No published Android GenAI Maven artifact at spike time (`com.microsoft.onnxruntime.genai` had no stable Android coordinate). |

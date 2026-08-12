@@ -426,4 +426,137 @@ class MoveCoachResponseValidatorTest {
             )
         }
     }
+
+    // --- faithfulness: the claims must be supported by the facts ---------------------------------
+
+    @Test
+    fun `rejects a claimed check the move did not give`() {
+        val v = MoveCoachResponseValidator.validate(
+            "Nf3 develops the knight and gives check.",
+            request.copy(moveDisplay = "Nf3", motifs = emptyList()),
+        )
+        val invalid = assertIs<MoveCoachResponseValidator.Result.Invalid>(v)
+        assertTrue("check" in invalid.reason, invalid.reason)
+    }
+
+    @Test
+    fun `accepts a claimed check when SAN says so`() {
+        // Ground truth is the move itself: "+" is check, so the claim is supported.
+        assertIs<MoveCoachResponseValidator.Result.Valid>(
+            MoveCoachResponseValidator.validate(
+                "Nf3+ develops the knight and gives check.",
+                request.copy(moveDisplay = "Nf3+"),
+            ),
+        )
+    }
+
+    @Test
+    fun `rejects a claimed checkmate on a quiet move`() {
+        assertIs<MoveCoachResponseValidator.Result.Invalid>(
+            MoveCoachResponseValidator.validate(
+                "That is checkmate and wins the game.",
+                request.copy(moveDisplay = "Nf3", motifs = emptyList()),
+            ),
+        )
+    }
+
+    @Test
+    fun `rejects a claimed capture that did not happen`() {
+        // The exact shape the deterministic layer produces, asserted by a model about a quiet move.
+        for (claim in listOf(
+            "It captures the bishop and develops.",
+            "It wins the pawn on g6 and opens the centre.",
+            "It takes the rook, winning material.",
+        )) {
+            assertIs<MoveCoachResponseValidator.Result.Invalid>(
+                MoveCoachResponseValidator.validate(claim, request.copy(moveDisplay = "Nf3", motifs = emptyList())),
+                claim,
+            )
+        }
+    }
+
+    @Test
+    fun `accepts a capture claim when SAN captured and the facts name the piece`() {
+        assertIs<MoveCoachResponseValidator.Result.Valid>(
+            MoveCoachResponseValidator.validate(
+                "It captures the bishop and keeps the centre.",
+                request.copy(
+                    moveDisplay = "Nxc4",
+                    motifs = listOf("capture"),
+                    deterministicExplanation = "It takes the bishop on c4.",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `naming a captured piece the facts never mentioned is still invented`() {
+        // The model only sees the prompt. If the facts do not say what was taken, it cannot know.
+        assertIs<MoveCoachResponseValidator.Result.Invalid>(
+            MoveCoachResponseValidator.validate(
+                "It captures the bishop and keeps the centre.",
+                request.copy(moveDisplay = "Nxc4", motifs = listOf("capture")),
+            ),
+        )
+    }
+
+    @Test
+    fun `takes space is not a capture claim`() {
+        // "takes"/"take" as bare words rejected ordinary prose: takes space, takes control, takes aim.
+        for (good in listOf(
+            "The pawn takes space in the centre.",
+            "It takes control of the long diagonal.",
+        )) {
+            assertIs<MoveCoachResponseValidator.Result.Valid>(
+                MoveCoachResponseValidator.validate(good, request.copy(moveDisplay = "e4")), good,
+            )
+        }
+    }
+
+    // --- piece-type ------------------------------------------------------------------------------
+
+    @Test
+    fun `rejects naming a piece the move does not involve`() {
+        val v = MoveCoachResponseValidator.validate(
+            "The bishop develops toward the centre.",
+            request.copy(moveDisplay = "Nf3", deterministicExplanation = "It develops a piece."),
+        )
+        val invalid = assertIs<MoveCoachResponseValidator.Result.Invalid>(v)
+        assertTrue("bishop" in invalid.reason, invalid.reason)
+    }
+
+    @Test
+    fun `accepts a piece the deterministic text already named`() {
+        // The line now says "Your bishop on b5 pins the knight on c6", so a faithful answer may
+        // repeat both. A rule allowing only the mover would reject a correct sentence.
+        assertIs<MoveCoachResponseValidator.Result.Valid>(
+            MoveCoachResponseValidator.validate(
+                "The bishop pins the knight, so it cannot move.",
+                request.copy(
+                    moveDisplay = "Bb5",
+                    deterministicExplanation = "Your bishop on b5 pins the knight on c6 against the king on e8.",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `a promotion may name both the pawn and what it became`() {
+        assertIs<MoveCoachResponseValidator.Result.Valid>(
+            MoveCoachResponseValidator.validate(
+                "The pawn becomes a queen and controls the board.",
+                request.copy(moveDisplay = "e8=Q", motifs = listOf("promotion")),
+            ),
+        )
+    }
+
+    @Test
+    fun `castling may name the king and rook`() {
+        assertIs<MoveCoachResponseValidator.Result.Valid>(
+            MoveCoachResponseValidator.validate(
+                "The king castles to safety and the rook activates.",
+                request.copy(moveDisplay = "O-O", motifs = listOf("castle-kingside")),
+            ),
+        )
+    }
 }

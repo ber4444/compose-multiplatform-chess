@@ -1,9 +1,12 @@
 package com.example.ondeviceai
 
 /**
- * Gates honesty, echoed scaffolding, length, and grounding — it does not check reason-faithfulness
- * or piece-type accuracy. See `docs/benchmarks/on-device-ai/move-coach-quality-axes.md` for measured
- * cases that pass here while failing those two axes.
+ * Gates honesty, echoed scaffolding, restatement, length, grounding, and — since the move to a
+ * model fluent enough to assert things — reason-faithfulness and piece-type.
+ *
+ * See `docs/benchmarks/on-device-ai/move-coach-quality-axes.md`, which measured the last two failing
+ * on 3/10 and 1/10 while every case passed this validator. It still does not check whether the
+ * *reasoning* is sound, only whether the claims are supported by the supplied facts.
  */
 object MoveCoachResponseValidator {
 
@@ -111,6 +114,11 @@ object MoveCoachResponseValidator {
         return Result.Valid(fitted)
     }
 
+    /** Capture claims that name what was taken. "takes space" is not one of these. */
+    private val CAPTURE_OBJECT_PHRASES = listOf(
+        "takes the", "takes a ", "take the", "wins the", "wins a ", "grabs the", "snags the",
+    )
+
     private fun containsWord(text: String, word: String): Boolean {
         return text.lowercase().split(Regex("[^a-z0-9]+")).contains(word)
     }
@@ -127,7 +135,13 @@ object MoveCoachResponseValidator {
         if (!hasCheckFact && containsWord(text, "check")) {
             return "unsupported claim: check"
         }
-        if (!hasCaptureFact && (containsWord(text, "capture") || containsWord(text, "captures") || containsWord(text, "material") || containsWord(text, "takes") || containsWord(text, "take"))) {
+        // "takes"/"take" as bare words are not capture claims — "takes space", "takes control" and
+        // "takes aim" are ordinary chess prose, and rejecting them threw away good answers. Only a
+        // capture *with an object* counts, alongside the unambiguous verbs.
+        val lower = text.lowercase()
+        val claimsCapture = containsWord(text, "capture") || containsWord(text, "captures") ||
+            containsWord(text, "material") || CAPTURE_OBJECT_PHRASES.any { it in lower }
+        if (!hasCaptureFact && claimsCapture) {
             return "unsupported claim: capture/material"
         }
 
@@ -161,6 +175,15 @@ object MoveCoachResponseValidator {
 
         addAllowed(request.moveDisplay)
         request.betterMoveDisplay?.takeIf { it.isNotBlank() }?.let { addAllowed(it) }
+
+        // Every piece the *prompt* names is fair game, not just the one that moved. The deterministic
+        // line now says "Your bishop on b5 pins the knight on c6 against the king on e8", and a model
+        // repeating those pieces is being faithful — under a mover-only rule it was rejected for
+        // naming the knight it had just been told about. The same applies to a captured piece: with
+        // "It takes the bishop on c4" in the facts, "it captures the bishop" is supported, and
+        // without it that claim really is invented.
+        val prose = (request.deterministicHeadline + " " + request.deterministicExplanation).lowercase()
+        allPieces.forEach { if (containsWord(prose, it)) allowed.add(it) }
 
         for (piece in allPieces) {
             if (piece !in allowed && containsWord(text, piece)) {

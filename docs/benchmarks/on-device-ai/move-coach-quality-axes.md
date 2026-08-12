@@ -1,9 +1,30 @@
 # Move Coach quality axes (desktop LiteRT-LM, Qwen3-0.6B-int4)
 
-Status: **Measured once, on one host.** This is a 10-case slice, not a
-statistically powered benchmark — treat the numbers as a demonstrated gap, not
-a calibrated pass rate. Re-run before citing a specific percentage anywhere
-load-bearing (the article, a routing threshold, a release note).
+Status: **Measured once, on one host, and no longer describing the shipped
+Android path.** This is a 10-case slice, not a statistically powered benchmark —
+treat the numbers as a demonstrated gap, not a calibrated pass rate. Re-run
+before citing a specific percentage anywhere load-bearing (the article, a
+routing threshold, a release note).
+
+> [!IMPORTANT]
+> **These numbers are from desktop LiteRT-LM, not from the phone.** Android moved
+> from `gemma3-270m` to `qwen3-0.6` (Cactus), which is a different runtime, a
+> different quantisation and a different chat template — the model family is the
+> only thing the two share. This table was the *evidence* for that swap (a 0.6B
+> clearing a bar the 270M could not), and it is **not** a measurement of the
+> result.
+>
+> Nothing has re-run it since. Do not quote these percentages as the shipped
+> Android quality; the honest statement is that the on-device path is unmeasured
+> since the model change. Re-running means pointing the scorer at
+> `CactusTextGenerator` on a real device, which `:litert-eval` cannot do — it
+> drives the desktop generator only.
+>
+> Two things have changed underneath it in the meantime, so a re-run would not be
+> comparable anyway: `MoveCoachResponseValidator` now gates reason-faithfulness
+> and piece-type (the two axes this table measures out-of-band, which is why they
+> could be 70%/90% while the validator passed 10/10), and the prompt now carries
+> the win-percentage and counterfactual facts.
 
 ## Why this doc exists
 

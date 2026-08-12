@@ -198,7 +198,7 @@ no single switch that turns "AI" on or off everywhere:
 
 | Feature | Android | iOS | Desktop | Web |
 |---|---|---|---|---|
-| **Move Coach**, **Game Summary** | All builds, debug and release; first launch downloads ~200 MB in the background (see [First-run model download](#first-run-model-download)) | iOS 26.0+, a Foundation-Models-eligible device, and Apple Intelligence on in Settings (`SystemLanguageModel.default.availability`), probed at launch on every build | `CHESS_ENABLE_COACH=1 ./gradlew :app:run` | `?coach=1` on the page URL; Chrome/Edge only, since it needs WebGPU |
+| **Move Coach**, **Game Summary** | All builds, debug and release; first launch downloads ~350 MB in the background (see [First-run model download](#first-run-model-download)) | iOS 26.0+, a Foundation-Models-eligible device, and Apple Intelligence on in Settings (`SystemLanguageModel.default.availability`), probed at launch on every build | `CHESS_ENABLE_COACH=1 ./gradlew :app:run` | `?coach=1` on the page URL; Chrome/Edge only, since it needs WebGPU |
 | **Rules Q&A** | All builds — the answerer is unconditionally available and falls back to corpus retrieval if the model has not initialized yet | Same iOS 26+ / Apple Intelligence gate as the coach | Unavailable: `defaultRulesQaAnswerer` returns `null`, and the **Rules** screen reports itself unavailable rather than rendering a dead input box | Unavailable, same as desktop |
 | **Opening Explainer**, **Position Chat** | A `coach.baseUrl` / `CHESS_COACH_BASE_URL` baked in at build time — identical precedence on all four targets (see [App-side wiring](#opening-explainer-service)) | ↑ | ↑ | ↑ |
 
@@ -285,7 +285,7 @@ off-device at all."
 
 #### First-run model download
 
-The Android model is fetched by Cactus on first launch (~200 MB). Nothing waits for it:
+The Android model is fetched by Cactus on first launch (~350 MB). Nothing waits for it:
 
 - `CactusTextGenerator.warmup()` returns as soon as the download **starts**, and `status()` reports
   `AiAvailability.Downloading` while it runs.
