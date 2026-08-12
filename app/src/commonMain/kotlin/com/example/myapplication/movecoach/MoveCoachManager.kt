@@ -3,6 +3,7 @@ package com.example.myapplication.movecoach
 import co.touchlab.kermit.Logger
 import com.example.myapplication.GameUiState
 import com.example.myapplication.GameViewModel
+import com.example.myapplication.MoveClass
 import com.example.myapplication.ui.CitationSanitizer
 import com.example.myapplication.PromotionType
 import com.example.myapplication.Set
@@ -35,7 +36,8 @@ class MoveCoachManager(
 
     private var coachJob: Job? = null
     private var orchestrator: AiCoachOrchestrator? = null
-    /** The last request handed to [launchCoach], replayed by [retry]. */
+    /** The last request [launchCoach] actually ran, replayed by [retry]. Never set by
+     *  [explainSquare], which computes its answer outright and has nothing to re-run. */
     private var lastRequest: com.example.ondeviceai.MoveCoachRequest? = null
 
     /**
@@ -66,9 +68,17 @@ class MoveCoachManager(
     @Volatile var proUnlocked: Boolean = true
 
     init {
-        // Register the callback to automatically trigger the coach on engine moves
+        // Register the callback to automatically trigger the coach on engine moves.
+        //
+        // Deliberately **not** gated on `orchestrator != null` any more. That was the second of two
+        // places a missing orchestrator silently suppressed the whole panel — fixing only
+        // `launchCoach` would have left this one, and the symptom is identical either way: nothing
+        // renders at all. A platform with no model still has a deterministic line to show, and it is
+        // a complete answer rather than a placeholder, so the trigger has to fire regardless.
+        //
+        // `aiCoachEnabled` stays: that is the user's own Settings switch, and off means off.
         gameViewModel.onMoveCoached = { fenBefore, moveRecord ->
-            if (gameViewModel.aiCoachEnabled && orchestrator != null) {
+            if (gameViewModel.aiCoachEnabled) {
                 triggerCoach(fenBefore, moveRecord)
             }
         }
@@ -106,9 +116,18 @@ class MoveCoachManager(
             moveUci = moveRecord.uci,
             moveDisplay = moveRecord.san,
             deterministicHeadline = DeterministicCoach.buildHeadline(moveRecord),
-            deterministicExplanation = DeterministicCoach.buildExplanation(moveRecord),
+            // The side is known here; inferring it from the FEN inside the coach both crashed on a
+            // blank record and was only coincidentally correct.
+            deterministicExplanation = DeterministicCoach.buildExplanation(moveRecord, gameViewModel.playerSide),
             engineDifficultyName = engineDifficultyName,
             bannedOpeningFrames = recentOpeningFrames.toList(),
+            // The code-detected facts, so the on-device model can reason about this ply instead of
+            // rewording one sentence. Null/empty when the move has no assessment yet (no engine
+            // attached), which degrades the prompt to the baseline explanation alone.
+            moveClassName = moveRecord.assessment?.moveClass?.name,
+            motifs = moveRecord.assessment?.motifs.orEmpty(),
+            winPercentLost = moveRecord.assessment?.winPercentLost(gameViewModel.playerSide),
+            betterMoveDisplay = moveRecord.assessment?.bestMoveSan,
         )
         launchCoach(request)
     }
@@ -156,45 +175,69 @@ class MoveCoachManager(
                     tokenCount = 0,
                     route = SQUARE_INSIGHT_ROUTE,
                 ),
-            )
+            ),
+            squares = listOf(square),
         )
     }
 
     private fun launchCoach(request: com.example.ondeviceai.MoveCoachRequest) {
-        lastRequest = request
-        val orchestrator = this.orchestrator ?: return
-        // Recorded here, not in triggerCoach, so retry() replays whichever request actually ran —
-        // an Explain-mode square query is as retryable as a coached move.
+        val orchestrator = this.orchestrator
+        // Recorded here rather than in triggerCoach, so lastRequest holds whatever the manager
+        // actually acted on. retry() is only ever surfaced from a Retryable fallback (a timeout),
+        // which none of the deterministic paths below can produce, so recording theirs is inert.
         lastRequest = request
         coachJob?.cancel()
 
-        if (!proUnlocked) {
-            // Free tier: render the deterministic line as a finished answer, not a Fallback. It is
-            // a complete, correct explanation — labelling it a fallback would tell the user their
-            // own product tier is a degraded state.
-            // B11: the route still has to say Fallback, because no model wrote this text — the
-            // badge would otherwise credit a model for DeterministicCoach's output. The reason is
-            // FREE_TIER_ROUTE's and not NoLocalModel: a local model may well exist and be warm,
-            // the user simply hasn't unlocked it, and a wrong reason is a wrong log line and a
-            // wrong FallbackPresentation decision the moment either starts reading it.
+        // The verdict rides on every state this request produces, including the free-tier and
+        // fallback ones: the colour is a property of the *move*, not of which text path answered,
+        // so a deterministic line about a blunder must still paint the board red.
+        val tone = MoveClass.entries.firstOrNull { it.name == request.moveClassName }.toHighlightTone()
+        // From/to, straight off the UCI, so the board tints the move whatever the sentence says.
+        val squares = squaresOf(request.moveUci)
+
+        // Two ways to have no model, and both render the deterministic line as a *finished answer*
+        // rather than a Fallback: it is complete and correct, and labelling it a degraded state
+        // would be a lie about the product.
+        //
+        // **The orchestrator check moved down here, and that is the point.** It used to be the very
+        // first line of this function, above everything, so a build that attaches no orchestrator at
+        // all rendered nothing — no panel, no line. That was survivable while every platform
+        // attached one; it stopped being survivable when Android went deterministic-only, where it
+        // would have shipped a blank panel to every user. The deterministic coach must not need a
+        // model orchestrator in order to be seen.
+        //
+        // B11: the route still says Fallback either way, because no model wrote this text and the
+        // badge would otherwise credit one. The *reason* differs, and the distinction is load
+        // bearing for the log line and for FallbackPresentation: free tier means a model may well
+        // exist and be warm and the user simply hasn't unlocked it, while no orchestrator means
+        // there is no model on this platform at all.
+        if (orchestrator == null || !proUnlocked) {
+            // No-model outranks free-tier when both apply: telling a free user to unlock a model
+            // this platform does not have would be an upsell for something that does not exist.
+            val deterministicRoute = if (orchestrator == null) NO_MODEL_ROUTE else FREE_TIER_ROUTE
             _coachUiState.value = MoveCoachUiState.Ready(
                 com.example.ondeviceai.MoveCoachExplanation(
                     headline = request.deterministicHeadline,
                     explanation = request.deterministicExplanation,
                     confidence = com.example.ondeviceai.ExplanationConfidence.HIGH,
-                    route = FREE_TIER_ROUTE,
+                    route = deterministicRoute,
                     metrics = com.example.ondeviceai.AiInferenceMetrics(
                         firstTokenMs = null,
                         completeMs = 0L,
                         tokenCount = 0,
-                        route = FREE_TIER_ROUTE,
+                        route = deterministicRoute,
                     ),
-                )
+                ),
+                tone = tone,
+                squares = squares,
             )
             return
         }
 
-        _coachUiState.value = MoveCoachUiState.Loading(request.deterministicHeadline, request.deterministicExplanation)
+        _coachUiState.value =
+            MoveCoachUiState.Loading(
+                request.deterministicHeadline, request.deterministicExplanation, tone, squares,
+            )
         coachJob = scope.launch {
             try {
                 orchestrator.explainMoveStreaming(request).collect { event ->
@@ -204,25 +247,45 @@ class MoveCoachManager(
                                 headline = request.deterministicHeadline,
                                 explanation = request.deterministicExplanation,
                                 text = CitationSanitizer.sanitizeStreaming(event.partialText),
+                                tone = tone,
+                                squares = squares,
                             )
                         is MoveCoachEvent.Complete -> when (val result = event.result) {
                             is MoveCoachResult.Success -> {
+                                logger.d { "coach ok: ${result.explanation.explanation.take(LOG_EXCERPT_CHARS)}" }
                                 val shown = CitationSanitizer.sanitize(result.explanation.explanation)
                                 _coachUiState.value = MoveCoachUiState.Ready(
                                     explanation = result.explanation.copy(
                                         headline = CitationSanitizer.sanitize(result.explanation.headline),
                                         explanation = shown,
-                                    )
+                                    ),
+                                    tone = tone,
+                                    squares = squares,
                                 )
                                 rememberOpeningFrame(shown)
                             }
-                            is MoveCoachResult.FellBack ->
+                            is MoveCoachResult.FellBack -> {
+                                logger.d { "coach fell back: ${result.reason}" }
+                                // The orchestrator hands back "<headline> <explanation>"; the panel
+                                // wants them apart so the headline obeys the same
+                                // don't-repeat-the-board rule as every other state.
+                                val sanitized = CitationSanitizer.sanitize(result.text)
                                 _coachUiState.value = MoveCoachUiState.Fallback(
-                                    CitationSanitizer.sanitize(result.text),
-                                    result.reason,
+                                    text = sanitized
+                                        .removePrefix(request.deterministicHeadline)
+                                        .trimStart(),
+                                    reason = result.reason,
+                                    tone = tone,
+                                    squares = squares,
+                                    headline = request.deterministicHeadline
+                                        .takeIf { sanitized.startsWith(it) }
+                                        .orEmpty(),
                                 )
-                            is MoveCoachResult.Failed ->
+                            }
+                            is MoveCoachResult.Failed -> {
+                                logger.d { "coach failed: ${result.message}" }
                                 _coachUiState.value = MoveCoachUiState.Error(result.message)
+                            }
                         }
                     }
                 }
@@ -262,15 +325,34 @@ class MoveCoachManager(
     // companion hides even its internal members, so `MoveCoachSquareParsingTest` could not see it.
     // Everything else here stays private.
     internal companion object {
+        /**
+         * The from/to squares of a UCI move (`"d2d4"` -> `["d2", "d4"]`), or empty if it isn't one.
+         * Promotions carry a fifth character, which is not part of either square.
+         */
+        private fun squaresOf(uci: String): List<String> =
+            if (uci.length >= 4) listOf(uci.substring(0, 2), uci.substring(2, 4)) else emptyList()
+
         /** Enough to break a rut, short enough that the ban list stays a hint and not a paragraph. */
         private const val MAX_REMEMBERED_FRAMES = 3
         private const val FRAME_WORDS = 3
+
+        /** Keeps the per-move debug line to an identifying excerpt rather than the whole answer. */
+        private const val LOG_EXCERPT_CHARS = 120
 
         /** Provenance of the free tier's deterministic line: engine-derived, no model involved. */
         private val FREE_TIER_ROUTE = com.example.ondeviceai.AiRoute.Fallback(
             com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.Other(
                 "free tier: deterministic coach",
             ),
+        )
+
+        /**
+         * Provenance when this build has no coach orchestrator at all — Android since the on-device
+         * models were measured and none beat the deterministic line. Distinct from
+         * [FREE_TIER_ROUTE]: the user has not been denied anything they could unlock.
+         */
+        private val NO_MODEL_ROUTE = com.example.ondeviceai.AiRoute.Fallback(
+            com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.NoLocalModel,
         )
 
         /** Provenance of an Explain-mode answer: read off the board, on every tier. */

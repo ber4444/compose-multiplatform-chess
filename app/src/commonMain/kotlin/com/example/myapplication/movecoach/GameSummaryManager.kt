@@ -28,12 +28,30 @@ class GameSummaryManager {
     private var lastRequest: GameSummaryRequest? = null
 
     /**
-     * Attaches (or clears) the orchestrator. A `null` orchestrator — the release-Android,
-     * coach-disabled-desktop/web, and Foundation-Models-unavailable-iOS cases — moves the UI to
-     * [GameSummaryUiState.Unavailable] so the trigger button doesn't render (pressing it would
-     * otherwise be a silent no-op). Entry points that never call this at all (desktop without
-     * `CHESS_ENABLE_COACH=1`, web without `?coach=1`) leave the manager at its default
-     * [GameSummaryUiState.Unavailable] state, so this is not the only path to that state.
+     * Whether a missing orchestrator still produces a summary.
+     *
+     * `attachOrchestrator(null)` means "this build cannot summarise" and hides the button. Android
+     * needs the opposite: no model, but a complete deterministic summary. Kept as a separate
+     * opt-in rather than making null always deterministic, so desktop and wasm without
+     * `CHESS_ENABLE_COACH=1` keep hiding the button as before.
+     */
+    private var deterministicEnabled = false
+
+    /** Android: no model, and the composed turning points are the summary. */
+    fun enableDeterministic() {
+        orchestrator = null
+        deterministicEnabled = true
+        _uiState.value = GameSummaryUiState.Hidden
+    }
+
+    /**
+     * Attaches (or clears) the orchestrator. A `null` orchestrator — coach-disabled desktop/web and
+     * Foundation-Models-unavailable iOS — moves the UI to [GameSummaryUiState.Unavailable] so the
+     * trigger button doesn't render (pressing it would otherwise be a silent no-op). Entry points
+     * that never call this at all leave the manager at its default [GameSummaryUiState.Unavailable],
+     * so this is not the only path to that state.
+     *
+     * Android takes [enableDeterministic] instead: no model, but a real summary.
      */
     fun attachOrchestrator(orchestrator: GameSummaryOrchestrator?) {
         this.orchestrator = orchestrator
@@ -68,8 +86,31 @@ class GameSummaryManager {
     }
 
     private fun launchSummary(request: GameSummaryRequest) {
-        val orchestrator = this.orchestrator ?: return
+        val orchestrator = this.orchestrator
         generationJob?.cancel()
+
+        // No model on this platform: compose the turning points directly. Same reasoning as
+        // MoveCoachManager's deterministic path — the facts are the product, and a summary that
+        // names every turning point instantly beats one a model takes 20 s to get wrong. See
+        // docs/benchmarks/on-device-ai/android-model-latency-2026-08.md.
+        if (orchestrator == null) {
+            if (!deterministicEnabled) return
+            _uiState.value = GameSummaryUiState.Ready(
+                com.example.ondeviceai.GameSummaryExplanation(
+                    explanation = CitationSanitizer.sanitize(
+                        com.example.ondeviceai.GameSummaryGrounding.composeFor(request),
+                    ),
+                    route = DETERMINISTIC_ROUTE,
+                    metrics = com.example.ondeviceai.AiInferenceMetrics(
+                        firstTokenMs = null,
+                        completeMs = 0L,
+                        tokenCount = 0,
+                        route = DETERMINISTIC_ROUTE,
+                    ),
+                ),
+            )
+            return
+        }
 
         _uiState.value = GameSummaryUiState.Loading
         generationJob = scope.launch {
@@ -112,5 +153,15 @@ class GameSummaryManager {
     fun close() {
         generationJob?.cancel()
         scope.cancel()
+    }
+
+    private companion object {
+        /**
+         * Provenance of a composed summary: the app wrote it, from the engine's own assessments.
+         * `NoLocalModel` rather than a free-tier reason — the platform has no model to unlock.
+         */
+        private val DETERMINISTIC_ROUTE = com.example.ondeviceai.AiRoute.Fallback(
+            com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.NoLocalModel,
+        )
     }
 }

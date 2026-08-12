@@ -15,11 +15,16 @@ import com.google.mlkit.genai.prompt.modelConfig
 class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.ModelPreference) : OnDeviceTextGenerator {
     
     private val modelConfig = modelConfig {
-        releaseStage = ModelReleaseStage.PREVIEW
+        // STABLE, not PREVIEW. PREVIEW asks AICore for a feature most builds do not provision, and
+        // the failure is opaque: `[ErrorCode 606] FEATURE_NOT_FOUND: Feature -1 is not available`,
+        // caught by status() and reported as a plain Unavailable, so the device silently fell
+        // through to Cactus and looked like it simply had no AICore. Observed on a Pixel 10 Pro XL
+        // with AICore present and working.
+        releaseStage = ModelReleaseStage.STABLE
         preference = if (this@MlKitPromptGenerator.routePreference == com.example.ondeviceai.ModelPreference.FAST) {
-            com.google.mlkit.genai.prompt.ModelPreference.FAST
+            ModelPreference.FAST
         } else {
-            com.google.mlkit.genai.prompt.ModelPreference.FULL
+            ModelPreference.FULL
         }
     }
     
@@ -50,14 +55,31 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
     }
 
     override suspend fun warmup() {
-        // Optional warmup logic if ML Kit requires
+        // The feature is delivered on demand and `download()` was never called, so a device
+        // reporting DOWNLOADABLE stayed that way forever: status() answered "not Available", the
+        // decider fell through to Cactus, and AICore looked absent on hardware that has it.
+        // `download()` is a Flow and completes when the feature is installed.
+        runCatching {
+            android.util.Log.d("MlKitPrompt", "base model: " + model.getBaseModelName())
+        }
+        runCatching {
+            if (model.checkStatus() == FeatureStatus.DOWNLOADABLE) {
+                android.util.Log.d("MlKitPrompt", "feature downloadable; requesting")
+                model.download().collect { android.util.Log.d("MlKitPrompt", "download: $it") }
+            }
+        }.onFailure { android.util.Log.w("MlKitPrompt", "download failed", it) }
+        runCatching { model.warmup() }
     }
 
     override fun generate(request: AiGenerationRequest): Flow<AiTokenOrFinal> = flow {
         val sysInst = SystemInstruction(request.systemPrompt)
         val userPart = TextPart(request.userPrompt)
         
-        val genRequest = generateContentRequest(sysInst, userPart) {}
+        val genRequest = generateContentRequest(sysInst, userPart) {
+            temperature = request.temperature.toFloat()
+            maxOutputTokens = request.maxOutputTokens
+            // Note: ML Kit GenAI Prompt API currently doesn't expose a stopSequences setter.
+        }
         
         // Let a generation failure (e.g. AICore not installed — ErrorCode -101) propagate as a real
         // exception rather than swallowing it here. DefaultAiCoachOrchestrator.runOnDevice already
@@ -72,7 +94,9 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
                 emit(AiTokenOrFinal.Token(chunk))
             }
         }
-        emit(AiTokenOrFinal.Final(fullText, AiInferenceMetrics(0L, 0L, fullText.length, AiRoute.OnDevice)))
+        // ML Kit does not report a token count. Emit 0 ("unknown") rather than a character length
+        // so downstream benchmarks don't ingest bad data.
+        emit(AiTokenOrFinal.Final(fullText, AiInferenceMetrics(0L, 0L, 0, AiRoute.OnDevice)))
     }
 
     override suspend fun release() {

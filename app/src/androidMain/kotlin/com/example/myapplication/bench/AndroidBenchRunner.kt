@@ -111,6 +111,10 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
         val route = (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
             ?.route ?: return
         val generator = executor.execute(route) ?: return
+        // A bench reports a terminal state, so it must await warmup rather than fire and forget —
+        // generation that starts while the model is still loading reports "no local model" on every
+        // row, which looks like data. Only Cactus ever exposed an awaitable warmup; with it gone the
+        // remaining routes initialise synchronously inside warmup().
         generator.warmup()
         probe.onInitEnd()
         
@@ -135,7 +139,15 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
             deviceModel = deviceModel,
             osVersion = osVersion,
             appVersion = appVersion,
-            modelIdentifier = "gemma3-270m",
+            // Derived from the route that actually ran, never restated. This was hardcoded to
+            // `gemma3-270m`, then briefly to whatever Cactus's default was — both wrong the moment
+            // the decider picks ML Kit, which serves AICore's own model and has no Cactus slug at
+            // all. The one field a benchmark must get right: the file is worthless if you cannot
+            // tell what produced it.
+            modelIdentifier = when (route) {
+                is VendorRoute.MlKitPrompt -> "mlkit-aicore-${route.preference.name.lowercase()}"
+                else -> route::class.simpleName ?: "unknown"
+            },
             isWarm = isWarm,
             timestampMs = System.currentTimeMillis(),
             initStartMs = initStart,

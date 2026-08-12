@@ -141,14 +141,6 @@ kotlin {
             // offers small pre-packaged models (gemma3-270m ~200 MB, qwen3-0.6
             // ~400 MB) with built-in HF download, and handles tokenization +
             // KV cache + generation internally.
-            implementation("com.cactuscompute:cactus:1.4.1-beta") {
-                // JNA is a transitive dep of cactus-android but is never called from
-                // any Android code path (no Kotlin/Java source references com.sun.jna,
-                // and its libjnidispatch.so is not 16 KB page-size aligned: its
-                // GNU_RELRO segment isn't a suffix and doesn't end on a 16 KB
-                // boundary, which trips Android's page-size compat-mode warning).
-                exclude(group = "net.java.dev.jna", module = "jna")
-            }
             
             // Phase 2 dependencies
             implementation(project.dependencies.platform("com.google.firebase:firebase-bom:34.16.0"))
@@ -180,6 +172,14 @@ kotlin {
                 implementation(kotlin("test"))
             }
         }
+        
+        val androidHostTest by getting {
+            dependencies {
+                implementation(kotlin("test-junit"))
+                implementation(libs.mockk)
+                implementation(libs.kotlinx.coroutines.test)
+            }
+        }
     }
 }
 
@@ -203,7 +203,7 @@ tasks.matching { it.name.endsWith("sourcesJar") || it.name.endsWith("SourcesJar"
 val onDeviceAiVersion: String =
     (System.getenv("ON_DEVICE_AI_VERSION")?.takeIf { it.isNotBlank() }
         ?: project.findProperty("onDeviceAiVersion") as? String
-        ?: "0.1.0").removePrefix("on-device-ai-v")
+        ?: "0.3.0").removePrefix("on-device-ai-v")
 
 group = "io.github.ber4444"
 version = onDeviceAiVersion
@@ -239,3 +239,4 @@ plugins.withId("maven-publish") {
         }
     }
 }
+

@@ -6,6 +6,7 @@ import com.example.myapplication.FenConverter
 import com.example.myapplication.GameUiState
 import com.example.myapplication.MotifDetector
 import com.example.myapplication.MoveAssessor
+import com.example.myapplication.SanConverter
 import com.example.myapplication.UciMoveConverter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,21 +72,41 @@ class GameHistoryBackfiller(
                 } else {
                     game.moveRecords[unassessedIndex - 1].fenAfter
                 }
-                // evaluate returns from the perspective of the player to move (White).
-                val cpBest = engine.evaluate(fenBefore) ?: return
+                // One search does both jobs, as runIdleAnalysis already does for live games: the
+                // score it reports *is* the eval of the best move, and its UCI is what the coach
+                // needs to name the alternative. This used to call evaluate(), which answers the
+                // first question and discards the second — so a backfilled game could never offer a
+                // "X was stronger" line, and the difference was invisible because the assessment
+                // otherwise looked complete.
+                val bestMoveResult = engine.getBestMove(fenBefore)
+                val cpBest = bestMoveResult?.evaluationCp ?: engine.evaluate(fenBefore) ?: return
 
                 val moveAppFormat = UciMoveConverter.uciMoveToAppMove(record.uci, emptyList())
-                val motifs = if (moveAppFormat != null) {
+                val detected = if (moveAppFormat != null) {
                     val stateBefore = FenConverter.fenToGameState(fenBefore)
                     val stateAfter = FenConverter.fenToGameState(record.fenAfter)
-                    MotifDetector.detectMotifs(stateBefore, stateAfter, Set.WHITE, moveAppFormat.position)
-                } else emptyList()
+                    MotifDetector.detectDetailed(
+                        stateBefore = stateBefore,
+                        stateAfter = stateAfter,
+                        movingSide = Set.WHITE,
+                        toSquare = moveAppFormat.position,
+                        fromSquare = UciMoveConverter.parseUciMove(record.uci).first,
+                        promoted = record.uci.length > 4,
+                        previousToSquare = game.moveRecords.getOrNull(unassessedIndex - 1)
+                            ?.let { UciMoveConverter.parseUciMove(it.uci).second },
+                    )
+                } else MotifDetector.Detected(emptyList(), emptyMap())
 
                 val assessment = MoveAssessor.assessMove(
                     cpBefore = cpBest,
                     cpPlayed = cpPlayed,
                     cpBest = cpBest,
-                    motifs = motifs
+                    motifs = detected.motifs,
+                    motifDetails = detected.details,
+                    bestMoveUci = bestMoveResult?.uci,
+                    bestMoveSan = bestMoveResult?.uci
+                        ?.takeIf { it != record.uci }
+                        ?.let { SanConverter.sanForUci(FenConverter.fenToGameState(fenBefore), it) },
                 )
 
                 val updatedRecords = game.moveRecords.toMutableList()

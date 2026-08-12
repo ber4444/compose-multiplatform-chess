@@ -19,7 +19,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.SubScreenScaffold
+import com.example.myapplication.isAndroidPlatform
 import kotlinx.coroutines.launch
+import com.example.myapplication.movecoach.FallbackPresentation
+import com.example.myapplication.LocalIsDebug
 
 @Composable
 fun RulesQaScreen(
@@ -30,7 +33,7 @@ fun RulesQaScreen(
     var question by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
-    SubScreenScaffold(title = "Chess rules", onBack = onBack) {
+    SubScreenScaffold(title = "Chess rules", onBack = onBack, showBackButton = !isAndroidPlatform) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -56,11 +59,28 @@ fun RulesQaScreen(
                 RulesQaUiState.Unavailable -> Text("Offline rules Q&A is unavailable on this platform or build.")
                 is RulesQaUiState.Ready -> {
                     Text(current.text, modifier = Modifier.testTag("rules_answer"))
-                    if (current.passageIds.isNotEmpty()) Text("Sources: ${current.passageIds.joinToString()}")
+                    // Titles, not ids: CitationSanitizer strips `[draw-dead-position]` out of the
+                    // answer directly above, so printing the same slug here undid it one line later.
+                    if (current.sources.isNotEmpty()) {
+                        Text("Sources: ${current.sources.joinToString { it.title }}")
+                    }
                     com.example.myapplication.ui.ProvenanceBadge(
                         route = current.route,
                         modifier = Modifier.testTag("rules_qa_provenance")
                     )
+                    if (current.fallbackReason != null) {
+                        val isDebug = LocalIsDebug.current
+                        val suffix = if (isDebug) " [${current.fallbackReason.description}]" else ""
+                        // `Labeled`/`Retryable` carry their copy, so they must be matched with `is`.
+                        // Silent is the deterministic-text-is-the-product state: nothing is drawn
+                        // outside a debug build.
+                        when (val presentation = FallbackPresentation.of(current.fallbackReason)) {
+                            FallbackPresentation.Silent ->
+                                if (isDebug) Text("Offline reference fallback$suffix")
+                            is FallbackPresentation.Labeled -> Text("${presentation.label}$suffix")
+                            is FallbackPresentation.Retryable -> Text("${presentation.label}$suffix")
+                        }
+                    }
                 }
             }
         }

@@ -9,6 +9,17 @@ sealed interface AiAvailability {
     data class Error(val message: String) : AiAvailability
 }
 
+data class AiToolParameter(
+    val type: String, // e.g. "string", "integer"
+    val description: String,
+)
+
+data class AiToolSpec(
+    val name: String,
+    val description: String,
+    val parameters: Map<String, AiToolParameter>,
+)
+
 data class AiGenerationRequest(
     val systemPrompt: String,
     val userPrompt: String,
@@ -19,10 +30,12 @@ data class AiGenerationRequest(
     /** B15: cut the completion before an n-gram of this size reoccurs; `null` disables the rule. */
     val noRepeatNgramSize: Int? = 4,
     val stopSequences: List<String> = emptyList(),
+    val tools: List<AiToolSpec> = emptyList(),
 )
 
 sealed interface AiTokenOrFinal {
     data class Token(val text: String) : AiTokenOrFinal
+    data class ToolCall(val name: String, val arguments: Map<String, String>) : AiTokenOrFinal
     data class Final(
         val text: String,
         val metrics: AiInferenceMetrics,
@@ -46,6 +59,7 @@ interface OnDeviceTextGenerator {
      * and MUST call [release] when done. They must NOT close/destroy the underlying engine.
      */
     suspend fun release()
+    val supportsTools: Boolean get() = false
 }
 
 

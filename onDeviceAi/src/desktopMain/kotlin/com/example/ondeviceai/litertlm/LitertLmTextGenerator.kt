@@ -34,7 +34,8 @@ import java.util.concurrent.Executors
  * Desktop [OnDeviceTextGenerator] backed by LiteRT-LM (Google AI Edge)
  * via the `litertlm-jvm` Maven artifact.
  *
- * Mirrors [com.example.ondeviceai.cactus.CactusTextGenerator] on Android:
+ * Mirrors the Cactus generator Android used to carry (removed 2026-08; see
+ * `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md`):
  * same [OnDeviceTextGenerator] contract, same single-thread serialization of
  * native calls, same no-op [close] (keeps the model warm across moves). The
  * only differences are the underlying runtime (LiteRT-LM vs Cactus)
@@ -43,7 +44,7 @@ import java.util.concurrent.Executors
  *
  * All native calls are serialized through [engineDispatcher] (single-threaded)
  * to avoid races when a coach job is cancelled mid-inference and the next move
- * starts a new one — the same reason `CactusTextGenerator` does it.
+ * starts a new one — the same reason the removed Cactus generator did.
  *
  * Native libs for `litertlm-jvm` are bundled inside the jar for
  * linux-x86_64 / linux-aarch64 / darwin-aarch64 / win-x86_64. On Intel Mac
@@ -63,7 +64,7 @@ class LitertLmTextGenerator(
     @Volatile private var engine: Engine? = null
     @Volatile private var initializationFailed: String? = null
 
-    /** One shared initialization; see [CactusTextGenerator]'s `initJob` for why this can't be a
+    /** One shared initialization; the removed Cactus generator's `initJob` documented why this can't be a
      *  plain re-entrant call (the model fetch releases [engineDispatcher] mid-flight). */
     private var initJob: Deferred<Unit>? = null
     private val initMutex = Mutex()
@@ -155,6 +156,18 @@ class LitertLmTextGenerator(
                     if (firstTokenMs == null) firstTokenMs = System.currentTimeMillis() - start
                     output.append(text)
                 }
+                // This runtime is the only one that ignored `request.maxOutputTokens` — iOS, wasm
+                // and ML Kit all pass it to their engine — so a desktop generation was unbounded and
+                // a reasoning model could deliberate for as long as it liked with nothing to stop it.
+                //
+                // Bounded here rather than by handing the request's own number to the engine,
+                // because that number is sized for an *answer*: applying 384 to a model that opens
+                // with a <think> block is precisely how the Android attempt produced an unterminated
+                // block, stripped to the empty string, on every single move. The floor keeps room
+                // for the deliberation the answer sits behind.
+                if (approxTokens(output.length) >= maxTokensFor(request)) {
+                    conversation.cancelProcess()
+                }
             }
 
             if (output.isNotEmpty()) {
@@ -203,7 +216,7 @@ class LitertLmTextGenerator(
         stopSequences = request.stopSequences,
     ).flowOn(engineDispatcher)
 
-    /** No-op — keeps the model warm across moves (mirrors CactusTextGenerator). */
+    /** No-op — keeps the model warm across moves. */
     override suspend fun release() {}
 
     private fun ensureInitialized() {
@@ -273,6 +286,23 @@ class LitertLmTextGenerator(
          * cleaned text, trimmed. If no `<think>` is present, returns the text
          * trimmed. Public on the companion so it can be unit-tested directly.
          */
+        /**
+         * Generation ceiling for this runtime: the caller's budget, floored at enough room for a
+         * reasoning model's `<think>` block plus the answer behind it.
+         *
+         * Measured on the same model family: Android's `qwen3-0.6` produced 387-514 tokens, almost
+         * all of it deliberation, so a ceiling at the caller's answer-sized 384 would cut every
+         * generation off mid-thought.
+         */
+        internal fun maxTokensFor(request: AiGenerationRequest): Int =
+            maxOf(request.maxOutputTokens, REASONING_TOKEN_FLOOR)
+
+        /** Rough tokens-from-characters; only ever used to decide when to stop, never reported. */
+        internal fun approxTokens(chars: Int): Int = chars / 4
+
+        /** Headroom for a `<think>` block plus a short answer. */
+        internal const val REASONING_TOKEN_FLOOR = 1024
+
         fun stripThinkBlocks(text: String): String {
             var cleaned = THINK_BLOCK.replace(text, "")
             cleaned = THINK_UNTERMINATED.replace(cleaned, "")

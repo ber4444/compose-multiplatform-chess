@@ -53,6 +53,7 @@ import com.example.ondeviceai.createBundledRuleLookupTool
 import com.example.ondeviceai.defaultRulesQaAnswerer
 import com.example.myapplication.monetization.Entitlements
 import com.example.myapplication.monetization.LocalEntitlements
+import com.example.myapplication.monetization.LocalProUnlockOverride
 import com.example.myapplication.monetization.UnconfiguredEntitlements
 import com.example.myapplication.monetization.PaywallScreen
 import com.example.myapplication.monetization.ProUpsellCard
@@ -71,6 +72,7 @@ enum class Screen { GAME, HISTORY, SETTINGS, RULES, CHAT, PAYWALL }
 val LocalMoveCoachManager = staticCompositionLocalOf<MoveCoachManager?> { null }
 val LocalGameSummaryManager = staticCompositionLocalOf<GameSummaryManager?> { null }
 val LocalOpeningExplainerStateHolder = staticCompositionLocalOf<OpeningExplainerStateHolder?> { null }
+val LocalIsDebug = staticCompositionLocalOf { false }
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -88,17 +90,23 @@ fun AppRoot(
     // NoOpEntitlements seeded from AppSettings. purchase() here fails rather than granting Pro.
     entitlements: Entitlements = remember { UnconfiguredEntitlements() },
     switchTopPadding: Dp = 8.dp,
+    forceProUnlocked: Boolean = false,
+    isDebug: Boolean = false,
 ) {
     val openingExplainerStateHolder = remember { OpeningExplainerStateHolder(createOpeningExplainer()) }
     val chatViewModel = remember { ChatViewModel(createPositionChat()) }
     val gameState by viewModel.gameState.collectAsState()
     // Hoisted out of the RulesQaStateHolder construction below because a null answerer is also the
     // "don't sell this" signal for the Pro gate — desktop, wasm and JS return null unconditionally.
-    val rulesQaAnswerer = remember { defaultRulesQaAnswerer(createBundledRuleLookupTool()) }
+    val ruleLookupTool = remember { createBundledRuleLookupTool() }
+    val rulesQaAnswerer = remember { defaultRulesQaAnswerer(ruleLookupTool) }
     val rulesQaStateHolder = remember {
         RulesQaStateHolder(
             rulesQaAnswerer?.let {
-                DefaultRulesQaOrchestrator(it) {
+                DefaultRulesQaOrchestrator(
+                    answerer = it,
+                    lookupTool = ruleLookupTool,
+                ) {
                     AiContextSnapshot(
                         availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
                         isAppForegrounded = true,
@@ -117,9 +125,11 @@ fun AppRoot(
     CompositionLocalProvider(
         LocalAppSettings provides settings,
         LocalEntitlements provides entitlements,
+        LocalProUnlockOverride provides forceProUnlocked,
         LocalMoveCoachManager provides moveCoachManager,
         LocalGameSummaryManager provides gameSummaryManager,
         LocalOpeningExplainerStateHolder provides openingExplainerStateHolder,
+        LocalIsDebug provides isDebug,
     ) {
         MyApplicationTheme(darkTheme = isSystemInDarkTheme()) {
             var screen by rememberSaveable { mutableStateOf(Screen.GAME) }
@@ -138,8 +148,8 @@ fun AppRoot(
             // above. Free keeps the deterministic coach; Pro gets the model-phrased one. The
             // manager can't read LocalEntitlements itself — entry points construct it before any
             // composition exists.
-            LaunchedEffect(entitlements, moveCoachManager) {
-                entitlements.isProUnlocked.collect { moveCoachManager?.proUnlocked = it }
+            LaunchedEffect(entitlements, moveCoachManager, forceProUnlocked) {
+                entitlements.isProUnlocked.collect { moveCoachManager?.proUnlocked = if (forceProUnlocked) true else it }
             }
             LaunchedEffect(Unit) {
                 settings.playerSide.collect { sideStr -> 
@@ -175,6 +185,7 @@ fun AppRoot(
                 Screen.SETTINGS -> SettingsScreen(
                     onBack = { screen = Screen.GAME },
                     board3D = board3D,
+                    onOpenPaywall = { screen = Screen.PAYWALL },
                 )
                 // Branching here rather than wrapping in ProGate: RulesQaScreen supplies its own
                 // SubScreenScaffold, so nesting would render two title bars when unlocked.
@@ -188,7 +199,7 @@ fun AppRoot(
                         onBack = { screen = Screen.GAME },
                     )
                 } else {
-                    SubScreenScaffold(title = "Chess rules", onBack = { screen = Screen.GAME }) {
+                    SubScreenScaffold(title = "Chess rules", onBack = { screen = Screen.GAME }, showBackButton = !isAndroidPlatform) {
                         ProUpsellCard(
                             featureName = "Rules Q&A",
                             pitch = "Ask any rules question and get an answer cited to the " +
@@ -204,7 +215,7 @@ fun AppRoot(
                     // it can only ever emit its fixed offline sentence. Say that instead of either
                     // selling it or pretending the input box works.
                     !cloudCoachConfigured ->
-                        SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }) {
+                        SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }, showBackButton = !isAndroidPlatform) {
                             Text(
                                 "Position Chat needs a coach server, and this build has none configured.",
                                 modifier = Modifier.padding(16.dp),
@@ -217,7 +228,7 @@ fun AppRoot(
                         onBack = { screen = Screen.GAME },
                     )
 
-                    else -> SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }) {
+                    else -> SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }, showBackButton = !isAndroidPlatform) {
                         ProUpsellCard(
                             featureName = "Position Chat",
                             pitch = "Ask about the position you're in and get grounded answers as you play.",

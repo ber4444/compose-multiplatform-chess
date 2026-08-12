@@ -1,8 +1,6 @@
 package com.example.myapplication
 
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsEnabled
-import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -22,72 +20,6 @@ class DrawOfferScreenTest {
 
     private fun boardSquareTag(squareType: SquareType, row: Int, column: Int): String {
         return "board_square_${squareType.name}_${row}_${column}"
-    }
-
-    private fun mockEngine(eval: Int?): ChessEngine {
-        return object : ChessEngine {
-            override suspend fun getBestMove(fen: String, thinkTimeMs: Long?): BestMoveResult? = null
-            override suspend fun evaluate(fen: String, thinkTimeMs: Long?): Int? = eval
-            override fun close() {}
-        }
-    }
-
-    @Test
-    fun testButtonPresentAndEnabledAtStart() {
-        composeTestRule.setContent {
-            MyApplicationTheme {
-                GameScreen(WindowWidthSizeClass.Medium, GameViewModel())
-            }
-        }
-
-        composeTestRule.onNodeWithTag("offer_draw_button")
-            .assertIsDisplayed()
-            .assertIsEnabled()
-    }
-
-    @Test
-    fun testOfferDeclined_FallbackAtStart() {
-        composeTestRule.setContent {
-            MyApplicationTheme {
-                GameScreen(WindowWidthSizeClass.Medium, GameViewModel())
-            }
-        }
-
-        composeTestRule.onNodeWithTag("offer_draw_button").performClick()
-
-        composeTestRule.waitUntil(timeoutMillis = 5_000) {
-            composeTestRule.onAllNodesWithTag("draw_offer_declined_text", useUnmergedTree = true)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
-
-        composeTestRule.onNodeWithTag("draw_offer_declined_text").assertIsDisplayed()
-        assert(composeTestRule.onAllNodesWithTag("winnerText", useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
-    }
-
-    @Test
-    fun testOfferDeclined() {
-        val viewModel = GameViewModel()
-        viewModel.attachEngine(mockEngine(-500))
-
-        composeTestRule.setContent {
-            MyApplicationTheme {
-                GameScreen(WindowWidthSizeClass.Medium, viewModel)
-            }
-        }
-
-        composeTestRule.onNodeWithTag("offer_draw_button").performClick()
-
-        composeTestRule.waitUntil(timeoutMillis = 5_000) {
-            composeTestRule.onAllNodesWithTag("draw_offer_declined_text", useUnmergedTree = true)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
-
-        composeTestRule.onNodeWithTag("draw_offer_declined_text").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("offer_draw_button").assertIsNotEnabled()
-        
-        assert(composeTestRule.onAllNodesWithTag("winnerText", useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
     }
 
     @Test

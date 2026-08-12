@@ -33,11 +33,18 @@ class EvalScorerTest {
 
     @Test
     fun `move scorer uses the production validator`() {
+        // `movesSan` is load-bearing, not decoration: `toMoveCoachRequest` fills `moveDisplay` from
+        // it, and `MoveCoachResponseValidator.validatePieceType` reads that field as **SAN** to work
+        // out which piece nouns the answer may name. Drop it and the fallback is the raw UCI, whose
+        // leading `g` parses as a g-file *pawn* move — so an answer that correctly says "knight" is
+        // rejected as naming a piece that never moved. All 100 golden candidates carry SAN, and
+        // production passes `MoveRecord.san`, so a request without it is one that cannot occur.
         val case = GoldenCase(
             id = "move",
             fen = "fen",
             bestMoveUci = "g1f3",
             tags = listOf("develops"),
+            movesSan = listOf("Nf3"),
         )
 
         assertFalse(EvalScorer.scoreMove(case, "Generic prose with no relevant content.").grounded)

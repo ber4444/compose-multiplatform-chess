@@ -14,7 +14,11 @@ object MoveAssessor {
         cpPlayed: Int,
         cpBest: Int,
         motifs: List<String> = emptyList(),
-        bestMoveUci: String? = null
+        bestMoveUci: String? = null,
+        bestMoveSan: String? = null,
+        motifDetails: Map<String, String> = emptyMap(),
+        bestMoveMotifs: List<String> = emptyList(),
+        bestMoveMotifDetails: Map<String, String> = emptyMap(),
     ): MoveAssessment {
         // The loss is how much worse the played move is compared to the best possible move.
         // It's strictly non-negative in theory, but due to search depth variations it might be slightly negative.
@@ -29,7 +33,11 @@ object MoveAssessor {
             cpLoss = cpLoss,
             moveClass = moveClass,
             motifs = motifs,
-            bestMoveUci = bestMoveUci
+            bestMoveUci = bestMoveUci,
+            bestMoveSan = bestMoveSan,
+            motifDetails = motifDetails,
+            bestMoveMotifs = bestMoveMotifs,
+            bestMoveMotifDetails = bestMoveMotifDetails,
         )
     }
 

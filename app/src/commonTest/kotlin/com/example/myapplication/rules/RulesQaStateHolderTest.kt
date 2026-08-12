@@ -23,6 +23,7 @@ class RulesQaStateHolderTest {
                 answerer = RulesQaAnswerer { _, _ ->
                     RulesQaModelOutput("En passant is immediate [en-passant].", listOf("en-passant"))
                 },
+                lookupTool = { emptyList() },
                 contextProvider = {
                     AiContextSnapshot(
                         availableLocalVendors = listOf(VendorRoute.CactusLocal()),
@@ -36,7 +37,43 @@ class RulesQaStateHolderTest {
 
         val ready = assertIs<RulesQaUiState.Ready>(holder.state.value)
         assertEquals(listOf("en-passant"), ready.passageIds)
+        assertEquals(null, ready.fallbackReason)
         assertEquals(AiRoute.OnDevice, ready.route)
+    }
+
+    @Test
+    fun `corpus ids are stripped from the displayed answer but still listed as sources`() = runTest {
+        // Observed on device: the answer rendered as "[draw-dead-position] The game is drawn…".
+        // The ids have to survive as far as RulesQaResponseValidator, which checks for them, and be
+        // removed on the way to the screen — this surface was the only display path not doing that.
+        val holder = RulesQaStateHolder(
+            DefaultRulesQaOrchestrator(
+                answerer = RulesQaAnswerer { _, _ ->
+                    RulesQaModelOutput(
+                        "With only kings left neither side can mate [draw-dead-position].",
+                        listOf("draw-dead-position"),
+                    )
+                },
+                lookupTool = { emptyList() },
+                contextProvider = {
+                    AiContextSnapshot(
+                        availableLocalVendors = listOf(VendorRoute.CactusLocal()),
+                        userSetting = AiUserSetting.OFFLINE_ONLY,
+                    )
+                },
+            ),
+        )
+
+        holder.ask("Game is a draw when only kings remain?")
+
+        val ready = assertIs<RulesQaUiState.Ready>(holder.state.value)
+        assertEquals("With only kings left neither side can mate.", ready.text)
+        assertEquals(listOf("draw-dead-position"), ready.passageIds)
+        // What the "Sources:" line renders: a title, not the slug we just stripped from the answer.
+        assertEquals(
+            listOf("Draw by dead position and insufficient material"),
+            ready.sources.map { it.title },
+        )
     }
 
     @Test
@@ -53,6 +90,7 @@ class RulesQaStateHolderTest {
         val holder = RulesQaStateHolder(
             DefaultRulesQaOrchestrator(
                 answerer = RulesQaAnswerer { _, _ -> started.complete(Unit); never.await() },
+                lookupTool = { emptyList() },
                 contextProvider = {
                     AiContextSnapshot(
                         availableLocalVendors = listOf(VendorRoute.CactusLocal()),

@@ -64,6 +64,7 @@ targets:
       - target: iosApp
     settings:
       base:
+        GENERATE_INFOPLIST_FILE: "YES"
         PRODUCT_BUNDLE_IDENTIFIER: io.github.ber4444.chess.tests
         FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/iosApp.app/iosApp"
@@ -76,6 +77,7 @@ targets:
       - target: iosApp
     settings:
       base:
+        GENERATE_INFOPLIST_FILE: "YES"
         PRODUCT_BUNDLE_IDENTIFIER: io.github.ber4444.chess.uitests
         TEST_TARGET_NAME: iosApp
 schemes:

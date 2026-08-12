@@ -30,12 +30,19 @@ object CitationSanitizer {
      * same portability reasoning as `MoveCoachResponseValidator.normalize`'s no-regex note.
      */
     fun sanitize(text: String): String {
-        if (!text.contains('[')) return text
-        return text
-            .replace(CITATION_TAG_REGEX) { match ->
-                if (RENDERABLE_TAG_REGEX.matches(match.value)) match.value else ""
-            }
-            .tidy()
+        val withoutTags = if (!text.contains('[')) {
+            text
+        } else {
+            text
+                .replace(CITATION_TAG_REGEX) { match ->
+                    if (RENDERABLE_TAG_REGEX.matches(match.value)) match.value else ""
+                }
+                .tidy()
+        }
+        // Outside the bracket guard on purpose. Model-added wrapping quotes have nothing to do with
+        // citation tags, and most coach lines carry no tag at all — folding this into `tidy()` would
+        // make it fire only on the minority of text that happens to cite something.
+        return withoutTags.unwrapIfWhollyQuoted()
     }
 
     /**
@@ -55,4 +62,26 @@ object CitationSanitizer {
         replace(Regex("\\s+([.,!?])"), "$1")
             .replace(Regex("\\s{2,}"), " ")
             .trim()
+
+    /**
+     * Unwraps text the model wrapped in quotes end-to-end.
+     *
+     * Both ends must match, and only one pair is removed. Stripping the two ends independently
+     * unbalances any answer that legitimately quotes something — `He said "en passant".` would lose
+     * its closing quote — and this runs on every display path, including Game Summary, which has no
+     * response validator behind it at all.
+     */
+    private fun String.unwrapIfWhollyQuoted(): String {
+        if (length < 2) return this
+        val closer = QUOTE_PAIRS[first()] ?: return this
+        if (last() != closer) return this
+        // A closer occurring before the end means these are two separate quotations, not one
+        // wrapper: `"a" and "b"` must survive intact.
+        val inner = substring(1, length - 1)
+        if (inner.contains(closer)) return this
+        return inner.trim()
+    }
+
+    /** Opening quote characters and the closer each one requires. */
+    private val QUOTE_PAIRS = mapOf('"' to '"', '\'' to '\'', '“' to '”')
 }

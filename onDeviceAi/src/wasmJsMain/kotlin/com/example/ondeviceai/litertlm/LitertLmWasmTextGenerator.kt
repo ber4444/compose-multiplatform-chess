@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.flow
  * loaded from the jsdelivr CDN at runtime).
  *
  * Mirrors [com.example.ondeviceai.litertlm.LitertLmTextGenerator] on desktop and
- * [com.example.ondeviceai.cactus.CactusTextGenerator] on Android: same
+ * the Cactus generator Android used to carry (since removed): same
  * [OnDeviceTextGenerator] contract, same single-call-per-generate semantics,
  * same no-op [close] (keeps the worker/engine warm across moves).
  *

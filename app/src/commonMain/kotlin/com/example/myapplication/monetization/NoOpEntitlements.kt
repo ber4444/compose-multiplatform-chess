@@ -17,9 +17,8 @@ import kotlinx.coroutines.flow.asStateFlow
  * Deliberately *not* the default on Android/iOS — a free unlock there would hand out Pro for a tap
  * on exactly the two platforms where money is meant to change hands. Those use
  * [RevenueCatEntitlements], falling back to [UnconfiguredEntitlements] when no API key is
- * configured (§0.4). The one exception is an unkeyed **debug** build, which takes this class with
- * `initialUnlocked = true` so the Pro surfaces are reachable for development; the entry points gate
- * that on `FLAG_DEBUGGABLE` / `Platform.isDebugBinary`, so release never reaches it.
+ * configured (§0.4) — including in a debug build, whose dev unlock goes through
+ * [LocalProUnlockOverride] instead, so that `PaywallScreen` stays inspectable there.
  * [initialUnlocked] still defaults to `false` so an accidental bare `NoOpEntitlements()` starts
  * locked rather than open.
  *

@@ -8,11 +8,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
-import com.example.ondeviceai.DefaultAiCoachOrchestrator
-import com.example.ondeviceai.DefaultGameSummaryOrchestrator
-import com.example.ondeviceai.VendorRouteExecutor
-import com.example.ondeviceai.VendorRoute
-import com.example.ondeviceai.initializeCactus
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.CurrentGameStore
 import com.example.myapplication.persistence.CurrentGameStoreSupport
@@ -23,7 +18,6 @@ import com.example.myapplication.share.androidPgnSharer
 import android.content.pm.ApplicationInfo
 import com.example.myapplication.movecoach.MoveCoachManager
 import com.example.myapplication.movecoach.GameSummaryManager
-import com.example.myapplication.monetization.NoOpEntitlements
 import com.example.myapplication.monetization.RevenueCatEntitlements
 import com.example.myapplication.monetization.UnconfiguredEntitlements
 import com.example.myapplication.monetization.revenueCatApiKey
@@ -45,12 +39,17 @@ class MainActivity : ComponentActivity() {
             Logger.setMinSeverity(Severity.Assert)
         }
 
+        if (isDebug && intent.hasExtra("bench_summary_iterations")) {
+            val iterations = intent.getIntExtra("bench_summary_iterations", 1)
+            CoroutineScope(Dispatchers.IO).launch {
+                com.example.myapplication.bench.runAndroidSummaryBench(this@MainActivity, iterations)
+                finish()
+            }
+            return
+        }
+
         if (isDebug && intent.hasExtra("bench_iterations")) {
             val iterations = intent.getIntExtra("bench_iterations", 1)
-            // Without this, CactusTextGenerator's underlying context is never set up and every
-            // run silently falls back with 0 tokens generated (getCactus()'s own comment warns
-            // "otherwise this will throw" — in practice the caller swallows it into a fallback).
-            initializeCactus(this)
             CoroutineScope(Dispatchers.IO).launch {
                 runAndroidBench(this@MainActivity, iterations)
                 finish()
@@ -69,9 +68,12 @@ class MainActivity : ComponentActivity() {
         // equivalent but is not: process death also restores a bundle, and there the holder is a
         // brand-new ViewModel with no orchestrator, so the coach would stay dead for the whole
         // session.
-        if (!holder.moveCoachManager.hasOrchestrator) {
-            attachMoveCoach()
-        }
+        // No on-device model on Android, by measurement rather than by omission: every model in
+        // the Cactus catalog was benchmarked on hardware and all of them lost to the deterministic
+        // text on latency, truth, or both — see
+        // docs/benchmarks/on-device-ai/android-model-latency-2026-08.md. The Move Coach renders
+        // DeterministicCoach with no orchestrator; Game Summary composes its turning points.
+        holder.gameSummaryManager.enableDeterministic()
 
         val appSettings = AppSettings(createSettings("chess"))
         // PgnSharer needs the host Activity (for ACTION_SEND), so it's built here, not in the holder.
@@ -98,13 +100,12 @@ class MainActivity : ComponentActivity() {
                 moveCoachManager = holder.moveCoachManager,
                 gameSummaryManager = holder.gameSummaryManager,
                 entitlements = entitlements
-                    // With no key there is no store to buy through, so UnconfiguredEntitlements
-                    // locks Pro permanently — correct for release, but it also makes the Pro
-                    // surfaces unreachable on a dev build. Debug starts unlocked instead.
-                    ?: androidx.compose.runtime.remember {
-                        if (isDebug) NoOpEntitlements(initialUnlocked = true)
-                        else UnconfiguredEntitlements()
-                    },
+                    // Stays UnconfiguredEntitlements even in debug: the dev unlock is
+                    // forceProUnlocked below, which covers all five Pro surfaces *and* leaves
+                    // PaywallScreen — which reads LocalEntitlements directly — inspectable.
+                    ?: androidx.compose.runtime.remember { UnconfiguredEntitlements() },
+                forceProUnlocked = isDebug,
+                isDebug = isDebug,
             )
         }
     }
@@ -125,108 +126,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Attach the on-device move coach using Cactus.
-     * Cactus downloads the model from Hugging Face on first launch (~200 MB for
-     * gemma3-270m) and caches it locally. Subsequent launches use the cached
-     * model (~1-2s init). This replaces the earlier LiteRT-LM path (557 MB,
-     * 7-9s cold start) and ML Kit Prompt API (AICore, narrow device support).
-     */
-    private fun attachMoveCoach() {
-        // Initialize Cactus native runtime (required before any CactusLM use)
-        initializeCactus(this)
-
-        holder.moveCoachManager.setCoachModelState(
-            com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
-                message = "Downloading Gemma 270M model (first launch only)…"
-            )
-        )
-
-        CoroutineScope(Dispatchers.IO).launch {
-            val executor = VendorRouteExecutor()
-            val contextProvider: suspend () -> com.example.ondeviceai.AiContextSnapshot = {
-                com.example.ondeviceai.AiContextSnapshot(
-                    availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
-                    isAppForegrounded = holder.isForeground,
-                    userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
-                )
-            }
-
-            holder.moveCoachManager.attachCoachOrchestrator(
-                DefaultAiCoachOrchestrator(
-                    executor = executor,
-                    contextProvider = contextProvider,
-                )
-            )
-
-            holder.gameSummaryManager.attachOrchestrator(
-                DefaultGameSummaryOrchestrator(
-                    executor = executor,
-                    contextProvider = contextProvider,
-                )
-            )
-            // B18: the orchestrator is attached BEFORE warmup finishes on purpose. Every surface
-            // stays live during the ~200 MB first-run download — a coached move routes through the
-            // orchestrator, sees AiAvailability.Downloading, and renders the deterministic line
-            // (FallbackPresentation.Silent), which is the product rather than an error.
-            try {
-                val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
-                val context = com.example.ondeviceai.AiContextSnapshot(
-                    availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
-                    isAppForegrounded = true,
-                    userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY
-                )
-                // Warm up only the route the decider actually picks; any other decision means
-                // there is nothing local to warm.
-                val decision = com.example.ondeviceai.AiRoutePolicyDecider.decide(policy, context)
-                val generator = (decision as? com.example.ondeviceai.AiRoutePolicyDecider.Decision.RunOnDevice)
-                    ?.let { executor.execute(it.route) }
-                // Join the download so the panel's terminal state reflects the real outcome. The
-                // panel must never be left on a LoadingModel spinner that nothing clears.
-                val warmupJob = launch {
-                    (generator as? com.example.ondeviceai.cactus.CactusTextGenerator)?.awaitWarmup()
-                        ?: generator?.warmup()
-                }
-                // Poll rather than observe: neither Cactus nor the OnDeviceTextGenerator seam
-                // exposes a progress callback, so status() is the only signal. It is deliberately
-                // off the engine dispatcher (see CactusTextGenerator.status) so it answers during
-                // the download instead of queueing behind it.
-                try {
-                    while (warmupJob.isActive) {
-                        val status = generator?.status()
-                        if (status is com.example.ondeviceai.AiAvailability.Downloading) {
-                            val percent = status.progress?.let { " (${(it * 100).toInt()}%)" } ?: ""
-                            holder.moveCoachManager.setCoachModelState(
-                                com.example.myapplication.movecoach.MoveCoachUiState.LoadingModel(
-                                    message = "Downloading the coach model (first launch only)$percent…",
-                                    progress = status.progress,
-                                )
-                            )
-                        }
-                        kotlinx.coroutines.delay(MODEL_PROGRESS_POLL_INTERVAL_MS)
-                    }
-                } finally {
-                    // The loop exits as soon as the job goes inactive, which happens fractionally
-                    // before it completes; join so the status() read below sees the real outcome.
-                    // In a finally because a cancelled attach must not leave the job unawaited.
-                    warmupJob.join()
-                }
-
-                (generator?.status() as? com.example.ondeviceai.AiAvailability.Error)?.let {
-                    // Logged, not surfaced: the deterministic coach still answers every move, so
-                    // a permanent "unavailable" banner would be noise. Same rule as B17's Silent.
-                    Logger.e("MainActivity") { "Cactus failed to load: ${it.message}" }
-                }
-            } catch (e: Exception) {
-                Logger.e("MainActivity") { "Failed to warmup model: ${e.message}" }
-            } finally {
-                // Always clears the LoadingModel placeholder — the panel must not be able to end
-                // on a spinner no matter which branch above ran.
-                holder.moveCoachManager.hideWindow()
-            }
-        }
-    }
-
     override fun onStart() {
         super.onStart()
         holder.isForeground = true
@@ -239,14 +138,12 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         private const val SYSTEM_BAR_SCRIM = 0x66000000
-
-        /** How often the coach panel re-reads download progress during first-launch warmup. */
-        private const val MODEL_PROGRESS_POLL_INTERVAL_MS = 250L
     }
 }
 
 class AndroidGameViewModel : ViewModel() {
     @Volatile var isForeground: Boolean = true
+
     // Autosave + resume-later (Phase 2): the store is created once for the holder's lifetime
     // (survives config changes) and seeded into the VM. A saved game is loaded here so the VM
     // starts from the restored state; if the saved game was already over it's cleared and a fresh

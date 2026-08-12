@@ -3,6 +3,8 @@ package com.example.myapplication
 import com.example.myapplication.board3d.Board3D
 import com.example.myapplication.board3d.Board3DSupport
 import com.example.myapplication.board3d.BoardSquare
+import com.example.myapplication.board3d.HighlightTone
+import com.example.myapplication.board3d.HighlightedSquare
 import com.example.myapplication.board3d.Board3DSessionState
 import com.example.myapplication.persistence.GameActions
 import com.example.myapplication.persistence.GameHistoryRepository
@@ -79,6 +81,7 @@ import com.example.myapplication.movecoach.MoveCoachPanel
 import com.example.myapplication.movecoach.SquareInsight
 import com.example.myapplication.movecoach.MoveCoachUiState
 import com.example.myapplication.movecoach.narratedText
+import com.example.myapplication.movecoach.highlightTone
 import com.example.myapplication.movecoach.GameSummaryUiState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.CircularProgressIndicator
@@ -97,9 +100,7 @@ import game.app.generated.resources.promotion_prompt
 import game.app.generated.resources.reset_button
 import game.app.generated.resources.accept_button
 import game.app.generated.resources.decline_button
-import game.app.generated.resources.draw_offer_declined
 import game.app.generated.resources.draw_offer_prompt
-import game.app.generated.resources.offer_draw_button
 import game.app.generated.resources.board_3d_unavailable
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -214,13 +215,20 @@ fun GameScreen(
      * and the free tier — and on Explain mode, which usually lands on one of them.
      */
     val coachHighlights = remember(coachState) {
-        MoveCoachManager.squaresNamedIn(coachState.narratedText.orEmpty())
-            .mapNotNull(::algebraicToSquare)
+        val tone = coachState.highlightTone
+        // Stated squares first: the manager knows the move's from/to exactly. Prose parsing is the
+        // fallback, for squares only the model brought up — it cannot be the primary source, or the
+        // tint quietly depends on a template still spelling the move out.
+        val stated = (coachState as? MoveCoachUiState.Toned)?.squares.orEmpty()
+        val named = stated.ifEmpty { MoveCoachManager.squaresNamedIn(coachState.narratedText.orEmpty()) }
+        named.mapNotNull(::algebraicToSquare).map { HighlightedSquare(it, tone) }
     }
     val hintSquares by viewModel.hintSquares.collectAsState()
+    // Hints stay NEUTRAL: a hint is a suggestion, not a verdict on something the player did, and
+    // painting it green would claim an assessment nobody computed.
     val allHighlights = remember(coachHighlights, hintSquares) {
         if (hintSquares.isNotEmpty()) {
-            coachHighlights + hintSquares.map { BoardSquare(it.first, it.second) }
+            hintSquares.map { HighlightedSquare(BoardSquare(it.first, it.second)) } + coachHighlights
         } else {
             coachHighlights
         }
@@ -800,31 +808,32 @@ private fun GameControls(
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (transparentButtons) {
-                TransparentUnderlineButton(onClick = onResetGame) {
-                    Text(stringResource(Res.string.reset_button))
-                }
-                if (viewModel.engineAttached) {
-                    TransparentUnderlineButton(
-                        onClick = viewModel::requestHint,
-                        enabled = gameState.turn == viewModel.playerSide && gameState.winState == WinState.NONE && animState.pieceToAnimate == null,
-                        modifier = Modifier.testTag("hint_button")
-                    ) { Text("Hint") }
-                }
-                if (onToggleExplainMode != null) {
-                    TransparentUnderlineButton(
-                        onClick = onToggleExplainMode,
-                        modifier = Modifier.testTag("move_coach_explain_toggle")
-                    ) {
-                        Text(if (explainMode) "Cancel Explain" else "Explain")
-                    }
-                }
                 TransparentUnderlineButton(
-                    onClick = viewModel::requestDrawOffer,
-                    enabled = canOfferDraw(gameState, viewModel.playerSide) && animState.pieceToAnimate == null,
-                    modifier = Modifier.testTag("offer_draw_button")
-                ) { Text(stringResource(Res.string.offer_draw_button)) }
+                    onClick = onResetGame,
+                    modifier = Modifier.testTag("reset_button")
+                ) {
+                    Text(stringResource(Res.string.reset_button))
+                }
+                if (viewModel.engineAttached) {
+                    TransparentUnderlineButton(
+                        onClick = viewModel::requestHint,
+                        enabled = gameState.turn == viewModel.playerSide && gameState.winState == WinState.NONE && animState.pieceToAnimate == null,
+                        modifier = Modifier.testTag("hint_button")
+                    ) { Text("Hint") }
+                }
+                if (onToggleExplainMode != null) {
+                    TransparentUnderlineButton(
+                        onClick = onToggleExplainMode,
+                        modifier = Modifier.testTag("move_coach_explain_toggle")
+                    ) {
+                        Text(if (explainMode) "Cancel Explain" else "Explain")
+                    }
+                }
             } else {
-                Button(onClick = onResetGame) {
+                Button(
+                    onClick = onResetGame,
+                    modifier = Modifier.testTag("reset_button")
+                ) {
                     Text(stringResource(Res.string.reset_button))
                 }
                 if (viewModel.engineAttached) {
@@ -842,20 +851,7 @@ private fun GameControls(
                         Text(if (explainMode) "Cancel Explain" else "Explain")
                     }
                 }
-                Button(
-                    onClick = viewModel::requestDrawOffer,
-                    enabled = canOfferDraw(gameState, viewModel.playerSide) && animState.pieceToAnimate == null,
-                    modifier = Modifier.testTag("offer_draw_button")
-                ) { Text(stringResource(Res.string.offer_draw_button)) }
             }
-        }
-
-        if (gameState.drawOfferDeclinedBy == Set.BLACK) {
-            Text(
-                text = stringResource(Res.string.draw_offer_declined),
-                color = if (transparentButtons) Color.White else Color.Unspecified,
-                modifier = Modifier.testTag("draw_offer_declined_text")
-            )
         }
     }
 }
@@ -883,8 +879,8 @@ fun RowScope.Square(
     squareType: SquareType = SquareType.Empty,
     clickable: Boolean = false,
     testTag: String,
-    /** B16: this square is named in the current coach line. */
-    coachHighlighted: Boolean = false,
+    /** B16/B19: the tone this square is named in, or `null` when the coach isn't naming it. */
+    coachHighlight: HighlightTone? = null,
     onClick: (SquareType) -> Unit = {},
     content: @Composable () -> Unit
 ) {
@@ -905,7 +901,10 @@ fun RowScope.Square(
             )
             // Tinted rather than bordered: the border slot already encodes selection and legal
             // moves, and a second border there would be read as a move hint.
-            .then(if (coachHighlighted) Modifier.background(COACH_HIGHLIGHT_COLOR) else Modifier)
+            .then(
+                if (coachHighlight != null) Modifier.background(coachHighlightColor(coachHighlight))
+                else Modifier
+            )
             .border(borderWidth, borderColor, shapeType)
             .clickable(enabled = clickable, onClick = { onClick(squareType) })
             .testTag(testTag),
@@ -915,8 +914,20 @@ fun RowScope.Square(
     }
 }
 
-/** Wash for a square the coach mentioned. Translucent so the piece and square colour show through. */
-private val COACH_HIGHLIGHT_COLOR = Color(0x553F51B5)
+/**
+ * Wash for a square the coach mentioned, tinted by its verdict. Translucent so the piece and square
+ * colour show through.
+ *
+ * These mirror `ChessSetConventions.HIGHLIGHT_COLORS`, which the 3D backends use, but are authored
+ * in sRGB rather than linear because Compose takes sRGB — converting at runtime would make the two
+ * boards agree numerically and disagree visually. They are matched by eye, not by formula.
+ */
+private fun coachHighlightColor(tone: HighlightTone): Color = when (tone) {
+    HighlightTone.NEUTRAL -> Color(0x553F51B5)
+    HighlightTone.GOOD -> Color(0x552E7D32)
+    HighlightTone.INACCURATE -> Color(0x55B26A00)
+    HighlightTone.BAD -> Color(0x55C62828)
+}
 
 @Composable
 fun Board(
@@ -930,15 +941,17 @@ fun Board(
      *  On portrait this equals the full width; on landscape it equals ~85% of the height. */
     boardMaxSize: Dp = Dp.Unspecified,
     /** Squares named in the current coach line (B16). Rendered on the 2D board as a tint. */
-    highlightedSquares: List<BoardSquare> = emptyList(),
+    highlightedSquares: List<HighlightedSquare> = emptyList(),
     onSquareTapped: ((Pair<Int, Int>) -> Unit)? = null,
 ) {
     val squareSizePx = remember { mutableStateOf(IntSize.Zero) }
     val squareAvgSizePx = remember { mutableStateOf(IntSize.Zero) }
     val selectedPossibleMoves = remember { mutableStateOf(emptyList<Pair<Int, Int>>()) }
     // A set, not the list: this is tested once per square, 64 times per recomposition.
+    // Last tone wins on a collision, which only happens when a hint and a coach line name the same
+    // square; the coach's verdict is the more specific statement, and it is appended second.
     val highlightedPositions = remember(highlightedSquares) {
-        highlightedSquares.map { it.row to it.col }.toSet()
+        highlightedSquares.associate { (it.square.row to it.square.col) to it.tone }
     }
 
     if (gameState.selectedSquare != INVALID_POSITION) {
@@ -1016,7 +1029,7 @@ fun Board(
                             squareType = squareType,
                             clickable = clickable,
                             testTag = squareTestTag(currentSquare, squareType),
-                            coachHighlighted = currentSquare in highlightedPositions,
+                            coachHighlight = highlightedPositions[currentSquare],
                             onClick = { currentSquareType ->
                                 // `onSquareTapped` is non-null only while Explain mode is armed, and
                                 // it is what made every square clickable above — so in that mode any

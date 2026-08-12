@@ -15,7 +15,7 @@ class DefaultAiCoachOrchestratorTest {
         moveUci = "g1f3",
         moveDisplay = "Nf3",
         deterministicHeadline = "Good — Nf3",
-        deterministicExplanation = "Engine choice: Nf3. It develops a piece to an active square.",
+        deterministicExplanation = "You played Nf3. It develops a piece to an active square.",
         engineDifficultyName = "Medium",
     )
 

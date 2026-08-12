@@ -66,15 +66,21 @@ class DesktopRendererSmokeTest {
             renderer.updatePosition(afterE4)
             assertRealRender(nextFrame().also { save(it, "chess3d-e4.png") }, size)
 
-            // B16 coach highlights: e4 (the square just played) and d5. Saved for eyeballing — the
-            // quads should read as translucent blue tiles sitting flat on those two squares. The
-            // blue comes from the `highlight` material baked into chess.glb (alphaMode BLEND), not
-            // from runtime tinting, so a regression here is usually an asset problem.
+            // B16/B19 coach highlights: e4 GOOD and d5 BAD. Saved for eyeballing — the quads should
+            // read as a green tile on e4 and a red one on d5, flat on the board. Each tone is its own
+            // node in chess.glb (`HighlightGood` / `HighlightBad`), coloured by that node's material
+            // `emissiveFactor`; nothing is tinted at runtime. Two distinct tones in one frame is the
+            // point of the pair — it also pins that the quads are separate FilamentInstances.
             //
             // Must settle on the LATEST frame, not the next one: updatePosition above plays a move
             // animation that leaves a backlog in the queue, so nextFrame() would hand back a stale
             // pre-highlight frame (and did — it showed the start position).
-            renderer.setHighlightedSquares(listOf(BoardSquare(4, 4), BoardSquare(3, 3)))
+            renderer.setHighlightedSquares(
+                listOf(
+                    HighlightedSquare(BoardSquare(4, 4), HighlightTone.GOOD),
+                    HighlightedSquare(BoardSquare(3, 3), HighlightTone.BAD),
+                )
+            )
             assertRealRender(latestFrame(frames).also { save(it, "chess3d-highlight.png") }, size)
         } finally {
             renderer.dispose()

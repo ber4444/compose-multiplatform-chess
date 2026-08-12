@@ -604,18 +604,69 @@ class GameViewModel(
 
         // Motif detection (fast)
         val stateBeforeObj = FenConverter.fenToGameState(fenBefore)
-        val toSquare = UciMoveConverter.parseUciMove(playerRecord.uci).second
+        val (fromSquare, toSquare) = UciMoveConverter.parseUciMove(playerRecord.uci)
         val movingSide = if (targetIndex % 2 == 0) Set.WHITE else Set.BLACK
         val stateAfterObj = FenConverter.fenToGameState(playerRecord.fenAfter)
-        val motifs = MotifDetector.detectMotifs(stateBeforeObj, stateAfterObj, movingSide, toSquare)
+        val detected = MotifDetector.detectDetailed(
+            stateBefore = stateBeforeObj,
+            stateAfter = stateAfterObj,
+            movingSide = movingSide,
+            toSquare = toSquare,
+            fromSquare = fromSquare,
+            promoted = playerRecord.uci.length > 4,
+            // The previous ply's destination, so a capture on the same square reads as a recapture
+            // rather than as winning material.
+            previousToSquare = history.getOrNull(targetIndex - 1)
+                ?.let { UciMoveConverter.parseUciMove(it.uci).second },
+        )
 
-        val assessment = MoveAssessor.assessMove(
+        val baseAssessment = MoveAssessor.assessMove(
             cpBefore = cpBest, // By definition, eval of board before move is the eval of the best move
             cpPlayed = cpPlayed,
             cpBest = cpBest,
-            motifs = motifs,
+            motifs = detected.motifs,
+            motifDetails = detected.details,
             bestMoveUci = bestMoveResult?.uci,
+            // Resolved here because `stateBeforeObj` is the position the alternative would be played
+            // from, and nothing downstream has it. Null when the engine named no move, or named one
+            // this position cannot play — the coach then simply doesn't offer an alternative.
+            bestMoveSan = bestMoveResult?.uci
+                ?.takeIf { it != playerRecord.uci }
+                ?.let { SanConverter.sanForUci(stateBeforeObj, it) },
         )
+        
+        val assessment = if (bestMoveResult != null && bestMoveResult.uci != playerRecord.uci && bestMoveResult.uci.length >= 4) {
+            val uci = bestMoveResult.uci
+            val (bestFrom, bestTo) = runCatching { UciMoveConverter.parseUciMove(uci) }.getOrNull() ?: Pair(INVALID_POSITION, INVALID_POSITION)
+            if (bestFrom != INVALID_POSITION && bestTo != INVALID_POSITION) {
+                val allyPositions = if (movingSide == Set.WHITE) stateBeforeObj.positionsWhite else stateBeforeObj.positionsBlack
+                val bPieceIndex = allyPositions.indexOf(bestFrom).takeIf { it >= 0 }
+                if (bPieceIndex != null) {
+                    val bestPromoted = uci.length > 4
+                    val bestPromotion = if (bestPromoted) PromotionType.entries.firstOrNull { it.uciChar == uci[4] } else null
+                    val stateAfterBest = runCatching { applyMove(stateBeforeObj, bPieceIndex, bestTo, bestPromotion) }.getOrNull()
+                    if (stateAfterBest != null) {
+                        val bestDetected = MotifDetector.detectDetailed(
+                            stateBefore = stateBeforeObj,
+                            stateAfter = stateAfterBest,
+                            movingSide = movingSide,
+                            toSquare = bestTo,
+                            fromSquare = bestFrom,
+                            promoted = bestPromoted,
+                            previousToSquare = history.getOrNull(targetIndex - 1)?.let {
+                                runCatching { UciMoveConverter.parseUciMove(it.uci).second }.getOrNull()
+                            }
+                        )
+                        baseAssessment.copy(
+                            bestMoveMotifs = bestDetected.motifs,
+                            bestMoveMotifDetails = bestDetected.details
+                        )
+                    } else baseAssessment
+                } else baseAssessment
+            } else baseAssessment
+        } else {
+            baseAssessment
+        }
 
         // Update history safely
         val currentHistory = _gameState.value.moveHistory.toMutableList()

@@ -57,7 +57,7 @@ class AndroidSceneViewChessRenderer(
         driver.setSelected(square)
     }
 
-    override fun setHighlightedSquares(squares: List<BoardSquare>) {
+    override fun setHighlightedSquares(squares: List<HighlightedSquare>) {
         driver.setHighlighted(squares)
     }
 

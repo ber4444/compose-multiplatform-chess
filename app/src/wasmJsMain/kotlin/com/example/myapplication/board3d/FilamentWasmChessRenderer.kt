@@ -20,7 +20,7 @@ class FilamentWasmChessRenderer : Chess3DBoardRenderer {
     override fun updatePosition(fen: String) = delegate.updatePosition(fen)
     override fun updatePosition(fen: String, transition: Board3DTransition?) = delegate.updatePosition(fen, transition)
     override fun setSelectedSquare(square: BoardSquare?) = delegate.setSelectedSquare(square)
-    override fun setHighlightedSquares(squares: List<BoardSquare>) = delegate.setHighlightedSquares(squares)
+    override fun setHighlightedSquares(squares: List<HighlightedSquare>) = delegate.setHighlightedSquares(squares)
     override fun onUserInteraction(event: Board3DInput) = delegate.onUserInteraction(event)
     override fun dispose() = delegate.dispose()
 
@@ -176,6 +176,9 @@ const PIECE_SCALE = ${ChessSetConventions.PIECE_SCALE};
 // 1..32 are the piece-pool slots — mirrors iOS createInstancedAsset(kMaxPieces + 1).
 const MAX_PIECES = ${ChessSetConventions.MAX_PIECES};
 const MAX_HIGHLIGHTS = ${ChessSetConventions.MAX_HIGHLIGHTS};
+// One quad per HighlightTone, in ordinal order. Keep in sync with
+// ChessSetConventions.HIGHLIGHT_NODE_NAMES (interpolated, so it cannot drift).
+const HIGHLIGHT_NODE_NAMES = ${ChessSetConventions.HIGHLIGHT_NODE_NAMES.joinToString(prefix = "[", postfix = "]") { "'" + it + "'" }};
 const INSTANCE_COUNT = MAX_PIECES + MAX_HIGHLIGHTS + 1;
 // Lifts the highlight quad off the tile just enough to beat z-fighting.
 const HIGHLIGHT_LIFT_Y = 0.005;
@@ -248,7 +251,8 @@ window.chess3dFilament = {
             // 'Plane' is hidden but must stay in the asset: it is the only primitive bound to the
             // 'black' material, which keeps that MaterialInstance alive for the piece pool.
             // See ChessSetMeshNames.getMaterialName in commonMain.
-            const hide = KIND_NAMES.indexOf(name) !== -1 || name === 'Plane' || name === 'Highlight';
+            const hide = KIND_NAMES.indexOf(name) !== -1 || name === 'Plane'
+                || HIGHLIGHT_NODE_NAMES.indexOf(name) !== -1;
             if (hide) this.scene.remove(e); else this.scene.addEntity(e);
         });
         this.setInstanceTransform(board, 0, 0, 0, 0);
@@ -287,7 +291,9 @@ window.chess3dFilament = {
             return {
                 x: parseFloat(f[0]),
                 y: parseFloat(f[1]),
-                z: parseFloat(f[2])
+                z: parseFloat(f[2]),
+                // Absent on an old-format record; index 0 is NEUTRAL, the authored blue.
+                tone: f.length > 3 ? parseInt(f[3], 10) || 0 : 0
             };
         }) : [];
 
@@ -338,11 +344,12 @@ window.chess3dFilament = {
 
             const h = highlights[slot];
 
-            // No material binding: the Plane mesh carries its own `highlight` material (alphaMode
-            // BLEND) in chess.glb. Tinting one of the OPAQUE glTF materials at runtime cannot work —
-            // gltfio selects the ubershader blending variant from alphaMode when the asset loads.
+            // No material binding: chess.glb carries one quad per tone and the tone selects which
+            // node to show. Recolouring a single quad at runtime cannot work the obvious way — the
+            // colour is the material's emissiveFactor, not baseColorFactor. See ChessSetConventions.
+            const wanted = HIGHLIGHT_NODE_NAMES[h.tone] || HIGHLIGHT_NODE_NAMES[0];
             this.forEachRenderable(inst, (e, name) => {
-                if (name === "Highlight") {
+                if (name === wanted) {
                     this.scene.addEntity(e);
                     const rm = this.renderableManager;
                     const ri = rm.getInstance(e);

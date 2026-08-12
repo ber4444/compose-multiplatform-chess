@@ -39,4 +39,10 @@ object UciEvaluation {
     fun toWhitePerspective(scoreCp: Int, whiteToMove: Boolean): Int {
         return if (whiteToMove) scoreCp else -scoreCp
     }
+
+    fun winPercent(cp: Int): Double {
+        if (cp >= MATE_SCORE_CP / 2) return 100.0
+        if (cp <= -MATE_SCORE_CP / 2) return 0.0
+        return 100.0 / (1.0 + kotlin.math.exp(-0.00368208 * cp))
+    }
 }

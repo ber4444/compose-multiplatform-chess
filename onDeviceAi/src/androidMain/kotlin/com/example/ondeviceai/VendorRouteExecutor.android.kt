@@ -1,55 +1,46 @@
 package com.example.ondeviceai
 
-import android.content.Context
-import com.cactus.CactusContextInitializer
-import com.example.ondeviceai.cactus.CactusTextGenerator
-
 /**
- * Initialize the Cactus native runtime. Must be called from the Activity's
- * onCreate before any CactusLM use. Routed through :onDeviceAi so :app
- * doesn't need a direct Cactus dependency.
+ * Android's AI runtime seam — now ML Kit only, and dormant in practice.
+ *
+ * Cactus was removed after every model in its catalog was benchmarked on real hardware and all of
+ * them lost to the deterministic text, on latency, on truth, or both:
+ * `gemma3-270m` echoed its own prompt, `qwen3-0.6` needed 20-36 s because every `qwen3-*` is a
+ * reasoning model and `/no_think` is inert through Cactus, `gemma3-1b` spent 5-20 s on generic
+ * waffle, and `lfm2-700m` was fluent and false ("Nh3 … immediately controls the center" about a
+ * knight on the rim). On Game Summary — the surface with **no response validator at all** —
+ * `gemma3-1b` invented a bishop sacrifice on move 1 and once answered in German, and all three runs
+ * were accepted. See `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md`.
+ *
+ * So Android's Move Coach and Game Summary are deterministic. That is not a downgrade: the coach
+ * answers instantly with "Your bishop on b5 pins the knight on c6 against the king on e8", and the
+ * summary composes the same turning points a model was given and could not use.
+ *
+ * **ML Kit stays wired on purpose.** It costs no download and reports `Unavailable` on every device
+ * tested — a Pixel 10 Pro XL answers `FEATURE_NOT_FOUND: Feature 645`, and emulators ship no AICore
+ * at all — so today it changes nothing. Two real client bugs were fixed while establishing that
+ * (`ModelReleaseStage.PREVIEW` → `STABLE`, and a `download()` that was never called), which means a
+ * device that ever provisions the feature lights this path up with no code change.
  */
-fun initializeCactus(context: Context) {
-    CactusContextInitializer.initialize(context)
-    cactusInitialized = true
-}
-
-@Volatile
-private var cactusInitialized = false
-
-internal fun isCactusInitialized(): Boolean = cactusInitialized
-
 actual class VendorRouteExecutor : AiRouteExecutor {
     actual override suspend fun execute(route: VendorRoute): OnDeviceTextGenerator? {
         return when (route) {
-            // Cached per preference, mirroring the Cactus route. A fresh instance per execute()
-            // paid ML Kit's model setup on every coached move while the Cactus route paid it once,
-            // an asymmetry nobody measured because only the Cactus fallback has been exercised on
-            // real hardware.
+            // Cached per preference: a fresh instance per execute() would pay ML Kit's model setup
+            // on every request. FAST and FULL are different models, hence the key.
             is VendorRoute.MlKitPrompt -> cachedMlKit.getOrPut(route.preference) {
                 MlKitPromptGenerator(route.preference)
             }
             is VendorRoute.AppleFoundationModels -> error("iOS route on Android")
             is VendorRoute.LiteRtLm -> error("Desktop/Wasm route on Android")
-            is VendorRoute.CactusLocal -> getCactus()
+            // The type stays in the published commonMain API — removing it would be a source break
+            // for the React Native consumer — but Android can no longer serve it.
+            is VendorRoute.CactusLocal -> null
         }
-    }
-
-    private fun getCactus(): CactusTextGenerator {
-        check(isCactusInitialized()) {
-            "Cactus Native context not initialized in Application/Activity"
-        }
-        return cachedGenerator ?: CactusTextGenerator().also { cachedGenerator = it }
     }
 }
 
-@Volatile
-private var cachedGenerator: CactusTextGenerator? = null
-
 /**
- * Process-wide, like [cachedGenerator]. Keyed by preference because FAST and FULL are different
- * ML Kit models. Both caches are deliberately never cleared — `release()` borrows and returns a
- * generator, it does not destroy one.
+ * Process-wide. Deliberately never cleared — `release()` borrows and returns a generator, it does
+ * not destroy one.
  */
 private val cachedMlKit = java.util.concurrent.ConcurrentHashMap<ModelPreference, MlKitPromptGenerator>()
-

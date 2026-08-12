@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.example.myapplication.board3d.HighlightTone
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import game.app.generated.resources.Res
@@ -53,14 +54,21 @@ fun MoveCoachPanel(
     val presentation = (state as? MoveCoachUiState.Fallback)?.let {
         FallbackPresentation.of(it.reason)
     }
+    // B19: when the board is painting the verdict, the headline stops saying it. "Good — a3" beside
+    // a green a3 is the same fact twice, and the text version is the one that reads like a grade.
+    // Tones the colour cannot express keep their headline: Explain mode's subject square, a book
+    // move, and anything with no assessment behind it are all NEUTRAL and still need their words.
+    val verdictIsOnTheBoard = state.highlightTone != HighlightTone.NEUTRAL
     val label: String? = when (state) {
-        is MoveCoachUiState.Ready -> state.explanation.headline
-        is MoveCoachUiState.Streaming -> state.headline
-        is MoveCoachUiState.Loading -> state.headline
+        is MoveCoachUiState.Ready -> state.explanation.headline.takeUnless { verdictIsOnTheBoard }
+        is MoveCoachUiState.Streaming -> state.headline.takeUnless { verdictIsOnTheBoard }
+        is MoveCoachUiState.Loading -> state.headline.takeUnless { verdictIsOnTheBoard }
         is MoveCoachUiState.Fallback -> when (presentation) {
+            // Quota and timeout outrank the headline: they tell the user something about what to do
+            // next, which the verdict does not.
             is FallbackPresentation.Labeled -> presentation.label
             is FallbackPresentation.Retryable -> presentation.label
-            else -> null
+            else -> state.headline.takeUnless { verdictIsOnTheBoard || it.isEmpty() }
         }
         else -> null
     }
@@ -134,10 +142,25 @@ fun MoveCoachPanel(
                 )
             }
             Text(
-                text = text,
+                // Rendered, not shown as syntax: a model that reaches for **bold** should read as
+                // bold rather than as asterisks. See InlineMarkdown.
+                text = com.example.myapplication.ui.InlineMarkdown.render(text),
                 style = MaterialTheme.typography.bodySmall,
                 color = contentColor,
             )
+
+            // Debug builds name the reason, mirroring RulesQaScreen. Most fallbacks present as
+            // Silent — correct for a user, and it also means a device that never once reached the
+            // model looks identical to one that did. Without this the only way to tell "no model"
+            // from "the validator vetoed it" is a log line nobody is watching.
+            if (com.example.myapplication.LocalIsDebug.current && state is MoveCoachUiState.Fallback) {
+                Text(
+                    text = "fallback: ${state.reason.description}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = contentColor.copy(alpha = 0.6f),
+                    modifier = Modifier.testTag("move_coach_fallback_reason"),
+                )
+            }
 
             // Determinate only when the runtime can say how far along it is: Cactus reports a
             // fraction by watching the partial file grow, LiteRT-LM (desktop/wasm) reports none.

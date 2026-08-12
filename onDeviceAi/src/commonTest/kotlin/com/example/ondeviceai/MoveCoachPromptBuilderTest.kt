@@ -3,19 +3,24 @@ package com.example.ondeviceai
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Rewritten for the prose prompt. The previous version asserted the presence of `STYLE_EXAMPLES`
+ * Rewritten for the prose prompt. An earlier version asserted the presence of `STYLE_EXAMPLES`
  * and `EXAMPLE_LABEL`; both are gone, and their removal is the point.
  *
  * Three on-device failures, in order, all the same bug: a 270M model copies the nearest text in its
  * context. It emitted a style example verbatim, then the `Bad:` counter-example added to forbid
  * that, then — once the examples were replaced by a JSON schema — the schema's own placeholder
- * strings, in 5 of 5 measured runs. The prompt now carries exactly one thing worth copying: the
- * deterministic explanation we actually want rewritten.
+ * strings, in 5 of 5 measured runs. So these tests assert absences as much as presences: an absence
+ * is what regresses silently.
  *
- * So these tests assert absences as much as presences. An absence is what regresses silently.
+ * The prompt no longer carries *only* the deterministic explanation. It also carries the
+ * code-detected facts for the ply — move class, centipawn loss, motifs — because a prompt holding
+ * one finished sentence can only produce a reworded copy of that sentence. Everything copyable in
+ * there is a fact from `MoveAssessment`, which is the distinction that matters: the model may not
+ * invent, but it now has something to reason across.
  */
 class MoveCoachPromptBuilderTest {
 
@@ -23,7 +28,7 @@ class MoveCoachPromptBuilderTest {
         moveUci = "g1f3",
         moveDisplay = "Nf3",
         deterministicHeadline = "Good — Nf3",
-        deterministicExplanation = "Engine choice: Nf3. It develops a piece to an active square.",
+        deterministicExplanation = "It develops a piece to an active square.",
         engineDifficultyName = "Medium",
     )
 
@@ -73,9 +78,87 @@ class MoveCoachPromptBuilderTest {
     }
 
     @Test
-    fun `system prompt asks for a rewrite rather than chess analysis`() {
+    fun `system prompt forbids invention rather than inviting free analysis`() {
+        // This used to assert the word "rewrite". The fence it protects is "the model narrates, it
+        // does not analyse" — but the user prompt stopped being a rewrite task, so the system
+        // prompt was telling the model to reword one sentence while the user prompt told it to
+        // reason across several facts. The fence is now stated directly instead.
         val system = MoveCoachPromptBuilder.build(request).systemPrompt.lowercase()
-        assertTrue("rewrite" in system, system)
+
+        assertTrue("only the facts" in system, system)
+        assertTrue("never invent" in system, system)
+        assertFalse("rewrite" in system, "the two prompts must not disagree about the task: $system")
+    }
+
+    @Test
+    fun `user prompt states the same no-invention rule as the system prompt`() {
+        val prompt = MoveCoachPromptBuilder.userPrompt(request).lowercase()
+        assertTrue("do not invent" in prompt, prompt)
+    }
+
+    @Test
+    fun `the assessment reaches the prompt so the model has something to reason about`() {
+        // Without these the prompt holds one finished sentence, and a rewording of that sentence is
+        // the only answer available. `MoveCoachRequest` carried the move the whole time and the
+        // prompt used none of it, while the validator graded the answer on squares the model had
+        // never been shown.
+        val prompt = MoveCoachPromptBuilder.userPrompt(
+            request.copy(
+                moveClassName = "BLUNDER",
+                winPercentLost = 20.0,
+                motifs = listOf("fork"),
+            ),
+        )
+
+        assertTrue("Nf3" in prompt, prompt)
+        assertTrue("blunder" in prompt, "the move class is lowercased into prose: $prompt")
+        // The magnitude, not the number: see winPercentNeverReachesThePrompt.
+        assertTrue("drops your winning chances" in prompt, prompt)
+        assertTrue("fork" in prompt, prompt)
+    }
+
+    @Test
+    fun `an unassessed move degrades to the baseline explanation alone`() {
+        // No engine attached means no MoveAssessment, so the extra lines must vanish rather than
+        // appear empty — "Engine assessment of that move: ." is one more contentless line to copy.
+        val prompt = MoveCoachPromptBuilder.userPrompt(request).lowercase()
+
+        assertFalse("engine assessment" in prompt, prompt)
+        assertFalse("winning chances" in prompt, prompt)
+        assertFalse("tactical features" in prompt, prompt)
+    }
+
+    @Test
+    fun `a zero win percent loss is not reported as a loss`() {
+        // BEST moves carry winPercentLost = 0. "It gives up about 0 percent" invites the model to say
+        // the move lost something.
+        val prompt = MoveCoachPromptBuilder.userPrompt(request.copy(winPercentLost = 0.0)).lowercase()
+
+        assertFalse("winning chances" in prompt, prompt)
+    }
+
+    @Test
+    fun `motifs are spelled out instead of pasted in as corpus slugs`() {
+        val prompt = MoveCoachPromptBuilder.userPrompt(
+            request.copy(motifs = listOf("discovered-attack", "hangs-piece")),
+        )
+
+        assertTrue("discovered attack" in prompt, prompt)
+        assertTrue("hanging piece" in prompt, prompt)
+        assertFalse("discovered-attack" in prompt, "a slug in the prompt is a slug in the panel: $prompt")
+        assertFalse("hangs-piece" in prompt, prompt)
+    }
+
+    @Test
+    fun `every motif the detector can emit is readable in the prompt`() {
+        // The general rule, not the lookup table, is what makes this hold: adding a motif to
+        // MotifDetector must not require remembering that this function exists.
+        com.example.myapplication.MotifDetector.ALL_MOTIFS.forEach { motif ->
+            val phrase = MoveCoachPromptBuilder.humanizeMotif(motif)
+            assertFalse('-' in phrase, "$motif rendered as $phrase")
+            assertFalse('_' in phrase, "$motif rendered as $phrase")
+            assertTrue(phrase.isNotBlank(), motif)
+        }
     }
 
     @Test
@@ -96,5 +179,29 @@ class MoveCoachPromptBuilderTest {
 
         assertFalse("Do not start" in system, system)
         assertEquals(MoveCoachPromptBuilder.systemPrompt(emptyList()), system)
+    }
+
+    @Test
+    fun winPercentNeverReachesThePromptWhenFractional() {
+        // fractional numbers like 0.5% aren't useful, it's casted to int in the prompt builder
+        val prompt = MoveCoachPromptBuilder.userPrompt(request.copy(winPercentLost = 4.5))
+        assertTrue(prompt.contains(" 4%"), prompt)
+        assertFalse(prompt.contains(" 4.5"), prompt)
+    }
+
+    @Test
+    fun winPercentBandsFollowMoveClassThresholds() {
+        assertNull(MoveCoachPromptBuilder.winPercentLossPhrase(null))
+        assertNull(MoveCoachPromptBuilder.winPercentLossPhrase(0.0))
+        assertNull(MoveCoachPromptBuilder.winPercentLossPhrase(0.9), "below 1.0 floor: invents a fault")
+        assertEquals("It drops your winning chances by 10%", MoveCoachPromptBuilder.winPercentLossPhrase(10.0))
+        assertEquals("It drops your winning chances by 30%", MoveCoachPromptBuilder.winPercentLossPhrase(30.0))
+    }
+
+    @Test
+    fun promptAsksForPlainProse() {
+        // Belt to InlineMarkdown's braces: asking costs nothing and works often enough to matter.
+        val prompt = MoveCoachPromptBuilder.systemPrompt(bannedOpeningFrames = emptyList())
+        assertTrue(prompt.contains("markdown", ignoreCase = true), prompt)
     }
 }

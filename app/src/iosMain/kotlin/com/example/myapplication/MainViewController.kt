@@ -79,7 +79,9 @@ fun MainViewController(
     }
     // Platform.isDebugBinary is the K/N equivalent of Android's FLAG_DEBUGGABLE: it selects the
     // RevenueCat Test Store key (when configured) and the SDK's debug logging together, so a
-    // debug simulator/device build never runs a purchase against a real App Store product.
+    // debug simulator/device build never runs a purchase against a real App Store product. It is
+    // also what AppRoot's `isDebug` / `forceProUnlocked` read, so it is hoisted here rather than
+    // scoped to the entitlements lambda — they must all agree on what "debug" means.
     // The opt-in is scoped to this expression rather than the file or the module: the API is
     // experimental, and a module-wide opt-in would silently cover future uses that nobody
     // reviewed. There is no stable equivalent — Kotlin/Native exposes no other build-type probe.
@@ -179,14 +181,13 @@ fun MainViewController(
             moveCoachManager = moveCoachManager,
             gameSummaryManager = gameSummaryManager,
             entitlements = entitlements
-                // With no key there is no store to buy through, so UnconfiguredEntitlements locks
-                // Pro permanently — correct for release, but it also makes the Pro surfaces
-                // unreachable on a dev build. Debug starts unlocked instead.
-                ?: remember {
-                    if (debug) com.example.myapplication.monetization.NoOpEntitlements(initialUnlocked = true)
-                    else com.example.myapplication.monetization.UnconfiguredEntitlements()
-                },
-            switchTopPadding = (-16).dp
+                // Stays UnconfiguredEntitlements even in debug: the dev unlock is forceProUnlocked
+                // below, which covers all five Pro surfaces *and* leaves PaywallScreen — which reads
+                // LocalEntitlements directly — inspectable.
+                ?: remember { com.example.myapplication.monetization.UnconfiguredEntitlements() },
+            switchTopPadding = (-16).dp,
+            forceProUnlocked = debug,
+            isDebug = debug,
         )
     }
 }

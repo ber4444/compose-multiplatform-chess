@@ -128,7 +128,7 @@ class DesktopFilamentChessRenderer(
         renderScope.launch { delegate.setSelectedSquare(square) }
     }
 
-    override fun setHighlightedSquares(squares: List<BoardSquare>) {
+    override fun setHighlightedSquares(squares: List<HighlightedSquare>) {
         renderScope.launch { delegate.setHighlightedSquares(squares) }
     }
 

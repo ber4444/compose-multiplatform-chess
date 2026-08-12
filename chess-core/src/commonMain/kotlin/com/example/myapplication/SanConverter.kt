@@ -20,6 +20,56 @@ package com.example.myapplication
  */
 object SanConverter {
 
+    /**
+     * SAN for a UCI move played from [state], or null if it isn't a move the side to move can make.
+     *
+     * Exists so the coach can *name the alternative* — "Nf3 was stronger" — from the `bestMoveUci`
+     * the engine already reports. [toSan] needs the piece, the capture flag and the castling rook
+     * move, all of which the caller of a raw UCI string does not have; this resolves them from the
+     * position instead of asking every call site to.
+     *
+     * Applies the move to get the check suffix right. A coaching line that recommends "Qh5" when
+     * the move is mate is worse than one that says "Qh5#" — and the apply is the same call the real
+     * move path makes, so it can't disagree with it.
+     */
+    fun sanForUci(state: GameUiState, uci: String): String? {
+        if (uci.length < 4) return null
+        val (from, to) = runCatching { UciMoveConverter.parseUciMove(uci) }.getOrNull() ?: return null
+
+        val allyPositions = if (state.turn == Set.WHITE) state.positionsWhite else state.positionsBlack
+        val allyPieces = if (state.turn == Set.WHITE) state.piecesWhite else state.piecesBlack
+        val enemyPositions = if (state.turn == Set.WHITE) state.positionsBlack else state.positionsWhite
+
+        val pieceIndex = allyPositions.indexOf(from).takeIf { it >= 0 } ?: return null
+        val movingPiece = allyPieces.getOrNull(pieceIndex) ?: return null
+        val promotion = uci.getOrNull(4)?.let { c -> PromotionType.entries.firstOrNull { it.uciChar == c } }
+
+        // En passant captures land on an empty square, so the destination alone doesn't show it.
+        val isCapture = to in enemyPositions ||
+            (movingPiece is Pawn && from.second != to.second && to == state.enPassantTarget)
+
+        val after = runCatching { applyMove(state, pieceIndex, to, promotion) }.getOrNull() ?: return null
+        val afterWin = applyWinConditions(after)
+        val enemyInCheck = if (state.turn == Set.WHITE) afterWin.inCheckBlack else afterWin.inCheckWhite
+        val checkSuffix = when {
+            afterWin.winState == WinState.WHITE || afterWin.winState == WinState.BLACK -> "#"
+            enemyInCheck -> "+"
+            else -> ""
+        }
+
+        return toSan(
+            preMove = state,
+            pieceIndex = pieceIndex,
+            from = from,
+            to = to,
+            movingPiece = movingPiece,
+            isCapture = isCapture,
+            promotion = promotion,
+            castleRook = castlingRookMove(movingPiece, from, to),
+            checkSuffix = checkSuffix,
+        )
+    }
+
     fun toSan(
         preMove: GameUiState,
         pieceIndex: Int,

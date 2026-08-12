@@ -17,10 +17,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * renders there too, but its [NoOpEntitlements.purchase] grants Pro locally and free — correct on a
  * platform with no store, and a bypass on one that has it.
  *
- * Reached on **release** Android/iOS when no RevenueCat key is configured, which is the state of any
- * fresh clone: that build genuinely cannot sell anything, so the five Pro AI surfaces are gated off.
- * An unkeyed *debug* build takes [NoOpEntitlements] with `initialUnlocked = true` instead, so the Pro
- * surfaces stay reachable for development without a store.
+ * Reached on Android/iOS when no RevenueCat key is configured, which is the state of any fresh
+ * clone: that build genuinely cannot sell anything, so the five Pro AI surfaces are gated off.
+ * A *debug* build keeps this class — its dev unlock is [LocalProUnlockOverride], which opens all
+ * five surfaces without touching the entitlement, so the paywall stays inspectable.
  */
 class UnconfiguredEntitlements : Entitlements {
     private val _isProUnlocked = MutableStateFlow(false)

@@ -41,7 +41,7 @@ gemma3-270m's ceiling, not a code bug: 270M parameters cannot reason about chess
 the nearest text in context. Removing the misleading option (the examples) made it fall back to the
 truthful one (the move description).
 
-The deterministic fallback for that same move produces `Engine choice: c6. It gains space and opens
+The deterministic fallback for that same move produces `You played c6. It gains space and opens
 lines.` — which at least answers *why*. **The model lost to the templates.**
 
 ### 2. Chat cannot answer questions about your game (deployed server)

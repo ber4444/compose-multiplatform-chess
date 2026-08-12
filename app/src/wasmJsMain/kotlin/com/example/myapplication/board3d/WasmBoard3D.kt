@@ -73,7 +73,7 @@ fun WasmBoard3DSurface(
         canvas.style.setProperty("position", "absolute")
         canvas.style.setProperty("pointer-events", stacking.pointerEvents)
         // Compose renders into its own DOM canvas. Appending the Filament canvas after it made the
-        // board canvas paint over Reset / Offer Draw / the 3D switch. Put the non-interactive Filament
+        // board canvas paint over Reset / Hint / the 3D switch. Put the non-interactive Filament
         // canvas at the start of body so Compose remains the top visual and input layer.
         document.body?.let { body ->
             if (stacking.insertAsFirstBodyChild) body.insertBefore(canvas, body.firstChild)

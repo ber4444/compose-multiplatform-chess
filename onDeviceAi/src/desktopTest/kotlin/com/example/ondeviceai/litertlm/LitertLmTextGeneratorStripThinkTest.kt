@@ -1,5 +1,6 @@
 package com.example.ondeviceai.litertlm
 
+import com.example.ondeviceai.AiGenerationRequest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -49,5 +50,34 @@ class LitertLmTextGeneratorStripThinkTest {
     @Test
     fun `returns_empty_string_for_input_that_was_only_think`() {
         assertEquals("", stripThinkBlocks("<think>all reasoning, no answer</think>"))
+    }
+}
+
+class LitertLmTokenBudgetTest {
+    private fun req(max: Int) = AiGenerationRequest(
+        systemPrompt = "s", userPrompt = "u", maxOutputTokens = max,
+    )
+
+    @Test
+    fun `an answer-sized budget is floored, not applied verbatim`() {
+        // MoveCoachPromptBuilder sends 384, sized for the answer. Applying that to a model that
+        // opens with a <think> block is exactly how the Android attempt cut every generation off
+        // mid-thought and stripped the result to nothing.
+        assertEquals(
+            LitertLmTextGenerator.REASONING_TOKEN_FLOOR,
+            LitertLmTextGenerator.maxTokensFor(req(384)),
+        )
+    }
+
+    @Test
+    fun `a caller asking for more than the floor gets what it asked for`() {
+        assertEquals(4096, LitertLmTextGenerator.maxTokensFor(req(4096)))
+    }
+
+    @Test
+    fun `the ceiling is a real bound, not unlimited`() {
+        // The bug this replaced: desktop ignored maxOutputTokens entirely, so generation had no
+        // stop condition of its own at all.
+        assertTrue(LitertLmTextGenerator.maxTokensFor(req(1)) < Int.MAX_VALUE)
     }
 }

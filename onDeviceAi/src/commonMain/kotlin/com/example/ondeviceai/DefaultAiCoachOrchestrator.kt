@@ -125,6 +125,7 @@ class DefaultAiCoachOrchestrator(
                         collected.append(piece.text)
                         finalMetrics = piece.metrics
                     }
+                    is AiTokenOrFinal.ToolCall -> {}
                 }
             }
         } != null

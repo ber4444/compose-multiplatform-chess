@@ -186,9 +186,9 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                         // turns every black piece silvery. See ChessSetMeshNames.getMaterialName.
                         val hiddenNames = PieceKind.entries
                             .map { kind -> ChessSetMeshNames.getMeshName(kind, PieceColor.WHITE) }
-                            .toSet() + "Plane" + "Highlight"
+                            .toSet() + "Plane" + ChessSetConventions.HIGHLIGHT_NODE_NAMES
                         renderableNodes.forEach { rn ->
-                            if (rn.name == "Highlight" || rn.name == "Plane") {
+                            if (rn.name in ChessSetConventions.HIGHLIGHT_NODE_NAMES || rn.name == "Plane") {
                                 rn.isShadowCaster = false
                                 rn.isShadowReceiver = false
                             }
@@ -258,7 +258,10 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                 val highlight = boardScene?.highlightedSquares?.getOrNull(i)
                 val instance = modelInstances.getOrNull(MAX_PIECES + 1 + i)
                 if (instance != null) {
-                    val center = highlight?.let { BoardGeometry.squareCenter(it) }
+                    val center = highlight?.let { BoardGeometry.squareCenter(it.square) }
+                    val nodeState = remember {
+                        androidx.compose.runtime.mutableStateOf<io.github.sceneview.node.ModelNode?>(null)
+                    }
                     ModelNode(
                         modelInstance = instance,
                         // chess.glb's `Plane` node carried a baked local translation (the only node in
@@ -268,20 +271,33 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                         position = Float3(center?.x ?: 0f, HIGHLIGHT_LIFT_Y, center?.z ?: 0f),
                         scale = Float3(PIECE_SCALE, PIECE_SCALE, PIECE_SCALE),
                         isVisible = highlight != null,
-                        // No material work here: the Plane mesh carries its own `highlight` material
-                        // (alphaMode BLEND) in the GLB. Runtime tinting cannot work — gltfio picks the
-                        // ubershader blending variant from alphaMode at load time, so setting alpha on
-                        // one of the OPAQUE glTF materials renders fully opaque.
-                        apply = {
-                            renderableNodes.forEach { rn ->
-                                rn.isVisible = rn.name == "Highlight"
-                                if (rn.name == "Highlight") {
-                                    rn.isShadowCaster = false
-                                    rn.isShadowReceiver = false
-                                }
+                        // Only capture the node here. `apply` runs once, when SceneView creates the
+                        // node — fine for state that never changes, which is what this used to be
+                        // (it always showed the single "Highlight" child). The tone does change, so
+                        // choosing the child in here pinned every quad to whichever tone was current
+                        // at creation: null, i.e. NEUTRAL, i.e. blue for the rest of the session.
+                        // The piece pool above hit this first and solved it the same way.
+                        apply = { nodeState.value = this }
+                    ) {}
+
+                    // No material work, by design: the GLB carries one quad per HighlightTone and
+                    // the tone picks which child to show. Recolouring a single quad at runtime looks
+                    // simpler and does not work — the colour is the material's `emissiveFactor`, not
+                    // `baseColorFactor`, and its ubershader name moves between Filament versions.
+                    // See ChessSetConventions.
+                    val wantedNode = ChessSetConventions.highlightNodeName(
+                        (highlight?.tone ?: HighlightTone.NEUTRAL).ordinal
+                    )
+                    androidx.compose.runtime.LaunchedEffect(nodeState.value, wantedNode) {
+                        val node = nodeState.value ?: return@LaunchedEffect
+                        node.renderableNodes.forEach { rn ->
+                            rn.isVisible = rn.name == wantedNode
+                            if (rn.isVisible) {
+                                rn.isShadowCaster = false
+                                rn.isShadowReceiver = false
                             }
                         }
-                    ) {}
+                    }
                 }
             }
         }

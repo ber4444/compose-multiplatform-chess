@@ -15,6 +15,21 @@ fun interface RuleLookupTool {
 fun createBundledRuleLookupTool(): RuleLookupTool = BundledRuleLookupTool()
 
 /**
+ * Human-readable title for a bundled corpus id, or `null` if the id is not from this corpus.
+ *
+ * Titles are resolved from the corpus at render time rather than carried alongside the id through
+ * `RulesQaModelOutput` → `RulesQaResult` → the UI. The corpus is already the single source of truth
+ * for them, and a copy travelling beside the id is a copy that can go stale — the same reason
+ * `AiContextSnapshot.isDeviceModelAvailable` is a derived getter and not a stored field.
+ *
+ * It also keeps iOS out of it: that bridge hands back a CSV of ids and has no passages to thread.
+ */
+internal fun rulePassageForId(id: String): RulePassage? =
+    GeneratedRulePassages.firstOrNull { it.id == id }
+
+internal fun ruleTitleForId(id: String): String? = rulePassageForId(id)?.title
+
+/**
  * Small, deterministic BM25 scan over the generated bundled corpus.
  *
  * A separate sentence-embedding model would add a material binary and memory cost on top of the
@@ -69,7 +84,7 @@ class BundledRuleLookupTool(
 
     private fun tokenize(value: String): List<String> = WORD.findAll(value.lowercase())
         .map { match -> match.value }
-        .filter { term -> term.length > 1 && term !in STOP_WORDS }
+        .filter { term -> (term.length > 1 || term.all { it.isDigit() }) && term !in STOP_WORDS }
         .map(::normalize)
         .toList()
 
@@ -80,6 +95,8 @@ class BundledRuleLookupTool(
         term.startsWith("captur") -> "capture"
         term.startsWith("attack") -> "attack"
         term.startsWith("touch") -> "touch"
+        term.startsWith("draw") -> "draw"
+        term == "2" -> "two"
         term.endsWith("ies") && term.length > 4 -> term.dropLast(3) + "y"
         term.endsWith("s") && term.length > 3 -> term.dropLast(1)
         else -> term

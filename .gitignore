@@ -58,3 +58,6 @@ binary/
 fly_logs.txt
 diff.txt
 pr_body.md
+
+# Perfetto tooling: a ~10 MB prebuilt binary, fetched not committed.
+tools/perfetto/

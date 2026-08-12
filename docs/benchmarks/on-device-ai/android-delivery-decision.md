@@ -5,7 +5,7 @@ runtimes and selected Cactus (`com.cactuscompute:cactus:1.4.1-beta`) over the
 alternatives listed below. The integration lives in
 `onDeviceAi/src/androidMain/.../cactus/` and is wired directly into the debug
 coach path (no reflection gate — the artifact is on Maven Central and resolves
-cleanly). The `gemma3-270m` model (~200 MB) is downloaded from Hugging Face by
+cleanly). The `gemma3-270m` model (~172 MB) is downloaded from Hugging Face by
 Cactus on first launch; no model is bundled in the APK (debug APK ~258 MB, down
 from 651 MB with the bundled LiteRT-LM model).
 
@@ -24,7 +24,7 @@ from 651 MB with the bundled LiteRT-LM model).
 | Delivery path | App size | Update cadence | Offline after setup | Notes |
 |---|---:|---|---|---|
 | AICore/ML Kit system model | low | OS/Play services managed | yes after model availability | Gemini Nano path, not Gemma. Optional higher-tier route only (`MlKitPromptTextGenerator` compiles). |
-| **Cactus + HF-downloaded Gemma** | **low base APK** | **model-source managed** | **yes after first-launch download** | **M3 ships this path.** ~200 MB `gemma3-270m` fetched by Cactus into `filesDir`; debug APK ~258 MB. |
+| **Cactus + HF-downloaded Gemma** | **low base APK** | **model-source managed** | **yes after first-launch download** | **M3 ships this path.** ~172 MB `gemma3-270m` fetched by Cactus into `filesDir`; debug APK ~258 MB. |
 | Play Feature / asset delivery | medium base APK | Play-managed | yes after install | Superseded by Cactus's self-managed download for the coach use case. |
 | Firebase ML / remote model delivery | low base APK | remote model updates | yes after download | Not pursued — Cactus's HF download already keeps the base APK small. |
 | Hugging Face optimized artifact | varies | model-source dependent | yes after packaging/download | This is what Cactus consumes (GGUF). |
@@ -54,7 +54,7 @@ and `AndroidCoachWiring`.
 
 - Should the higher-tier AICore/ML Kit Prompt route be enabled ahead of Cactus
   on devices that report AICore availability, to reduce first-launch data usage?
-- What is the right cache-eviction policy for the downloaded `gemma3-270m` GGUF
+- What is the right cache-eviction policy for the downloaded `qwen3-0.6` GGUF
   in `filesDir` (currently never evicted)?
 - Should iOS move off Foundation Models onto the shared Cactus KMP module?
   (Not done in M3 — iOS stays on Foundation Models; Cactus is Android-only for
