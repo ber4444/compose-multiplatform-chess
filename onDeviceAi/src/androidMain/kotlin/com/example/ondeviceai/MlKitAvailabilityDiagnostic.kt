@@ -67,6 +67,18 @@ enum class MlKitProbeVariant(val label: String) {
      * the run is an A/B on one device in one session rather than a comparison across write-ups.
      */
     PREFERENCE_FAST("preference=FAST releaseStage=STABLE"),
+
+    /**
+     * The second data point. FAST and FULL select different base models, so they ask AICore for
+     * different features — if FAST reports `FEATURE_NOT_FOUND: Feature 645` and FULL reports a
+     * different id, the device is provisioned for neither and we now know which two it was asked
+     * for; if FULL reports AVAILABLE, the preference is the whole bug.
+     *
+     * This is also the variant [probeAvailableLocalVendors] never tried:
+     * `VendorRoute.MlKitPrompt(FULL)` is reachable by type but nothing anywhere constructed it, so
+     * "ML Kit is unavailable" was established from one of the two preferences.
+     */
+    PREFERENCE_FULL("preference=FULL releaseStage=STABLE"),
     ;
 
     internal fun newClient(): GenerativeModel = when (this) {
@@ -80,6 +92,15 @@ enum class MlKitProbeVariant(val label: String) {
                 modelConfig = modelConfig {
                     releaseStage = ModelReleaseStage.STABLE
                     preference = MlKitModelPreference.FAST
+                }
+            },
+        )
+
+        PREFERENCE_FULL -> Generation.getClient(
+            generationConfig {
+                modelConfig = modelConfig {
+                    releaseStage = ModelReleaseStage.STABLE
+                    preference = MlKitModelPreference.FULL
                 }
             },
         )

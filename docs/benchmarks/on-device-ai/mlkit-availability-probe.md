@@ -77,9 +77,15 @@ Variants:
 |---|---|---|
 | `sample-default` | `generationConfig { }` | the Google sample, verbatim — never tried in #131 |
 | `preference=FAST` | `STABLE` + `FAST` | what ships today; the only config #131 measured |
+| `preference=FULL` | `STABLE` + `FULL` | second data point; never constructed anywhere before |
 
 Each variant is reported independently — a variant that throws does not abort the others, so a
-failure in the first cannot hide the result of the second.
+failure in the first cannot hide the result of the third.
+
+`probeAvailableLocalVendors()` now tries both preferences too, FAST first. That is a real gap
+independent of this measurement: only FAST was ever constructed, so `VendorRoute.MlKitPrompt(FULL)`
+was reachable by type and built nowhere, and a device provisioned for FULL alone looked like a device
+with no ML Kit.
 
 ## Running it
 
