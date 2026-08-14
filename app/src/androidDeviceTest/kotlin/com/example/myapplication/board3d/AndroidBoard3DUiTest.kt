@@ -89,26 +89,33 @@ class AndroidBoard3DUiTest {
      * [SurfaceType.Surface] rather than a z-ordered-on-top SurfaceView.
      *
      * This must use the REAL [androidBoard3DSupport] — the occlusion guarantee is a property of the
-     * actual SurfaceView, so the fake cannot stand in. It was `@Ignore`d because a live SceneView
-     * never let the Compose test clock go idle: its render loop awaited `withFrameNanos`
-     * unconditionally, which is a permanent frame-clock awaiter, so `waitForIdle()` never returned.
-     * `AndroidBoard3DSurface` now passes `isRendering`, and a parked loop suspends on a snapshot
-     * instead of the frame clock — which is exactly the awaiter going away. The test is enabled to
-     * hold that: if the gate ever regresses to "always rendering", this stops idling again and goes
-     * red rather than quietly costing a device its GPU.
+     * actual SurfaceView, so the fake cannot stand in.
      *
-     * That it *executes* on CI was verified rather than assumed, because nothing in the emulator
-     * log names individual tests and a green leg looks identical whether a test passed or never
-     * ran. A temporary unconditional `fail()` appended after the assertions below (commit
-     * `2b008d3`, reverted in `b199474`) turned the Android job red with
-     * "MUTATION PROBE: dialogRendersAboveSurfaceView executed to completion" at
-     * `AndroidBoard3DUiTest.kt:136`, and the run reported `23 tests, 0 skipped, 1 failed` — so the
-     * body runs to the end, `waitForIdle()` returns, and the dialog is found and clicked.
+     * **The original `@Ignore` reason is obsolete; the current one is different.** It used to say a
+     * live SceneView never lets the Compose test clock go idle, which was true of the unconditional
+     * `withFrameNanos` await: a permanent frame-clock awaiter that `waitForIdle()` could never
+     * outlast. The `isRendering` gate removed that — a parked loop suspends on a snapshot instead —
+     * and the test genuinely runs now. That was verified rather than assumed, because nothing in
+     * the emulator log names individual tests and a green leg looks identical whether a test passed
+     * or never ran: a temporary unconditional `fail()` appended after the assertions (commit
+     * `2b008d3`, reverted in `b199474`) turned the Android job red with "MUTATION PROBE:
+     * dialogRendersAboveSurfaceView executed to completion", reporting `23 tests, 0 skipped,
+     * 1 failed`. So the body runs to the end, `waitForIdle()` returns, and the dialog is found and
+     * clicked.
+     *
+     * It stays `@Ignore`d because of the emulator, not the clock. This is the only test that brings
+     * up a real Filament surface, and CI runs `-gpu swiftshader_indirect`; across three runs of the
+     * enabled test the emulator went **offline inside this test once** (`device offline` ->
+     * `Test run failed to complete. Expected 23 tests, received 18`), taking the other four tests
+     * in the run with it. A test that intermittently kills the device fails the whole PR for
+     * unrelated changes, which costs more than the regression coverage it buys. Re-enable it on a
+     * runner with a hardware-backed GPU, where that crash is not in play.
      *
      * Structurally a Compose [androidx.compose.ui.window.Dialog] renders in a separate window above
      * the activity content, and SurfaceType.Surface is NOT z-ordered on top, so it cannot occlude
      * the dialog. Re-verify if SurfaceType ever changes.
      */
+    @org.junit.Ignore("Brings up a real Filament surface; takes the swiftshader emulator offline ~1 run in 3. Idles fine since the isRendering gate — see KDoc.")
     @Test
     fun dialogRendersAboveSurfaceView() = runComposeUiTest {
         val viewModel = GameViewModel(
