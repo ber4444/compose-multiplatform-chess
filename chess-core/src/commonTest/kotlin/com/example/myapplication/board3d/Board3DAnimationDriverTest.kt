@@ -59,10 +59,11 @@ class Board3DAnimationDriverTest {
         h.settle()
         assertFalse(h.driver.isDirty)
 
-        h.driver.setHighlighted(listOf(BoardSquare(4, 4)))
+        val highlight = HighlightedSquare(BoardSquare(4, 4), HighlightTone.GOOD)
+        h.driver.setHighlighted(listOf(highlight))
 
         assertTrue(h.driver.isDirty, "the coach highlight lands with the loop parked")
-        assertEquals(listOf(BoardSquare(4, 4)), h.frames.last().highlightedSquares)
+        assertEquals(listOf(highlight), h.frames.last().highlightedSquares)
     }
 
     @Test
