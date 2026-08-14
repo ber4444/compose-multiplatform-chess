@@ -97,6 +97,14 @@ class AndroidBoard3DUiTest {
      * hold that: if the gate ever regresses to "always rendering", this stops idling again and goes
      * red rather than quietly costing a device its GPU.
      *
+     * That it *executes* on CI was verified rather than assumed, because nothing in the emulator
+     * log names individual tests and a green leg looks identical whether a test passed or never
+     * ran. A temporary unconditional `fail()` appended after the assertions below (commit
+     * `2b008d3`, reverted in `b199474`) turned the Android job red with
+     * "MUTATION PROBE: dialogRendersAboveSurfaceView executed to completion" at
+     * `AndroidBoard3DUiTest.kt:136`, and the run reported `23 tests, 0 skipped, 1 failed` — so the
+     * body runs to the end, `waitForIdle()` returns, and the dialog is found and clicked.
+     *
      * Structurally a Compose [androidx.compose.ui.window.Dialog] renders in a separate window above
      * the activity content, and SurfaceType.Surface is NOT z-ordered on top, so it cannot occlude
      * the dialog. Re-verify if SurfaceType ever changes.
