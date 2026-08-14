@@ -30,8 +30,9 @@ class AndroidSceneViewChessRenderer(
     val cameraParams: CameraParams get() = _cameraParams
 
     /**
-     * Whether the board has anything new to draw — destined for SceneView's `isRendering` once
-     * sceneview/sceneview#3109 lands; nothing consumes it yet.
+     * Whether the board has anything new to draw. Drives SceneView's `isRendering` from
+     * [AndroidBoard3DSurface] (sceneview >= 4.30.0): while it reads false the frame loop parks and
+     * the board stops redrawing entirely.
      *
      * Mirrors [Board3DAnimationDriver.isDirty], which tracks *frames published recently*, not
      * *loop running*: the driver publishes scenes without starting its loop on mount, on a new

@@ -2,12 +2,18 @@ package com.example.myapplication.board3d
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.google.android.filament.Camera
 import dev.romainguy.kotlin.math.Float3
 import game.app.generated.resources.Res
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.PI
@@ -47,6 +53,15 @@ private val PIECE_SCALE = ChessSetConventions.PIECE_SCALE
 
 /** Lifts the highlight quad off the tile just enough to beat z-fighting. */
 private const val HIGHLIGHT_LIFT_Y = 0.005f
+
+/** How often to re-read `ModelLoader.progress` while holding the render loop open for it. */
+private const val MODEL_LOAD_POLL_MS = 16L
+
+/**
+ * Upper bound on that hold. chess.glb finishes in well under a second on every device this has run
+ * on; this only exists so a texture that never decodes cannot pin the render loop on forever.
+ */
+private const val MODEL_LOAD_HOLD_TIMEOUT_MS = 10_000L
 
 internal fun selectPieceMaterialName(materialNames: List<String>, color: PieceColor): String? {
     val expected = ChessSetMeshNames.getMaterialName(color)
@@ -99,6 +114,23 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
         envLoader.createKTX1Environment(IBL_KTX, SKYBOX_KTX).also { env ->
             env.indirectLight?.intensity = IBL_INTENSITY
         }
+    }
+
+    // SceneView finalises a model's *asynchronous* texture uploads from inside its frame loop
+    // (`modelLoader.updateLoad()` in the `renderFrame` body), and `createInstancedModel` above only
+    // kicks that off — `ResourceLoader.asyncBeginLoad`. So the `isRendering = false` gate below must
+    // not engage until the loader is done, or a board that goes idle mid-upload renders untextured
+    // (silvery pieces on flat tiles) until something unrelated asks for another frame.
+    //
+    // Polling is sound here precisely because this flag is what holds the loop open: progress only
+    // advances while frames run, and frames run while this is false. The timeout is a backstop —
+    // a texture that never finishes decoding must not pin the render loop on for the session.
+    var modelResourcesLoaded by remember(modelLoader, modelInstances) { mutableStateOf(false) }
+    LaunchedEffect(modelLoader, modelInstances) {
+        withTimeoutOrNull(MODEL_LOAD_HOLD_TIMEOUT_MS) {
+            while (modelLoader.progress < 1f) delay(MODEL_LOAD_POLL_MS)
+        }
+        modelResourcesLoaded = true
     }
 
     val cameraNode  = rememberCameraNode(engine)
@@ -167,6 +199,24 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
             // content auto-center.
             cameraManipulator = null,
             autoCenterContent = false,
+            // Stop drawing a board nobody is changing. SceneView's loop otherwise awaits
+            // `withFrameNanos` unconditionally, so an untouched 3D board redraws at the panel
+            // refresh rate for as long as it is on screen — 120 fps on a Fold3, 60 fps and ~1.76
+            // cores on a Pixel 7a, with the GPU rail alone at 10.36 J per 10 s. Requires
+            // sceneview >= 4.30.0 (see gradle/libs.versions.toml).
+            //
+            // The signal is "was a frame published recently", NOT "is an animation running" — the
+            // driver publishes scenes with its loop parked on mount, on a new game, on a coach
+            // highlight landing on an idle board, and after async init, and gating on the narrower
+            // signal strands every one of those undrawn. See AndroidSceneViewChessRenderer's
+            // `needsRender` and Board3DAnimationDriverTest, which pins those four paths.
+            //
+            // Both operands are Compose state, which is what makes the park wake up again:
+            // `needsRender` is written back to false by the driver's settle coroutine, and
+            // `modelResourcesLoaded` by the effect above. A deadline compared against a clock
+            // would latch true and never invalidate anything, and this parameter would silently
+            // do nothing.
+            isRendering = svRenderer.needsRender || !modelResourcesLoaded,
         ) {
             // GLB uses 2-unit squares (board +/-8); game uses 1-unit squares (+/-4). All nodes
             // need scale = 0.5 to match. Template pieces are at GLB origin, so position =
