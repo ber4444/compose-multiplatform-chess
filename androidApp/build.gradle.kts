@@ -34,6 +34,31 @@ android {
             )
             ndk.debugSymbolLevel = "NONE"
         }
+
+        // Target variant for :macrobenchmark. A macrobenchmark against a debuggable build measures
+        // the debug runtime — JIT-only, no baseline-profile AOT, extra runtime checks — which is a
+        // build nobody ships; this exists so that measurement is release-shaped instead, and so
+        // :macrobenchmark can drop `androidx.benchmark.suppressErrors=DEBUGGABLE`.
+        create("benchmark") {
+            initWith(getByName("release"))
+            // Release is unsigned here, and an unsigned APK cannot be installed on the device.
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            // Macrobenchmark attaches Perfetto to the app under test, which a non-debuggable build
+            // only permits when it is profileable. Setting this injects
+            // `<profileable android:shell="true"/>` at manifest merge, so the shared
+            // androidApp/src/main/AndroidManifest.xml stays release-only.
+            isProfileable = true
+            // Inherited `true` from release. R8 is orthogonal to a frame-*count* measurement while
+            // being the largest risk surface in this app (Compose Multiplatform + SceneView and
+            // Filament both reach for types reflectively), so the benchmark variant does not pay
+            // for it. Flip this on if a future benchmark measures something R8 can actually move,
+            // such as startup.
+            isMinifyEnabled = false
+            // :macrobenchmark has no `release`; without this AGP cannot resolve its dependency on
+            // this project for the benchmark variant.
+            matchingFallbacks += listOf("release")
+        }
     }
 
     compileOptions {
