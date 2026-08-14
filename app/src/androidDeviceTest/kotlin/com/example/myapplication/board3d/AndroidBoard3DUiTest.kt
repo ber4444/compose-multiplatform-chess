@@ -125,5 +125,14 @@ class AndroidBoard3DUiTest {
         waitForIdle()
 
         onNodeWithTag("promotion_choice_QUEEN").assertIsDisplayed().performClick()
+
+        // TEMPORARY MUTATION PROBE — reverted in the next commit. Nothing in the CI log names
+        // individual tests, so a green emulator leg cannot distinguish "this test ran and passed"
+        // from "this test never ran". Placed AFTER the real assertions on purpose: reaching it
+        // proves waitForIdle() returned (the thing the @Ignore claimed was impossible) and that
+        // the dialog was found and clicked. If the run instead fails with ComposeNotIdleException,
+        // the test executed but the loop did not park, which is a different — and equally
+        // informative — answer.
+        kotlin.test.fail("MUTATION PROBE: dialogRendersAboveSurfaceView executed to completion")
     }
 }
