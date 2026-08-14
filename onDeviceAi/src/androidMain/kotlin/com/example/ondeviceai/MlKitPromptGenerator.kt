@@ -2,6 +2,7 @@ package com.example.ondeviceai
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.ModelPreference
@@ -63,11 +64,26 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
             android.util.Log.d("MlKitPrompt", "base model: " + model.getBaseModelName())
         }
         runCatching {
-            if (model.checkStatus() == FeatureStatus.DOWNLOADABLE) {
-                android.util.Log.d("MlKitPrompt", "feature downloadable; requesting")
-                model.download().collect { android.util.Log.d("MlKitPrompt", "download: $it") }
+            // The sample's rule is "anything that isn't AVAILABLE or UNAVAILABLE gets downloaded"
+            // (BaseActivity.checkFeatureStatus). DOWNLOADING has to be in here as well as
+            // DOWNLOADABLE: collecting download() on an in-flight fetch is how you *await* it, and
+            // without that a device that is mid-provision is written off as having no feature.
+            val status = model.checkStatus()
+            if (status == FeatureStatus.DOWNLOADABLE || status == FeatureStatus.DOWNLOADING) {
+                android.util.Log.d("MlKitPrompt", "feature status $status; requesting download")
+                // Collecting to termination is the await — the flow completes once AICore reaches a
+                // terminal state. DownloadFailed arrives as an *emitted status*, not a thrown
+                // exception, so the enclosing runCatching never sees it; it has to be logged here
+                // or a failed download is indistinguishable from a successful one.
+                model.download().collect { downloadStatus ->
+                    if (downloadStatus is DownloadStatus.DownloadFailed) {
+                        android.util.Log.w("MlKitPrompt", "download failed", downloadStatus.e)
+                    } else {
+                        android.util.Log.d("MlKitPrompt", "download: $downloadStatus")
+                    }
+                }
             }
-        }.onFailure { android.util.Log.w("MlKitPrompt", "download failed", it) }
+        }.onFailure { android.util.Log.w("MlKitPrompt", "download threw", it) }
         runCatching { model.warmup() }
     }
 
