@@ -156,28 +156,75 @@ result in the benchmark doc shows how much leverage prompt shape has on this run
 **The only surface with a model live in production on both phones, and the only one never measured.**
 
 There is no bench for it: `AndroidBenchRunner` covers the coach, `AndroidSummaryBench` the summary,
-and nothing covers this. Build the third, in the same shape as the other two — shared fixtures in
-`app/src/commonMain/.../bench/`, per-platform runner, one JSONL row per case carrying **both** the
-model's answer and the deterministic column.
+and nothing covers this. Build the third in the same shape as the other two — that shape is the
+point, because it is what keeps one scorer over both columns.
 
-- **Fixtures:** questions against `onDeviceAi/src/commonMain/resources/rulesCorpus/passages.tsv`
-  (30 passages). Cover each passage at least once, plus paraphrases and a few out-of-corpus questions
-  where the honest answer is "the corpus does not say".
-- **Baseline column:** `RulesQaGrounding`'s cited-passage answer — the retrieval floor. That is the
-  text to beat, exactly as `DeterministicCoach` and `GameSummaryGrounding` are on the other two.
-- **What to measure:** did retrieval return the right passage (BM25 is already known good — see the
-  fence in CLAUDE.md, do not re-tune it before proving retrieval is the failing step); did the
-  model's phrasing preserve the passage's meaning; did it keep the `[passage-id]`; latency; and how
-  often `RulesQaGrounding` has to rescue it.
-- **The open question this answers:** whether the model turn earns its place at all, given that the
-  retrieval floor already produces a correct cited answer.
+### 3a. Fixtures
 
-**Also fix the integration asymmetry while here:** `defaultRulesQaAnswerer` returns an answerer on
-Android *unconditionally, with no availability probe*, while the coach and summary now go through
-`probeAvailableLocalVendors()` in `MainActivity.attachOnDeviceAi()`. On a device with no AICore
-feature the Rules answerer is constructed anyway and fails at generation, where the orchestrator's
-`groundedOrFallback` catches it. It works, but it is the only surface that decides availability by
-failing.
+`app/src/commonMain/.../bench/RulesQaFixtures.kt`, mirroring `SummaryFixtures`: a `load(text)` that
+parses a JSON fixture file and a `jsonLine(...)` that both platforms call, so neither runner invents
+its own schema.
+
+Cases, hand-written into `tools/rules_qa_fixtures.json` (no generator — the corpus is 30 passages, so
+the set is small and should be authored deliberately):
+
+- **One per passage, phrased as a player would ask it** — not as the passage is worded. Copying the
+  passage's own wording measures nothing: BM25 will always find it, and the model will always echo.
+- **Paraphrases and near-misses** for the passages that are easy to confuse. `draw-dead-position`
+  versus `draw-agreement` is the known pair — *"Game is a draw when only kings remain?"* is the
+  question from the original bug report, and BM25 already ranks it correctly (9.079 vs 5.979).
+- **Out-of-corpus questions** where the only honest answer is that the rules corpus does not cover it
+  ("what is the Sicilian Defence?"). This is the case most likely to produce invention, and the one
+  no existing test covers.
+
+### 3b. Columns
+
+One JSONL row per case, carrying **all three** texts so nothing has to be re-derived later:
+
+| column | why |
+|---|---|
+| `question`, `expectedPassageId` | the case |
+| `retrievedPassageId`, `retrievalScore` | did BM25 find the right passage — the step below the model |
+| `groundedAnswer` | `RulesQaGrounding`'s cited-passage answer: **the floor to beat** |
+| `modelAnswer`, `kind`, `fallbackReason` | what the model said, and why not if it didn't |
+| `citedPassageIds` | every `[id]` the model emitted |
+| `elapsedMs`, `modelIdentifier`, `deviceModel`, `osVersion` | same as the other two benches |
+
+`fallbackReason` is not optional — see the `SummaryFixtures.jsonLine` comment for why a bare `kind`
+is unreadable.
+
+### 3c. What to score
+
+- **Retrieval accuracy** — `retrievedPassageId == expectedPassageId`. **Establish this first and
+  separately.** CLAUDE.md carries a fence here: while the feature was dead on device, four commits
+  were spent tuning BM25 for a question it was already ranking correctly. If retrieval is at 100%,
+  every remaining failure is above it.
+- **Citation fidelity** — did the model keep the `[passage-id]`, and is it the retrieved one? A model
+  citing a passage it wasn't given is the Rules-Q&A equivalent of the invented `[move-N]` that Task 2
+  treats as a hard fail.
+- **Faithfulness** — does the answer state anything the passage does not? Score by hand on the first
+  pass; the out-of-corpus cases are where this will show.
+- **Rescue rate** — how often `RulesQaGrounding` has to replace the model's wording. A high rate is
+  not a failure, it is the floor doing its job, but it bounds what the model turn is worth.
+- **Latency**, against the `rulesQaOffline` 20 s `completeMs` budget. Two model turns on Android
+  (tool call, then phrasing) and no timeout of its own on iOS.
+
+### 3d. The decision this run makes
+
+**Does the model turn earn its place at all?** The retrieval floor already produces a correct, cited
+answer without it. If the model mostly rephrases what `RulesQaGrounding` would have said, the surface
+should follow the Move Coach and go deterministic — which would also settle the second open question
+in CLAUDE.md's Rules Q&A note (whether to prefer ML Kit now that Cactus is gone). If it reliably turns
+a passage into a better-targeted answer, it stays, and the numbers say so.
+
+### 3e. Fix the integration asymmetry while here
+
+`defaultRulesQaAnswerer` returns an answerer on Android *unconditionally, with no availability probe*,
+while the coach and summary now go through `probeAvailableLocalVendors()` in
+`MainActivity.attachOnDeviceAi()`. On a device with no AICore feature the answerer is constructed
+anyway and fails at generation, where `DefaultRulesQaOrchestrator.groundedOrFallback` catches it. It
+works, but it is the only surface that decides availability by failing, and it means the Rules screen
+is the one place a user can reach a model this app has not established is there.
 
 ---
 
