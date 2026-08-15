@@ -104,18 +104,37 @@ stay `Valid` — that is the half that catches an over-strict rule.
 
 ## Task 2 — Turn AICore on for Game Summary
 
-**Gate: Task 1 has landed, and a 50-game fixture set agrees with the 12-game one.**
+**Gate: Task 1 has landed, and the 50-game run repeats with the validator in place.**
 
-```bash
-python3 tools/generate_summary_fixtures.py --games 50 --out build/bench/summary-fixtures.json
-```
+The 50-game run has already been done *without* a validator (2026-08-15,
+`tools/generate_summary_fixtures.py --games 50`), and it is the baseline to beat:
 
-Then run both platforms per the "Reproducing" section of the benchmark doc. Acceptance, on 50 games:
+| | Android AICore | iOS Foundation Models |
+|---|---|---|
+| Succeeded | 43/43 (7 rows lost to `ErrorCode 30`, a contiguous block — harness, not model) | 50/50 |
+| Cites exactly the code-chosen plies | **37/43 (86%)** | 18/50 |
+| Cites a subset, no invented tag | 6/43 | 2/50 |
+| **Invented a `[move-N]`** | **0** | **2/50** |
+| No citation at all | 0 | **28/50** |
+| First person ("I played") | 0 | **26/50** |
+| Truncated | 0 | 0 |
+| Latency median / p95 | 11.4 s / 13.2 s | 1.4 s / 2.2 s |
 
-- **≥ 90% accepted by the new validator** (the 12-game run was 12/12 pre-validator).
-- **≥ 90% citing exactly the code-chosen plies** (11/12 on Android; iOS will fail this today).
-- **0 invented `[move-N]`.** This one is not a percentage — a wrong board jump is a hard fail.
-- **p95 latency under the 45 s `withTimeoutOrNull`,** with the median near the 12 s already measured.
+Acceptance for flipping the flag:
+
+- **0 invented `[move-N]`.** Not a percentage — a wrong tag is a wrong board jump, and this is the
+  one failure the user cannot detect. Android is already at 0/43; iOS is at 2/50, which is on its
+  own sufficient reason not to attach iOS without the validator.
+- **≥ 90% accepted by the new validator.** The 14% of Android rows citing only a subset will be
+  rejected by `validateCitationCoverage` and fall back — correct behaviour, but it means roughly one
+  summary in seven costs an 11 s wait and then shows the deterministic text. If that ratio holds,
+  consider whether the prompt can be made to enumerate all three before shipping.
+- **p95 latency under the 45 s `withTimeoutOrNull`** — 13.2 s measured, comfortable.
+
+Re-run both platforms per the "Reproducing" section of the benchmark doc. **Watch for `ErrorCode 30`
+blocks**: 7 contiguous rows were lost to one here even with `keepBenchInForeground()`, most likely a
+USB/system dialog stealing focus mid-run. A contiguous block of sub-second fallbacks is always the
+harness; scattered failures are worth investigating.
 
 If it passes, set `ATTACH_GAME_SUMMARY = true` in `MainActivity`. **Leave `ATTACH_MOVE_COACH`
 alone** — that decision is settled the other way and the constants were split precisely so this

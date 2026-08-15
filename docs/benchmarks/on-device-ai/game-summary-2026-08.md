@@ -75,6 +75,33 @@ silently loses the affordance. Where it does cite, the tags are correct.
 Remaining errors, both platforms, one row each: AICore's game-012 covered only 1 of 3 turning
 points; Foundation Models' game-001 announced "two significant mistakes" and listed 2 of 3.
 
+## Confirmed at 50 games
+
+The 12-game read is a small sample for a surface where one bad summary is the whole answer, so the
+set was regenerated at 50 and both platforms re-run. It holds, and it sharpens one thing the small
+sample could not show:
+
+| | Android AICore | iOS Foundation Models |
+|---|---|---|
+| Succeeded | 43/43 † | 50/50 |
+| Cites exactly the code-chosen plies | 37/43 (86%) | 18/50 |
+| Cites a subset, no invented tag | 6/43 | 2/50 |
+| **Invented a `[move-N]`** | **0** | **2/50** |
+| No citation at all | 0 | 28/50 |
+| First person ("I played") | 0 | 26/50 |
+| Truncated | 0 | 0 |
+| Latency median / p95 | 11.4 s / 13.2 s | 1.4 s / 2.2 s |
+
+† 7 of the 50 rows were lost to `ErrorCode 30` in one contiguous block (rows 11–17) despite
+`keepBenchInForeground()` — most likely a USB or system dialog taking focus mid-run. A contiguous
+block of sub-second fallbacks is the harness every time; the 43 rows that reached the model are the
+measurement.
+
+**The two invented tags are the finding.** At 12 games iOS had none and the citation problem looked
+like an omission; at 50 it is visible as a fabrication, and a fabricated `[move-N]` is the one defect
+the user cannot detect — B16 navigates them to a ply that was never a turning point. Android
+fabricated none in 43.
+
 ## Does it beat the deterministic composer?
 
 `GameSummaryGrounding` cites 3 of 3 turning points, every time, instantly, and cannot fail or
