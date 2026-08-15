@@ -5,6 +5,13 @@ read from the actual pinned SDK (decompiled `.class`/`.aar` for the JVM/Android 
 tagged source for the JS one, and public framework docs for Foundation Models), not from a model card
 or a GitHub README.
 
+> **Updated 2026-08-15, rebased onto #137.** Two claims in the original write-up were about ML Kit's
+> availability rather than its API surface, and both were wrong: this document said the Android
+> runtime "reports `Unavailable` on every device tested", which was a client-config bug on our side
+> (`preference = FAST`), not a device gate. Corrected inline. **The API finding is unaffected** — it
+> is a statement about what `GenerateContentRequest.Builder` exposes, which is true whether or not any
+> device runs it, and it is now backed by a runtime that demonstrably does.
+
 ## Why this exists
 
 `MoveCoachResponseValidator.deduplicateSentences` (post-hoc, #114) and `withAntiRepetitionGuard`
@@ -21,7 +28,7 @@ investigation of whether that third piece is buildable at all, runtime by runtim
 | Apple Foundation Models | `iosMain` (`FoundationMoveCoach.swift`) | `GenerationOptions` / `GenerationOptions.SamplingMode` (public framework, iOS 26) | **No.** `sampling` is `.greedy`, `.random(top:seed:)` (top-k), or `.random(probabilityThreshold:seed:)` (top-p); plus `temperature`, `maximumResponseTokens`, and (iOS 27 beta) `toolCallingMode`. No repetition/frequency penalty field exists in the framework. |
 | LiteRT-LM (desktop) | `desktopMain` (`LitertLmTextGenerator.kt`) | `com.google.ai.edge.litertlm.SamplerConfig`, `litertlm-jvm:0.14.0` (the exact pinned dependency — decompiled the real jar, not read a changelog) | **No.** Constructor is `(topK: Int, topP: Double, temperature: Double, seed: Int)`. No fifth parameter of any kind. |
 | LiteRT-LM for Web | `wasmJsMain` (`LitertLmWasmTextGenerator.kt`) | `@litert-lm/core`'s `SamplerParameters` TS interface, at the **exact tag `v0.14.0`** matching the CDN URL this project loads (`cdn.jsdelivr.net/npm/@litert-lm/core@0.14.0/+esm`) | **No.** `{ type?: SamplerType /* TOP_K \| TOP_P \| GREEDY */, k?, p?, temperature?, seed? }`. Same four knobs as the JVM binding, no fifth. |
-| ML Kit GenAI Prompt API | `androidMain` (`MlKitPromptGenerator.kt`) — wired but dormant, reports `Unavailable` on every device tested (see `android-model-latency-2026-08.md`) | `com.google.mlkit.genai.prompt.GenerateContentRequest.Builder`, `genai-prompt:1.0.0-beta4` (decompiled the real AAR) | **No.** Exposes `temperature`, `seed`, `topK`, `candidateCount`, `maxOutputTokens`, `promptPrefix`, `cachedContextName`, `enableThinking`. No `topP`, no repetition/frequency penalty, no stop-sequence setter (the existing code comment about the missing stop-sequence setter was already correct). |
+| ML Kit GenAI Prompt API | `androidMain` (`MlKitPromptGenerator.kt`) — wired, reaches a real model (`nano-v3`) on a Pixel 10 Pro XL, and deliberately not attached to any surface (see `android-model-latency-2026-08.md`) | `com.google.mlkit.genai.prompt.GenerateContentRequest.Builder`, `genai-prompt:1.0.0-beta4` (decompiled the real AAR) | **No.** Exposes `temperature`, `seed`, `topK`, `candidateCount`, `maxOutputTokens`, `promptPrefix`, `cachedContextName`, `enableThinking`. No `topP`, no repetition/frequency penalty, no stop-sequence setter (the existing code comment about the missing stop-sequence setter was already correct). |
 
 **Conclusion: zero of the four expose a repetition or frequency penalty, or an n-gram block, at the
 sampling level.** All four give some combination of top-k / top-p / temperature / seed — which
@@ -36,7 +43,7 @@ sentence against the actual SDKs rather than assuming it still holds four featur
 turned up one place where the codebase was quietly disagreeing with its own conclusion (next
 section).
 
-## Two bugs found while checking, both fixed here
+## Two bugs found while checking — one fixed here, one fixed in #137
 
 1. **A field that lied about doing something.** `AiGenerationRequest.repetitionPenalty` carried the
    doc comment *"Sampler-level repetition penalty, for the runtimes whose API exposes one (wasm
@@ -52,11 +59,21 @@ section).
    desktop (`LitertLmTextGenerator.kt`), and wasm (`LitertLmWasmTextGenerator.kt`) all pipe their
    `generate()` flow through `.withAntiRepetitionGuard(...)`. `MlKitPromptGenerator.kt` (Android)
    did not — the n-gram/stop-sequence truncation that is the actual shipped feature here was only
-   wired on three of the four runtimes. Fixed by adding the same `.withAntiRepetitionGuard(...)`
-   call. This has not been observable on-device (ML Kit reports `Unavailable` on every device tested
-   per `android-model-latency-2026-08.md`), but it is one line and it closes the same class of gap
-   this investigation exists to find, so it is fixed rather than left for whenever ML Kit next gets
-   checked.
+   wired on three of the four runtimes.
+
+   **Found here on 2026-08-12, fixed independently in #137, and it turned out not to be hypothetical
+   at all.** The original write-up dismissed it as unobservable because ML Kit "reports `Unavailable`
+   on every device tested". Three days later ML Kit was found to be available all along, and the
+   *first* thing the working runtime produced was every answer emitted twice — a defect in
+   `MlKitPromptGenerator`'s own terminal `Final` event, which had been recorded in
+   `evals/scorecard.md` as an "AICore repetition loop" since July. The guard is the downstream net
+   that would have truncated the duplicate before a user saw it, and the one backend missing it was
+   the one that produced it. Both halves are fixed on `main`; see
+   `android-model-latency-2026-08.md`.
+
+   The transferable version: **"this code path is unreachable, so the gap doesn't matter" is a claim
+   about reachability, and reachability was the thing measured wrong.** A one-line consistency fix
+   was worth making on its own terms, which is why it was made.
 
 ## A third thing found, fixed, but not about repetition specifically
 
