@@ -237,6 +237,31 @@ provider LLM: **a fluent output that fails a length gate is not evidence about t
 the plumbing that assembled the string before attributing the shape of it to the thing that
 generated it.
 
+**Re-run after the fix, same device.** The duplication is gone; each answer is emitted once and
+reaches the validators cleanly. Three raw outputs:
+
+| Output | Validator |
+|---|---|
+| "This controls the center." | passed |
+| "The center is the heart of chess. It's where pieces move and overall strategy matters." | passed |
+| "Alright, let's get to it!" | rejected — no chess grounding |
+
+The rejection is the validator working. The two *passes* are the finding, and they are not good news
+for attaching this model: neither says anything about the move that was played. "This controls the
+center" is true of a large fraction of opening moves, and "the center is the heart of chess" is a
+definition, not an assessment. Compare what `DeterministicCoach` already emits for the same ply,
+grounded in the recorded `MoveAssessment` — a named motif, a centipawn delta, and the stronger
+alternative from `bestMoveSan`.
+
+This is the same shape as the `gemma3-1b` result higher up this page — "5–20 s on generic waffle" —
+except nano-v3 produces its waffle in three seconds and passes the grounding rule while doing it.
+Speed was never the reason the Android coach is deterministic; **specificity** was, and this run does
+not yet overturn it. What it does establish is that the runtime is viable, the client is correct, and
+the remaining question is a prompt-and-evidence question rather than a device question. Before
+attaching this to the app, run the full golden set and score it against the deterministic baseline on
+grounding, not on fluency — `MoveCoachPromptBuilder` currently hands the model the assessment facts,
+and whether nano-v3 uses them or talks around them is exactly what these three samples leave open.
+
 ---
 
 # iOS Foundation Models — and yes, the Simulator works

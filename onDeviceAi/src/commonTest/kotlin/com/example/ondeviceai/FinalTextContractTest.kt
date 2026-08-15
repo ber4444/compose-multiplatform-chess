@@ -10,11 +10,11 @@ import kotlin.test.assertTrue
  * Pins the [AiTokenOrFinal.Final] text contract at the consumer end.
  *
  * A generator that streamed Tokens *and* reported the accumulated answer on Final had that answer
- * appended to itself, because every orchestrator appended both into one buffer. On Android that
- * rendered every coach line twice, verbatim. It reached `evals/scorecard.md` as an "AICore
- * repetition loop" and stood as a model defect for a month; the arithmetic was the tell, since a
- * 314-char output against a 300-char cap is one 157-char answer doubled rather than a model
- * degenerating.
+ * appended to itself, because every orchestrator appended both into one buffer. It reached
+ * `evals/scorecard.md` as an "AICore repetition loop" and stood as a model defect for a month; the
+ * arithmetic was the tell, since a 314-char output against a 300-char cap is one 157-char answer
+ * doubled rather than a model degenerating. Game Summary, which has no validator, showed the
+ * duplicate to the user; Move Coach's `deduplicateSentences` caught it only sometimes.
  *
  * No `commonTest` could reproduce it, because `FakeTextGenerator` honoured the contract and had no
  * way to express the violation. `FakeTextGenerator.finalText` is that way, and these are the tests

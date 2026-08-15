@@ -119,9 +119,11 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
         // LiteRT-LM, and FakeTextGenerator). Tokens carry the text; Final carries the metrics.
         //
         // This used to emit the accumulated full text, and every orchestrator appends *both* Token
-        // and Final text into one buffer — so the complete answer was concatenated with itself and
-        // the coach rendered it twice, verbatim. That was recorded in evals/scorecard.md as an
-        // "AICore repetition loop" and in the 2026-08 latency note as a model defect; it was ours.
+        // and Final text into one buffer — so the complete answer was concatenated with itself.
+        // That was recorded in evals/scorecard.md as an "AICore repetition loop" and in the 2026-08
+        // latency note as a model defect; it was ours. Game Summary, which has no validator, showed
+        // the duplicate to the user; Move Coach's deduplicateSentences absorbed it only when the
+        // two copies keyed identically. See AiTokenOrFinal.Final for the full blast radius.
         // The tell was the arithmetic: a 314-char output against a 300-char cap is one 157-char
         // answer doubled, not a model degenerating. FakeTextGenerator emits `text = ""` like the
         // conforming generators, so no commonTest could reproduce it — DefaultAiCoachOrchestrator

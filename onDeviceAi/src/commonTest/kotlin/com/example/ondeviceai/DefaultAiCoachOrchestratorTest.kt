@@ -33,9 +33,19 @@ class DefaultAiCoachOrchestratorTest {
 
     @Test
     fun `success path returns validated explanation`() = runTest {
-        val gen = FakeTextGenerator(response = """{"headline": "Develops knight", "explanation": "Nf3 develops a knight and supports the centre."}""")
+        // Prose, not a JSON envelope. The prompt asks for prose (MoveCoachPromptBuilderTest pins
+        // that no schema field names appear in it) and runGeneration hands stripCodeFence(raw).trim()
+        // straight to the validator — nothing decodes JSON on this path. This case used to feed
+        // `{"headline": …, "explanation": …}` and assert only that the result was a Success, which
+        // pinned the opposite: that a raw JSON blob is an acceptable coach explanation, renderable
+        // verbatim in the panel. Asserting the text is what closes that.
+        val prose = "Nf3 develops a knight and supports the centre."
+        val gen = FakeTextGenerator(response = prose)
         val result = orchestrator(gen).explainMove(request)
         assertIs<MoveCoachResult.Success>(result)
+        assertEquals(prose, result.explanation.explanation)
+        // The headline is code-authored whatever the model returns.
+        assertEquals(request.deterministicHeadline, result.explanation.headline)
         assertEquals(ExplanationConfidence.HIGH, result.explanation.confidence)
         assertEquals(AiRoute.OnDevice, result.explanation.route)
         assertEquals(1, gen.generateCount)
@@ -76,7 +86,8 @@ class DefaultAiCoachOrchestratorTest {
     @Test
     fun `validation failure falls back`() = runTest {
         val gen = FakeTextGenerator()
-        gen.generateInterceptor = { _, _ -> """{"headline": "Bad", "explanation": "This move does not mention the move."}""" }
+        // Ungrounded prose: never names Nf3, so the grounding rule rejects it.
+        gen.generateInterceptor = { _, _ -> "This move does not mention the move." }
         val result = orchestrator(gen).explainMove(request)
         assertIs<MoveCoachResult.FellBack>(result)
         assertEquals(AiRoutePolicyDecider.FallbackReason.Validation, result.reason)
@@ -111,7 +122,7 @@ class DefaultAiCoachOrchestratorTest {
     @Test
     fun `streaming surfaces complete event with success result`() = runTest {
         val gen = FakeTextGenerator().apply {
-            chunks = listOf("""{"headline": "Good", "explanation": "Nf3 """, "develops ", """a knight."}""")
+            chunks = listOf("Nf3 ", "develops ", "a knight.")
             tokenDelayMs = 1
         }
         val events = orchestrator(gen).explainMoveStreaming(request).toListActual()
@@ -163,7 +174,7 @@ class DefaultAiCoachOrchestratorTest {
 
     @Test
     fun `always closes generator after success`() = runTest {
-        val gen = FakeTextGenerator(response = """{"headline": "Good", "explanation": "Nf3 develops the knight."}""")
+        val gen = FakeTextGenerator(response = "Nf3 develops the knight.")
         orchestrator(gen).explainMove(request)
         assertEquals(1, gen.releaseCount)
     }
