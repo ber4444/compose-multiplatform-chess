@@ -43,77 +43,11 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
             .onFailure { android.util.Log.e("AndroidBenchRunner", "no golden set in filesDir or assets", it) }
             .getOrNull()
     }
-    val goldenCasesList = mutableListOf<GoldenCaseFixture>()
-    val assessmentGaps = mutableListOf<String>()
-    if (goldenCasesJson != null) {
-        try {
-            val jsonArray = org.json.JSONArray(goldenCasesJson)
-            for (j in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(j)
-                val id = obj.getString("id")
-                val tagsArr = obj.getJSONArray("tags")
-                val tags = (0 until tagsArr.length()).map { tagsArr.getString(it) }
-                val bestMoveUci = obj.getString("bestMoveUci")
-                val sanArr = if (obj.has("movesSan")) obj.getJSONArray("movesSan") else null
-                val moveDisplay = if (sanArr != null && sanArr.length() > 0) sanArr.getString(sanArr.length() - 1) else bestMoveUci
-                val fen = if (obj.has("fen")) obj.getString("fen") else null
-
-                // Assess the ply with the on-device engine and build the request the way the app
-                // does. Without this the prompt carries no engine assessment, no motifs and a
-                // placeholder baseline, and the run measures the harness rather than the model —
-                // see GoldenFixtureAssessor for the prompt that produced every earlier quality
-                // verdict on this page.
-                val assessed = if (fen != null && assessmentEngine != null) {
-                    runCatching {
-                        assessGoldenCase(
-                            engine = assessmentEngine,
-                            fen = fen,
-                            playedUci = bestMoveUci,
-                            playedSan = moveDisplay,
-                            thinkTimeMs = EngineDifficulty.HARD.thinkTimeMs,
-                        )
-                    }.onFailure {
-                        android.util.Log.w("AndroidBenchRunner", "assessment failed for $id", it)
-                    }.getOrNull()
-                } else {
-                    null
-                }
-                if (assessed == null) assessmentGaps += id
-
-                goldenCasesList += GoldenCaseFixture(
-                    id = id,
-                    tags = tags,
-                    // The unassessed shape is kept as a degraded path rather than a hard failure so
-                    // a device with no working Stockfish can still produce latency numbers. It is
-                    // recorded per row as `factsPopulated:false`, because the one thing that must
-                    // never happen again is a placeholder run being read as a quality measurement.
-                    request = assessed ?: MoveCoachRequest(
-                        moveUci = bestMoveUci,
-                        moveDisplay = moveDisplay,
-                        deterministicHeadline = "You played $moveDisplay.",
-                        deterministicExplanation = "This was a strong move.",
-                        engineDifficultyName = "Hard"
-                    ),
-                    factsPopulated = assessed != null,
-                )
-            }
-        } catch (t: Throwable) {
-            // Don't swallow: a malformed golden file silently degrades the whole run to the two
-            // fallback fixtures, and the resulting rows look like real data. isFallbackGolden marks
-            // them in the JSONL, but the *reason* only exists here.
-            android.util.Log.e("AndroidBenchRunner", "Failed to parse the golden set; falling back to built-in fixtures", t)
-            goldenCasesList.clear()
-        }
-    }
-
-    var isFallbackGoldenRun = false
-    if (goldenCasesList.isEmpty()) {
-        isFallbackGoldenRun = true
-        goldenCasesList += listOf(
-            GoldenCaseFixture("fallback-opening-001", listOf("opening", "develops"), MoveCoachRequest("g1h3", "Nh3", "You played Nh3.", "Develops knight.", "Hard"), isFallbackGolden = true),
-            GoldenCaseFixture("fallback-opening-002", listOf("opening", "pawn-push"), MoveCoachRequest("f2f4", "f4", "You played f4.", "Attacks center.", "Hard"), isFallbackGolden = true),
-        )
-    }
+    // Parsed and assessed by the shared loader, so this platform and iOS build the same prompt from
+    // the same facts — the only way their numbers can be compared.
+    val loaded = GoldenFixtures.load(goldenCasesJson, assessmentEngine, EngineDifficulty.HARD.thinkTimeMs)
+    val goldenCasesList = loaded.fixtures
+    val assessmentGaps = loaded.unassessed
 
     val deviceModel = Build.MODEL
     val osVersion = Build.VERSION.RELEASE
@@ -217,18 +151,7 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
             rawOutput = rawOutput
         )
 
-        val reasonJson = jsonStringOrNull(result.fallbackReason)
-        val rawOutputJson = jsonStringOrNull(result.rawOutput)
-        val tagsJson = fixture.tags.joinToString(",", "[", "]") { jsonStringOrNull(it) }
-        // The facts the prompt carried, and the deterministic answer built from those same facts.
-        // Without this column the file records what the model said and nothing to compare it
-        // against, so "does the model beat the deterministic layer" needs a second device run to
-        // answer. `EvalScorer.scoreMove` can score both columns off one file.
-        val baselineJson = jsonStringOrNull(request.deterministicExplanation)
-        val moveClassJson = jsonStringOrNull(request.moveClassName)
-        val motifsJson = request.motifs.joinToString(",", "[", "]") { jsonStringOrNull(it) }
-        val betterMoveJson = jsonStringOrNull(request.betterMoveDisplay)
-        val jsonLine = """{"caseId":"${fixture.id}","isFallbackGolden":${fixture.isFallbackGolden},"factsPopulated":${fixture.factsPopulated},"tags":$tagsJson,"moveDisplay":${jsonStringOrNull(request.moveDisplay)},"deterministicExplanation":$baselineJson,"moveClassName":$moveClassJson,"motifs":$motifsJson,"winPercentLost":${request.winPercentLost},"betterMoveDisplay":$betterMoveJson,"deviceModel":"${result.deviceModel}","osVersion":"${result.osVersion}","appVersion":"${result.appVersion}","modelIdentifier":"${result.modelIdentifier}","isWarm":${result.isWarm},"timestampMs":${result.timestampMs},"initStartMs":${result.initStartMs},"initEndMs":${result.initEndMs},"generateStartMs":${result.generateStartMs},"firstTokenMs":${result.firstTokenMs},"completeMs":${result.completeMs},"tokenCount":${result.tokenCount},"peakMemoryBytes":${result.peakMemoryBytes},"thermalStatusBefore":${result.thermalStatusBefore},"thermalStatusAfter":${result.thermalStatusAfter},"fallbackTriggered":${result.fallbackTriggered},"isEmulator":${result.isEmulator},"fallbackReason":$reasonJson,"rawOutput":$rawOutputJson}"""
+        val jsonLine = GoldenFixtures.jsonLine(fixture, result)
         resultsFile.appendText(jsonLine + "\n")
     }
 
@@ -250,26 +173,6 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
     assessmentEngine?.close()
 }
 
-private fun jsonStringOrNull(s: String?): String {
-    if (s == null) return "null"
-    val escaped = s.replace("\\", "\\\\").replace("\"", "\\\"")
-        .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
-    return "\"$escaped\""
-}
-
-data class GoldenCaseFixture(
-    val id: String,
-    val tags: List<String>,
-    val request: MoveCoachRequest,
-    val isFallbackGolden: Boolean = false,
-    /**
-     * False when the request carries no engine assessment — placeholder baseline, no
-     * `moveClassName`, no motifs. Emitted per JSONL row as `factsPopulated`. Rows with this false
-     * measure the harness, not the model, and must not be scored for quality; see
-     * [assessGoldenCase].
-     */
-    val factsPopulated: Boolean = false,
-)
 
 /**
  * The engine the bench uses to assess golden positions. Separate from the app's — the bench branch

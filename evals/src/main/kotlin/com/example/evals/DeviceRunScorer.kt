@@ -199,7 +199,9 @@ fun scoreDeviceRun(rows: List<DeviceBenchRow>, cases: List<GoldenCase>): DeviceR
 
     return DeviceRunReport(
         file = "",
-        device = rows.firstOrNull()?.let { "${it.deviceModel} (Android ${it.osVersion})" } ?: "unknown",
+        // Platform-neutral: this scorer reads iOS runs too, and "iPhone 17 Pro (Android 26.5)" is
+        // the kind of label that makes a reader distrust the rest of the file.
+        device = rows.firstOrNull()?.let { "${it.deviceModel} (${it.osVersion})" } ?: "unknown",
         model = rows.firstOrNull()?.modelIdentifier ?: "unknown",
         rows = rows.size,
         scored = scored,

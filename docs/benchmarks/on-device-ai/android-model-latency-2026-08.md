@@ -377,6 +377,41 @@ pawn"*, handing the player's own weakness to the opponent. No rule-based column 
 judge's verified rate is single digits, and the preference is 50/50. What none of them support is
 the model being *better*.
 
+### iOS Foundation Models on the same 100 cases — 2026-08-15
+
+The obvious follow-up, and the answer is not the one the single measured sentence in `CLAUDE.md`
+suggested. Run on an iPhone 17 Pro simulator (iOS 26.5) against **identical prompts**: the facts
+were assessed once by the Pixel's Stockfish and replayed, so neither model saw a fact the other
+didn't, and engine variance is out of the comparison entirely.
+
+| | Android `mlkit-aicore-full` | iOS `FoundationModels` |
+|---|---|---|
+| Complete, median | 4.4 s | **650 ms** |
+| Grounded (`EvalScorer`, same rules) | **91/100** | 75/100 |
+| Fluency violations | 79/100 | **39/100** |
+| Judge preference vs deterministic | 52 / 48 | 46 / **54** |
+| Judge veto flags | 81/100 | 49/100 |
+| Verified real, hand-read sample | 1 of 12 | **5 of 8** |
+| Answer length, median | 178 chars | 68 chars |
+
+**Foundation Models is far faster and more fluent, and less truthful.** It is ~7× quicker, writes
+half as much, and skips the conversational filler that costs nano-v3 79 fluency violations. But its
+short confident sentences assert things the facts contradict, and a hand read finds them at a much
+higher rate. From the sample:
+
+- `opening-056` — the assessment says **inaccuracy**; the answer says *"That move was a mistake."*
+  Those are different bands with different thresholds.
+- `opening-064` — the assessment says **best**; the answer says *"That move was bad."*
+- `opening-024` — the player's own hanging pawn given as the reason the move was *good*.
+- `opening-099` — *"The engine preferred c4, which means it was a stronger move for the opponent"* —
+  c4 was the player's alternative.
+- `opening-022` — *"develops the bishop to g2, which is a central square"*. g2 is not central.
+
+Nineteen of its `EvalScorer` rejections are `isEchoedPrompt`: where it does not contradict the facts
+it very often just repeats the deterministic sentence verbatim, which is the other way of adding
+nothing. The **1.8 s, "correct, specific, and validated"** figure recorded for iOS was one sentence
+about `e4`; across 100 positions the pattern does not hold.
+
 **Verdict: the shipped coach stays deterministic.** Not because nano-v3 is slow or generic — it is
 neither — but because its added specificity is unverifiable by anything currently in the pipeline.
 The gate for attaching it is a validator rule that rejects a motif attributed to a move other than

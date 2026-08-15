@@ -1,11 +1,10 @@
 package com.example.myapplication.bench
 
-import com.example.ondeviceai.AiCoachOrchestrator
+import com.example.myapplication.ChessEngine
+import com.example.myapplication.EngineDifficulty
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
-import com.example.ondeviceai.MoveCoachRequest
 import com.example.ondeviceai.bench.BenchProbe
 import com.example.ondeviceai.VendorRouteExecutor
-import com.example.ondeviceai.AiRoute
 import kotlinx.coroutines.flow.collect
 import platform.Foundation.NSBundle
 import platform.Foundation.NSDocumentDirectory
@@ -13,30 +12,53 @@ import platform.Foundation.NSFileManager
 import platform.Foundation.NSProcessInfo
 import platform.Foundation.NSString
 import platform.Foundation.NSURL
+import platform.Foundation.NSUTF8StringEncoding
+import platform.Foundation.stringWithContentsOfFile
 import platform.posix.fopen
 import platform.posix.fputs
 import platform.posix.fclose
-import platform.posix.exit
-import platform.posix.FILE
 import kotlinx.cinterop.ExperimentalForeignApi
 import com.example.myapplication.persistence.nowEpochMillis
 
-suspend fun runIosBench(iterations: Int) {
+/**
+ * The iOS half of the on-device Move Coach benchmark.
+ *
+ * **It used to build one hardcoded request** — `e4`, `"This controls the center."`, no
+ * `moveClassName`, no motifs, no better move — and repeat it `iterations` times. That is the exact
+ * shape that made every Android quality verdict before 2026-08-15 meaningless: `MoveCoachPromptBuilder`
+ * emits a fact line only when its field is set, so the model was asked to be specific about a
+ * position it had been told nothing about, and forbidden from inventing. Comparing Foundation Models
+ * against ML Kit through it would have compared two harnesses.
+ *
+ * Now it loads the same golden set, assesses each case with the same on-device engine through the
+ * same [GoldenFixtures] loader, and emits the same JSONL columns, so
+ * `./gradlew :evals:scoreDeviceRun` and ferryman's scripts read an iOS run exactly as they read an
+ * Android one.
+ *
+ * The golden file is read from the app's Documents directory rather than the bundle, mirroring
+ * Android's filesDir-first path: on the simulator it is pushed in with `simctl`, and no Xcode
+ * project or resource plumbing changes. A device run without one degrades to the two marked
+ * fallback fixtures rather than failing.
+ */
+@OptIn(ExperimentalForeignApi::class)
+suspend fun runIosBench(engine: ChessEngine?, iterations: Int) {
     val fileManager = NSFileManager.defaultManager
     val documentDirectory = fileManager.URLsForDirectory(NSDocumentDirectory, inDomains = 1uL).first() as NSURL
     val resultsFile = documentDirectory.URLByAppendingPathComponent("bench_results.jsonl")!!.path!!
-    
-    // Mirrors AndroidBenchRunner so the two platforms measure the same prompt.
-    val request = MoveCoachRequest(
-        moveUci = "e2e4",
-        moveDisplay = "e4",
-        deterministicHeadline = "You played e4.",
-        deterministicExplanation = "This controls the center.",
-        engineDifficultyName = "Hard"
-    )
+    val goldenFile = documentDirectory.URLByAppendingPathComponent("golden/candidates.json")!!.path!!
+
+    // Truncate, for the reason the Android runner documents: appending across launches leaves the
+    // previous run's rows above the new ones in a file that looks homogeneous.
+    writeFile(resultsFile, "")
+
+    val goldenJson = NSString.stringWithContentsOfFile(goldenFile, encoding = NSUTF8StringEncoding, error = null)
+    val loaded = GoldenFixtures.load(goldenJson, engine, EngineDifficulty.HARD.thinkTimeMs)
+    if (loaded.isFallback) {
+        println("IosBenchRunner: no golden set at $goldenFile — running the two built-in fixtures; do not score these for quality")
+    }
 
     val processInfo = NSProcessInfo.processInfo
-    
+
     // Fallbacks since iOS doesn't easily expose exact device hardware strings in pure Foundation
     // Usually people use sysctlbyname("hw.machine"), we can just use processInfo.environment for bench
     val isEmulator = processInfo.environment["SIMULATOR_DEVICE_NAME"] != null || processInfo.environment["SIMULATOR_UDID"] != null
@@ -44,7 +66,8 @@ suspend fun runIosBench(iterations: Int) {
     val osVersion = processInfo.operatingSystemVersionString
     val appVersion = NSBundle.mainBundle.infoDictionary?.get("CFBundleShortVersionString") as? String ?: "unknown"
 
-    for (i in 0 until iterations) {
+    val runPlan = (0 until iterations).flatMap { loaded.fixtures }
+    for ((runIndex, fixture) in runPlan.withIndex()) {
         var initStart = 0L
         var initEnd = 0L
         var genStart = 0L
@@ -67,7 +90,7 @@ suspend fun runIosBench(iterations: Int) {
             }
             override fun onRawOutput(text: String) { rawOutput = text }
         }
-        
+
         probe.onInitStart()
         val executor = VendorRouteExecutor()
         val policy = com.example.ondeviceai.AiRoutePolicies.moveCoachOffline
@@ -81,7 +104,7 @@ suspend fun runIosBench(iterations: Int) {
             ?.let { executor.execute(it.route) }
         generator?.warmup()
         probe.onInitEnd()
-        
+
         val orchestrator = DefaultAiCoachOrchestrator(
             executor = executor,
             // Without this the orchestrator's built-in default (isDeviceModelAvailable = false)
@@ -91,18 +114,15 @@ suspend fun runIosBench(iterations: Int) {
             contextProvider = { com.example.ondeviceai.AiContextSnapshot(availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors()) },
             benchProbe = probe
         )
-        
-        orchestrator.explainMoveStreaming(request).collect()
-        
-        val peakMem = getMemoryBytes()
-        val isWarm = (i > 0)
-        
+
+        orchestrator.explainMoveStreaming(fixture.request).collect()
+
         val result = BenchResult(
             deviceModel = deviceModel,
             osVersion = osVersion,
             appVersion = appVersion,
             modelIdentifier = "FoundationModels",
-            isWarm = isWarm,
+            isWarm = (runIndex > 0),
             timestampMs = nowEpochMillis(),
             initStartMs = initStart,
             initEndMs = initEnd,
@@ -110,7 +130,7 @@ suspend fun runIosBench(iterations: Int) {
             firstTokenMs = firstToken,
             completeMs = completeMs,
             tokenCount = tokens,
-            peakMemoryBytes = peakMem,
+            peakMemoryBytes = getMemoryBytes(),
             thermalStatusBefore = 0, // not collected on iOS via standard API simply
             thermalStatusAfter = 0,
             fallbackTriggered = fallback,
@@ -119,31 +139,40 @@ suspend fun runIosBench(iterations: Int) {
             rawOutput = rawOutput
         )
 
-        val reasonJson = jsonStringOrNull(result.fallbackReason)
-        val rawOutputJson = jsonStringOrNull(result.rawOutput)
-        val jsonLine = """{"deviceModel":"${result.deviceModel}","osVersion":"${result.osVersion}","appVersion":"${result.appVersion}","modelIdentifier":"${result.modelIdentifier}","isWarm":${result.isWarm},"timestampMs":${result.timestampMs},"initStartMs":${result.initStartMs},"initEndMs":${result.initEndMs},"generateStartMs":${result.generateStartMs},"firstTokenMs":${result.firstTokenMs},"completeMs":${result.completeMs},"tokenCount":${result.tokenCount},"peakMemoryBytes":${result.peakMemoryBytes},"thermalStatusBefore":${result.thermalStatusBefore},"thermalStatusAfter":${result.thermalStatusAfter},"fallbackTriggered":${result.fallbackTriggered},"isEmulator":${result.isEmulator},"fallbackReason":$reasonJson,"rawOutput":$rawOutputJson}"""
-
-        appendToFile(resultsFile, jsonLine + "\n")
+        appendToFile(resultsFile, GoldenFixtures.jsonLine(fixture, result) + "\n")
     }
+
+    // Loud, because a silent partial assessment is exactly how a placeholder run passes for a
+    // measurement. If this reports anything but 0, the affected rows are latency-only.
+    if (loaded.unassessed.isNotEmpty()) {
+        println(
+            "IosBenchRunner: ${loaded.unassessed.size}/${loaded.fixtures.size} golden cases carry NO " +
+                "assessment facts (factsPopulated=false) — do not score these for quality: " +
+                loaded.unassessed.take(10).joinToString(", "),
+        )
+    } else {
+        println("IosBenchRunner: all ${loaded.fixtures.size} golden cases assessed; prompts carry engine facts")
+    }
+    engine?.close()
 }
-
-
 
 private fun getMemoryBytes(): Long {
     // Memory is tracked via XCTMemoryMetric in XCTest, or we return 0
     return 0L
 }
 
-private fun jsonStringOrNull(s: String?): String {
-    if (s == null) return "null"
-    val escaped = s.replace("\\", "\\\\").replace("\"", "\\\"")
-        .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
-    return "\"$escaped\""
-}
-
 @OptIn(ExperimentalForeignApi::class)
 private fun appendToFile(path: String, text: String) {
     val file = fopen(path, "a")
+    if (file != null) {
+        fputs(text, file)
+        fclose(file)
+    }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun writeFile(path: String, text: String) {
+    val file = fopen(path, "w")
     if (file != null) {
         fputs(text, file)
         fclose(file)
