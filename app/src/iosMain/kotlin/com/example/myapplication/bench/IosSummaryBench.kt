@@ -81,6 +81,7 @@ suspend fun runIosSummaryBench(iterations: Int) {
                 kind = result::class.simpleName ?: "unknown",
                 elapsedMs = elapsed,
                 text = text,
+                fallbackReason = (result as? GameSummaryResult.FellBack)?.reason?.description,
             ) + "\n",
         )
     }

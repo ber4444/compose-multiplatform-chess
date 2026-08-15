@@ -120,10 +120,14 @@ object SummaryFixtures {
         kind: String,
         elapsedMs: Long,
         text: String,
+        // Never just the kind. "FellBack" conflates "no route", "the model errored" and "it wrote
+        // something rejected", and on this surface the first is invisible without the reason.
+        fallbackReason: String? = null,
     ): String = """{"gameId":${quote(fixture.id)},"plies":${fixture.request.moveHistory.size},""" +
         """"playerBlunders":${fixture.playerBlunders},"result":${quote(fixture.result)},""" +
         """"modelIdentifier":${quote(modelIdentifier)},"deviceModel":${quote(deviceModel)},""" +
         """"osVersion":${quote(osVersion)},"kind":${quote(kind)},"elapsedMs":$elapsedMs,""" +
+        """"fallbackReason":${fallbackReason?.let { quote(it) } ?: "null"},""" +
         """"deterministicSummary":${quote(fixture.deterministicSummary)},""" +
         """"pgn":${quote(fixture.request.pgn)},"modelSummary":${quote(text)}}"""
 
