@@ -286,18 +286,30 @@ defect in the code around it (see the duplication above, and "four causes, none 
 `CLAUDE.md`). The pattern is consistent enough to be worth stating as a rule: **before attributing an
 output's shape to the model, print the prompt that produced it.**
 
-**What an informative run needs.** The bench has to build its fixtures the way the app does: run the
-on-device Stockfish over each golden FEN, feed `MoveAssessor` + `MotifDetector`, and populate
-`moveClassName` / `motifs` / `winPercentLost` / `betterMoveDisplay` plus real `DeterministicCoach`
-text — the same work `runIdleAnalysis` and `GameHistoryBackfiller` already do. Stockfish is vendored
-on the device, so this is a harness change, not new capability. `BenchResult` should also carry a
-flag recording whether the facts were populated, so a placeholder run can never again be mistaken for
-a measurement.
+**The harness is now fixed; the measurement is still outstanding.** `GoldenFixtureAssessor.kt`
+builds each fixture the way the app does — on-device Stockfish over the case's `fen`, into
+`MoveAssessor` + `MotifDetector`, then `MoveRecord` → `DeterministicCoach` and the four fact fields,
+mirroring `MoveCoachManager.triggerCoach`. Every JSONL row now carries `factsPopulated`, and the run
+logs a loud summary line if any case failed to assess, because a silent partial assessment is exactly
+how the placeholder run passed for a measurement. **Rows with `factsPopulated:false` are latency-only
+and must not be scored for quality.**
 
-Only then is the comparison meaningful, and it should be scored with `EvalScorer.scoreMove` against
-each case's `expectedConcepts` (all 100 cases in `evals/golden/candidates.json` carry them), with
-`DeterministicCoach`'s own output scored as the baseline column. Until that exists, the honest state
-is: **the runtime is viable, the client is correct, and the quality question is untested.**
+Two limits to hold in mind when reading the first real results:
+
+- The golden set's `bestMoveUci` *is* the move being coached, so nearly every case assesses as BEST
+  with ~0 centipawn loss and `betterMoveDisplay` is null by construction. This exercises the "why was
+  this good" half of the coach and not the "here is what you missed" half — which is the half
+  `DeterministicCoach` is strongest at, and therefore the half where the comparison matters most.
+  Settling it needs golden cases carrying a deliberately sub-optimal move; none exist today.
+- Assessing 100 positions at `EngineDifficulty.HARD` (1 s think time) costs roughly two Stockfish
+  searches per case, so budget a few minutes of setup before generation starts.
+
+Scoring should use `EvalScorer.scoreMove` against each case's `expectedConcepts` (all 100 cases carry
+them), with `DeterministicCoach`'s own output scored as the baseline column — the same text now
+reaching the model as `deterministicExplanation`, so the two columns are directly comparable.
+
+Until that run happens the honest state is unchanged: **the runtime is viable, the client is correct,
+and the quality question is untested.**
 
 ---
 

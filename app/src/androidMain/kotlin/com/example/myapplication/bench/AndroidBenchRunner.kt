@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Debug
 import android.os.PowerManager
+import com.example.myapplication.EngineDifficulty
 import com.example.ondeviceai.AiCoachOrchestrator
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
 import com.example.ondeviceai.MoveCoachRequest
@@ -23,8 +24,14 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
     val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
     val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
 
+    // Stockfish is vendored on device, so the bench can assess each golden position with the same
+    // engine the app uses. Null when it can't start — the run then degrades to unassessed fixtures
+    // and says so per row rather than silently producing prompt-starved results.
+    val assessmentEngine = createBenchEngine(context)
+
     val goldenCasesFile = File(context.filesDir, "golden/candidates.json")
     val goldenCasesList = mutableListOf<GoldenCaseFixture>()
+    val assessmentGaps = mutableListOf<String>()
     if (goldenCasesFile.exists()) {
         try {
             val jsonArray = org.json.JSONArray(goldenCasesFile.readText())
@@ -36,16 +43,45 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
                 val bestMoveUci = obj.getString("bestMoveUci")
                 val sanArr = if (obj.has("movesSan")) obj.getJSONArray("movesSan") else null
                 val moveDisplay = if (sanArr != null && sanArr.length() > 0) sanArr.getString(sanArr.length() - 1) else bestMoveUci
+                val fen = if (obj.has("fen")) obj.getString("fen") else null
+
+                // Assess the ply with the on-device engine and build the request the way the app
+                // does. Without this the prompt carries no engine assessment, no motifs and a
+                // placeholder baseline, and the run measures the harness rather than the model —
+                // see GoldenFixtureAssessor for the prompt that produced every earlier quality
+                // verdict on this page.
+                val assessed = if (fen != null && assessmentEngine != null) {
+                    runCatching {
+                        assessGoldenCase(
+                            engine = assessmentEngine,
+                            fen = fen,
+                            playedUci = bestMoveUci,
+                            playedSan = moveDisplay,
+                            thinkTimeMs = EngineDifficulty.HARD.thinkTimeMs,
+                        )
+                    }.onFailure {
+                        android.util.Log.w("AndroidBenchRunner", "assessment failed for $id", it)
+                    }.getOrNull()
+                } else {
+                    null
+                }
+                if (assessed == null) assessmentGaps += id
+
                 goldenCasesList += GoldenCaseFixture(
                     id = id,
                     tags = tags,
-                    request = MoveCoachRequest(
+                    // The unassessed shape is kept as a degraded path rather than a hard failure so
+                    // a device with no working Stockfish can still produce latency numbers. It is
+                    // recorded per row as `factsPopulated:false`, because the one thing that must
+                    // never happen again is a placeholder run being read as a quality measurement.
+                    request = assessed ?: MoveCoachRequest(
                         moveUci = bestMoveUci,
                         moveDisplay = moveDisplay,
                         deterministicHeadline = "You played $moveDisplay.",
                         deterministicExplanation = "This was a strong move.",
                         engineDifficultyName = "Hard"
-                    )
+                    ),
+                    factsPopulated = assessed != null,
                 )
             }
         } catch (t: Throwable) {
@@ -168,9 +204,26 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
         val reasonJson = jsonStringOrNull(result.fallbackReason)
         val rawOutputJson = jsonStringOrNull(result.rawOutput)
         val tagsJson = fixture.tags.joinToString(",", "[", "]") { jsonStringOrNull(it) }
-        val jsonLine = """{"caseId":"${fixture.id}","isFallbackGolden":${fixture.isFallbackGolden},"tags":$tagsJson,"deviceModel":"${result.deviceModel}","osVersion":"${result.osVersion}","appVersion":"${result.appVersion}","modelIdentifier":"${result.modelIdentifier}","isWarm":${result.isWarm},"timestampMs":${result.timestampMs},"initStartMs":${result.initStartMs},"initEndMs":${result.initEndMs},"generateStartMs":${result.generateStartMs},"firstTokenMs":${result.firstTokenMs},"completeMs":${result.completeMs},"tokenCount":${result.tokenCount},"peakMemoryBytes":${result.peakMemoryBytes},"thermalStatusBefore":${result.thermalStatusBefore},"thermalStatusAfter":${result.thermalStatusAfter},"fallbackTriggered":${result.fallbackTriggered},"isEmulator":${result.isEmulator},"fallbackReason":$reasonJson,"rawOutput":$rawOutputJson}"""
+        val jsonLine = """{"caseId":"${fixture.id}","isFallbackGolden":${fixture.isFallbackGolden},"factsPopulated":${fixture.factsPopulated},"tags":$tagsJson,"deviceModel":"${result.deviceModel}","osVersion":"${result.osVersion}","appVersion":"${result.appVersion}","modelIdentifier":"${result.modelIdentifier}","isWarm":${result.isWarm},"timestampMs":${result.timestampMs},"initStartMs":${result.initStartMs},"initEndMs":${result.initEndMs},"generateStartMs":${result.generateStartMs},"firstTokenMs":${result.firstTokenMs},"completeMs":${result.completeMs},"tokenCount":${result.tokenCount},"peakMemoryBytes":${result.peakMemoryBytes},"thermalStatusBefore":${result.thermalStatusBefore},"thermalStatusAfter":${result.thermalStatusAfter},"fallbackTriggered":${result.fallbackTriggered},"isEmulator":${result.isEmulator},"fallbackReason":$reasonJson,"rawOutput":$rawOutputJson}"""
         resultsFile.appendText(jsonLine + "\n")
     }
+
+    // Loud, because a silent partial assessment is exactly how the previous placeholder run passed
+    // for a measurement. If this line reports anything but 0, the affected rows are latency-only.
+    if (assessmentGaps.isNotEmpty()) {
+        android.util.Log.w(
+            "AndroidBenchRunner",
+            "${assessmentGaps.size}/${goldenCasesList.size} golden cases carry NO assessment facts " +
+                "(factsPopulated=false) — do not score these for quality: " +
+                assessmentGaps.take(10).joinToString(", ") + (if (assessmentGaps.size > 10) ", …" else ""),
+        )
+    } else {
+        android.util.Log.i(
+            "AndroidBenchRunner",
+            "all ${goldenCasesList.size} golden cases assessed; prompts carry engine facts",
+        )
+    }
+    assessmentEngine?.close()
 }
 
 private fun jsonStringOrNull(s: String?): String {
@@ -185,4 +238,34 @@ data class GoldenCaseFixture(
     val tags: List<String>,
     val request: MoveCoachRequest,
     val isFallbackGolden: Boolean = false,
+    /**
+     * False when the request carries no engine assessment — placeholder baseline, no
+     * `moveClassName`, no motifs. Emitted per JSONL row as `factsPopulated`. Rows with this false
+     * measure the harness, not the model, and must not be scored for quality; see
+     * [assessGoldenCase].
+     */
+    val factsPopulated: Boolean = false,
 )
+
+/**
+ * The engine the bench uses to assess golden positions. Separate from the app's — the bench branch
+ * in `MainActivity` returns before the normal engine wiring, and this one is closed when the run
+ * ends rather than living for the session.
+ */
+private fun createBenchEngine(context: Context): com.example.myapplication.ChessEngine? {
+    val engine = com.example.myapplication.StockfishEngine(
+        nativeLibraryDir = context.applicationInfo.nativeLibraryDir,
+        filesDir = context.filesDir,
+        assetManager = context.assets,
+        supportedAbis = Build.SUPPORTED_ABIS,
+    )
+    return if (engine.isAvailable() && engine.start()) {
+        engine
+    } else {
+        android.util.Log.w(
+            "AndroidBenchRunner",
+            "Stockfish unavailable; golden fixtures will carry no assessment facts",
+        )
+        null
+    }
+}
