@@ -21,6 +21,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import com.example.myapplication.LocalHabitsManager
 import com.example.myapplication.LocalMoveCoachManager
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -220,20 +221,29 @@ private fun PlanRow(plan: ProPlan, selected: Boolean, onSelect: () -> Unit) {
  *
  * "Move Coach explanations written by the on-device model" was sold unconditionally, and on a build
  * with no model it is a promise that cannot be kept: a paying user gets the identical coach line to
- * a free one, because `MoveCoachManager` renders `DeterministicCoach` either way. Android ships no
- * model at all (see `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md`), so that line
- * would have been false on every Android install.
+ * a free one, because `MoveCoachManager` renders `DeterministicCoach` either way. No platform
+ * attaches one now (see `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md`), so that
+ * line would have been false on every install.
  *
- * Keyed off the same signal the coach itself uses, so it cannot drift: if a device ever has a model
- * attached the line returns with no code change, and if it doesn't, Pro advertises only the four
- * surfaces it really unlocks.
+ * Each entry is keyed off the same signal its own screen gates on, so the list cannot drift from
+ * what a purchase actually unlocks:
+ *  - the coach line off `MoveCoachManager.hasOrchestrator` — if a device ever has a model attached
+ *    it returns with no code change;
+ *  - Habits off `LocalHabitsManager`, which `AppRoot` constructs only when the entry point supplied
+ *    a `GameHistoryRepository` — the same `habitsManager == null` branch `Screen.HABITS` uses to
+ *    render "Habits needs game history" instead of an upsell.
+ *
+ * The failure this shape exists to prevent runs in both directions, and both are refund-shaped:
+ * advertising a surface the build can't show, and gating one it can while never listing it.
  */
 @Composable
 private fun proFeatures(): List<String> {
     val hasModel = LocalMoveCoachManager.current?.hasOrchestrator == true
+    val hasHabits = LocalHabitsManager.current != null
     return listOfNotNull(
         "Move Coach explanations written by the on-device model".takeIf { hasModel },
         "Game Summary after every finished game",
+        "Habits — recurring mistakes tracked across your games".takeIf { hasHabits },
         "Position Chat — ask about the board as you play",
         "Opening Explainer",
         "Rules Q&A",

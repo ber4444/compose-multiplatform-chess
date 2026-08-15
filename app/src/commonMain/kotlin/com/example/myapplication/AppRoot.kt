@@ -74,6 +74,14 @@ enum class Screen { GAME, HISTORY, SETTINGS, RULES, CHAT, PAYWALL, HABITS }
 val LocalMoveCoachManager = staticCompositionLocalOf<MoveCoachManager?> { null }
 val LocalGameSummaryManager = staticCompositionLocalOf<GameSummaryManager?> { null }
 val LocalOpeningExplainerStateHolder = staticCompositionLocalOf<OpeningExplainerStateHolder?> { null }
+
+/**
+ * Published for one reason: `PaywallScreen` must not advertise Habits on a build that cannot show
+ * it. Same rule as the coach line there — Pro lists what *this* build actually unlocks, and
+ * availability is a property of the build (`gameHistory != null` per entry point), which
+ * `LocalEntitlements` cannot know.
+ */
+val LocalHabitsManager = staticCompositionLocalOf<HabitsManager?> { null }
 val LocalIsDebug = staticCompositionLocalOf { false }
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -138,6 +146,7 @@ fun AppRoot(
         LocalMoveCoachManager provides moveCoachManager,
         LocalGameSummaryManager provides gameSummaryManager,
         LocalOpeningExplainerStateHolder provides openingExplainerStateHolder,
+        LocalHabitsManager provides habitsManager,
         LocalIsDebug provides isDebug,
     ) {
         MyApplicationTheme(darkTheme = isSystemInDarkTheme()) {

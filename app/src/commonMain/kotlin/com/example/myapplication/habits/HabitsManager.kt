@@ -11,8 +11,11 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 
 /**
- * Cross-game habit aggregation (B6/RAG-5) — the Android Pro story now that no on-device model
- * exists there (`android-model-latency-2026-08.md`). Recomputes [summaries] from
+ * Cross-game habit aggregation (B6/RAG-5) — the Pro story on *every* platform now that the Move
+ * Coach is deterministic on all of them (`android-model-latency-2026-08.md`). Not an
+ * Android-shaped patch: both phone runtimes were measured on the same 100 golden positions and
+ * neither earned the panel, so "what Pro adds" had to stop meaning "a model phrases it" and start
+ * meaning a surface the free tier genuinely doesn't have. Recomputes [summaries] from
  * [GameHistoryRepository.games] on every change.
  *
  * Unlike [com.example.myapplication.movecoach.MoveCoachManager]/

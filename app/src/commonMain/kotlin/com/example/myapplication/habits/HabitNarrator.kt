@@ -6,11 +6,14 @@ import com.example.myapplication.MotifDetector
  * Turns a [HabitSummary] into display text.
  *
  * Deterministic, same reasoning as
- * [DeterministicCoach][com.example.myapplication.movecoach.DeterministicCoach]: Android ships no
- * on-device model (see `android-model-latency-2026-08.md`), so this text is the whole product here,
- * not a fallback standing in for one. A model, where one exists, could later rephrase [headline]/
- * [explanation] — it must never be asked to invent the counts or the motif, which is exactly why
- * they're computed by [HabitAggregator] rather than left for a prompt to reconstruct.
+ * [DeterministicCoach][com.example.myapplication.movecoach.DeterministicCoach]: no platform attaches
+ * a model to the coach (see `android-model-latency-2026-08.md` — both phone runtimes were measured
+ * against it and neither was more truthful), so this text is the whole product here, not a fallback
+ * standing in for one. A model, where one exists, could later rephrase [headline]/[explanation] — it
+ * must never be asked to invent the counts or the motif, which is exactly why they're computed by
+ * [HabitAggregator] rather than left for a prompt to reconstruct. That contract matters more here
+ * than on a single move: an aggregate carries more claims per sentence, and the two failures the
+ * device run found were both a supplied fact reattached to the wrong subject.
  */
 object HabitNarrator {
 
