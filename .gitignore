@@ -59,5 +59,10 @@ fly_logs.txt
 diff.txt
 pr_body.md
 
-# Perfetto tooling: a ~10 MB prebuilt binary, fetched not committed.
+# Perfetto traces are captures of one run on one device, not inputs to any build — a 33 MB blob in
+# git that nothing reads. Macrobenchmark writes them under macrobenchmark/build/ (already ignored);
+# these cover hand-pulled copies. The trace_processor_shell prebuilt is a ~10 MB binary fetched by
+# tools/fetch_perfetto.sh, mirroring the Filament fetch scripts.
+*.perfetto-trace
+perfetto/
 tools/perfetto/

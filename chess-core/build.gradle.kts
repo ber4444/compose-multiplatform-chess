@@ -75,12 +75,20 @@ kotlin {
 }
 
 // ── Publish to GitHub Packages ────────────────────────────────────────────────
-// `io.github.ber4444:chess-core:<version>`. Tag-driven: push tag `chess-core-v0.1.0` → publishes
-// 0.1.0. The version can also be overridden via the CHESS_CORE_VERSION env var / gradle property.
+// `io.github.ber4444:chess-core:<version>`. Tag-driven: push tag `chess-core-v0.3.0` → publishes
+// 0.3.0. The version can also be overridden via the CHESS_CORE_VERSION env var / gradle property;
+// the literal below is the fallback when neither is set, and should track the next version to cut.
+//
+// MINOR, not patch, since 0.2.0: `Board3DAnimationDriver`'s constructor signature changed (the
+// dirty-signal rework added `clock` + `onDirtyChanged` and dropped `onAnimationStateChanged`).
+// That moves the parameter positions and the Kotlin default-args `$default` mask, so it is binary
+// incompatible — the React Native consumer
+// (`ber4444/react-native-kotlin-multiplatform-chess`) must recompile against this artifact rather
+// than drop it in. Source-compatible for anyone using the trailing-lambda `render` call form.
 val chessCoreVersion: String =
     (System.getenv("CHESS_CORE_VERSION")?.takeIf { it.isNotBlank() }
         ?: project.findProperty("chessCoreVersion") as? String
-        ?: "0.1.0").removePrefix("chess-core-v")
+        ?: "0.3.0").removePrefix("chess-core-v")
 
 // Set the project group + version so EVERY auto-generated publication KGP creates (the umbrella
 // `kotlinMultiplatform` one and the per-target ones — desktop, js, android, wasmJs) shares the same

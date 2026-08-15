@@ -14,13 +14,17 @@ import kotlin.test.assertEquals
 /**
  * Tests for the GameScreen 3D wiring.
  *
- * NOTE: these use [fakeBoard3DSupport] (a plain Compose [androidx.compose.foundation.layout.Box]
- * surface), NOT the real [androidBoard3DSupport]. The real surface hosts a live SceneView whose
- * render loop drives the Compose frame clock every frame, so `waitForIdle()` — and every finder /
- * assertion that calls it internally — never returns (`ComposeNotIdleException`, a documented
- * SceneView/Compose-test limitation). The fake keeps the toggle / board_3d tag / selection routing
- * testable; actual GPU rendering of the SceneView board is verified manually (adb screenshots) and
- * by the desktop/iOS render paths.
+ * NOTE: most of these use [fakeBoard3DSupport] (a plain Compose
+ * [androidx.compose.foundation.layout.Box] surface), NOT the real [androidBoard3DSupport] — they
+ * are about the toggle / board_3d tag / selection routing, none of which needs a GPU. Actual
+ * rendering of the SceneView board is still verified by adb screenshots and by the desktop/iOS
+ * render paths.
+ *
+ * Until the `isRendering` gate landed, the fake was not a preference but the only option: a live
+ * SceneView drove the Compose frame clock every frame, so `waitForIdle()` — and every finder /
+ * assertion that calls it internally — never returned. A parked render loop suspends on a snapshot
+ * rather than on `withFrameNanos`, so the frame-clock awaiter is gone and the test clock can idle;
+ * [dialogRendersAboveSurfaceView] is the one case that needs the real surface and now runs.
  */
 @OptIn(ExperimentalTestApi::class)
 class AndroidBoard3DUiTest {
@@ -84,14 +88,34 @@ class AndroidBoard3DUiTest {
      * Verifies a Compose dialog (promotion) layers above the 3D board surface — the reason §5 uses
      * [SurfaceType.Surface] rather than a z-ordered-on-top SurfaceView.
      *
-     * @Ignore: this must use the REAL [androidBoard3DSupport] (the occlusion guarantee is a property
-     * of the actual SurfaceView), but a live SceneView never lets the Compose test clock go idle, so
-     * `runComposeUiTest` hangs (see class KDoc). Structurally a Compose [androidx.compose.ui.window.Dialog]
-     * renders in a separate window above the activity content, and SurfaceType.Surface is NOT
-     * z-ordered on top, so it cannot occlude the dialog. Re-verify manually if SurfaceType ever
-     * changes; left here as executable documentation.
+     * This must use the REAL [androidBoard3DSupport] — the occlusion guarantee is a property of the
+     * actual SurfaceView, so the fake cannot stand in.
+     *
+     * **The original `@Ignore` reason is obsolete; the current one is different.** It used to say a
+     * live SceneView never lets the Compose test clock go idle, which was true of the unconditional
+     * `withFrameNanos` await: a permanent frame-clock awaiter that `waitForIdle()` could never
+     * outlast. The `isRendering` gate removed that — a parked loop suspends on a snapshot instead —
+     * and the test genuinely runs now. That was verified rather than assumed, because nothing in
+     * the emulator log names individual tests and a green leg looks identical whether a test passed
+     * or never ran: a temporary unconditional `fail()` appended after the assertions (commit
+     * `2b008d3`, reverted in `b199474`) turned the Android job red with "MUTATION PROBE:
+     * dialogRendersAboveSurfaceView executed to completion", reporting `23 tests, 0 skipped,
+     * 1 failed`. So the body runs to the end, `waitForIdle()` returns, and the dialog is found and
+     * clicked.
+     *
+     * It stays `@Ignore`d because of the emulator, not the clock. This is the only test that brings
+     * up a real Filament surface, and CI runs `-gpu swiftshader_indirect`; across three runs of the
+     * enabled test the emulator went **offline inside this test once** (`device offline` ->
+     * `Test run failed to complete. Expected 23 tests, received 18`), taking the other four tests
+     * in the run with it. A test that intermittently kills the device fails the whole PR for
+     * unrelated changes, which costs more than the regression coverage it buys. Re-enable it on a
+     * runner with a hardware-backed GPU, where that crash is not in play.
+     *
+     * Structurally a Compose [androidx.compose.ui.window.Dialog] renders in a separate window above
+     * the activity content, and SurfaceType.Surface is NOT z-ordered on top, so it cannot occlude
+     * the dialog. Re-verify if SurfaceType ever changes.
      */
-    @org.junit.Ignore("Live SceneView never idles -> runComposeUiTest hangs; dialog-above-Surface verified manually (see KDoc).")
+    @org.junit.Ignore("Brings up a real Filament surface; takes the swiftshader emulator offline ~1 run in 3. Idles fine since the isRendering gate — see KDoc.")
     @Test
     fun dialogRendersAboveSurfaceView() = runComposeUiTest {
         val viewModel = GameViewModel(
