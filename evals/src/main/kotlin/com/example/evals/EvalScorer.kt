@@ -19,8 +19,21 @@ data class DiagnosticScore(
 )
 
 object EvalScorer {
-    fun scoreMove(case: GoldenCase, text: String): OutputScore {
-        val result = MoveCoachResponseValidator.validate(text, case.toMoveCoachRequest())
+    fun scoreMove(case: GoldenCase, text: String): OutputScore =
+        scoreMove(case.toMoveCoachRequest(), text)
+
+    /**
+     * Scores against a caller-supplied request rather than the one derived from the golden case.
+     *
+     * The validator's verdict depends on the facts it is given — `betterMoveDisplay` widens the
+     * allowed piece names, `motifs` decide whether a capture claim is supported. A device run
+     * records the request it actually used, so scoring those rows through
+     * [GoldenCase.toMoveCoachRequest]'s placeholder would answer a different question than the one
+     * the device answered, and the two would disagree for reasons that are not about the text.
+     * See [scoreDeviceRun], which cross-checks its verdicts against the device's own.
+     */
+    fun scoreMove(request: MoveCoachRequest, text: String): OutputScore {
+        val result = MoveCoachResponseValidator.validate(text, request)
         val fluency = FluencyScorer.evaluate(text, FluencyScorer.FluencySurface.MOVE_COACH)
         return OutputScore(
             grounded = result is MoveCoachResponseValidator.Result.Valid,

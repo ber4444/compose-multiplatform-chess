@@ -294,22 +294,68 @@ logs a loud summary line if any case failed to assess, because a silent partial 
 how the placeholder run passed for a measurement. **Rows with `factsPopulated:false` are latency-only
 and must not be scored for quality.**
 
-Two limits to hold in mind when reading the first real results:
+Assessing 100 positions at `EngineDifficulty.HARD` (1 s think time) costs roughly two Stockfish
+searches per case, so budget a few minutes of setup before generation starts.
 
-- The golden set's `bestMoveUci` *is* the move being coached, so nearly every case assesses as BEST
-  with ~0 centipawn loss and `betterMoveDisplay` is null by construction. This exercises the "why was
-  this good" half of the coach and not the "here is what you missed" half — which is the half
-  `DeterministicCoach` is strongest at, and therefore the half where the comparison matters most.
-  Settling it needs golden cases carrying a deliberately sub-optimal move; none exist today.
-- Assessing 100 positions at `EngineDifficulty.HARD` (1 s think time) costs roughly two Stockfish
-  searches per case, so budget a few minutes of setup before generation starts.
+## The golden-set run — 2026-08-15, Pixel 10 Pro XL / Android 16
 
-Scoring should use `EvalScorer.scoreMove` against each case's `expectedConcepts` (all 100 cases carry
-them), with `DeterministicCoach`'s own output scored as the baseline column — the same text now
-reaching the model as `deterministicExplanation`, so the two columns are directly comparable.
+100 cases, one pass, `mlkit-aicore-full`, every row `factsPopulated:true`. Reproduce with:
 
-Until that run happens the honest state is unchanged: **the runtime is viable, the client is correct,
-and the quality question is untested.**
+```bash
+./gradlew :androidApp:assembleDebug :androidApp:installDebug
+adb shell svc power stayon usb   # see the foreground note below
+adb shell am start -n io.github.ber4444.chess/com.example.myapplication.MainActivity --ei bench_iterations 1
+adb exec-out run-as io.github.ber4444.chess cat files/bench/results.jsonl > build/bench/results.jsonl
+./gradlew :evals:scoreDeviceRun -Pfile=../build/bench/results.jsonl
+```
+
+**AICore will not generate in the background.** The first attempt lost 27 of 100 rows to
+`[ErrorCode 30] Background usage is blocked` when the screen timed out mid-run — recorded as a
+fallback with empty `rawOutput`, which is *not* a model failure and must not be scored as one. Hold
+the screen on for the whole run.
+
+Latency, generation only: TTFT median 610 ms (p90 683 ms), complete median 4.4 s (p90 5.2 s), init
+median 680 ms. Consistent with the three-sample figures above.
+
+**The "nearly every case is BEST" caveat above was wrong.** Measured: **57 BEST, 12 EXCELLENT, 10
+GOOD, 10 INACCURACY, 11 MISTAKE**, and **78 of 100 rows carry a `betterMoveDisplay`**. The golden
+set's `bestMoveUci` is the *book* move, and Stockfish at HARD disagrees with it often enough that
+the "here is what you missed" half is already exercised. No new golden cases are needed for that.
+
+Scored with `EvalScorer` through `:evals:scoreDeviceRun`, which cross-checks every verdict against
+the device's own validator result (it agreed on all 100 rows):
+
+| Column | Grounded | Rejections |
+|---|---|---|
+| `mlkit-aicore-full` | **95/100** | 5 × not grounded in the move or chess vocabulary |
+| `DeterministicCoach` | **72/100** | 17 × echoed the prompt, 11 × restates without explaining |
+
+**That gap is smaller than it looks, and mostly an artifact.** The deterministic line *is* the
+prompt's baseline sentence, so `isEchoedPrompt` fires on it structurally — 17 of its 28 rejections
+are that rule scoring the column against itself. Discounting them the comparison is ~95 vs ~89, and
+the remaining 11 are deterministic lines carrying no `CONCEPT_VOCAB` word at all, which is a real
+(small) gap in `DeterministicCoach` rather than a win for the model. Fluency is the other way round:
+**79 of 100 model answers fail `FluencyScorer`**, almost all of them opening with conversational
+filler ("Okay, so …").
+
+**The validator's 95% overstates truthfulness.** Two failures a hand read finds and no rule catches:
+
+- `opening-001` — the facts carry motif `develops` for the move played (`Nh3`). The model wrote
+  *"The engine thought e4 would have been a better choice instead, because it develops a piece."*
+  The motif was reattached to the *other* move, and e4 develops nothing.
+- `opening-016` — motifs say only `pawn-push`. The model wrote *"h3 … opens up the h-file."*
+  Invented outright.
+
+`validateReasonFaithfulness` checks mate, check and capture claims; `validatePieceType` checks piece
+nouns. Neither covers *which move a motif belongs to*, nor a structural claim about a file or
+diagonal. This is the same fluent-and-false shape that disqualified `lfm2-700m` — arriving here with
+better fluency and a much better latency profile, which makes it harder to spot, not less of a risk.
+
+**Verdict: the shipped coach stays deterministic.** Not because nano-v3 is slow or generic — it is
+neither — but because its added specificity is unverifiable by anything currently in the pipeline.
+The gate for attaching it is a validator rule that rejects a motif attributed to a move other than
+the one played, and an unsupported file/diagonal claim; ferryman-mcp's judge layer is the other way
+to put a number on the rate.
 
 ---
 

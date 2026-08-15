@@ -39,13 +39,13 @@ import com.example.ondeviceai.MoveCoachRequest
  * assess the ply, wrap it in a [MoveRecord], and let [DeterministicCoach] and the four fact fields
  * come off the assessment. Nothing here is bench-specific except where the position comes from.
  *
- * **A limitation to keep in view when reading the results.** The golden set's `bestMoveUci` *is* the
- * move being coached, so nearly every case assesses as BEST with ~0 centipawn loss, and
- * `betterMoveDisplay` is null by construction (it is only set when the engine's choice differs from
- * the move played). So this exercises the "why was this good" half of the coach and not the "here is
- * what you missed" half — which is the half `DeterministicCoach` is strongest at. Comparing the two
- * fairly on mistakes needs golden cases carrying a deliberately sub-optimal move, which the current
- * set does not have.
+ * **A limitation this was expected to have, and does not.** The golden set's `bestMoveUci` is the
+ * move being coached, so every case was expected to assess as BEST with ~0 centipawn loss and a null
+ * `betterMoveDisplay`, exercising only the "why was this good" half of the coach. The 2026-08-15
+ * Pixel 10 Pro XL run measured otherwise: 57 BEST, 12 EXCELLENT, 10 GOOD, 10 INACCURACY, 11 MISTAKE,
+ * and 78 of 100 rows carrying a better move. The golden set's move is the *book* move; Stockfish at
+ * HARD disagrees with it often enough that the "here is what you missed" half is covered too. No
+ * deliberately sub-optimal golden cases are needed.
  */
 suspend fun assessGoldenCase(
     engine: ChessEngine,

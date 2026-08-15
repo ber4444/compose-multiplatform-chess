@@ -20,6 +20,9 @@ import java.io.File
 suspend fun runAndroidBench(context: Context, iterations: Int) {
     val resultsFile = File(context.filesDir, "bench/results.jsonl")
     resultsFile.parentFile?.mkdirs()
+    // Truncate: the file used to accumulate across launches, so a re-run left the previous run's
+    // rows above the new ones and the reader had to date-sort a file that looks homogeneous.
+    resultsFile.writeText("")
     
     val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
     val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
@@ -29,12 +32,22 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
     // and says so per row rather than silently producing prompt-starved results.
     val assessmentEngine = createBenchEngine(context)
 
+    // filesDir first so a run can be pointed at an ad-hoc golden file by pushing one; otherwise the
+    // copy staged into debug assets by `:androidApp`'s stageGoldenBenchAssets. Reading only filesDir
+    // is what produced the 2026-08-15 run: nothing had written it, so every row came back
+    // `isFallbackGolden` and looked like data.
     val goldenCasesFile = File(context.filesDir, "golden/candidates.json")
+    val goldenCasesJson: String? = when {
+        goldenCasesFile.exists() -> goldenCasesFile.readText()
+        else -> runCatching { context.assets.open("golden/candidates.json").bufferedReader().use { it.readText() } }
+            .onFailure { android.util.Log.e("AndroidBenchRunner", "no golden set in filesDir or assets", it) }
+            .getOrNull()
+    }
     val goldenCasesList = mutableListOf<GoldenCaseFixture>()
     val assessmentGaps = mutableListOf<String>()
-    if (goldenCasesFile.exists()) {
+    if (goldenCasesJson != null) {
         try {
-            val jsonArray = org.json.JSONArray(goldenCasesFile.readText())
+            val jsonArray = org.json.JSONArray(goldenCasesJson)
             for (j in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(j)
                 val id = obj.getString("id")
@@ -88,7 +101,7 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
             // Don't swallow: a malformed golden file silently degrades the whole run to the two
             // fallback fixtures, and the resulting rows look like real data. isFallbackGolden marks
             // them in the JSONL, but the *reason* only exists here.
-            android.util.Log.e("AndroidBenchRunner", "Failed to parse ${goldenCasesFile.path}; falling back to built-in fixtures", t)
+            android.util.Log.e("AndroidBenchRunner", "Failed to parse the golden set; falling back to built-in fixtures", t)
             goldenCasesList.clear()
         }
     }
@@ -107,8 +120,11 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
     val appVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
     val isEmulator = Build.FINGERPRINT.contains("generic") || Build.MODEL.contains("Emulator")
 
-    for (i in 0 until iterations) {
-        val fixture = goldenCasesList[i % goldenCasesList.size]
+    // Every fixture, `iterations` times over — not `iterations` rows cycling through the set. The
+    // old `goldenCasesList[i % size]` meant a 100-case golden set at `iterations = 3` measured three
+    // cases, which is not a golden-set run however the rows are labelled.
+    val runPlan = (0 until iterations).flatMap { goldenCasesList }
+    for ((runIndex, fixture) in runPlan.withIndex()) {
         val request = fixture.request
         val thermalBefore = pm.currentThermalStatus
         var initStart = 0L
@@ -169,7 +185,7 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
         Debug.getMemoryInfo(pmi)
         val peakMem = Debug.getNativeHeapAllocatedSize() + (pmi.totalPss * 1024L)
         
-        val isWarm = (i > 0)
+        val isWarm = (runIndex > 0)
         
         val result = BenchResult(
             deviceModel = deviceModel,
@@ -204,7 +220,15 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
         val reasonJson = jsonStringOrNull(result.fallbackReason)
         val rawOutputJson = jsonStringOrNull(result.rawOutput)
         val tagsJson = fixture.tags.joinToString(",", "[", "]") { jsonStringOrNull(it) }
-        val jsonLine = """{"caseId":"${fixture.id}","isFallbackGolden":${fixture.isFallbackGolden},"factsPopulated":${fixture.factsPopulated},"tags":$tagsJson,"deviceModel":"${result.deviceModel}","osVersion":"${result.osVersion}","appVersion":"${result.appVersion}","modelIdentifier":"${result.modelIdentifier}","isWarm":${result.isWarm},"timestampMs":${result.timestampMs},"initStartMs":${result.initStartMs},"initEndMs":${result.initEndMs},"generateStartMs":${result.generateStartMs},"firstTokenMs":${result.firstTokenMs},"completeMs":${result.completeMs},"tokenCount":${result.tokenCount},"peakMemoryBytes":${result.peakMemoryBytes},"thermalStatusBefore":${result.thermalStatusBefore},"thermalStatusAfter":${result.thermalStatusAfter},"fallbackTriggered":${result.fallbackTriggered},"isEmulator":${result.isEmulator},"fallbackReason":$reasonJson,"rawOutput":$rawOutputJson}"""
+        // The facts the prompt carried, and the deterministic answer built from those same facts.
+        // Without this column the file records what the model said and nothing to compare it
+        // against, so "does the model beat the deterministic layer" needs a second device run to
+        // answer. `EvalScorer.scoreMove` can score both columns off one file.
+        val baselineJson = jsonStringOrNull(request.deterministicExplanation)
+        val moveClassJson = jsonStringOrNull(request.moveClassName)
+        val motifsJson = request.motifs.joinToString(",", "[", "]") { jsonStringOrNull(it) }
+        val betterMoveJson = jsonStringOrNull(request.betterMoveDisplay)
+        val jsonLine = """{"caseId":"${fixture.id}","isFallbackGolden":${fixture.isFallbackGolden},"factsPopulated":${fixture.factsPopulated},"tags":$tagsJson,"moveDisplay":${jsonStringOrNull(request.moveDisplay)},"deterministicExplanation":$baselineJson,"moveClassName":$moveClassJson,"motifs":$motifsJson,"winPercentLost":${request.winPercentLost},"betterMoveDisplay":$betterMoveJson,"deviceModel":"${result.deviceModel}","osVersion":"${result.osVersion}","appVersion":"${result.appVersion}","modelIdentifier":"${result.modelIdentifier}","isWarm":${result.isWarm},"timestampMs":${result.timestampMs},"initStartMs":${result.initStartMs},"initEndMs":${result.initEndMs},"generateStartMs":${result.generateStartMs},"firstTokenMs":${result.firstTokenMs},"completeMs":${result.completeMs},"tokenCount":${result.tokenCount},"peakMemoryBytes":${result.peakMemoryBytes},"thermalStatusBefore":${result.thermalStatusBefore},"thermalStatusAfter":${result.thermalStatusAfter},"fallbackTriggered":${result.fallbackTriggered},"isEmulator":${result.isEmulator},"fallbackReason":$reasonJson,"rawOutput":$rawOutputJson}"""
         resultsFile.appendText(jsonLine + "\n")
     }
 

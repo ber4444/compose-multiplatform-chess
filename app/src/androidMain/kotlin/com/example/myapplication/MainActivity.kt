@@ -52,6 +52,16 @@ class MainActivity : ComponentActivity() {
             val iterations = intent.getIntExtra("bench_iterations", 1)
             CoroutineScope(Dispatchers.IO).launch {
                 runAndroidBench(this@MainActivity, iterations)
+                // Mirror the JSONL into the app's external files dir. `filesDir` needs `run-as`,
+                // which the remote-device tooling could not do — that is why an earlier run was read
+                // out of a deliberate crash. This path is plain `adb pull`.
+                runCatching {
+                    val source = java.io.File(filesDir, "bench/results.jsonl")
+                    val target = java.io.File(getExternalFilesDir(null), "bench/results.jsonl")
+                    target.parentFile?.mkdirs()
+                    source.copyTo(target, overwrite = true)
+                    android.util.Log.i("AndroidBenchRunner", "bench results at ${target.absolutePath}")
+                }.onFailure { android.util.Log.w("AndroidBenchRunner", "could not mirror results", it) }
                 finish()
             }
             return
