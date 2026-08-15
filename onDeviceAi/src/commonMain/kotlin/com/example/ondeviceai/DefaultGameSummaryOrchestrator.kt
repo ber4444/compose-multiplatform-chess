@@ -6,6 +6,30 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withTimeoutOrNull
 
+/**
+ * Drops a trailing sentence fragment, keeping everything up to the last completed sentence.
+ *
+ * The last line of defence on the one surface that has **no response validator at all**: whatever
+ * survives here is rendered. A summary can be cut mid-sentence by the token cap or by
+ * [withAntiRepetitionGuard], and a half-sentence reads as a crash rather than as an answer:
+ *
+ * > *"…Finally, at [move-45], `Rhh1` didn't quite achieve the desired effect, and `Re1`"*
+ *
+ * It never empties the answer: text with no completed sentence at all is returned unchanged, because
+ * one ragged sentence still beats falling back to a summary the user did not ask to wait for.
+ */
+internal fun trimIncompleteSummaryTail(text: String): String {
+    val trimmed = text.trim()
+    if (trimmed.isEmpty()) return trimmed
+    // A closing quote or bracket after the stop is still a finished sentence.
+    val terminal = trimmed.trimEnd('"', '\'', ')', ']', '*', '”', '’').lastOrNull()
+    if (terminal == '.' || terminal == '!' || terminal == '?') return trimmed
+
+    val cut = trimmed.indexOfLast { it == '.' || it == '!' || it == '?' }
+    if (cut < 0) return trimmed
+    return trimmed.substring(0, cut + 1).trim().ifEmpty { trimmed }
+}
+
 class DefaultGameSummaryOrchestrator(
     private val executor: AiRouteExecutor,
     private val contextProvider: suspend () -> AiContextSnapshot = DefaultContextProvider,
@@ -94,7 +118,10 @@ class DefaultGameSummaryOrchestrator(
             return fallback(request, AiRoutePolicyDecider.FallbackReason.Validation)
         }
 
-        return success(outcome.rawText, outcome.metrics)
+        val text = trimIncompleteSummaryTail(outcome.rawText)
+        if (text.isBlank()) return fallback(request, AiRoutePolicyDecider.FallbackReason.Validation)
+
+        return success(text, outcome.metrics)
     }
 
     private suspend fun collectGenerate(
