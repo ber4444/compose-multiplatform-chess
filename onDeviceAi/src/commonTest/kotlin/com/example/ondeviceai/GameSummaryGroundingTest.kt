@@ -42,7 +42,7 @@ class GameSummaryGroundingTest {
     )
 
     private fun turningPoints(history: List<MoveRecord>) =
-        GameSummaryPromptBuilder.extractTurningPoints(history, Set.WHITE, "MEDIUM")
+        GameSummaryPromptBuilder.extractTurningPoints(history, Set.WHITE, "MEDIUM").map(GameSummaryPromptBuilder::render)
 
     @Test
     fun `composes the turning points instead of apologising`() {
@@ -103,7 +103,7 @@ class GameSummaryGroundingTest {
             val text = GameSummaryGrounding.compose(
                 GameSummaryPromptBuilder.extractTurningPoints(
                     listOf(classedAt("Qh5", 55, moveClass)), Set.WHITE, "HARD",
-                ),
+                ).map(GameSummaryPromptBuilder::render),
             )
             assertTrue("a inaccuracy" !in text, "$moveClass: $text")
             assertTrue("a good." !in text, "$moveClass: $text")

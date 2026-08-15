@@ -112,8 +112,8 @@ class DefaultGameSummaryOrchestrator(
             is CollectResult.Completed -> result.outcome
         }
 
-        // For the summary, we don't have a complex validation step like MoveCoach response validation.
-        // As long as we got text, we accept it.
+        // Validates output against citations, coverage, piece types, voice, and class fidelity.
+        // On validation failure, emit the deterministic summary immediately with no retry.
         if (outcome.rawText.isBlank()) {
             return fallback(request, AiRoutePolicyDecider.FallbackReason.Validation)
         }
@@ -121,7 +121,13 @@ class DefaultGameSummaryOrchestrator(
         val text = trimIncompleteSummaryTail(outcome.rawText)
         if (text.isBlank()) return fallback(request, AiRoutePolicyDecider.FallbackReason.Validation)
 
-        return success(text, outcome.metrics)
+        return when (val validation = GameSummaryResponseValidator.validate(text, request)) {
+            is GameSummaryResponseValidator.Result.Valid -> success(validation.text, outcome.metrics)
+            is GameSummaryResponseValidator.Result.Invalid -> {
+                logger.w { "Game summary output failed validation: ${validation.reason}" }
+                fallback(request, AiRoutePolicyDecider.FallbackReason.Validation)
+            }
+        }
     }
 
     private suspend fun collectGenerate(
@@ -191,7 +197,7 @@ class DefaultGameSummaryOrchestrator(
             request.playerSide,
             request.engineDifficultyName,
         )
-        return complete(GameSummaryResult.FellBack(GameSummaryGrounding.compose(turningPoints), reason))
+        return complete(GameSummaryResult.FellBack(GameSummaryGrounding.compose(turningPoints.map(GameSummaryPromptBuilder::render)), reason))
     }
 
     private fun success(

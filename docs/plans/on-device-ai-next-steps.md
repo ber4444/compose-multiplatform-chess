@@ -20,9 +20,30 @@ Two facts drive everything here:
 
 ---
 
-## Task 1 — Write `GameSummaryResponseValidator`
+## Task 1 — Write `GameSummaryResponseValidator` — **DONE**
 
 **Why first:** it is the gate for Task 2, and it improves a surface that is already live on iOS.
+
+**Shipped:** `validateCitationSet`, `validateCitationCoverage`, `validateMoveAttribution`,
+`validateVoice`, `validatePieceType`. Measured over the 50-game corpus, it accepts **37 of 43**
+AICore summaries and rejects **42 of 50** Foundation Models ones.
+
+**Two rules from the list below were built, measured, and removed.** Both passed their own unit
+tests and produced **zero true positives against 43 real summaries**:
+
+- **`validateClassFidelity`** — no way to see negation, so it rejected *"While these aren't huge
+  blunders…"* and *"[move-17] with Qc2 wasn't a blunder"*; and its per-tag text segmentation ran to
+  the next `[move-N]`, so the last citation swallowed the closing paragraph and matched *"focusing on
+  those moments of inaccuracy"*. Severity paraphrase is a judgement about a clause, and matching
+  words in a window is not that.
+- **The best-move-described-as-played branch** of `validateMoveAttribution` — it required the
+  engine's move to appear *after* "instead of", so the standard counterfactual *"opting for e4
+  instead of Nd2 would have been a stronger choice"* was rejected on six summaries.
+
+Between them they took acceptance on known-good Android output down to **58%**, which would have
+meant one summary in two costing a 12 s wait and then showing the composed text anyway. The lesson
+is in `GameSummaryValidatorFieldTest`: a rule is not implemented until it has been run against
+output nobody wanted it to reject.
 
 ### 1a. Make the turning points structured
 
@@ -63,16 +84,23 @@ Rules, in the order they should be checked, each with the observed failure that 
    **and** claims a count that disagrees ("I made two significant mistakes" listing 2 of 3), or cites
    none at all. Foundation Models produced no citation in 9 of 12 answers despite the system prompt
    requiring them; AICore covered 1 of 3 turning points once.
-3. **`validateMoveAttribution`** — every SAN token in the text must be either a played move or the
-   `bestMoveSan` of some turning point, and a `bestMoveSan` must not be described as one the player
-   played. *(First run: "opting for Qc4 and cxd4 respectively", where cxd4 was the engine's choice.)*
-   The coach's `validateBetterMoveAttribution` is the model for this.
-4. **`validateClassFidelity`** — a ply's `MoveClass` must not be restated as a different severity.
-   *(AICore called a MISTAKE "a significant inaccuracy".)* Compare against a small synonym table;
-   keep it in the validator, not in `ConceptVocabulary`, which belongs to `:evals`.
+3. **`validateMoveAttribution`** — a move token in the text must be a played move or the
+   `bestMoveSan` of some turning point, and a causal claim about the engine's move is invention
+   because the facts never say *why* it was better. The coach's `validateBetterMoveAttribution` is
+   the model for this. **Only unambiguous move tokens are checked** — piece moves, captures, castles,
+   promotions — because the bare-pawn form is indistinguishable from prose naming a square, and
+   rejected a correct summary for *"Sacrificing the Bishop on g6"*. The cost is that an invented pawn
+   move goes unflagged; the alternative rejected true sentences. The "described as played by the
+   player" half of this rule was built and removed — see the Task 1 header.
+4. ~~**`validateClassFidelity`**~~ — **built and removed.** It was meant to catch AICore calling a
+   MISTAKE "a significant inaccuracy". A window of words around a tag cannot tell that apart from a
+   negation or a closing sentence, and it never once fired on a real misdescription. Do not
+   reintroduce it without a way to read the clause, not the window.
 5. **`validateVoice`** — reject first person singular ("I played", "my mistake"). *(Foundation
    Models writes the summary as the player: "I made two significant mistakes in this game.")* See the
-   caveat under Task 2 before relying on this one.
+   caveat under Task 2 before relying on this one. **"we"/"our" are allowed** — AICore writes "we
+   could have played more precisely", which is a coach speaking *with* the player, not as them — and
+   so is "me", so that "let me break this down" is not a rejection.
 6. **`validatePieceType`** — reuse the coach's rule verbatim if it can be lifted; it catches
    "a blunder that weakened your pawn structure" only when a piece noun is wrong, which it is not
    here, so **do not claim it covers structural decoration**. Structural claims ("weakened your pawn
@@ -92,13 +120,24 @@ result becomes `fallback(request, FallbackReason.Validation)`. Note the existing
 **No retry.** `DefaultAiCoachOrchestratorTest` pins `generateCount == 1` for the coach and this
 surface must match: a validation failure emits the deterministic summary immediately.
 
-### 1d. Tests
+### 1d. Tests — two halves, and the second one is the one that matters
 
-`GameSummaryResponseValidatorTest` in `commonTest`, one case per rule, plus **replay the real
-outputs**: `docs/benchmarks/on-device-ai/game-summary-2026-08.md` quotes the accepted and the flawed
-ones, and `build/bench/summary-*.jsonl` from a run has the rest. A rule that does not fire on the
-output that motivated it is not implemented. Add the accepted AICore summaries as cases that must
-stay `Valid` — that is the half that catches an over-strict rule.
+`GameSummaryResponseValidatorTest` (`commonTest`) pins the shape of each rule: one case that must be
+rejected, and for the rules that replaced a broken one, the phrasing that must **not** be.
+
+`GameSummaryValidatorFieldTest` (`desktopTest`) is the half that catches an over-strict rule, and the
+half that was missing the first time. It replays
+`desktopTest/resources/game-summary-field-corpus.jsonl` — 43 AICore and 20 Foundation Models
+summaries from the 50-game run, each carrying the turning points the device computed — and asserts:
+
+- Android acceptance stays at or above **85%**;
+- **the only reason it ever rejects an AICore summary is incomplete coverage** — any other rejection
+  fails the build and names the summary, because on this corpus every other reason has been a bug;
+- at least 60% of the Foundation Models rows are rejected;
+- no accepted summary anywhere cites a ply that is not a turning point.
+
+Regenerate the corpus from a fresh run rather than editing it: a corpus edited to make a rule pass
+measures the rule against itself.
 
 ---
 

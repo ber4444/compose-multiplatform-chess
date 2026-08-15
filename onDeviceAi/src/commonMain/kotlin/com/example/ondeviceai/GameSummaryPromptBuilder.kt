@@ -34,7 +34,7 @@ internal object GameSummaryPromptBuilder {
         } else {
             userPromptBuilder.append("Turning points in this game:\n")
             turningPoints.forEach { tp ->
-                userPromptBuilder.append(tp).append("\n")
+                userPromptBuilder.append(render(tp)).append("\n")
             }
             userPromptBuilder.append("\nSummarize these mistakes:")
         }
@@ -69,14 +69,23 @@ internal object GameSummaryPromptBuilder {
     private const val NO_REPEAT_NGRAM = 8
 
     /**
-     * The turning points, already written as finished sentences.
-     *
-     * `internal` rather than private because [GameSummaryGrounding] composes the same list into the
-     * answer itself. These were only ever *prompt input* — a model was asked to paraphrase them and,
-     * if it could not, the user got "No summary available" instead of the very sentences that were
-     * sitting right here.
+     * Structured turning point carrying the facts needed by [GameSummaryResponseValidator] and [render].
      */
-    internal fun extractTurningPoints(moveHistory: List<MoveRecord>, playerSide: Set, difficulty: String): List<String> {
+    internal data class TurningPoint(
+        val ply: Int,
+        val san: String,
+        val moveClass: MoveClass,
+        val bestMoveSan: String?,
+        val intuition: String = "",
+    )
+
+    /**
+     * Extracts the turning points from the move history as structured [TurningPoint] records.
+     *
+     * `internal` rather than private because [GameSummaryGrounding] and [GameSummaryResponseValidator]
+     * consume the facts directly.
+     */
+    internal fun extractTurningPoints(moveHistory: List<MoveRecord>, playerSide: Set, difficulty: String): List<TurningPoint> {
         val threshold = when (difficulty) {
             "EASY" -> 300 // BLUNDER only
             "MEDIUM" -> 100 // MISTAKE and BLUNDER
@@ -99,9 +108,23 @@ internal object GameSummaryPromptBuilder {
         return topMistakes.sortedBy { it.first }.map { (ply, record) ->
             val assessment = record.assessment!!
             val intuition = mapToIntuition(assessment, playerSide)
-            val better = assessment.bestMoveSan?.takeIf { it.isNotBlank() }?.let { " The engine preferred $it." } ?: ""
-            "[move-$ply]: You played ${record.san}. This was ${classPhrase(assessment.moveClass)}.$better $intuition"
+            TurningPoint(
+                ply = ply,
+                san = record.san,
+                moveClass = assessment.moveClass,
+                bestMoveSan = assessment.bestMoveSan?.takeIf { it.isNotBlank() },
+                intuition = intuition,
+            )
         }
+    }
+
+    /**
+     * Renders a [TurningPoint] into a finished summary sentence.
+     */
+    internal fun render(tp: TurningPoint): String {
+        val better = tp.bestMoveSan?.takeIf { it.isNotBlank() }?.let { " The engine preferred $it." } ?: ""
+        val intuitionPart = if (tp.intuition.isNotBlank()) " ${tp.intuition}" else ""
+        return "[move-${tp.ply}]: You played ${tp.san}. This was ${classPhrase(tp.moveClass)}.$better$intuitionPart"
     }
 
     /**

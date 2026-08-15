@@ -932,9 +932,11 @@ object ScorecardWriter {
             fallback = "100.0%", lengthViolation = "100.0%",
             note = "Pixel 10 Pro XL, Gemini Nano via AICore developer preview, 2026-07-31 — " +
                 "TTFT ~170 ms, complete ~500 ms, ~125 MB peak. Every case is grounded and rejected " +
-                "on length: the model emits correct coaching text, then repeats it verbatim " +
-                "(314 chars against a 300 cap). A repetition loop, not a quality failure — the " +
-                "length gate fires first and masks that",
+                "on length. **The \"repetition loop\" recorded here was ours, not the model's**: " +
+                "`MlKitPromptGenerator` emitted the accumulated answer on its terminal `Final` event " +
+                "*and* streamed it as `Token`s, and every orchestrator appended both into one buffer, " +
+                "so the answer was concatenated with itself. 314 chars against a 300 cap is one " +
+                "157-char answer doubled. Fixed 2026-08; re-measure before trusting this row's reject rate",
         ),
         ManualRow(
             route = "foundation-models-ios",
