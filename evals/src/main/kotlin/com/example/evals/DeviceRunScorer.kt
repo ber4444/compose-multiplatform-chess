@@ -21,8 +21,11 @@ import java.nio.file.Path
  * grounding column *is* `MoveCoachResponseValidator`, which the orchestrator ran on-device per row;
  * a veto is recorded as `fallbackTriggered` with a `model output failed validation` reason. So this
  * scorer's job is not to recompute that verdict but to reproduce it — [DeviceRunReport.disagreements]
- * is empty when it does. A non-empty list means the row's recorded facts no longer rebuild the
- * request the device validated against, i.e. the JSONL schema and the runner have drifted.
+ * is empty when it does. A non-empty list has two possible causes and they want opposite responses:
+ * either the row's recorded facts no longer rebuild the request the device validated against (drift
+ * — the numbers are not the device's and the run should be repeated), or a validator rule has been
+ * added since the run, in which case the disagreement is the measurement of that rule against real
+ * recorded output and no re-run is needed to read it.
  *
  * What it adds on top is the column the device cannot produce: the same score for
  * `deterministicExplanation`, so "does the model beat the deterministic layer" is one file and one

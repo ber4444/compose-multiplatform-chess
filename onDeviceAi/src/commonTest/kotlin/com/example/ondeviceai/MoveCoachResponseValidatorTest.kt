@@ -559,4 +559,82 @@ class MoveCoachResponseValidatorTest {
             ),
         )
     }
+
+    // The prompt supplies the engine's preferred move and never why it is preferred, so a reason
+    // attached to it is invented. Verbatim from a nano-v3 run of 2026-08-15 (opening-001), where
+    // `develops` described the move *played* and every other gate passed it.
+    private val inaccuracy = request.copy(
+        moveUci = "g1h3",
+        moveDisplay = "Nh3",
+        deterministicExplanation = "It drops your winning chances by 7%. e4 was stronger.",
+        moveClassName = "INACCURACY",
+        motifs = listOf("develops"),
+        betterMoveDisplay = "e4",
+    )
+
+    @Test
+    fun `rejects a reason attributed to the engine's preferred move`() {
+        val result = MoveCoachResponseValidator.validate(
+            "Nh3 isn't the strongest move here. The engine thought e4 would have been a better " +
+                "choice instead, because it develops a piece.",
+            inaccuracy,
+        )
+        assertIs<MoveCoachResponseValidator.Result.Invalid>(result)
+    }
+
+    @Test
+    fun `naming the better move without explaining it stays valid`() {
+        assertIs<MoveCoachResponseValidator.Result.Valid>(
+            MoveCoachResponseValidator.validate(
+                "Nh3 develops the knight, but it drops your winning chances by 7%. e4 was stronger.",
+                inaccuracy,
+            ),
+        )
+    }
+
+    /** A sentence naming both moves may attach its reason to the one the user played. */
+    @Test
+    fun `a reason in a sentence naming both moves is allowed`() {
+        assertIs<MoveCoachResponseValidator.Result.Valid>(
+            MoveCoachResponseValidator.validate(
+                "Nh3 is worth less than e4 here because it develops toward the rim.",
+                inaccuracy,
+            ),
+        )
+    }
+
+    // A move opens a file by leaving it. Verbatim shape from the same run (opening-016): motifs
+    // said only `pawn-push`, and no other rule could see the claim because no piece was named.
+    @Test
+    fun `rejects opening a file the move never left`() {
+        val result = MoveCoachResponseValidator.validate(
+            "h3 is a strong move. It opens up the h-file and gives your pieces room.",
+            request.copy(moveUci = "h2h3", moveDisplay = "h3", motifs = listOf("pawn-push")),
+        )
+        assertIs<MoveCoachResponseValidator.Result.Invalid>(result)
+    }
+
+    @Test
+    fun `a capture that leaves the file may claim to open it`() {
+        assertIs<MoveCoachResponseValidator.Result.Valid>(
+            MoveCoachResponseValidator.validate(
+                "hxg3 takes the pawn and opens the h-file.",
+                request.copy(
+                    moveUci = "h4g3",
+                    moveDisplay = "hxg3",
+                    motifs = listOf("capture"),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `a file claim about a move with no better move or capture is still checked`() {
+        assertIs<MoveCoachResponseValidator.Result.Invalid>(
+            MoveCoachResponseValidator.validate(
+                "Nf3 develops the knight and opens the a-file.",
+                request,
+            ),
+        )
+    }
 }

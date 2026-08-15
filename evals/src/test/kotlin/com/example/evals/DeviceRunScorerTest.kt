@@ -31,16 +31,24 @@ class DeviceRunScorerTest {
     }
 
     /**
-     * The load-bearing one. The device already ran this validator; a disagreement means the row's
-     * recorded facts no longer rebuild the request it validated against, so every quality number is
-     * scored against a different prompt than the one that shipped.
+     * The load-bearing one, and it has exactly two ways to fail. A disagreement means either the
+     * row's recorded facts no longer rebuild the request the device validated against — drift, and
+     * every quality number is then scored against a different prompt than the one that shipped — or
+     * a validator rule has been added since the run, in which case the disagreement *is* the
+     * measurement of that rule against real recorded output.
+     *
+     * `opening-003` is the second kind's control: vetoed on the device and still vetoed here.
+     * `opening-001` is the first row `validateBetterMoveAttribution` newly rejects — the device
+     * accepted *"the engine thought e4 would have been a better choice … because it develops a
+     * piece"* because no rule then covered attribution. On the full run this rule accounts for 7 of
+     * the 8 newly-rejected rows, and rejects nothing in the deterministic column.
      */
     @Test
-    fun `reproduces the device's own validator verdict`() {
+    fun `agrees with the device except where a rule was added since the run`() {
         val report = report()
-        assertTrue(report.disagreements.isEmpty(), "disagreed on ${report.disagreements}")
+        assertEquals(listOf("opening-001"), report.disagreements)
         assertEquals(2, report.scored)
-        assertEquals(1, report.modelGrounded)
+        assertEquals(0, report.modelGrounded)
     }
 
     /**

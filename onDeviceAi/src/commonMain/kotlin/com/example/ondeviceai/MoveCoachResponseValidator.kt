@@ -111,6 +111,16 @@ object MoveCoachResponseValidator {
             return Result.Invalid(pieceTypeError)
         }
 
+        val attributionError = validateBetterMoveAttribution(fitted, request)
+        if (attributionError != null) {
+            return Result.Invalid(attributionError)
+        }
+
+        val fileClaimError = validateFileClaim(fitted, request)
+        if (fileClaimError != null) {
+            return Result.Invalid(fileClaimError)
+        }
+
         return Result.Valid(fitted)
     }
 
@@ -145,6 +155,103 @@ object MoveCoachResponseValidator {
             return "unsupported claim: capture/material"
         }
 
+        return null
+    }
+
+    /** Connectives that introduce a *reason*. Deliberately not "which"/"that" — those introduce a
+     * comparison ("e4, which was stronger"), which the facts do support. */
+    private val CAUSAL_MARKERS = listOf(
+        "because", "since ", "as it ", "as this ", "in order to", "so that", "due to",
+    )
+
+    /**
+     * Rejects an explanation of the move the *engine* preferred.
+     *
+     * The prompt supplies `betterMoveDisplay` as a bare move and no reason for it — the assessment
+     * knows the engine chose it, never why. So any causal clause about that move is invented by
+     * construction, and the shape it takes is a motif belonging to the played move being reattached
+     * to the better one. Measured on-device (nano-v3, 2026-08-15): the facts carried motif
+     * `develops` for the played `Nh3`, and the answer was *"The engine thought e4 would have been a
+     * better choice instead, because it develops a piece"* — e4 develops nothing, and every other
+     * gate passed it. Both `validateReasonFaithfulness` and ferryman's independent tag scorer are
+     * blind to it: the concept *is* supplied, so a bag-of-concepts check sees no invention. Only
+     * attribution distinguishes them.
+     *
+     * Scoped to a sentence that names the better move and **not** the move played: a sentence naming
+     * both can attach its reason to either, and rejecting that would throw away answers that
+     * correctly explain the user's own move while mentioning the alternative.
+     */
+    internal fun validateBetterMoveAttribution(text: String, request: MoveCoachRequest): String? {
+        val better = request.betterMoveDisplay?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: return null
+        val played = request.moveDisplay.trim().lowercase()
+        for (sentence in splitSentences(text)) {
+            val lower = sentence.lowercase()
+            if (!containsMoveToken(lower, better)) continue
+            if (played.isNotEmpty() && containsMoveToken(lower, played)) continue
+            if (CAUSAL_MARKERS.any { lower.contains(it) }) {
+                return "explains why the engine's move was better, which the facts do not say"
+            }
+        }
+        return null
+    }
+
+    /**
+     * True when [move] appears in [text] as a move rather than inside another word — "e4" must not
+     * match "e4xd5" here, and "b4" must not match "b40". Plain scan rather than a regex, for the
+     * same portability reason [normalize] documents.
+     */
+    private fun containsMoveToken(text: String, move: String): Boolean {
+        if (move.isEmpty()) return false
+        var index = text.indexOf(move)
+        while (index >= 0) {
+            val before = text.getOrNull(index - 1)
+            val after = text.getOrNull(index + move.length)
+            val boundedBefore = before == null || !before.isLetterOrDigit()
+            val boundedAfter = after == null || !after.isLetterOrDigit()
+            if (boundedBefore && boundedAfter) return true
+            index = text.indexOf(move, index + 1)
+        }
+        return false
+    }
+
+    /**
+     * Rejects an unsupported claim that the move opened a file.
+     *
+     * A move opens a file only by leaving it — a capture off the file, or a piece vacating it. A
+     * pawn advancing *along* its own file does the opposite. Measured on-device: motifs said only
+     * `pawn-push`, the move was `h3`, and the answer claimed *"h3 … opens up the h-file"*, which no
+     * rule caught because no piece was named and no capture claimed. `hxg3` making the same claim is
+     * supported and must keep passing.
+     *
+     * Only the claim's own file is checked; a claim naming no file is left alone.
+     */
+    internal fun validateFileClaim(text: String, request: MoveCoachRequest): String? {
+        val lower = text.lowercase()
+        val claimedFile = claimedOpenFile(lower) ?: return null
+        val uci = request.moveUci.lowercase()
+        if (uci.length < 4) return null
+        val fromFile = uci[0]
+        val toFile = uci[2]
+        // Supported when the mover leaves the file it is claimed to open, or when the assessment
+        // already reports material changing hands there.
+        val leavesFile = fromFile == claimedFile && toFile != claimedFile
+        val capturedOnIt = request.moveDisplay.contains("x") && toFile == claimedFile
+        if (leavesFile || capturedOnIt) return null
+        return "unsupported claim: opens the $claimedFile-file"
+    }
+
+    /** The file letter in an "opens (up) the X-file" claim, or null when the text makes no such claim. */
+    private fun claimedOpenFile(lower: String): Char? {
+        for (opener in listOf("opens the ", "opens up the ", "opening the ", "opened the ")) {
+            var index = lower.indexOf(opener)
+            while (index >= 0) {
+                val rest = lower.substring(index + opener.length)
+                if (rest.length >= 6 && rest[0] in 'a'..'h' && rest.startsWith("${rest[0]}-file")) {
+                    return rest[0]
+                }
+                index = lower.indexOf(opener, index + 1)
+            }
+        }
         return null
     }
 
