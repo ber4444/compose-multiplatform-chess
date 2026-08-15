@@ -246,21 +246,58 @@ reaches the validators cleanly. Three raw outputs:
 | "The center is the heart of chess. It's where pieces move and overall strategy matters." | passed |
 | "Alright, let's get to it!" | rejected — no chess grounding |
 
-The rejection is the validator working. The two *passes* are the finding, and they are not good news
-for attaching this model: neither says anything about the move that was played. "This controls the
-center" is true of a large fraction of opening moves, and "the center is the heart of chess" is a
-definition, not an assessment. Compare what `DeterministicCoach` already emits for the same ply,
-grounded in the recorded `MoveAssessment` — a named motif, a centipawn delta, and the stronger
-alternative from `bestMoveSan`.
+The rejection is the validator working. The two *passes* look like generic waffle — neither says
+anything about the move played. It is tempting to read that as a verdict on nano-v3. **It is not, and
+this harness cannot produce one, for a reason that has nothing to do with the device.**
 
-This is the same shape as the `gemma3-1b` result higher up this page — "5–20 s on generic waffle" —
-except nano-v3 produces its waffle in three seconds and passes the grounding rule while doing it.
-Speed was never the reason the Android coach is deterministic; **specificity** was, and this run does
-not yet overturn it. What it does establish is that the runtime is viable, the client is correct, and
-the remaining question is a prompt-and-evidence question rather than a device question. Before
-attaching this to the app, run the full golden set and score it against the deterministic baseline on
-grounding, not on fluency — `MoveCoachPromptBuilder` currently hands the model the assessment facts,
-and whether nano-v3 uses them or talks around them is exactly what these three samples leave open.
+`AndroidBenchRunner` builds every golden request like this (`AndroidBenchRunner.kt:42-48`):
+
+```kotlin
+MoveCoachRequest(
+    moveUci = bestMoveUci,
+    moveDisplay = moveDisplay,
+    deterministicHeadline = "You played $moveDisplay.",
+    deterministicExplanation = "This was a strong move.",
+    engineDifficultyName = "Hard",
+)
+```
+
+`moveClassName`, `motifs`, `winPercentLost` and `betterMoveDisplay` all default to null/empty, and
+the baseline explanation is a hardcoded placeholder. `MoveCoachPromptBuilder.userPrompt` emits each
+fact line only when its field is set, so the entire prompt the model actually receives is:
+
+```
+The player just played Nh3.
+Baseline explanation: "This was a strong move."
+
+Using only the facts above, tell the player in 1-2 short, conversational sentences
+why Nh3 was that good or bad. Do not invent other moves, squares, or evaluations.
+```
+
+No engine assessment, no motifs, no better move, no win-percentage delta — and an explicit
+instruction not to invent any. The model is asked to be specific about a position it has been told
+nothing about, and forbidden from filling the gap. "This controls the center." is close to the best
+available answer to that prompt.
+
+So the three samples measure the harness, not the model, and the same is true of every earlier
+`aicore-nano-fast` and `cactus-android` row on this page — they all ran through this constructor.
+This is the third time this file has recorded a conclusion about a model that turned out to be a
+defect in the code around it (see the duplication above, and "four causes, none of them the model" in
+`CLAUDE.md`). The pattern is consistent enough to be worth stating as a rule: **before attributing an
+output's shape to the model, print the prompt that produced it.**
+
+**What an informative run needs.** The bench has to build its fixtures the way the app does: run the
+on-device Stockfish over each golden FEN, feed `MoveAssessor` + `MotifDetector`, and populate
+`moveClassName` / `motifs` / `winPercentLost` / `betterMoveDisplay` plus real `DeterministicCoach`
+text — the same work `runIdleAnalysis` and `GameHistoryBackfiller` already do. Stockfish is vendored
+on the device, so this is a harness change, not new capability. `BenchResult` should also carry a
+flag recording whether the facts were populated, so a placeholder run can never again be mistaken for
+a measurement.
+
+Only then is the comparison meaningful, and it should be scored with `EvalScorer.scoreMove` against
+each case's `expectedConcepts` (all 100 cases in `evals/golden/candidates.json` carry them), with
+`DeterministicCoach`'s own output scored as the baseline column. Until that exists, the honest state
+is: **the runtime is viable, the client is correct, and the quality question is untested.**
 
 ---
 
