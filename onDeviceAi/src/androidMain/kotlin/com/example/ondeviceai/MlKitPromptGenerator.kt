@@ -148,6 +148,12 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
     }.withAntiRepetitionGuard(
         // The other streaming backends chain this; ML Kit was the one that did not, so it had
         // neither of the two nets that would have caught the duplication.
+        //
+        // Post-hoc is the only option, and that is measured rather than assumed:
+        // GenerateContentRequest.Builder (genai-prompt:1.0.0-beta4) exposes temperature/seed/topK/
+        // candidateCount/maxOutputTokens/promptPrefix/cachedContextName/enableThinking — no
+        // repetition or frequency penalty, no n-gram block, and no stop-sequence setter. Neither do
+        // the other three runtimes' samplers. See b15-generation-side-repetition-2026-08.md.
         ngramSize = request.noRepeatNgramSize,
         stopSequences = request.stopSequences,
     )

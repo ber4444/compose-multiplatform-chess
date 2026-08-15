@@ -157,9 +157,19 @@ self.onmessage = async (e) => {
       // LiteRT-LM JS conversation API: the system instruction is part of the
       // conversation config (`preface.messages`), not a separate setSystemPrompt
       // call. A fresh conversation per generate() keeps move-coach turns independent.
-      const conversationConfig = msg.systemPrompt
-        ? { preface: { messages: [{ role: 'system', content: msg.systemPrompt }] } }
-        : {};
+      // sessionConfig.samplerParams only exposes temperature/topK/topP/seed (checked
+      // against @litert-lm/core@0.14.0's SamplerParameters — no repetition/frequency
+      // penalty field exists there), so temperature is the only sampler knob this
+      // request can actually carry through.
+      const conversationConfig = {
+        sessionConfig: {
+          samplerParams: { temperature: Number(msg.temperature) },
+          maxOutputTokens: Number(msg.maxTokens),
+        },
+      };
+      if (msg.systemPrompt) {
+        conversationConfig.preface = { messages: [{ role: 'system', content: msg.systemPrompt }] };
+      }
       conversation = await engine.createConversation(conversationConfig);
       let first = true;
       for await (const chunk of conversation.sendMessageStreaming(msg.userPrompt)) {
