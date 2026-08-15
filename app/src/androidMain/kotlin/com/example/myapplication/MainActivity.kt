@@ -141,24 +141,26 @@ class MainActivity : ComponentActivity() {
      *    `checkStatus()` round trip on every coached move; thermal and quota conditions, which do
      *    change per request, are the decider's own inputs and are unaffected.
      *
-     * Off today, and the two surfaces have different reasons — see
-     * `docs/benchmarks/on-device-ai/game-summary-2026-08.md`. Flipping it on attaches both.
+     * Both flags are off today, for different reasons — see the constants and
+     * `docs/benchmarks/on-device-ai/game-summary-2026-08.md`.
      */
     private fun attachOnDeviceAi() {
-        if (!ATTACH_ON_DEVICE_AI) {
-            // Not "no model, no summary": the composed turning points are a complete answer.
-            holder.gameSummaryManager.enableDeterministic()
-            return
-        }
+        // Unconditional, and *before* the probe. Not "no model, no summary": the composed turning
+        // points are a complete answer, and doing this first means the button is live from the first
+        // frame instead of after a probe that may await an AICore feature download. When a model is
+        // attached below it takes over; `deterministicEnabled` only applies while the orchestrator
+        // is null, so the two cannot fight.
+        holder.gameSummaryManager.enableDeterministic()
+
+        if (!ATTACH_GAME_SUMMARY && !ATTACH_MOVE_COACH) return
 
         CoroutineScope(Dispatchers.IO).launch {
             val vendors = com.example.ondeviceai.probeAvailableLocalVendors()
             Logger.i("MainActivity") { "on-device vendors: $vendors" }
-            if (vendors.isEmpty()) {
-                // Every emulator, and every device without an AICore feature for this model.
-                holder.gameSummaryManager.enableDeterministic()
-                return@launch
-            }
+            // Every emulator, and every device without an AICore feature for this model. The
+            // deterministic summary above already stands, and the coach renders DeterministicCoach
+            // with no orchestrator, so there is nothing further to do.
+            if (vendors.isEmpty()) return@launch
 
             val executor = com.example.ondeviceai.VendorRouteExecutor()
             val contextProvider: suspend () -> com.example.ondeviceai.AiContextSnapshot = {
@@ -169,18 +171,22 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            holder.gameSummaryManager.attachOrchestrator(
-                com.example.ondeviceai.DefaultGameSummaryOrchestrator(
-                    executor = executor,
-                    contextProvider = contextProvider,
-                ),
-            )
-            holder.moveCoachManager.attachCoachOrchestrator(
-                com.example.ondeviceai.DefaultAiCoachOrchestrator(
-                    executor = executor,
-                    contextProvider = contextProvider,
-                ),
-            )
+            if (ATTACH_GAME_SUMMARY) {
+                holder.gameSummaryManager.attachOrchestrator(
+                    com.example.ondeviceai.DefaultGameSummaryOrchestrator(
+                        executor = executor,
+                        contextProvider = contextProvider,
+                    ),
+                )
+            }
+            if (ATTACH_MOVE_COACH) {
+                holder.moveCoachManager.attachCoachOrchestrator(
+                    com.example.ondeviceai.DefaultAiCoachOrchestrator(
+                        executor = executor,
+                        contextProvider = contextProvider,
+                    ),
+                )
+            }
         }
     }
 
@@ -240,26 +246,38 @@ class MainActivity : ComponentActivity() {
         private const val SYSTEM_BAR_SCRIM = 0x66000000
 
         /**
-         * Whether ML Kit / AICore is attached to the Move Coach and Game Summary. **Off.**
+         * Whether ML Kit / AICore writes the Move Coach panel. **Off, and decided.**
          *
-         * Not an omission and not the same reason per surface:
+         * `nano-v3` passes `MoveCoachResponseValidator` on 95/100 golden positions against ~89 for
+         * `DeterministicCoach`, but a hand read finds invention the validator cannot catch — a motif
+         * belonging to the played move reattached to the engine's preferred move, an invented
+         * "opens up the h-file" — and it takes ~4.4 s to say what the deterministic line says
+         * instantly. The panel is latency-bound and the deterministic text is already true, so
+         * faster-and-more-fluent is not a reason to attach it.
          *
-         *  - **Move Coach** — decided against. `nano-v3` passes `MoveCoachResponseValidator` on
-         *    95/100 golden positions against ~89 for `DeterministicCoach`, but a hand read finds
-         *    invention the validator cannot catch (a motif belonging to the played move reattached
-         *    to the engine's preferred move, an invented "opens up the h-file"), and it takes ~4.4 s
-         *    to say what the deterministic line says instantly. The panel is latency-bound and the
-         *    deterministic text is already true.
-         *  - **Game Summary** — open, and the case is much stronger. With the prompt's raw PGN
-         *    removed and `noRepeatNgramSize` widened, AICore went from 7/12 to **12/12** on the
-         *    2026-08 fixtures, ~12 s, citing exactly the code-chosen turning points — the best
-         *    on-device output measured on this project. What still argues against flipping this is
-         *    that the surface has **no response validator at all**, so the residual decoration
-         *    ("weakened your pawn structure" about a knight move) reaches the user unchallenged.
-         *
-         * Flipping it to `true` attaches both; split it in two before attaching only one.
+         * Reopening this means covering motif attribution and file/diagonal claims in the validator
+         * first; that rule is the gate. See
+         * `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md`.
          */
-        private const val ATTACH_ON_DEVICE_AI = false
+        private const val ATTACH_MOVE_COACH = false
+
+        /**
+         * Whether ML Kit / AICore writes the Game Summary. **Off, and open** — a different question
+         * from [ATTACH_MOVE_COACH], which is why these are two constants and not one.
+         *
+         * With the prompt's raw PGN removed and `noRepeatNgramSize` widened, AICore went from 7/12
+         * to **12/12** on the 2026-08 fixtures at ~12 s, citing exactly the code-chosen turning
+         * points in 11 of 12 and inventing nothing — the best on-device output measured on this
+         * project. What holds it back is not quality: this surface has **no response validator at
+         * all**, so residual decoration ("a blunder that weakened your pawn structure", about a
+         * knight move) reaches the user unchallenged, and 12 games is a small sample for a surface
+         * where one bad summary is the entire answer.
+         *
+         * Flip it after the validator lands and a larger fixture set agrees — see
+         * `docs/plans/on-device-ai-next-steps.md`. The floor does not move when you do: a rejected
+         * summary falls back to `GameSummaryGrounding`, which is exactly what ships today.
+         */
+        private const val ATTACH_GAME_SUMMARY = false
     }
 }
 
