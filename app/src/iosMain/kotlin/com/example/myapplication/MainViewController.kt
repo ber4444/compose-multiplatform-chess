@@ -10,7 +10,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import platform.UIKit.UIViewController
-import com.example.myapplication.movecoach.MoveCoachUiState
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
@@ -30,15 +29,18 @@ import com.example.myapplication.share.iosPgnSharer
  * (StockfishChessEngine) and injected here, mirroring desktop Main.kt.
  * Pass null to play against the built-in CPU.
  *
- * Move Coach flow on iOS mirrors the Android UX: surface a [MoveCoachUiState.LoadingModel]
- * status immediately so the user can distinguish "warming up" / "checking Foundation Models"
- * from a genuinely-unavailable model. The probe runs off-thread; once it returns:
- *   - Available  → attach the orchestrator (next coached move drives Loading→Ready/Fallback)
- *   - Unavailable → surface [MoveCoachUiState.Unavailable] with an actionable hint
- *     (e.g. enable Apple Intelligence in Settings, or upgrade to iOS 26+)
+ * **The Move Coach takes no orchestrator here, and the probe no longer speaks for it.** iOS used to
+ * be the one platform that attached an on-device model to the coach; measuring Foundation Models
+ * against the same 100 golden positions as ML Kit, on identical prompts, ended that (2026-08-15 —
+ * see `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md`). It is much the faster and
+ * more fluent writer and the less truthful one, and the coach's job is to be true. So the coach is
+ * `DeterministicCoach` on every platform, which also means it is no longer a Pro surface — the
+ * paywall's feature list is keyed off `MoveCoachManager.hasOrchestrator` and drops that line by
+ * itself.
  *
- * Per plan §7 the Swift side registers a Foundation Models provider in iOSApp.swift.init
- * before this runs; the probe here exercises that provider to discover real availability.
+ * The probe still runs, for Game Summary and Rules Q&A. Per plan §7 the Swift side registers a
+ * Foundation Models provider in iOSApp.swift.init before this runs; the probe here exercises that
+ * provider to discover real availability.
  *
  * [filamentFactory] is implemented by the Swift app target and hosts the Metal-native Filament
  * renderer. Keeping it injected mirrors the Stockfish engine bridge while leaving the Kotlin
@@ -100,12 +102,13 @@ fun MainViewController(
     DisposableEffect(Unit) {
         viewModel.attachEngine(engine)
 
-        // Surface loading state IMMEDIATELY so the panel mounts with a clear
-        // "checking availability" message instead of staying Hidden through
-        // the probe window (which on first launch can take seconds).
-        moveCoachManager.setCoachModelState(
-            MoveCoachUiState.LoadingModel(message = "Checking Foundation Models availability…")
-        )
+        // The coach no longer waits on the probe, because it no longer depends on the answer: it
+        // renders `DeterministicCoach` either way (see the Available branch below). Leaving the old
+        // "Checking Foundation Models availability…" state here would strand the panel in it, since
+        // nothing attaches an orchestrator afterwards to clear it. The manager's default is Hidden,
+        // and the first coached move drives it from there.
+        //
+        // The probe still runs — Game Summary and Rules Q&A depend on it.
 
         val scope = CoroutineScope(Dispatchers.Main)
         scope.launch { entitlements?.refresh() }
@@ -113,8 +116,8 @@ fun MainViewController(
             val availability = probeFoundationModelsAvailability()
             when (availability) {
                 is AiAvailability.Available -> {
-                    // Attach the orchestrator; resets state to Hidden. Next coached
-                    // move drives Loading(move) → Ready/Fallback/Error.
+                    // Attaches Game Summary only — the coach's orchestrator is deliberately absent,
+                    // see below.
                     //
                     // CRITICAL: pass a contextProvider that reports
                     // isDeviceModelAvailable=true — the default context provider
@@ -131,12 +134,20 @@ fun MainViewController(
                         )
                     }
                     val executor = VendorRouteExecutor()
-                    moveCoachManager.attachCoachOrchestrator(
-                        DefaultAiCoachOrchestrator(
-                            executor = executor,
-                            contextProvider = contextProvider,
-                        )
-                    )
+                    // The Move Coach deliberately does **not** get an orchestrator, on this
+                    // platform or any other. Foundation Models was measured against the same 100
+                    // golden positions as ML Kit, on identical prompts, on 2026-08-15: 650 ms
+                    // median against 4.4 s and half the fluency violations, but 75/100 grounded
+                    // against 91, an LLM judge preferring the deterministic line 54-46, and a hand
+                    // read finding 5 of 8 sampled flags real — it calls an inaccuracy a mistake,
+                    // calls a best move bad, and offers the player's own hanging pawn as the reason
+                    // the move was good. Where it does not contradict the facts it usually repeats
+                    // the deterministic sentence verbatim. Faster and more fluent is not better
+                    // when the surface's job is to be true.
+                    //
+                    // `MoveCoachManager` renders `DeterministicCoach` with no orchestrator
+                    // attached, so the panel still answers instantly — see
+                    // docs/benchmarks/on-device-ai/android-model-latency-2026-08.md.
                     gameSummaryManager.attachOrchestrator(
                         DefaultGameSummaryOrchestrator(
                             executor = executor,
@@ -147,7 +158,9 @@ fun MainViewController(
                 else -> {
                     val reason = availabilityToHint(availability)
                     Logger.w("MainViewController") { "Foundation Models unavailable: $reason" }
-                    moveCoachManager.setCoachModelState(MoveCoachUiState.Unavailable(reason = reason))
+                    // Nothing to tell the coach panel: with no model on either branch it shows the
+                    // deterministic line, and an "unavailable" banner would report the absence of
+                    // something the user was never going to get.
                     gameSummaryManager.attachOrchestrator(null)
                 }
             }
