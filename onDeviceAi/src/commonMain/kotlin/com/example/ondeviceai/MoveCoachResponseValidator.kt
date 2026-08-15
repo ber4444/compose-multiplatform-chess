@@ -121,6 +121,11 @@ object MoveCoachResponseValidator {
             return Result.Invalid(fileClaimError)
         }
 
+        val weaknessOwnerError = validateWeaknessOwner(fitted, request)
+        if (weaknessOwnerError != null) {
+            return Result.Invalid(weaknessOwnerError)
+        }
+
         return Result.Valid(fitted)
     }
 
@@ -238,6 +243,47 @@ object MoveCoachResponseValidator {
         val capturedOnIt = request.moveDisplay.contains("x") && toFile == claimedFile
         if (leavesFile || capturedOnIt) return null
         return "unsupported claim: opens the $claimedFile-file"
+    }
+
+    /** Words for a piece that can be taken for free. */
+    private val WEAKNESS_WORDS = listOf("undefended", "unprotected", "hanging", "en prise", "loose piece")
+
+    /** Ways a text names the other player. */
+    private val OPPONENT_WORDS = listOf("opponent", "enemy", "their ", "theirs")
+
+    /**
+     * Rejects a weakness the facts assign to the player being handed to the opponent.
+     *
+     * `hangs-piece` always describes the mover's own piece — `MotifDetector` writes it as *"Your
+     * pawn on f5 is attacked and nothing defends it."* Measured on-device: with exactly that in the
+     * facts, the model wrote *"the move f5 is really strong because it creates a lot of problems for
+     * your opponent, like an undefended pawn"*, turning the player's own hanging pawn into the
+     * opponent's problem and the move into a good one. An LLM judge found it; no rule did, here or
+     * in ferryman — a bag-of-concepts check sees `undefended` supplied and passes.
+     *
+     * The test is ownership, not co-occurrence: *"Your knight on f5 is undefended, which gives your
+     * opponent a target"* names the opponent in the same sentence and is correct. So "your opponent"
+     * is neutralised first, and what remains decides — a surviving "your" before the weakness word
+     * means the player owns it, an opponent word before it means they do. Neither, and the sentence
+     * is left alone; an ambiguous sentence is not worth a false rejection.
+     *
+     * Scoped to `hangs-piece` being in the facts, which is what makes it safe: when the assessment
+     * says the *opponent* has something loose (`threatens`), talking about their weakness is right.
+     */
+    internal fun validateWeaknessOwner(text: String, request: MoveCoachRequest): String? {
+        if ("hangs-piece" !in request.motifs) return null
+        for (sentence in splitSentences(text)) {
+            val lower = sentence.lowercase()
+                .replace("your opponent", "the opponent")
+                .replace("your enemy", "the enemy")
+            val weaknessAt = WEAKNESS_WORDS.map { lower.indexOf(it) }.filter { it >= 0 }.minOrNull() ?: continue
+            val before = lower.substring(0, weaknessAt)
+            if (before.contains("your ") || before.contains("you ")) continue
+            if (OPPONENT_WORDS.any { before.contains(it) }) {
+                return "attributes your own hanging piece to the opponent"
+            }
+        }
+        return null
     }
 
     /** The file letter in an "opens (up) the X-file" claim, or null when the text makes no such claim. */

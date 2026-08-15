@@ -282,7 +282,11 @@ object MotifDetector {
             }
         }
         if (DEVELOPS in motifs && fromSquare != null) {
-            details[DEVELOPS] = "It brings the $movedName out to $at."
+            // "It brings the knight out to f6." named what the player had just watched and gave no
+            // reason — the one shape the coach must not have, and the most common one it had: 11 of
+            // 100 golden cases scored as restating the move rather than explaining it, all of them
+            // this line. Measured on the 2026-08-15 device run; see docs/benchmarks/on-device-ai.
+            details[DEVELOPS] = "It develops the $movedName to $at, bringing another piece into play."
         }
         if (CENTER_CONTROL in motifs) {
             val centres = (listOf(toSquare) + attacked).filter { it in CENTER_SQUARES }

@@ -628,6 +628,46 @@ class MoveCoachResponseValidatorTest {
         )
     }
 
+    // `hangs-piece` always describes the mover's own piece. Verbatim from the same run
+    // (opening-019), where an LLM judge caught what no rule did.
+    private val ownPieceHangs = request.copy(
+        moveUci = "f7f5",
+        moveDisplay = "f5",
+        deterministicExplanation = "Your pawn on f5 is attacked and nothing defends it.",
+        motifs = listOf("hangs-piece", "pawn-push", "center-control"),
+    )
+
+    @Test
+    fun `rejects handing your own hanging piece to the opponent`() {
+        val result = MoveCoachResponseValidator.validate(
+            "f5 is really strong because it creates a lot of problems for your opponent, like an " +
+                "undefended pawn and a challenge to control the center.",
+            ownPieceHangs,
+        )
+        assertIs<MoveCoachResponseValidator.Result.Invalid>(result)
+    }
+
+    @Test
+    fun `naming the opponent alongside your own weakness stays valid`() {
+        assertIs<MoveCoachResponseValidator.Result.Valid>(
+            MoveCoachResponseValidator.validate(
+                "Your pawn on f5 is undefended, which gives your opponent a target to aim at.",
+                ownPieceHangs,
+            ),
+        )
+    }
+
+    /** Without the motif, the opponent's loose piece is a fair thing to talk about. */
+    @Test
+    fun `the rule does not fire when the facts do not say your piece hangs`() {
+        assertIs<MoveCoachResponseValidator.Result.Valid>(
+            MoveCoachResponseValidator.validate(
+                "It creates problems for your opponent, whose knight is now undefended.",
+                request.copy(motifs = listOf("threatens")),
+            ),
+        )
+    }
+
     @Test
     fun `a file claim about a move with no better move or capture is still checked`() {
         assertIs<MoveCoachResponseValidator.Result.Invalid>(
