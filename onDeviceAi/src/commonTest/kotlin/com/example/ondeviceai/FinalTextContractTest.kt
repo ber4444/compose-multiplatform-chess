@@ -25,7 +25,7 @@ import kotlin.test.assertTrue
 class FinalTextContractTest {
 
     private val explanation = "Nf3 develops a knight and supports the centre."
-    private val payload = """{"headline": "Develops knight", "explanation": "$explanation"}"""
+    private val payload = explanation
 
     private val coachRequest = MoveCoachRequest(
         moveUci = "g1f3",
