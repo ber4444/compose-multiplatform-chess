@@ -351,6 +351,32 @@ nouns. Neither covers *which move a motif belongs to*, nor a structural claim ab
 diagonal. This is the same fluent-and-false shape that disqualified `lfm2-700m` — arriving here with
 better fluency and a much better latency profile, which makes it harder to spot, not less of a risk.
 
+### The LLM judge, and why its headline number is not quotable
+
+Run through ferryman (`eval_harness/judge_move_coach_run.py`, DeepSeek-V4-Flash via DeepInfra, 100
+rows, blinded and order-randomised preference plus a separate veto pass):
+
+- **Preference: model 52, deterministic 48, no ties.** A coin flip. The extra specificity does not
+  buy a preference against a sentence that is free and instant.
+- **Veto: 81/100 model rows flagged, 0/100 deterministic.** The second number is not the calibration
+  it looks like — the deterministic line is quoted *verbatim* in the veto prompt's ground truth, so
+  a zero only proves the judge can recognise identity, not that it tolerates paraphrase.
+- **Hand-verifying 12 sampled flags found 1 clearly real.** The rest restate supplied facts in other
+  words ("creates more space and opens lines" against a reference of "It gains space and opens
+  lines"; "cleverly pins a piece" with motif `pin` supplied). Judge models were compared first on
+  the same control: Llama-3.1-70B flagged 5/12 of the deterministic column and gpt-oss-120b 3/11,
+  so DeepSeek was the *best* of the three and still over-flags.
+
+The one real find the judge contributed is worth the run on its own: on `opening-019` the facts
+carry `hangs-piece` and the reference reads *"Your pawn on f5 is attacked and nothing defends it"* —
+the model wrote that the move *"creates a lot of problems for your opponent, like an undefended
+pawn"*, handing the player's own weakness to the opponent. No rule-based column caught it, and
+`validateBetterMoveAttribution` does not cover it either.
+
+**So three independent measurements now agree on the shape:** the validator rules reject 8/100, the
+judge's verified rate is single digits, and the preference is 50/50. What none of them support is
+the model being *better*.
+
 **Verdict: the shipped coach stays deterministic.** Not because nano-v3 is slow or generic — it is
 neither — but because its added specificity is unverifiable by anything currently in the pipeline.
 The gate for attaching it is a validator rule that rejects a motif attributed to a move other than
