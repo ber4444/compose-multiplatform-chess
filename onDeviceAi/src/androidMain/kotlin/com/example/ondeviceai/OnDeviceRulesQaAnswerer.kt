@@ -160,10 +160,18 @@ class OnDeviceRulesQaAnswerer(
 
     private suspend fun OnDeviceTextGenerator.runTurn(request: AiGenerationRequest): String {
         val text = StringBuilder()
+        var sawToken = false
         generate(request).collect { output ->
             when (output) {
-                is AiTokenOrFinal.Token -> text.append(output.text)
-                is AiTokenOrFinal.Final -> text.append(output.text)
+                is AiTokenOrFinal.Token -> {
+                    sawToken = true
+                    text.append(output.text)
+                }
+                // See DefaultAiCoachOrchestrator. This one is doubly worth getting right: the tool
+                // turn parses a `{"tool":…,"query":…}` envelope out of this string, and a doubled
+                // JSON object is not valid JSON — the lookup refinement would fail to parse for a
+                // reason that has nothing to do with the model's formatting.
+                is AiTokenOrFinal.Final -> if (!sawToken) text.append(output.text)
                 is AiTokenOrFinal.ToolCall -> {}
             }
         }

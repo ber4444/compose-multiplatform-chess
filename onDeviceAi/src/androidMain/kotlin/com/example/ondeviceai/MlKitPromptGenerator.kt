@@ -103,17 +103,48 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
         // fallback; emitting the error as a fake successful JSON payload instead made the real cause
         // invisible — it surfaced downstream as an opaque "model output failed validation" once the
         // error string failed to parse against the {headline, explanation} schema.
-        var fullText = ""
+        val start = System.currentTimeMillis()
+        var firstTokenMs: Long? = null
         model.generateContentStream(genRequest).collect { response ->
             response.candidates.firstOrNull()?.text?.let { chunk ->
-                fullText += chunk
+                if (firstTokenMs == null) firstTokenMs = System.currentTimeMillis() - start
                 emit(AiTokenOrFinal.Token(chunk))
             }
         }
-        // ML Kit does not report a token count. Emit 0 ("unknown") rather than a character length
-        // so downstream benchmarks don't ingest bad data.
-        emit(AiTokenOrFinal.Final(fullText, AiInferenceMetrics(0L, 0L, 0, AiRoute.OnDevice)))
-    }
+        // `text = ""`, matching every other generator (iOS FoundationModelsBridge, desktop and wasm
+        // LiteRT-LM, and FakeTextGenerator). Tokens carry the text; Final carries the metrics.
+        //
+        // This used to emit the accumulated full text, and every orchestrator appends *both* Token
+        // and Final text into one buffer — so the complete answer was concatenated with itself and
+        // the coach rendered it twice, verbatim. That was recorded in evals/scorecard.md as an
+        // "AICore repetition loop" and in the 2026-08 latency note as a model defect; it was ours.
+        // The tell was the arithmetic: a 314-char output against a 300-char cap is one 157-char
+        // answer doubled, not a model degenerating. FakeTextGenerator emits `text = ""` like the
+        // conforming generators, so no commonTest could reproduce it — DefaultAiCoachOrchestrator
+        // now ignores Final text once a Token has arrived, which is the half that is testable.
+        //
+        // ML Kit still does not report a token count. Emit 0 ("unknown") rather than a character
+        // length so the bench JSONL under docs/benchmarks/on-device-ai/ doesn't ingest bad data —
+        // but the two latency figures are real now. They were hardcoded 0L, and because the
+        // orchestrator prefers Final's metrics whenever they are present, those zeros silently
+        // replaced the timings it had just measured itself.
+        emit(
+            AiTokenOrFinal.Final(
+                text = "",
+                metrics = AiInferenceMetrics(
+                    firstTokenMs = firstTokenMs,
+                    completeMs = System.currentTimeMillis() - start,
+                    tokenCount = 0,
+                    route = AiRoute.OnDevice,
+                ),
+            ),
+        )
+    }.withAntiRepetitionGuard(
+        // The other streaming backends chain this; ML Kit was the one that did not, so it had
+        // neither of the two nets that would have caught the duplication.
+        ngramSize = request.noRepeatNgramSize,
+        stopSequences = request.stopSequences,
+    )
 
     override suspend fun release() {
         model.close()

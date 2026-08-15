@@ -190,7 +190,52 @@ the reason it was rejected once — *"narrow AICore device support"* — and thi
 that, confirmed on current hardware, with the two client-side bugs removed so the
 next attempt starts from a working client.
 
-**UPDATE (August 2026):** A follow-up probe measured the ML Kit availability against different client configurations. The `preference = FAST` variant reported `UNAVAILABLE` (Feature 645), but the `sample-default` (empty config) and `preference = FULL` variants both successfully reported `AVAILABLE` (baseModelName: `nano-v3`) on the Pixel 10 Pro XL. This confirms the initial failure was a client configuration issue rather than a device limitation. AICore is indeed available when using the correct configuration.
+**UPDATE (August 2026):** A follow-up probe measured ML Kit availability against three client
+configurations on the same Pixel 10 Pro XL:
+
+| Variant | Result |
+|---|---|
+| `preference = FAST` | `UNAVAILABLE` — `FEATURE_NOT_FOUND: Feature 645` |
+| `sample-default` (empty `generationConfig { }`) | `AVAILABLE`, `baseModelName = nano-v3` |
+| `preference = FULL` | `AVAILABLE`, `baseModelName = nano-v3` |
+
+So the paragraph above is wrong, and wrong in an instructive way: the device provisions the Prompt
+API perfectly well. What it does not provision is the *FAST* model variant, which is the only one
+this codebase ever asked for. FAST and FULL select different base models and therefore different
+AICore feature ids, and the Google sample sets neither — `Generation.getClient(generationConfig { })`
+is the whole of its setup. A one-line client config turned a working device into "narrow AICore
+device support".
+
+**Measured latency** (`runAndroidBench`, `mlkit-aicore-full`, first three opening cases):
+
+| Case | Init (ms) | TTFT (ms) | Complete (s) |
+|---|---|---|---|
+| opening-001 | 444 | 488 | 3.1 |
+| opening-002 | 734 | 574 | 3.0 |
+| opening-003 | 597 | 541 | 3.9 |
+
+Sub-second init, ~500 ms to first token, 3–4 s to finish. For comparison, the Cactus catalogue on
+the Galaxy Z Fold 3 ranged from 5 s to 36 s, and every one of those models was also *wrong*. This is
+the first Android runtime that is neither slow nor false.
+
+**The "repetition loop" was ours.** Every case came back with the complete answer emitted twice,
+verbatim — the same symptom recorded in `evals/scorecard.md` as an AICore defect since July.
+`MlKitPromptGenerator` streamed each chunk as an `AiTokenOrFinal.Token` and then emitted
+`Final(text = fullText)` carrying the accumulated answer, while every orchestrator appended *both*
+Token and Final text into one buffer. Tokens summed to the answer; Final appended the answer again.
+The arithmetic was visible in the original write-up and went unread: 314 characters against a
+300-character cap is one 157-character answer doubled, not a model degenerating.
+
+Two things kept it hidden. Every other generator — iOS `FoundationModelsBridge`, desktop and wasm
+LiteRT-LM — emits `Final(text = "")`, and so does `FakeTextGenerator`, so no `commonTest` could
+express the violation. And ML Kit was the one backend that did not chain `withAntiRepetitionGuard`,
+which would have caught it downstream. Both are fixed, and `FinalTextContractTest` now pins the
+consumer half.
+
+The lesson for the next runtime write-up is the same one this file already learned about the
+provider LLM: **a fluent output that fails a length gate is not evidence about the model.** Check
+the plumbing that assembled the string before attributing the shape of it to the thing that
+generated it.
 
 ---
 

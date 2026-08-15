@@ -11,6 +11,16 @@ class FakeTextGenerator(
     var throwOnGenerate: Throwable? = null,
     var chunks: List<String>? = null,
     var generateInterceptor: (suspend (AiGenerationRequest, Int) -> String?)? = null,
+    /**
+     * Text to put on the terminal [AiTokenOrFinal.Final] *in addition to* the streamed tokens.
+     *
+     * Empty is the contract (see [AiTokenOrFinal.Final]) and stays the default, so existing tests
+     * are unaffected. It is settable because the contract had no test: `MlKitPromptGenerator` put
+     * the accumulated answer here, consumers appended it on top of the tokens they already had, and
+     * every Android coach line rendered twice — invisible to `commonTest` precisely because this
+     * fake could not express the violation.
+     */
+    var finalText: String = "",
 ) : OnDeviceTextGenerator {
     var warmupCount: Int = 0
         private set
@@ -41,7 +51,7 @@ class FakeTextGenerator(
         }
         emit(
             AiTokenOrFinal.Final(
-                text = "",
+                text = finalText,
                 metrics = AiInferenceMetrics(
                     firstTokenMs = tokenDelayMs,
                     completeMs = tokenDelayMs * pieces.size,

@@ -34,8 +34,28 @@ data class AiGenerationRequest(
 )
 
 sealed interface AiTokenOrFinal {
+    /** A delta. Consumers concatenate these in arrival order to rebuild the answer. */
     data class Token(val text: String) : AiTokenOrFinal
     data class ToolCall(val name: String, val arguments: Map<String, String>) : AiTokenOrFinal
+
+    /**
+     * Terminal event, and the only carrier of [metrics].
+     *
+     * **[text] must be empty when the generator has emitted any [Token].** It exists for
+     * non-streaming backends, where Final is the whole answer. Every shipped streaming generator
+     * emits `text = ""` — iOS `FoundationModelsBridge`, desktop and wasm LiteRT-LM, and
+     * `FakeTextGenerator`.
+     *
+     * `MlKitPromptGenerator` did not, and consumers were appending Token *and* Final text into one
+     * buffer, so the complete answer was concatenated with itself: every Android coach line
+     * rendered twice, verbatim. It was recorded as an "AICore repetition loop" in
+     * `evals/scorecard.md` and reported as a model defect for a month. Because the test fake
+     * honours the contract, no `commonTest` could reproduce it.
+     *
+     * Consumers now ignore [text] once a [Token] has arrived, so violating this is no longer fatal
+     * — but the invariant is the one that keeps metrics and text on separate channels, so hold to
+     * it in new backends rather than relying on the consumer's tolerance.
+     */
     data class Final(
         val text: String,
         val metrics: AiInferenceMetrics,
