@@ -60,3 +60,21 @@ tasks.named<JavaExec>("run") {
 tasks.test {
     useJUnitPlatform()
 }
+
+/**
+ * Scores a device bench run's JSONL through the same [EvalScorer] the scorecard uses:
+ *
+ *     ./gradlew :evals:scoreDeviceRun -Pfile=../build/bench/results-golden-pixel10.jsonl
+ *
+ * Deliberately not part of `:evals:run` or CI — the input comes from a phone, so there is nothing
+ * for a runner to reproduce. `DeviceRunScorerTest` covers the parsing and scoring on a fixture.
+ */
+tasks.register<JavaExec>("scoreDeviceRun") {
+    group = "verification"
+    description = "Score an AndroidBenchRunner results.jsonl (-Pfile=...) with EvalScorer."
+    mainClass.set("com.example.evals.DeviceRunScorerKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    argumentProviders.add {
+        listOf(providers.gradleProperty("file").orNull ?: "../build/bench/results.jsonl")
+    }
+}

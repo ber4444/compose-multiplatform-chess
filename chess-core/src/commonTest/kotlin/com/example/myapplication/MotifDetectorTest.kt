@@ -192,6 +192,32 @@ class MotifDetectorTest {
         assertTrue(MotifDetector.DEVELOPS in motifs, "expected develops, got $motifs")
     }
 
+    /**
+     * The develops detail is the coach's most common sentence, and it used to read "It brings the
+     * knight out to f3." — the move the player had just watched, with no reason attached. Scored
+     * against the golden set on 2026-08-15 it was 11 of the 11 deterministic lines that carried no
+     * explanatory concept at all. Pinned as a property rather than a string so a rewording stays
+     * free, as long as it still says something.
+     */
+    @Test
+    fun `the develops detail explains rather than restating the move`() {
+        val details = MotifDetector.detectDetailed(
+            stateBefore = FenConverter.fenToGameState("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
+            stateAfter = FenConverter.fenToGameState("rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1"),
+            movingSide = Set.WHITE,
+            toSquare = Pair(5, 5),
+            fromSquare = Pair(7, 6),
+            promoted = false,
+            previousToSquare = null,
+        ).details[MotifDetector.DEVELOPS]
+
+        assertTrue(details != null, "expected a develops detail")
+        assertTrue(
+            details.contains("develop", ignoreCase = true) || details.contains("into play", ignoreCase = true),
+            "develops detail must name what development buys, was: $details",
+        )
+    }
+
     @Test
     fun `detects castling and prefers it over the generic king-safety line`() {
         val motifs = detectMove(

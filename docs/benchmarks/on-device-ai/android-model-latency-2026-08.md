@@ -185,10 +185,238 @@ through the host Mac. There is no equivalent host-passthrough on Android: testin
 the ML Kit route needs physical hardware that provisions the feature, and the
 Pixel 10 Pro XL above does not.
 
-So the ML Kit route could not be benchmarked here. `CLAUDE.md` already recorded
+So the ML Kit route could not be benchmarked initially. `CLAUDE.md` already recorded
 the reason it was rejected once — *"narrow AICore device support"* — and this is
 that, confirmed on current hardware, with the two client-side bugs removed so the
 next attempt starts from a working client.
+
+**UPDATE (August 2026):** A follow-up probe measured ML Kit availability against three client
+configurations on the same Pixel 10 Pro XL:
+
+| Variant | Result |
+|---|---|
+| `preference = FAST` | `UNAVAILABLE` — `FEATURE_NOT_FOUND: Feature 645` |
+| `sample-default` (empty `generationConfig { }`) | `AVAILABLE`, `baseModelName = nano-v3` |
+| `preference = FULL` | `AVAILABLE`, `baseModelName = nano-v3` |
+
+So the paragraph above is wrong, and wrong in an instructive way: the device provisions the Prompt
+API perfectly well. What it does not provision is the *FAST* model variant, which is the only one
+this codebase ever asked for. FAST and FULL select different base models and therefore different
+AICore feature ids, and the Google sample sets neither — `Generation.getClient(generationConfig { })`
+is the whole of its setup. A one-line client config turned a working device into "narrow AICore
+device support".
+
+**Measured latency** (`runAndroidBench`, `mlkit-aicore-full`, first three opening cases):
+
+| Case | Init (ms) | TTFT (ms) | Complete (s) |
+|---|---|---|---|
+| opening-001 | 444 | 488 | 3.1 |
+| opening-002 | 734 | 574 | 3.0 |
+| opening-003 | 597 | 541 | 3.9 |
+
+Sub-second init, ~500 ms to first token, 3–4 s to finish. For comparison, the Cactus catalogue on
+the Galaxy Z Fold 3 ranged from 5 s to 36 s, and every one of those models was also *wrong*. This is
+the first Android runtime that is neither slow nor false.
+
+**The "repetition loop" was ours.** Every case came back with the complete answer emitted twice,
+verbatim — the same symptom recorded in `evals/scorecard.md` as an AICore defect since July.
+`MlKitPromptGenerator` streamed each chunk as an `AiTokenOrFinal.Token` and then emitted
+`Final(text = fullText)` carrying the accumulated answer, while every orchestrator appended *both*
+Token and Final text into one buffer. Tokens summed to the answer; Final appended the answer again.
+The arithmetic was visible in the original write-up and went unread: 314 characters against a
+300-character cap is one 157-character answer doubled, not a model degenerating.
+
+Two things kept it hidden. Every other generator — iOS `FoundationModelsBridge`, desktop and wasm
+LiteRT-LM — emits `Final(text = "")`, and so does `FakeTextGenerator`, so no `commonTest` could
+express the violation. And ML Kit was the one backend that did not chain `withAntiRepetitionGuard`,
+which would have caught it downstream. Both are fixed, and `FinalTextContractTest` now pins the
+consumer half.
+
+The lesson for the next runtime write-up is the same one this file already learned about the
+provider LLM: **a fluent output that fails a length gate is not evidence about the model.** Check
+the plumbing that assembled the string before attributing the shape of it to the thing that
+generated it.
+
+**Re-run after the fix, same device.** The duplication is gone; each answer is emitted once and
+reaches the validators cleanly. Three raw outputs:
+
+| Output | Validator |
+|---|---|
+| "This controls the center." | passed |
+| "The center is the heart of chess. It's where pieces move and overall strategy matters." | passed |
+| "Alright, let's get to it!" | rejected — no chess grounding |
+
+The rejection is the validator working. The two *passes* look like generic waffle — neither says
+anything about the move played. It is tempting to read that as a verdict on nano-v3. **It is not, and
+this harness cannot produce one, for a reason that has nothing to do with the device.**
+
+`AndroidBenchRunner` builds every golden request like this (`AndroidBenchRunner.kt:42-48`):
+
+```kotlin
+MoveCoachRequest(
+    moveUci = bestMoveUci,
+    moveDisplay = moveDisplay,
+    deterministicHeadline = "You played $moveDisplay.",
+    deterministicExplanation = "This was a strong move.",
+    engineDifficultyName = "Hard",
+)
+```
+
+`moveClassName`, `motifs`, `winPercentLost` and `betterMoveDisplay` all default to null/empty, and
+the baseline explanation is a hardcoded placeholder. `MoveCoachPromptBuilder.userPrompt` emits each
+fact line only when its field is set, so the entire prompt the model actually receives is:
+
+```
+The player just played Nh3.
+Baseline explanation: "This was a strong move."
+
+Using only the facts above, tell the player in 1-2 short, conversational sentences
+why Nh3 was that good or bad. Do not invent other moves, squares, or evaluations.
+```
+
+No engine assessment, no motifs, no better move, no win-percentage delta — and an explicit
+instruction not to invent any. The model is asked to be specific about a position it has been told
+nothing about, and forbidden from filling the gap. "This controls the center." is close to the best
+available answer to that prompt.
+
+So the three samples measure the harness, not the model, and the same is true of every earlier
+`aicore-nano-fast` and `cactus-android` row on this page — they all ran through this constructor.
+This is the third time this file has recorded a conclusion about a model that turned out to be a
+defect in the code around it (see the duplication above, and "four causes, none of them the model" in
+`CLAUDE.md`). The pattern is consistent enough to be worth stating as a rule: **before attributing an
+output's shape to the model, print the prompt that produced it.**
+
+**The harness is now fixed; the measurement is still outstanding.** `GoldenFixtureAssessor.kt`
+builds each fixture the way the app does — on-device Stockfish over the case's `fen`, into
+`MoveAssessor` + `MotifDetector`, then `MoveRecord` → `DeterministicCoach` and the four fact fields,
+mirroring `MoveCoachManager.triggerCoach`. Every JSONL row now carries `factsPopulated`, and the run
+logs a loud summary line if any case failed to assess, because a silent partial assessment is exactly
+how the placeholder run passed for a measurement. **Rows with `factsPopulated:false` are latency-only
+and must not be scored for quality.**
+
+Assessing 100 positions at `EngineDifficulty.HARD` (1 s think time) costs roughly two Stockfish
+searches per case, so budget a few minutes of setup before generation starts.
+
+## The golden-set run — 2026-08-15, Pixel 10 Pro XL / Android 16
+
+100 cases, one pass, `mlkit-aicore-full`, every row `factsPopulated:true`. Reproduce with:
+
+```bash
+./gradlew :androidApp:assembleDebug :androidApp:installDebug
+adb shell svc power stayon usb   # see the foreground note below
+adb shell am start -n io.github.ber4444.chess/com.example.myapplication.MainActivity --ei bench_iterations 1
+adb exec-out run-as io.github.ber4444.chess cat files/bench/results.jsonl > build/bench/results.jsonl
+./gradlew :evals:scoreDeviceRun -Pfile=../build/bench/results.jsonl
+```
+
+**AICore will not generate in the background.** The first attempt lost 27 of 100 rows to
+`[ErrorCode 30] Background usage is blocked` when the screen timed out mid-run — recorded as a
+fallback with empty `rawOutput`, which is *not* a model failure and must not be scored as one. Hold
+the screen on for the whole run.
+
+Latency, generation only: TTFT median 610 ms (p90 683 ms), complete median 4.4 s (p90 5.2 s), init
+median 680 ms. Consistent with the three-sample figures above.
+
+**The "nearly every case is BEST" caveat above was wrong.** Measured: **57 BEST, 12 EXCELLENT, 10
+GOOD, 10 INACCURACY, 11 MISTAKE**, and **78 of 100 rows carry a `betterMoveDisplay`**. The golden
+set's `bestMoveUci` is the *book* move, and Stockfish at HARD disagrees with it often enough that
+the "here is what you missed" half is already exercised. No new golden cases are needed for that.
+
+Scored with `EvalScorer` through `:evals:scoreDeviceRun`, which cross-checks every verdict against
+the device's own validator result (it agreed on all 100 rows):
+
+| Column | Grounded | Rejections |
+|---|---|---|
+| `mlkit-aicore-full` | **95/100** | 5 × not grounded in the move or chess vocabulary |
+| `DeterministicCoach` | **72/100** | 17 × echoed the prompt, 11 × restates without explaining |
+
+**That gap is smaller than it looks, and mostly an artifact.** The deterministic line *is* the
+prompt's baseline sentence, so `isEchoedPrompt` fires on it structurally — 17 of its 28 rejections
+are that rule scoring the column against itself. Discounting them the comparison is ~95 vs ~89, and
+the remaining 11 are deterministic lines carrying no `CONCEPT_VOCAB` word at all, which is a real
+(small) gap in `DeterministicCoach` rather than a win for the model. Fluency is the other way round:
+**79 of 100 model answers fail `FluencyScorer`**, almost all of them opening with conversational
+filler ("Okay, so …").
+
+**The validator's 95% overstates truthfulness.** Two failures a hand read finds and no rule catches:
+
+- `opening-001` — the facts carry motif `develops` for the move played (`Nh3`). The model wrote
+  *"The engine thought e4 would have been a better choice instead, because it develops a piece."*
+  The motif was reattached to the *other* move, and e4 develops nothing.
+- `opening-016` — motifs say only `pawn-push`. The model wrote *"h3 … opens up the h-file."*
+  Invented outright.
+
+`validateReasonFaithfulness` checks mate, check and capture claims; `validatePieceType` checks piece
+nouns. Neither covers *which move a motif belongs to*, nor a structural claim about a file or
+diagonal. This is the same fluent-and-false shape that disqualified `lfm2-700m` — arriving here with
+better fluency and a much better latency profile, which makes it harder to spot, not less of a risk.
+
+### The LLM judge, and why its headline number is not quotable
+
+Run through ferryman (`eval_harness/judge_move_coach_run.py`, DeepSeek-V4-Flash via DeepInfra, 100
+rows, blinded and order-randomised preference plus a separate veto pass):
+
+- **Preference: model 52, deterministic 48, no ties.** A coin flip. The extra specificity does not
+  buy a preference against a sentence that is free and instant.
+- **Veto: 81/100 model rows flagged, 0/100 deterministic.** The second number is not the calibration
+  it looks like — the deterministic line is quoted *verbatim* in the veto prompt's ground truth, so
+  a zero only proves the judge can recognise identity, not that it tolerates paraphrase.
+- **Hand-verifying 12 sampled flags found 1 clearly real.** The rest restate supplied facts in other
+  words ("creates more space and opens lines" against a reference of "It gains space and opens
+  lines"; "cleverly pins a piece" with motif `pin` supplied). Judge models were compared first on
+  the same control: Llama-3.1-70B flagged 5/12 of the deterministic column and gpt-oss-120b 3/11,
+  so DeepSeek was the *best* of the three and still over-flags.
+
+The one real find the judge contributed is worth the run on its own: on `opening-019` the facts
+carry `hangs-piece` and the reference reads *"Your pawn on f5 is attacked and nothing defends it"* —
+the model wrote that the move *"creates a lot of problems for your opponent, like an undefended
+pawn"*, handing the player's own weakness to the opponent. No rule-based column caught it, and
+`validateBetterMoveAttribution` does not cover it either.
+
+**So three independent measurements now agree on the shape:** the validator rules reject 8/100, the
+judge's verified rate is single digits, and the preference is 50/50. What none of them support is
+the model being *better*.
+
+### iOS Foundation Models on the same 100 cases — 2026-08-15
+
+The obvious follow-up, and the answer is not the one the single measured sentence in `CLAUDE.md`
+suggested. Run on an iPhone 17 Pro simulator (iOS 26.5) against **identical prompts**: the facts
+were assessed once by the Pixel's Stockfish and replayed, so neither model saw a fact the other
+didn't, and engine variance is out of the comparison entirely.
+
+| | Android `mlkit-aicore-full` | iOS `FoundationModels` |
+|---|---|---|
+| Complete, median | 4.4 s | **650 ms** |
+| Grounded (`EvalScorer`, same rules) | **91/100** | 75/100 |
+| Fluency violations | 79/100 | **39/100** |
+| Judge preference vs deterministic | 52 / 48 | 46 / **54** |
+| Judge veto flags | 81/100 | 49/100 |
+| Verified real, hand-read sample | 1 of 12 | **5 of 8** |
+| Answer length, median | 178 chars | 68 chars |
+
+**Foundation Models is far faster and more fluent, and less truthful.** It is ~7× quicker, writes
+half as much, and skips the conversational filler that costs nano-v3 79 fluency violations. But its
+short confident sentences assert things the facts contradict, and a hand read finds them at a much
+higher rate. From the sample:
+
+- `opening-056` — the assessment says **inaccuracy**; the answer says *"That move was a mistake."*
+  Those are different bands with different thresholds.
+- `opening-064` — the assessment says **best**; the answer says *"That move was bad."*
+- `opening-024` — the player's own hanging pawn given as the reason the move was *good*.
+- `opening-099` — *"The engine preferred c4, which means it was a stronger move for the opponent"* —
+  c4 was the player's alternative.
+- `opening-022` — *"develops the bishop to g2, which is a central square"*. g2 is not central.
+
+Nineteen of its `EvalScorer` rejections are `isEchoedPrompt`: where it does not contradict the facts
+it very often just repeats the deterministic sentence verbatim, which is the other way of adding
+nothing. The **1.8 s, "correct, specific, and validated"** figure recorded for iOS was one sentence
+about `e4`; across 100 positions the pattern does not hold.
+
+**Verdict: the shipped coach stays deterministic.** Not because nano-v3 is slow or generic — it is
+neither — but because its added specificity is unverifiable by anything currently in the pipeline.
+The gate for attaching it is a validator rule that rejects a motif attributed to a move other than
+the one played, and an unsupported file/diagonal claim; ferryman-mcp's judge layer is the other way
+to put a number on the rate.
 
 ---
 

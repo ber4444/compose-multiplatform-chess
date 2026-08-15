@@ -12,6 +12,8 @@ val sharedComposeAssetsDir = project(":app").layout.buildDirectory
     .get()
     .asFile
 
+val goldenBenchAssetsDir = layout.buildDirectory.dir("generated/benchAssets").get().asFile
+
 android {
     namespace = "com.example.myapplication.app"
     compileSdk = 36
@@ -77,7 +79,17 @@ android {
 
     sourceSets {
         getByName("main").assets.srcDir(sharedComposeAssetsDir)
+        getByName("debug").assets.srcDir(goldenBenchAssetsDir)
     }
+}
+
+// `AndroidBenchRunner` reads its golden set from `golden/candidates.json` in assets. Stage it from
+// the eval harness's copy rather than committing a second one: a drifting duplicate means the device
+// bench and CI's `:evals:run` score different sets while both call it "the golden set". Debug only —
+// it is a 36 KB test fixture, not app content.
+val stageGoldenBenchAssets by tasks.registering(Sync::class) {
+    from(rootProject.layout.projectDirectory.file("evals/golden/candidates.json"))
+    into(layout.buildDirectory.dir("generated/benchAssets/golden"))
 }
 
 // AGP's AndroidLintAnalysisTask / LintModelWriterTask read outputs from :app's Compose resource
@@ -89,6 +101,7 @@ android {
 tasks.configureEach {
     if ((name.startsWith("merge") && name.endsWith("Assets")) || name.contains("lint", ignoreCase = true)) {
         dependsOn(":app:copyAndroidMainComposeResourcesToAndroidAssets")
+        dependsOn(stageGoldenBenchAssets)
     }
 }
 

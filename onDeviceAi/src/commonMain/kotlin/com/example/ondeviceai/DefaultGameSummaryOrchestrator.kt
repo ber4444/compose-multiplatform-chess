@@ -105,16 +105,22 @@ class DefaultGameSummaryOrchestrator(
     ): CollectResult {
         val buffer = StringBuilder()
         var metrics: AiInferenceMetrics? = null
+        var sawToken = false
 
         val flow = generator.generate(prompt)
         val completed = withTimeoutOrNull(45_000L) { // Allow up to 45 seconds for a full PGN process and generation
             flow.collect { token ->
                 when (token) {
                     is AiTokenOrFinal.Token -> {
+                        sawToken = true
                         buffer.append(token.text)
                     }
+                    // See DefaultAiCoachOrchestrator: appending both Token and Final text doubled
+                    // the whole answer for any generator that streams *and* reports a full Final.
+                    // This surface is the more dangerous of the two — it runs with no response
+                    // validator at all, so nothing downstream would have rejected the duplicate.
                     is AiTokenOrFinal.Final -> {
-                        buffer.append(token.text)
+                        if (!sawToken) buffer.append(token.text)
                         metrics = token.metrics.copy(
                             firstTokenMs = token.metrics.firstTokenMs ?: (clock() - startMs)
                         )

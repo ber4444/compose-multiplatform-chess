@@ -111,6 +111,7 @@ class DefaultAiCoachOrchestrator(
         val collected = StringBuilder()
         var firstTokenMs: Long? = null
         var finalMetrics: AiInferenceMetrics? = null
+        var sawToken = false
 
         benchProbe.onGenerateStart()
         val completed = withTimeoutOrNull(request.policy.latencyBudget.completeMs) {
@@ -120,9 +121,18 @@ class DefaultAiCoachOrchestrator(
                     benchProbe.onFirstToken()
                 }
                 when (piece) {
-                    is AiTokenOrFinal.Token -> collected.append(piece.text)
-                    is AiTokenOrFinal.Final -> {
+                    is AiTokenOrFinal.Token -> {
+                        sawToken = true
                         collected.append(piece.text)
+                    }
+                    // Final text counts only when nothing streamed. A generator that emits Tokens
+                    // *and* a Final carrying the accumulated text had its whole answer appended to
+                    // itself here — see MlKitPromptGenerator, where that rendered every coach line
+                    // twice, verbatim, and was written up as a model repetition loop for a month.
+                    // Keeping the branch (rather than ignoring Final text outright) preserves the
+                    // non-streaming case, where Final is the only carrier of the answer.
+                    is AiTokenOrFinal.Final -> {
+                        if (!sawToken) collected.append(piece.text)
                         finalMetrics = piece.metrics
                     }
                     is AiTokenOrFinal.ToolCall -> {}

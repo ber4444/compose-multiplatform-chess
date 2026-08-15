@@ -111,6 +111,21 @@ object MoveCoachResponseValidator {
             return Result.Invalid(pieceTypeError)
         }
 
+        val attributionError = validateBetterMoveAttribution(fitted, request)
+        if (attributionError != null) {
+            return Result.Invalid(attributionError)
+        }
+
+        val fileClaimError = validateFileClaim(fitted, request)
+        if (fileClaimError != null) {
+            return Result.Invalid(fileClaimError)
+        }
+
+        val weaknessOwnerError = validateWeaknessOwner(fitted, request)
+        if (weaknessOwnerError != null) {
+            return Result.Invalid(weaknessOwnerError)
+        }
+
         return Result.Valid(fitted)
     }
 
@@ -145,6 +160,144 @@ object MoveCoachResponseValidator {
             return "unsupported claim: capture/material"
         }
 
+        return null
+    }
+
+    /** Connectives that introduce a *reason*. Deliberately not "which"/"that" — those introduce a
+     * comparison ("e4, which was stronger"), which the facts do support. */
+    private val CAUSAL_MARKERS = listOf(
+        "because", "since ", "as it ", "as this ", "in order to", "so that", "due to",
+    )
+
+    /**
+     * Rejects an explanation of the move the *engine* preferred.
+     *
+     * The prompt supplies `betterMoveDisplay` as a bare move and no reason for it — the assessment
+     * knows the engine chose it, never why. So any causal clause about that move is invented by
+     * construction, and the shape it takes is a motif belonging to the played move being reattached
+     * to the better one. Measured on-device (nano-v3, 2026-08-15): the facts carried motif
+     * `develops` for the played `Nh3`, and the answer was *"The engine thought e4 would have been a
+     * better choice instead, because it develops a piece"* — e4 develops nothing, and every other
+     * gate passed it. Both `validateReasonFaithfulness` and ferryman's independent tag scorer are
+     * blind to it: the concept *is* supplied, so a bag-of-concepts check sees no invention. Only
+     * attribution distinguishes them.
+     *
+     * Scoped to a sentence that names the better move and **not** the move played: a sentence naming
+     * both can attach its reason to either, and rejecting that would throw away answers that
+     * correctly explain the user's own move while mentioning the alternative.
+     */
+    internal fun validateBetterMoveAttribution(text: String, request: MoveCoachRequest): String? {
+        val better = request.betterMoveDisplay?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: return null
+        val played = request.moveDisplay.trim().lowercase()
+        for (sentence in splitSentences(text)) {
+            val lower = sentence.lowercase()
+            if (!containsMoveToken(lower, better)) continue
+            if (played.isNotEmpty() && containsMoveToken(lower, played)) continue
+            if (CAUSAL_MARKERS.any { lower.contains(it) }) {
+                return "explains why the engine's move was better, which the facts do not say"
+            }
+        }
+        return null
+    }
+
+    /**
+     * True when [move] appears in [text] as a move rather than inside another word — "e4" must not
+     * match "e4xd5" here, and "b4" must not match "b40". Plain scan rather than a regex, for the
+     * same portability reason [normalize] documents.
+     */
+    private fun containsMoveToken(text: String, move: String): Boolean {
+        if (move.isEmpty()) return false
+        var index = text.indexOf(move)
+        while (index >= 0) {
+            val before = text.getOrNull(index - 1)
+            val after = text.getOrNull(index + move.length)
+            val boundedBefore = before == null || !before.isLetterOrDigit()
+            val boundedAfter = after == null || !after.isLetterOrDigit()
+            if (boundedBefore && boundedAfter) return true
+            index = text.indexOf(move, index + 1)
+        }
+        return false
+    }
+
+    /**
+     * Rejects an unsupported claim that the move opened a file.
+     *
+     * A move opens a file only by leaving it — a capture off the file, or a piece vacating it. A
+     * pawn advancing *along* its own file does the opposite. Measured on-device: motifs said only
+     * `pawn-push`, the move was `h3`, and the answer claimed *"h3 … opens up the h-file"*, which no
+     * rule caught because no piece was named and no capture claimed. `hxg3` making the same claim is
+     * supported and must keep passing.
+     *
+     * Only the claim's own file is checked; a claim naming no file is left alone.
+     */
+    internal fun validateFileClaim(text: String, request: MoveCoachRequest): String? {
+        val lower = text.lowercase()
+        val claimedFile = claimedOpenFile(lower) ?: return null
+        val uci = request.moveUci.lowercase()
+        if (uci.length < 4) return null
+        val fromFile = uci[0]
+        val toFile = uci[2]
+        // Supported when the mover leaves the file it is claimed to open, or when the assessment
+        // already reports material changing hands there.
+        val leavesFile = fromFile == claimedFile && toFile != claimedFile
+        val capturedOnIt = request.moveDisplay.contains("x") && toFile == claimedFile
+        if (leavesFile || capturedOnIt) return null
+        return "unsupported claim: opens the $claimedFile-file"
+    }
+
+    /** Words for a piece that can be taken for free. */
+    private val WEAKNESS_WORDS = listOf("undefended", "unprotected", "hanging", "en prise", "loose piece")
+
+    /** Ways a text names the other player. */
+    private val OPPONENT_WORDS = listOf("opponent", "enemy", "their ", "theirs")
+
+    /**
+     * Rejects a weakness the facts assign to the player being handed to the opponent.
+     *
+     * `hangs-piece` always describes the mover's own piece — `MotifDetector` writes it as *"Your
+     * pawn on f5 is attacked and nothing defends it."* Measured on-device: with exactly that in the
+     * facts, the model wrote *"the move f5 is really strong because it creates a lot of problems for
+     * your opponent, like an undefended pawn"*, turning the player's own hanging pawn into the
+     * opponent's problem and the move into a good one. An LLM judge found it; no rule did, here or
+     * in ferryman — a bag-of-concepts check sees `undefended` supplied and passes.
+     *
+     * The test is ownership, not co-occurrence: *"Your knight on f5 is undefended, which gives your
+     * opponent a target"* names the opponent in the same sentence and is correct. So "your opponent"
+     * is neutralised first, and what remains decides — a surviving "your" before the weakness word
+     * means the player owns it, an opponent word before it means they do. Neither, and the sentence
+     * is left alone; an ambiguous sentence is not worth a false rejection.
+     *
+     * Scoped to `hangs-piece` being in the facts, which is what makes it safe: when the assessment
+     * says the *opponent* has something loose (`threatens`), talking about their weakness is right.
+     */
+    internal fun validateWeaknessOwner(text: String, request: MoveCoachRequest): String? {
+        if ("hangs-piece" !in request.motifs) return null
+        for (sentence in splitSentences(text)) {
+            val lower = sentence.lowercase()
+                .replace("your opponent", "the opponent")
+                .replace("your enemy", "the enemy")
+            val weaknessAt = WEAKNESS_WORDS.map { lower.indexOf(it) }.filter { it >= 0 }.minOrNull() ?: continue
+            val before = lower.substring(0, weaknessAt)
+            if (before.contains("your ") || before.contains("you ")) continue
+            if (OPPONENT_WORDS.any { before.contains(it) }) {
+                return "attributes your own hanging piece to the opponent"
+            }
+        }
+        return null
+    }
+
+    /** The file letter in an "opens (up) the X-file" claim, or null when the text makes no such claim. */
+    private fun claimedOpenFile(lower: String): Char? {
+        for (opener in listOf("opens the ", "opens up the ", "opening the ", "opened the ")) {
+            var index = lower.indexOf(opener)
+            while (index >= 0) {
+                val rest = lower.substring(index + opener.length)
+                if (rest.length >= 6 && rest[0] in 'a'..'h' && rest.startsWith("${rest[0]}-file")) {
+                    return rest[0]
+                }
+                index = lower.indexOf(opener, index + 1)
+            }
+        }
         return null
     }
 
@@ -357,10 +510,55 @@ object MoveCoachResponseValidator {
             // The preamble runs to the first sentence end; anything past that is the answer.
             val end = text.indexOfFirst { it in FILLER_TERMINATORS }
             if (end == -1 || end == text.lastIndex) return text
-            val remainder = text.substring(end + 1).trimStart()
-            return if (remainder.isEmpty()) text else remainder
+            // …but only while it is short enough to *be* a preamble. Unbounded, this rule deleted
+            // the first sentence of 97 of 100 answers in the 2026-08-15 device run — a median 51%
+            // of what the model wrote, and usually the half carrying the reason:
+            //
+            //   deleted: "Okay, so Nh3 isn't the strongest move here, as it reduces your chances…"
+            //   shown:   "The engine thought e4 would have been a better choice instead…"
+            //
+            // A colon is exempt from the bound: a clause that ends in one is announcing an answer
+            // rather than giving it, however long it runs.
+            val announcing = text[end] == ':'
+            if (announcing || end + 1 <= MAX_PREAMBLE_CHARS) {
+                val remainder = text.substring(end + 1).trimStart()
+                return if (remainder.isEmpty()) text else remainder
+            }
+            // Long enough to be a real sentence, so the opener is an interjection stuck on its
+            // front. Drop the interjection and keep the sentence.
+            return dropLeadingInterjection(text, opener)
         }
         return text
+    }
+
+    /**
+     * Longest run that can still be a preamble rather than the answer.
+     *
+     * Calibrated against both sets: the preambles this is meant to catch are "Okay, here we go."
+     * (17) and "Here's the explanation:" (23), while the shortest *content* sentence deleted in the
+     * device run was 31 characters. 30 separates them with room on both sides.
+     */
+    private const val MAX_PREAMBLE_CHARS = 30
+
+    /**
+     * Drops a leading "Okay," / "Sure," from the front of a real sentence, keeping the sentence.
+     *
+     * Requires the comma: "Certainly the knight belongs on f3" opens with an adverb modifying the
+     * claim, not with filler, and must survive untouched.
+     *
+     * Deliberately does **not** capitalise what follows. The next token is very often a move, and
+     * SAN is case-sensitive — "f4" is a pawn push and "F4" is not notation at all.
+     */
+    private fun dropLeadingInterjection(text: String, opener: String): String {
+        var index = opener.length
+        if (!opener.endsWith(",")) {
+            if (index < text.length && text[index] == ',') index++ else return text
+        }
+        while (index < text.length && text[index] == ' ') index++
+        // The discourse "so" belongs to the filler, not to the sentence.
+        if (text.regionMatches(index, "so ", 0, 3, ignoreCase = true)) index += 3
+        val body = text.substring(index).trimStart()
+        return if (body.isEmpty()) text else body
     }
 
     private fun unwrapQuotes(s: String): String =

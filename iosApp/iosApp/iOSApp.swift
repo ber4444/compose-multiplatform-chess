@@ -60,7 +60,10 @@ struct BenchmarkView: View {
                 .foregroundColor(.white)
         ).task {
             do {
-                try await IosBenchRunnerKt.runIosBench(iterations: 1)
+                // The same engine the app plays with, so the bench can assess each golden position
+                // and hand the model real facts — without it every row is `factsPopulated:false`
+                // and measures the harness rather than Foundation Models.
+                try await IosBenchRunnerKt.runIosBench(engine: StockfishChessEngine(), iterations: 1)
                 status = "Benchmark Complete"
             } catch {
                 print("Benchmark failed: \(error)")
