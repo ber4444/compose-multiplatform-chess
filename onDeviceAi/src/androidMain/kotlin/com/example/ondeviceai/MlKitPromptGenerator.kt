@@ -18,9 +18,10 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
     private val modelConfig = modelConfig {
         // STABLE, not PREVIEW. PREVIEW asks AICore for a feature most builds do not provision, and
         // the failure is opaque: `[ErrorCode 606] FEATURE_NOT_FOUND: Feature -1 is not available`,
-        // caught by status() and reported as a plain Unavailable, so the device silently fell
-        // through to Cactus and looked like it simply had no AICore. Observed on a Pixel 10 Pro XL
-        // with AICore present and working.
+        // caught by status() and reported as a plain Unavailable, so the device looked like it
+        // simply had no AICore. Observed on a Pixel 10 Pro XL with AICore present and working.
+        // STABLE is also the documented default, so the Google sample — which sets no modelConfig
+        // at all — gets it implicitly.
         releaseStage = ModelReleaseStage.STABLE
         preference = if (this@MlKitPromptGenerator.routePreference == com.example.ondeviceai.ModelPreference.FAST) {
             ModelPreference.FAST
@@ -36,13 +37,16 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
     private val model = Generation.getClient(genConfig)
 
     override suspend fun status(): AiAvailability {
-        // VendorRouteExecutor's own fallback is `if (mlkit.status() is Available) mlkit else
-        // getCactus()` — any non-Available result here (including Error) already routes to Cactus.
-        // This used to hardcode Available regardless of real device support, which meant Cactus was
-        // silently unreachable on any device without working AICore: ML Kit would be picked, fail
-        // generation with e.g. ErrorCode -101, and never fall through. checkStatus() itself might
-        // throw rather than cleanly return UNAVAILABLE on such devices — either outcome must still
-        // fall through, so both paths are covered.
+        // Any non-Available result — including Error — keeps this route out of
+        // probeAvailableLocalVendors' list, so the decider never selects it and the coach stays
+        // deterministic. This used to hardcode Available regardless of real device support, so ML
+        // Kit was picked on devices that could not run it and failed later at generation with e.g.
+        // ErrorCode -101. checkStatus() itself may throw rather than cleanly return UNAVAILABLE on
+        // such devices, so both outcomes are covered here.
+        //
+        // Note the status depends on `routePreference`: FAST and FULL are different base models and
+        // therefore different AICore features. A Pixel 10 Pro XL answers UNAVAILABLE for FAST
+        // (Feature 645) and AVAILABLE for FULL, which is why the probe tries both.
         return try {
             when (model.checkStatus()) {
                 FeatureStatus.AVAILABLE -> AiAvailability.Available

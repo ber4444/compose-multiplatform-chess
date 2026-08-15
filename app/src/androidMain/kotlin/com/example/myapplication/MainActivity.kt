@@ -39,8 +39,6 @@ class MainActivity : ComponentActivity() {
             Logger.setMinSeverity(Severity.Assert)
         }
 
-
-
         if (isDebug && intent.hasExtra("bench_summary_iterations")) {
             val iterations = intent.getIntExtra("bench_summary_iterations", 1)
             CoroutineScope(Dispatchers.IO).launch {
