@@ -62,8 +62,8 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
     override suspend fun warmup() {
         // The feature is delivered on demand and `download()` was never called, so a device
         // reporting DOWNLOADABLE stayed that way forever: status() answered "not Available", the
-        // decider fell through to Cactus, and AICore looked absent on hardware that has it.
-        // `download()` is a Flow and completes when the feature is installed.
+        // probe left this route out of the vendor list, and AICore looked absent on hardware that
+        // has it. `download()` is a Flow and completes when the feature is installed.
         runCatching {
             android.util.Log.d("MlKitPrompt", "base model: " + model.getBaseModelName())
         }
