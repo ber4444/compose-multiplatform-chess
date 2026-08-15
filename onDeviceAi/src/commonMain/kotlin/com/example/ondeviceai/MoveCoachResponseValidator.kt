@@ -510,10 +510,55 @@ object MoveCoachResponseValidator {
             // The preamble runs to the first sentence end; anything past that is the answer.
             val end = text.indexOfFirst { it in FILLER_TERMINATORS }
             if (end == -1 || end == text.lastIndex) return text
-            val remainder = text.substring(end + 1).trimStart()
-            return if (remainder.isEmpty()) text else remainder
+            // …but only while it is short enough to *be* a preamble. Unbounded, this rule deleted
+            // the first sentence of 97 of 100 answers in the 2026-08-15 device run — a median 51%
+            // of what the model wrote, and usually the half carrying the reason:
+            //
+            //   deleted: "Okay, so Nh3 isn't the strongest move here, as it reduces your chances…"
+            //   shown:   "The engine thought e4 would have been a better choice instead…"
+            //
+            // A colon is exempt from the bound: a clause that ends in one is announcing an answer
+            // rather than giving it, however long it runs.
+            val announcing = text[end] == ':'
+            if (announcing || end + 1 <= MAX_PREAMBLE_CHARS) {
+                val remainder = text.substring(end + 1).trimStart()
+                return if (remainder.isEmpty()) text else remainder
+            }
+            // Long enough to be a real sentence, so the opener is an interjection stuck on its
+            // front. Drop the interjection and keep the sentence.
+            return dropLeadingInterjection(text, opener)
         }
         return text
+    }
+
+    /**
+     * Longest run that can still be a preamble rather than the answer.
+     *
+     * Calibrated against both sets: the preambles this is meant to catch are "Okay, here we go."
+     * (17) and "Here's the explanation:" (23), while the shortest *content* sentence deleted in the
+     * device run was 31 characters. 30 separates them with room on both sides.
+     */
+    private const val MAX_PREAMBLE_CHARS = 30
+
+    /**
+     * Drops a leading "Okay," / "Sure," from the front of a real sentence, keeping the sentence.
+     *
+     * Requires the comma: "Certainly the knight belongs on f3" opens with an adverb modifying the
+     * claim, not with filler, and must survive untouched.
+     *
+     * Deliberately does **not** capitalise what follows. The next token is very often a move, and
+     * SAN is case-sensitive — "f4" is a pawn push and "F4" is not notation at all.
+     */
+    private fun dropLeadingInterjection(text: String, opener: String): String {
+        var index = opener.length
+        if (!opener.endsWith(",")) {
+            if (index < text.length && text[index] == ',') index++ else return text
+        }
+        while (index < text.length && text[index] == ' ') index++
+        // The discourse "so" belongs to the filler, not to the sentence.
+        if (text.regionMatches(index, "so ", 0, 3, ignoreCase = true)) index += 3
+        val body = text.substring(index).trimStart()
+        return if (body.isEmpty()) text else body
     }
 
     private fun unwrapQuotes(s: String): String =

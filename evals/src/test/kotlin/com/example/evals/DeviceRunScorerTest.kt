@@ -37,18 +37,22 @@ class DeviceRunScorerTest {
      * a validator rule has been added since the run, in which case the disagreement *is* the
      * measurement of that rule against real recorded output.
      *
-     * `opening-003` is the second kind's control: vetoed on the device and still vetoed here.
-     * `opening-001` is the first row `validateBetterMoveAttribution` newly rejects — the device
-     * accepted *"the engine thought e4 would have been a better choice … because it develops a
-     * piece"* because no rule then covered attribution. On the full run this rule accounts for 7 of
-     * the 8 newly-rejected rows, and rejects nothing in the deterministic column.
+     * Both fixture rows disagree, in opposite directions, and each names a change since the run:
+     *
+     * - `opening-001` — newly **rejected** by `validateBetterMoveAttribution`. The device accepted
+     *   *"the engine thought e4 would have been a better choice … because it develops a piece"*
+     *   because no rule then covered attribution.
+     * - `opening-003` — newly **accepted**. The device vetoed it on the text that survived
+     *   `stripConversationalFiller`, which then ran the preamble to the first period and deleted
+     *   the sentence carrying the move and its reason. With the preamble bounded, the whole answer
+     *   is scored and it passes.
      */
     @Test
     fun `agrees with the device except where a rule was added since the run`() {
         val report = report()
-        assertEquals(listOf("opening-001"), report.disagreements)
+        assertEquals(listOf("opening-001", "opening-003"), report.disagreements)
         assertEquals(2, report.scored)
-        assertEquals(0, report.modelGrounded)
+        assertEquals(1, report.modelGrounded)
     }
 
     /**

@@ -238,6 +238,33 @@ class MoveCoachResponseValidatorTest {
         assertEquals(text, MoveCoachResponseValidator.normalize(text))
     }
 
+    /**
+     * The rule that deleted 97 of 100 answers' first sentence. Verbatim from the device run: the
+     * opener is filler, the sentence after the comma is the answer, and running the preamble to the
+     * first period took both.
+     */
+    @Test
+    fun `keeps a real sentence that merely opens with an interjection`() {
+        assertEquals(
+            "f4 is considered the best move because it gains you more space. The engine liked it.",
+            MoveCoachResponseValidator.normalize(
+                "Okay, so f4 is considered the best move because it gains you more space. " +
+                    "The engine liked it.",
+            ),
+        )
+    }
+
+    @Test
+    fun `an announcing clause is still stripped however long it runs`() {
+        assertEquals(
+            "Nf3 develops a piece toward the center.",
+            MoveCoachResponseValidator.normalize(
+                "Okay, here is what I think about the move you just played: " +
+                    "Nf3 develops a piece toward the center.",
+            ),
+        )
+    }
+
     @Test
     fun `does not empty a response that is nothing but filler`() {
         // Better to hand the validator a blank-ish line it will reject than to silently produce "".
