@@ -39,17 +39,7 @@ class MainActivity : ComponentActivity() {
             Logger.setMinSeverity(Severity.Assert)
         }
 
-        // Temporary: measures whether the ML Kit Prompt API reports AVAILABLE under the Google
-        // sample's default client config on a device where `preference = FAST` reported
-        // FEATURE_NOT_FOUND. Runs before the bench hooks because it must not pay for a model load.
-        // Remove with the diagnostic once the answer is recorded.
-        if (isDebug && intent.hasExtra("mlkit_diagnostic")) {
-            CoroutineScope(Dispatchers.IO).launch {
-                com.example.myapplication.bench.runMlKitDiagnostic(this@MainActivity)
-                finish()
-            }
-            return
-        }
+
 
         if (isDebug && intent.hasExtra("bench_summary_iterations")) {
             val iterations = intent.getIntExtra("bench_summary_iterations", 1)

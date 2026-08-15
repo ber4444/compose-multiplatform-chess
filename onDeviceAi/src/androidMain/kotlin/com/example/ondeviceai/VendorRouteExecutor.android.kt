@@ -16,11 +16,9 @@ package com.example.ondeviceai
  * answers instantly with "Your bishop on b5 pins the knight on c6 against the king on e8", and the
  * summary composes the same turning points a model was given and could not use.
  *
- * **ML Kit stays wired on purpose.** It costs no download and reports `Unavailable` on every device
- * tested — a Pixel 10 Pro XL answers `FEATURE_NOT_FOUND: Feature 645`, and emulators ship no AICore
- * at all — so today it changes nothing. Two real client bugs were fixed while establishing that
- * (`ModelReleaseStage.PREVIEW` → `STABLE`, and a `download()` that was never called), which means a
- * device that ever provisions the feature lights this path up with no code change.
+ * **ML Kit is wired and available** on supported devices (e.g. Pixel 10 series). It costs no download.
+ * On unsupported devices (like emulators), it correctly reports `Unavailable` and falls back to
+ * deterministic text.
  */
 actual class VendorRouteExecutor : AiRouteExecutor {
     actual override suspend fun execute(route: VendorRoute): OnDeviceTextGenerator? {

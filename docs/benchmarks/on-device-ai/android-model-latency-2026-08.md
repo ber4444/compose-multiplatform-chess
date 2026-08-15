@@ -185,10 +185,12 @@ through the host Mac. There is no equivalent host-passthrough on Android: testin
 the ML Kit route needs physical hardware that provisions the feature, and the
 Pixel 10 Pro XL above does not.
 
-So the ML Kit route could not be benchmarked here. `CLAUDE.md` already recorded
+So the ML Kit route could not be benchmarked initially. `CLAUDE.md` already recorded
 the reason it was rejected once — *"narrow AICore device support"* — and this is
 that, confirmed on current hardware, with the two client-side bugs removed so the
 next attempt starts from a working client.
+
+**UPDATE (August 2026):** A follow-up probe measured the ML Kit availability against different client configurations. The `preference = FAST` variant reported `UNAVAILABLE` (Feature 645), but the `sample-default` (empty config) and `preference = FULL` variants both successfully reported `AVAILABLE` (baseModelName: `nano-v3`) on the Pixel 10 Pro XL. This confirms the initial failure was a client configuration issue rather than a device limitation. AICore is indeed available when using the correct configuration.
 
 ---
 
