@@ -1,8 +1,11 @@
 # On-device AI: next three steps
 
-Written for a fresh agent. Everything below is on branch `game-summary-on-device-measurement`
-(unmerged as of writing) and follows `docs/benchmarks/on-device-ai/game-summary-2026-08.md` — read
-that first, it explains why the numbers in the earlier version of this story were wrong.
+Written for a fresh agent. Follows `docs/benchmarks/on-device-ai/game-summary-2026-08.md` — read that
+first, it explains why the numbers in the earlier version of this story were wrong.
+
+**Merged as #138.** This file was written on the unmerged `game-summary-on-device-measurement`
+branch; that branch has landed, so Task 1 below is shipped code rather than a proposal, and the
+"where things stand" table describes `main`.
 
 ## Where things stand
 
@@ -14,9 +17,12 @@ that first, it explains why the numbers in the earlier version of this story wer
 
 Two facts drive everything here:
 
-1. **Game Summary has no response validator at all.** Any non-blank text is accepted and shown.
-2. **iOS already ships a model on both Game Summary and Rules Q&A**, so "add a validator" is not
-   only about turning Android on — it retroactively protects what users get today.
+1. **Game Summary now has a response validator** (`GameSummaryResponseValidator`, #138) — it did not
+   when this file was written, and every rule below was designed against that gap. Any non-blank text
+   used to be accepted and shown. A rejection now routes to `GameSummaryGrounding`.
+2. **iOS already ships a model on both Game Summary and Rules Q&A**, so the validator was not only
+   about turning Android on — it retroactively protects what users get today, and on the 50-game
+   corpus it rejects 42 of 50 Foundation Models summaries.
 
 ---
 
@@ -269,20 +275,27 @@ is the one place a user can reach a model this app has not established is there.
 
 ## Leftovers worth doing at some point
 
-- **`DeviceRunScorer` has no Game Summary support.** `./gradlew :evals:scoreDeviceRun` ingests the
-  coach's `results.jsonl` only, so summary runs are currently scored by ad-hoc scripts — the exact
-  "second scorer written next to the data" problem the `:evals` KDoc exists to prevent. Add a summary
-  mode that cross-checks the validator verdict from Task 1 against the device's own.
-- **`evals/scorecard.md`'s `aicore-nano-fast` row is stale** (0.0% grounded, 100% reject). It measured
-  the doubled-`Final` bug *and* the placeholder-fixture bug *and* `preference = FAST`, which
-  `FEATURE_NOT_FOUND`s on a Pixel 10. Its own note says "re-measure before trusting this row".
-  Re-measure it as `aicore-nano-full` or delete it; leaving a 0.0% row is worse than no row.
+- **`DeviceRunScorer` has no Game Summary support, and it now has a stated prerequisite.**
+  `./gradlew :evals:scoreDeviceRun` ingests the coach's `results.jsonl` only, so summary runs are
+  still scored ad hoc — the exact "second scorer written next to the data" problem the `:evals` KDoc
+  exists to prevent. #139 fixed only the *failure mode*: pointing the scorer at a summary JSONL used
+  to die with `MissingFieldException` and a stack trace ending in the deserializer, and it now
+  refuses by name and says why. **The mode itself is still open**, and the blocker is a bench-schema
+  change, not a scorer change: `GameSummaryResponseValidator.validate` derives its turning points
+  from `request.moveHistory`, and a summary row records `pgn`/`plies`/`playerBlunders` and no
+  per-ply assessments, so the request the device validated against cannot be rebuilt. Add the
+  assessed move history to the row in `AndroidSummaryBench`/`IosSummaryBench` first; the scorer half
+  is small once the data is there. **Do not "fix" this by scoring the two rules that survive the
+  gap** — a partial number under a heading that looks like the coach column is worse than no column.
+- ~~**`evals/scorecard.md`'s `aicore-nano-fast` row is stale**~~ — **done in #139.** Replaced,
+  together with the n=1 `foundation-models-ios` row, by the three columns of the 2026-08-15
+  hundred-case run (`mlkit-aicore-full`, `foundation-models-ios`, `deterministic-coach`). The
+  baseline column is new: the scorecard had never carried the thing the models are competing with,
+  which made every on-device row unreadable on its own.
 - **Summary fixtures aren't staged into Android assets** the way the coach's golden set is, so a run
   needs a manual `run-as` push. One Gradle copy task would remove a step from the repro.
 - **`mapToIntuition`'s 10–20% branch still says "positional or material"** — the same kind of hedge
   that was removed from the >20% branch, kept because it is at least accurate.
-- **The branch is unmerged.** Its three fixes improve what iOS ships today regardless of any attach
-  decision, so it is worth a PR on its own.
 
 ## Fences — do not undo these
 
