@@ -1,5 +1,9 @@
 package com.example.ondeviceai
 
+import com.example.myapplication.MoveAssessment
+import com.example.myapplication.MoveClass
+import com.example.myapplication.MoveRecord
+import com.example.myapplication.Set
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -37,6 +41,17 @@ class FinalTextContractTest {
 
     private val summaryRequest = GameSummaryRequest(
         pgn = "1. e4 e5 2. Nf3 Nc6",
+        moveHistory = listOf(
+            MoveRecord(
+                uci = "d1h4", san = "Qh4", fenAfter = "",
+                assessment = MoveAssessment(
+                    cpBefore = 0, cpPlayed = -400, cpBest = 0, cpLoss = 400,
+                    moveClass = MoveClass.BLUNDER, motifs = emptyList(), bestMoveSan = "Nf6",
+                ),
+            ),
+        ),
+        playerSide = Set.WHITE,
+        engineDifficultyName = "HARD",
         policy = AiRoutePolicies.moveCoachOffline,
     )
 
@@ -80,9 +95,7 @@ class FinalTextContractTest {
 
     @Test
     fun `summary does not double when Final repeats the streamed text`() = runTest {
-        // Game Summary is the surface with no response validator at all, so a duplicate here goes
-        // straight to the user with nothing in between.
-        val text = "The turning point was 12...Qh4, which dropped a rook."
+        val text = "At [move-1], Qh4 was a blunder instead of Nf6."
         val gen = FakeTextGenerator(response = text, finalText = text)
         val result = summary(gen).summarizeGame(summaryRequest)
 
@@ -97,7 +110,7 @@ class FinalTextContractTest {
 
     @Test
     fun `summary still reads Final text when nothing streamed`() = runTest {
-        val text = "The turning point was 12...Qh4, which dropped a rook."
+        val text = "At [move-1], Qh4 was a blunder instead of Nf6."
         val gen = FakeTextGenerator(chunks = emptyList(), finalText = text)
         val result = summary(gen).summarizeGame(summaryRequest)
 
