@@ -13,9 +13,9 @@ buildscript {
             // desync from AGP's bcpkix/bcutil — the objection that closed #82. GHSA-wg6q-6289-32hp
             // now puts bcpkix in the same position (patched 1.84, same release as bcprov's
             // GHSA-c3fc-8qff-9hwx), so the trio moves together and the skew argument is gone.
-            classpath("org.bouncycastle:bcprov-jdk18on:1.85.2")
-            classpath("org.bouncycastle:bcpkix-jdk18on:1.85.2")
-            classpath("org.bouncycastle:bcutil-jdk18on:1.85.2")
+            classpath("org.bouncycastle:bcprov-jdk18on:1.84")
+            classpath("org.bouncycastle:bcpkix-jdk18on:1.84")
+            classpath("org.bouncycastle:bcutil-jdk18on:1.84")
             classpath("io.netty:netty-codec-http2:4.1.137.Final")
             classpath("io.netty:netty-handler:4.1.137.Final")
             classpath("io.netty:netty-codec-http:4.1.137.Final")

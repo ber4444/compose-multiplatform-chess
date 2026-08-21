@@ -23,9 +23,9 @@ buildscript {
         classpath(platform("com.fasterxml.jackson:jackson-bom:2.21.5"))
         classpath(platform("io.opentelemetry:opentelemetry-bom:1.62.0"))
         constraints {
-            classpath("org.bouncycastle:bcprov-jdk18on:1.85.2")
-            classpath("org.bouncycastle:bcpkix-jdk18on:1.85.2")
-            classpath("org.bouncycastle:bcutil-jdk18on:1.85.2")
+            classpath("org.bouncycastle:bcprov-jdk18on:1.84")
+            classpath("org.bouncycastle:bcpkix-jdk18on:1.84")
+            classpath("org.bouncycastle:bcutil-jdk18on:1.84")
             classpath("io.netty:netty-codec-http2:4.1.137.Final")
             classpath("io.netty:netty-handler:4.1.137.Final")
             classpath("io.netty:netty-codec-http:4.1.137.Final")
