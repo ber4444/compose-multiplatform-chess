@@ -13,18 +13,18 @@ buildscript {
             // desync from AGP's bcpkix/bcutil — the objection that closed #82. GHSA-wg6q-6289-32hp
             // now puts bcpkix in the same position (patched 1.84, same release as bcprov's
             // GHSA-c3fc-8qff-9hwx), so the trio moves together and the skew argument is gone.
-            classpath("org.bouncycastle:bcprov-jdk18on:1.84")
-            classpath("org.bouncycastle:bcpkix-jdk18on:1.84")
-            classpath("org.bouncycastle:bcutil-jdk18on:1.84")
-            classpath("io.netty:netty-codec-http2:4.1.136.Final")
-            classpath("io.netty:netty-handler:4.1.136.Final")
-            classpath("io.netty:netty-codec-http:4.1.136.Final")
-            classpath("io.netty:netty-codec:4.1.136.Final")
+            classpath("org.bouncycastle:bcprov-jdk18on:1.85.2")
+            classpath("org.bouncycastle:bcpkix-jdk18on:1.85.2")
+            classpath("org.bouncycastle:bcutil-jdk18on:1.85.2")
+            classpath("io.netty:netty-codec-http2:4.1.137.Final")
+            classpath("io.netty:netty-handler:4.1.137.Final")
+            classpath("io.netty:netty-codec-http:4.1.137.Final")
+            classpath("io.netty:netty-codec:4.1.137.Final")
             classpath("org.bitbucket.b_c:jose4j:0.9.6")
             classpath("org.jdom:jdom2:2.0.6.1")
-            classpath("org.apache.httpcomponents:httpclient:4.5.13")
-            classpath("org.apache.commons:commons-lang3:3.18.0")
-            classpath("com.google.guava:guava:32.0.1-jre")
+            classpath("org.apache.httpcomponents:httpclient:4.5.14")
+            classpath("org.apache.commons:commons-lang3:3.20.0")
+            classpath("com.google.guava:guava:33.7.1-jre")
         }
     }
 }

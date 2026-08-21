@@ -23,18 +23,18 @@ buildscript {
         classpath(platform("com.fasterxml.jackson:jackson-bom:2.21.5"))
         classpath(platform("io.opentelemetry:opentelemetry-bom:1.62.0"))
         constraints {
-            classpath("org.bouncycastle:bcprov-jdk18on:1.84")
-            classpath("org.bouncycastle:bcpkix-jdk18on:1.84")
-            classpath("org.bouncycastle:bcutil-jdk18on:1.84")
-            classpath("io.netty:netty-codec-http2:4.1.136.Final")
-            classpath("io.netty:netty-handler:4.1.136.Final")
-            classpath("io.netty:netty-codec-http:4.1.136.Final")
-            classpath("io.netty:netty-codec:4.1.136.Final")
+            classpath("org.bouncycastle:bcprov-jdk18on:1.85.2")
+            classpath("org.bouncycastle:bcpkix-jdk18on:1.85.2")
+            classpath("org.bouncycastle:bcutil-jdk18on:1.85.2")
+            classpath("io.netty:netty-codec-http2:4.1.137.Final")
+            classpath("io.netty:netty-handler:4.1.137.Final")
+            classpath("io.netty:netty-codec-http:4.1.137.Final")
+            classpath("io.netty:netty-codec:4.1.137.Final")
             classpath("org.bitbucket.b_c:jose4j:0.9.6")
             classpath("org.jdom:jdom2:2.0.6.1")
-            classpath("org.apache.httpcomponents:httpclient:4.5.13")
-            classpath("org.apache.commons:commons-lang3:3.18.0")
-            classpath("com.google.guava:guava:32.0.1-jre")
+            classpath("org.apache.httpcomponents:httpclient:4.5.14")
+            classpath("org.apache.commons:commons-lang3:3.20.0")
+            classpath("com.google.guava:guava:33.7.1-jre")
         }
     }
 }
