@@ -13,6 +13,10 @@ jobs:
     name: Analyze (${{ matrix.language }})
     runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
     timeout-minutes: ${{ (matrix.language == 'swift' && 120) || 360 }}
+    # CodeQL CLI (2.26.x) only supports Kotlin versions < 2.4.20. While on Kotlin 2.4.20-RC, the
+    # java-kotlin extractor halts with `Kotlin version 2.4.20-RC is too recent`. Make non-blocking
+    # until GitHub CodeQL CLI releases support for Kotlin 2.4.20+.
+    continue-on-error: ${{ matrix.language == 'java-kotlin' }}
     permissions:
       security-events: write
       packages: read
