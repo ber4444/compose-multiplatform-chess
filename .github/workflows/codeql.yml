@@ -13,6 +13,10 @@ jobs:
     name: Analyze (${{ matrix.language }})
     runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
     timeout-minutes: ${{ (matrix.language == 'swift' && 120) || 360 }}
+    # CodeQL CLI (2.26.x) only supports Kotlin versions < 2.4.20. While on Kotlin 2.4.20-RC, the
+    # java-kotlin extractor halts with `Kotlin version 2.4.20-RC is too recent`. Make non-blocking
+    # until GitHub CodeQL CLI releases support for Kotlin 2.4.20+.
+    continue-on-error: ${{ matrix.language == 'java-kotlin' }}
     permissions:
       security-events: write
       packages: read
@@ -113,6 +117,8 @@ jobs:
       run: tools/fetch_filament_desktop.sh
 
     - name: Build Java-Kotlin and C-CPP
+      continue-on-error: ${{ matrix.language == 'java-kotlin' }}
+
       if: matrix.language == 'java-kotlin' || matrix.language == 'c-cpp'
       run: ./gradlew :chess-core:compileAndroidMain :app:compileAndroidMain :androidApp:assembleDebug :app:desktopJar
 
@@ -126,6 +132,8 @@ jobs:
         xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug -destination "platform=iOS Simulator,name=iPhone 16,OS=latest,arch=arm64" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO ONLY_ACTIVE_ARCH=YES DEBUG_INFORMATION_FORMAT=dwarf -clonedSourcePackagesDirPath .build/SwiftPM build
 
     - name: Perform CodeQL Analysis
+      continue-on-error: ${{ matrix.language == 'java-kotlin' }}
+
       uses: github/codeql-action/analyze@v3
       with:
         category: "/language:${{matrix.language}}"

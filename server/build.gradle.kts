@@ -29,7 +29,15 @@ dependencies {
     testImplementation("io.ktor:ktor-client-content-negotiation-jvm:$ktorVersion")
     testImplementation("org.testcontainers:testcontainers-postgresql:2.0.5")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter:2.0.5")
-    testImplementation("com.atlassian.oai:swagger-request-validator-core:2.46.1")
+    // Renamed artifact, not a plain bump: `swagger-request-validator-core:3.0.0` is a relocation
+    // POM pointing at `openapi-request-validator-core`. Taking the rename is what drops
+    // `org.mozilla:rhino` (GHSA/CVE-2025-66453, DoS in Number.toFixed) — 2.46.1 reached it via
+    // swagger-parser -> swagger-compat-spec-parser -> com.github.java-json-tools:json-schema-validator,
+    // which embeds Rhino to evaluate schema scripts and is pinned to a 2018 Rhino with no patched
+    // release in its line. 3.0.0 swaps that for com.networknt:json-schema-validator, which has no
+    // script engine at all. The Java package stays `com.atlassian.oai.validator.*`, so
+    // OpenApiContractTest's imports are unchanged.
+    testImplementation("com.atlassian.oai:openapi-request-validator-core:3.0.0")
 
     // Netty: ktor-server-netty-jvm:3.4.3 pulls the full 4.2.x stack at 4.2.12.Final, which sits
     // inside every vulnerable range for the open Netty advisories (GHSA-c653-97m9-rcg9,
@@ -56,6 +64,21 @@ dependencies {
     // (case-insensitive deserialization defeating per-property @JsonIgnoreProperties). Staying in
     // the 2.21 line rather than jumping to 2.22.x keeps this a patch bump.
     implementation(platform("com.fasterxml.jackson:jackson-bom:2.21.5"))
+
+    // Apache HttpComponents 5.x, reached only through `ktor-server-test-host-jvm` ->
+    // `ktor-client-apache5` (test-scoped above; it is the engine the test host offers for external
+    // calls). ktor pins httpclient5 5.5.1, and still does on 3.5.2 — the current head — so there is
+    // no ktor bump that fixes this and the constraint has to come from here.
+    //   httpclient5 5.5.1  -> CVE-2026-64607, connection leak when a Content-Encoding decode fails
+    //   httpcore5   5.3.6  -> CVE-2026-54399, HTTP/1 header parsing memory-exhaustion DoS
+    //   httpcore5-h2 5.3.6 -> CVE-2026-54428, HPackDecoder unbounded header list before SETTINGS
+    // Constraining httpclient5 alone is enough: its 5.6.4 parent POM manages httpcore.version to
+    // 5.4.3, which is the patched floor for both core5 advisories. TEST-ONLY — the deployed server
+    // uses ktor-client-cio, and httpclient5 is absent from `runtimeClasspath` (verify with
+    // `./gradlew :server:dependencies --configuration runtimeClasspath`).
+    constraints {
+        testImplementation("org.apache.httpcomponents.client5:httpclient5:5.6.4")
+    }
 }
 
 kotlin {
