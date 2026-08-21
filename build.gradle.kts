@@ -81,7 +81,16 @@ allprojects {
 //
 // Scoped to the JS store only — `serialize-javascript`/mocha are JS-test-only and don't appear in the
 // wasm dependency graph, so injecting into `build/wasm/package.json` would only desync that lock.
-val forcedResolutions = mapOf("**/serialize-javascript" to "7.0.7")
+// `diff` rides in on the same mocha, and is the same shape of problem: mocha 11.7.x declares
+// `diff: "^7.0.0"` → 7.0.0, which carries CVE-2026-24001 (GHSA jsdiff DoS in `parsePatch`/
+// `applyPatch`); the fix landed in 8.0.3, outside mocha's declared range, and mocha 11.8.0 still
+// declares `^7.0.0` — so there is no bump to wait for. mocha only calls `createPatch`/`diffLines`
+// off this package to render assertion diffs, never the two affected parsers, so the exposure is
+// nil either way; the pin exists because `diff` is a runtime-classified entry in the lock.
+val forcedResolutions = mapOf(
+    "**/serialize-javascript" to "7.0.7",
+    "**/diff" to "8.0.4",
+)
 gradle.projectsEvaluated {
     rootProject.tasks.matching { it.name == "rootPackageJson" }.configureEach {
         doLast {
