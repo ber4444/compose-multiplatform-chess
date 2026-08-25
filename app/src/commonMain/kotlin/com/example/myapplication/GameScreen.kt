@@ -185,6 +185,7 @@ fun GameScreen(
     onOpenRules: () -> Unit = {},
     onOpenChat: () -> Unit = {},
     onOpenPaywall: (() -> Unit)? = null,
+    onOpenHabits: () -> Unit = {},
 ) {
     val gameState by viewModel.gameState.collectAsState()
     val animState by viewModel.animState.collectAsState()
@@ -344,7 +345,7 @@ fun GameScreen(
                                     .testTag("save_game_button"),
                                 enabled = !gameSaved,
                                 onClick = {
-                                    val saved = GameActions.toSavedGame(gameState, viewModel.engineAttached)
+                                    val saved = GameActions.toSavedGame(gameState, viewModel.engineAttached, playerSide = viewModel.playerSide)
                                     gameHistory.add(saved)
                                     gameSaved = true
                                 }
@@ -358,7 +359,7 @@ fun GameScreen(
                                     .padding(5.dp)
                                     .testTag("share_pgn_button"),
                                 onClick = {
-                                    val pgn = GameActions.toPgn(gameState, viewModel.engineAttached)
+                                    val pgn = GameActions.toPgn(gameState, viewModel.engineAttached, playerSide = viewModel.playerSide)
                                     pgnSharer.share(pgn, "game-${PgnSerializer.resultToken(gameState.winState)}.pgn")
                                 }
                             ) {
@@ -393,7 +394,7 @@ fun GameScreen(
                         is GameSummaryUiState.Hidden -> {
                             Button(
                                 onClick = {
-                                    val pgn = GameActions.toPgn(gameState, viewModel.engineAttached)
+                                    val pgn = GameActions.toPgn(gameState, viewModel.engineAttached, playerSide = viewModel.playerSide)
                                     val engineDiff = appSettings?.engineDifficulty?.value?.name ?: "MEDIUM"
                                     gameSummaryManager.triggerSummary(
                                         pgn = pgn,
@@ -774,6 +775,17 @@ fun GameScreen(
             ) {
                 Text(
                     text = "History",
+                    color = THREE_D_CONTROL_ACCENT_COLOR,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+            TextButton(
+                onClick = onOpenHabits,
+                modifier = Modifier.testTag("open_habits_button")
+            ) {
+                Text(
+                    text = "Habits",
                     color = THREE_D_CONTROL_ACCENT_COLOR,
                     style = MaterialTheme.typography.labelLarge
                 )
