@@ -13,9 +13,14 @@ import com.example.ondeviceai.AiRoute
  * the route recorded with the text (`explanation.route`, or `AiRoute.Fallback(reason)`), never a
  * literal guess.
  *
- * [AiRoute.Fallback] deliberately does **not** say "model": deterministic text (the free tier's
+ * [AiRoute.Fallback] renders **nothing at all**. Deterministic text (the free tier's
  * `DeterministicCoach` line, `MoveCoachFallback`, the server's template composers) is
- * engine-derived, and labelling it model-phrased is the misreport this badge exists to prevent.
+ * engine-derived, and labelling it model-phrased is the misreport this badge exists to prevent —
+ * but the badge is the wrong place to say so. It sat under every coach line on the two phone
+ * platforms, where the deterministic layer *is* the product, apologising for the answer the user
+ * was meant to get. Saying nothing claims nothing, which is all the honesty requirement asks for;
+ * the two labels below stay, because "a model wrote this" and "it left your device" are claims a
+ * user cannot check for themselves.
  *
  * Two deliberate choices in the rendering:
  *
@@ -36,7 +41,7 @@ fun ProvenanceBadge(
     color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
     val label = when (route) {
-        is AiRoute.Fallback -> "Written by the app, not a model"
+        is AiRoute.Fallback -> return
         is AiRoute.OnDevice -> "Written by a model on your device"
         is AiRoute.Cloud -> "Written by a model in the cloud"
     }
