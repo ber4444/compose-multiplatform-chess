@@ -400,7 +400,8 @@
       </ul>
       <p class="note"><strong>Please do not type personal information into the chat box.</strong> It is a free-text field, so anything you write there is sent to our service and on to the model provider named below. Keep it to chess.</p>
       <h3>Third-party language model</h3>
-      <p>To compose the wording of an answer, our service forwards the position and your question to <strong>Google's Gemini API</strong>, which generates the response text. Google processes it as a data processor on our behalf and, under the Gemini API terms for paid services, does not use it to train its models. See <a href="https://policies.google.com/privacy">Google's privacy policy</a> and the <a href="https://ai.google.dev/gemini-api/terms">Gemini API terms</a>.</p>
+      <p>To compose the wording of an answer, our service forwards the position and your question to <strong>Google's Gemini API</strong>, which generates the response text. We use the API's <strong>paid tier</strong>, through a Cloud project with active billing. Under the <a href="https://ai.google.dev/gemini-api/terms">Gemini API terms</a> for paid services, Google <strong>does not use prompts or responses to improve or train its models</strong>, and processes them as a data processor under its Data Processing Addendum. The human review Google applies to its free tier does not apply to paid requests, and we do not use the free tier.</p>
+      <p>Google does, however, <strong>log prompts and responses for a limited period</strong> — solely to detect and prevent abuse of its usage policy, and for any legally required disclosure. That logging happens on Google's systems; it is not visible to us and we never receive it. Google states this data may be stored or cached in any country where it maintains facilities. See also <a href="https://policies.google.com/privacy">Google's privacy policy</a>.</p>
       <p>If the model is unavailable or its answer fails our validation, the app falls back to text composed from our own reference corpus, and nothing further is sent.</p>
       <p>These features are optional: they only run when you open the Chat screen or ask for an opening explanation.</p>
     </div>
@@ -466,7 +467,7 @@
         <li><strong>For anything else</strong>, <a href="https://github.com/ber4444/compose-multiplatform-chess/issues">open an issue</a> and we will respond within the period your local law requires. The issue tracker is <strong>public</strong> — please do not post personal details in it.</li>
       </ul>
       <p><strong>We do not sell or share your personal information</strong> as those terms are defined under California law, and we do not engage in targeted advertising.</p>
-      <p>Our AI service is hosted in the region configured on Fly.io, and Google may process model requests outside your country. Where data leaves the EEA or the UK, transfers rely on the standard contractual clauses those providers maintain.</p>
+      <p>Our AI service is hosted in the region configured on Fly.io, and Google may process model requests outside your country — its terms allow prompts and responses to be stored or cached in any country where Google maintains facilities. Where data leaves the EEA or the UK, transfers rely on the standard contractual clauses those providers maintain.</p>
     </div>
   </section>
 
@@ -483,6 +484,7 @@
             <tr><td>Games, history, settings</td><td>Until you delete them or uninstall the app — stored only on your device</td></tr>
             <tr><td>Purchase and entitlement records</td><td>As long as RevenueCat and Google Play retain them under their own policies</td></tr>
             <tr><td>Cloud AI requests</td><td>Not stored. Processed in memory to produce the answer, then discarded</td></tr>
+            <tr><td>Abuse-detection logs at Google</td><td>A limited period set by Google, for enforcing its usage policy and legal disclosure only — see section 03</td></tr>
             <tr><td>Rate-limiting IP counters</td><td>A rolling 60-second window, in memory only</td></tr>
             <tr><td>Server error logs</td><td>A short operational period, then rotated out</td></tr>
           </tbody>
