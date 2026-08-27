@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Privacy policy for AI Chess Coach 3D, an Android chess app by Gabor Berenyi. No accounts, no analytics, no ads.">
+<meta name="color-scheme" content="light dark">
+<title>AI Chess Coach 3D Privacy Policy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+  :root {
+    --ground: #F6F7F4;
+    --surface: #FFFFFF;
+    --surface-alt: #EFF2EC;
+    --ink: #141A16;
+    --muted: #5A665E;
+    --accent: #2C6049;
+    --accent-soft: #E3EDE6;
+    --buff: #9A7F4C;
+    --buff-soft: #F2EADA;
+    --rule: #DCE1D8;
+    --shadow: 0 1px 2px rgba(20, 26, 22, .05), 0 8px 24px -16px rgba(20, 26, 22, .25);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #101310;
+      --surface: #171B16;
+      --surface-alt: #1D221C;
+      --ink: #E7EDE5;
+      --muted: #9AA697;
+      --accent: #82C3A2;
+      --accent-soft: #1B2A22;
+      --buff: #CBAE79;
+      --buff-soft: #262117;
+      --rule: #272D25;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .8);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #101310;
+    --surface: #171B16;
+    --surface-alt: #1D221C;
+    --ink: #E7EDE5;
+    --muted: #9AA697;
+    --accent: #82C3A2;
+    --accent-soft: #1B2A22;
+    --buff: #CBAE79;
+    --buff-soft: #262117;
+    --rule: #272D25;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .8);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  ul, ol, dl, dd, table, p, h1, h2, h3 { margin: 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 4.5rem) clamp(1.1rem, 4vw, 2.5rem) 5rem;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    display: flex;
+    flex-direction: column;
+    gap: 1.6rem;
+    padding-bottom: 2.2rem;
+    border-bottom: 2px solid var(--ink);
+  }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .72rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0;
+  }
+
+  h1 {
+    font-family: "Newsreader", Georgia, "Times New Roman", serif;
+    font-weight: 400;
+    font-size: clamp(2.6rem, 7vw, 4.1rem);
+    line-height: 1.02;
+    letter-spacing: -.015em;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  .colophon {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 1.1rem 2rem;
+    margin: 0;
+  }
+  .colophon dt {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .68rem;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: .3rem;
+  }
+  .colophon dd {
+    margin: 0;
+    font-size: .95rem;
+    line-height: 1.4;
+  }
+  .colophon code {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .84em;
+    color: var(--muted);
+  }
+
+  /* the fields the publisher must fill in before this page ships */
+  .fill {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .82em;
+    letter-spacing: .02em;
+    background: var(--buff-soft);
+    color: var(--buff);
+    border-bottom: 1px solid var(--buff);
+    padding: .1em .4em;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+
+  /* ---------- summary ---------- */
+
+  .summary {
+    margin: 2.6rem 0 0;
+    padding: clamp(1.4rem, 3vw, 2rem);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 3px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+  }
+  .summary h2 {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .72rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 500;
+    margin: 0;
+  }
+  .summary p { margin: 0; max-width: 66ch; }
+  .lede {
+    font-family: "Newsreader", Georgia, serif;
+    font-size: 1.32rem;
+    line-height: 1.45;
+  }
+  .exceptions {
+    margin: 0;
+    padding-left: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+    max-width: 66ch;
+  }
+  .exceptions li::marker {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    color: var(--accent);
+    font-size: .85em;
+  }
+
+  /* ---------- sections ---------- */
+
+  section {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: .5rem 2.5rem;
+    padding-top: 3.2rem;
+  }
+  section + section { border-top: 1px solid var(--rule); margin-top: 3.2rem; padding-top: 3.2rem; }
+
+  .num {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .78rem;
+    letter-spacing: .1em;
+    color: var(--muted);
+    padding-top: .55rem;
+  }
+
+  h2.head {
+    font-family: "Newsreader", Georgia, serif;
+    font-weight: 600;
+    font-size: 1.72rem;
+    line-height: 1.2;
+    letter-spacing: -.01em;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  .body { display: flex; flex-direction: column; gap: 1.05rem; max-width: 68ch; }
+  .body > * { margin: 0; }
+  .body p, .body li { font-size: 1rem; }
+  .body ul { padding-left: 1.35rem; display: flex; flex-direction: column; gap: .55rem; }
+  .body li::marker { color: var(--accent); }
+  .body h3 {
+    font-family: "Public Sans", sans-serif;
+    font-size: .8rem;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-top: .6rem;
+  }
+
+  @media (min-width: 880px) {
+    section { grid-template-columns: 3.5rem minmax(0, 1fr); }
+    .num { grid-column: 1; grid-row: 1 / span 2; text-align: right; }
+    h2.head { grid-column: 2; }
+    .body { grid-column: 2; margin-top: .8rem; }
+  }
+
+  strong { font-weight: 600; }
+
+  a {
+    color: var(--ink);
+    text-decoration: underline;
+    text-decoration-color: var(--accent);
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+  }
+  a:hover { color: var(--accent); }
+  a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  /* ---------- tables ---------- */
+
+  .scroller { overflow-x: auto; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 460px;
+    font-size: .93rem;
+    font-variant-numeric: tabular-nums;
+  }
+  th {
+    text-align: left;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-weight: 500;
+    font-size: .68rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 0 1rem .55rem 0;
+    border-bottom: 1px solid var(--ink);
+    vertical-align: bottom;
+  }
+  td {
+    padding: .7rem 1rem .7rem 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    line-height: 1.45;
+  }
+  tr td:first-child { font-weight: 500; padding-right: 1.4rem; }
+  td:last-child, th:last-child { padding-right: 0; }
+
+  /* ---------- callout ---------- */
+
+  .note {
+    background: var(--accent-soft);
+    border-radius: 3px;
+    padding: 1rem 1.2rem;
+    font-size: .97rem;
+    line-height: 1.55;
+  }
+
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.6rem;
+    border-top: 2px solid var(--ink);
+    display: flex;
+    flex-wrap: wrap;
+    gap: .6rem 2rem;
+    justify-content: space-between;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .72rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <p class="eyebrow">Privacy Policy</p>
+    <h1>What AI Chess Coach&nbsp;3D knows about you</h1>
+    <dl class="colophon">
+      <div>
+        <dt>App</dt>
+        <dd>AI Chess Coach 3D<br><code>io.github.ber4444.chess</code></dd>
+      </div>
+      <div>
+        <dt>Platform</dt>
+        <dd>Android, via Google Play</dd>
+      </div>
+      <div>
+        <dt>Developer</dt>
+        <dd>Gabor Berenyi</dd>
+      </div>
+      <div>
+        <dt>Source code</dt>
+        <dd><a href="https://github.com/ber4444/compose-multiplatform-chess">github.com/ber4444/<wbr>compose-multiplatform-chess</a></dd>
+      </div>
+      <div>
+        <dt>Contact</dt>
+        <dd><a href="https://github.com/ber4444/compose-multiplatform-chess/issues">Open an issue</a></dd>
+      </div>
+      <div>
+        <dt>Effective &middot; last updated</dt>
+        <dd>27 August 2026</dd>
+      </div>
+    </dl>
+  </header>
+
+  <div class="summary">
+    <h2>The short version</h2>
+    <p class="lede">AI Chess Coach 3D has no accounts, no sign-in, no advertising, and no analytics or crash-reporting SDKs. Your games, settings, and history are stored on your device and are never uploaded.</p>
+    <p>Two things leave your device, and only in the situations described below:</p>
+    <ol class="exceptions">
+      <li><strong>Purchases.</strong> If you buy Pro, purchase data is processed by Google Play and by our subscription provider, RevenueCat.</li>
+      <li><strong>The two cloud AI features</strong> — Opening Explainer and Position Chat, both Pro. These send the chess position you are looking at and, for chat, the question you type.</li>
+    </ol>
+    <p>Everything else — the chess engine, the 3D board, the move coach, the game summary, and rules Q&amp;A — runs entirely offline on your device.</p>
+    <p>The app is open source. If you would rather read the code than take our word for any of this, it is all <a href="https://github.com/ber4444/compose-multiplatform-chess">on GitHub</a>.</p>
+  </div>
+
+  <section>
+    <p class="num">01</p>
+    <h2 class="head">Information stored on your device</h2>
+    <div class="body">
+      <p>The app saves the following locally, in Android's own SharedPreferences storage:</p>
+      <ul>
+        <li><strong>The game in progress</strong>, so you can resume after closing the app.</li>
+        <li><strong>Your game history</strong> — finished games as PGN, including result, move count, and date, capped at the 200 most recent games.</li>
+        <li><strong>Your settings</strong> — preferred side, engine difficulty, 3D board on or off, AI coach on or off.</li>
+      </ul>
+      <p>This data is not transmitted to us or to anyone else. It is removed when you uninstall the app or clear the app's data from Android Settings. If you use <strong>Share PGN</strong>, the game text is handed to the app you pick — mail, messaging, a file — and that destination's own privacy terms then apply.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="num">02</p>
+    <h2 class="head">Purchases and subscriptions</h2>
+    <div class="body">
+      <p>Pro is sold through Google Play, with <a href="https://www.revenuecat.com/privacy/">RevenueCat</a> managing entitlements and receipt validation.</p>
+      <ul>
+        <li><strong>We never see or handle your payment details.</strong> Card and billing information goes to Google and is never available to us or to this app.</li>
+        <li>The app does <strong>not</strong> create an account or ask for an email address. RevenueCat assigns an <strong>anonymous app user ID</strong> — a random identifier not linked to your name — and uses it to remember what you have purchased and to restore purchases on request.</li>
+        <li>To operate the purchase, RevenueCat and Google Play process: the anonymous user ID, the purchase receipt and subscription status, the product purchased, device model, Android and app version, and a country derived from your IP address.</li>
+        <li><strong>Restore purchases</strong> asks Google Play and RevenueCat for the entitlements attached to your Google account.</li>
+      </ul>
+      <p>We use this data only to decide whether Pro is unlocked, and to see anonymous, aggregate revenue figures. We do not use it for advertising and we do not sell it.</p>
+      <p>Google and RevenueCat are independent controllers of the data they collect. Their policies: <a href="https://policies.google.com/privacy">Google</a>, <a href="https://www.revenuecat.com/privacy/">RevenueCat</a>.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="num">03</p>
+    <h2 class="head">Cloud AI features (Pro)</h2>
+    <div class="body">
+      <p>Two features send data to our AI service, which runs on <a href="https://fly.io/legal/privacy-policy/">Fly.io</a>.</p>
+      <p><strong>Opening Explainer</strong> — after a game ends, sends the board position (FEN), the first 20 moves in standard notation, the opening's ECO code, and your language preference.</p>
+      <p><strong>Position Chat</strong> — sends the same position data, your recent messages in that conversation (bounded to the last several turns), and the message you type, which is limited to 500 characters.</p>
+      <h3>What this means in practice</h3>
+      <ul>
+        <li>These requests carry <strong>chess data and your typed question only</strong>. The app does not attach a user ID, account data, device identifier, advertising ID, or location to them.</li>
+        <li>Your <strong>IP address</strong> reaches our server as an unavoidable part of any internet request. We use it only for short-term rate limiting — held in memory for a rolling 60-second window, never written to a database, never used to build a profile.</li>
+        <li>Our database stores only the chess opening reference corpus the answers are drawn from. <strong>No user request is written to it.</strong> Server logs record errors for reliability purposes; they are not used to profile users and are retained only briefly.</li>
+      </ul>
+      <p class="note"><strong>Please do not type personal information into the chat box.</strong> It is a free-text field, so anything you write there is sent to our service and on to the model provider named below. Keep it to chess.</p>
+      <h3>Third-party language model</h3>
+      <p>To compose the wording of an answer, our service forwards the position and your question to <strong>Google's Gemini API</strong>, which generates the response text. Google processes it as a data processor on our behalf and, under the Gemini API terms for paid services, does not use it to train its models. See <a href="https://policies.google.com/privacy">Google's privacy policy</a> and the <a href="https://ai.google.dev/gemini-api/terms">Gemini API terms</a>.</p>
+      <p>If the model is unavailable or its answer fails our validation, the app falls back to text composed from our own reference corpus, and nothing further is sent.</p>
+      <p>These features are optional: they only run when you open the Chat screen or ask for an opening explanation.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="num">04</p>
+    <h2 class="head">On-device AI</h2>
+    <div class="body">
+      <p>The <strong>Move Coach</strong>, <strong>Game Summary</strong>, and <strong>Rules Q&amp;A</strong> features run entirely on your device. They use either Android's built-in on-device AI, where your device supports it, or a deterministic, non-AI explanation computed from the chess engine's own analysis.</p>
+      <p><strong>Nothing about your games is uploaded for these features</strong>, and they work with no network connection.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="num">05</p>
+    <h2 class="head">Every connection the app can make</h2>
+    <div class="body">
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th scope="col">Destination</th><th scope="col">When</th><th scope="col">What it sees</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Google Play, RevenueCat</td>
+              <td>Purchase, restore, or entitlement check</td>
+              <td>Purchase data as described in section 02</td>
+            </tr>
+            <tr>
+              <td>Our AI service on Fly.io</td>
+              <td>You use Opening Explainer or Position Chat</td>
+              <td>Position and your typed message; IP address</td>
+            </tr>
+            <tr>
+              <td>Google Gemini API, via our service</td>
+              <td>The same request, to compose the answer</td>
+              <td>Position and your typed message; not your IP</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The app requests only the <code>INTERNET</code> permission. It does not ask for contacts, location, camera, microphone, photos, or storage permissions, and it has no access to them.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="num">06</p>
+    <h2 class="head">Children</h2>
+    <div class="body">
+      <p>AI Chess Coach 3D is not directed at children under 13, or the equivalent minimum age in your country, and we do not knowingly collect personal information from children. Since the app collects no identifying information at all, there is nothing for us to delete on request; purchases made by a minor should be raised with Google Play.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="num">07</p>
+    <h2 class="head">Your rights</h2>
+    <div class="body">
+      <p>Depending on where you live — for example under the GDPR in the EU and UK, or the CCPA/CPRA in California — you may have rights to access, correct, delete, or port your personal data, and to object to its processing. <strong>We do not hold data that identifies you</strong>, so in most cases:</p>
+      <ul>
+        <li><strong>To delete everything the app stores about you</strong>, uninstall the app or clear its data. This removes your games, history, and settings permanently — we hold no copy.</li>
+        <li><strong>For purchase data</strong>, contact RevenueCat or Google, who hold it.</li>
+        <li><strong>For anything else</strong>, <a href="https://github.com/ber4444/compose-multiplatform-chess/issues">open an issue</a> and we will respond within the period your local law requires. The issue tracker is <strong>public</strong> — please do not post personal details in it.</li>
+      </ul>
+      <p><strong>We do not sell or share your personal information</strong> as those terms are defined under California law, and we do not engage in targeted advertising.</p>
+      <p>Our AI service is hosted in the region configured on Fly.io, and Google may process model requests outside your country. Where data leaves the EEA or the UK, transfers rely on the standard contractual clauses those providers maintain.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="num">08</p>
+    <h2 class="head">Retention</h2>
+    <div class="body">
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th scope="col">Data</th><th scope="col">Kept for</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Games, history, settings</td><td>Until you delete them or uninstall the app — stored only on your device</td></tr>
+            <tr><td>Purchase and entitlement records</td><td>As long as RevenueCat and Google Play retain them under their own policies</td></tr>
+            <tr><td>Cloud AI requests</td><td>Not stored. Processed in memory to produce the answer, then discarded</td></tr>
+            <tr><td>Rate-limiting IP counters</td><td>A rolling 60-second window, in memory only</td></tr>
+            <tr><td>Server error logs</td><td>A short operational period, then rotated out</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="num">09</p>
+    <h2 class="head">Security</h2>
+    <div class="body">
+      <p>Traffic to our AI service, to Google Play, and to the Gemini API uses HTTPS. Requests to the AI service are size-limited and rate-limited. Because the app stores no credentials and holds no account, there is no login to compromise. No system is perfectly secure, but the amount of data at risk here is deliberately kept near zero.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="num">10</p>
+    <h2 class="head">Changes to this policy</h2>
+    <div class="body">
+      <p>If we change how the app handles data, we will update this page and the "last updated" date above. Material changes will be noted in the app's release notes. Continuing to use the app after a change means you accept the revised policy.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="num">11</p>
+    <h2 class="head">Contact</h2>
+    <div class="body">
+      <p>Questions about this policy or about your data: <a href="https://github.com/ber4444/compose-multiplatform-chess/issues">open an issue on GitHub</a>. The tracker is public, so please do not include personal details.</p>
+    </div>
+  </section>
+
+  <footer>
+    <span>AI Chess Coach 3D &middot; Gabor Berenyi</span>
+    <span><a href="https://github.com/ber4444/compose-multiplatform-chess">Source on GitHub</a></span>
+  </footer>
+
+</div>
+</body>
+</html>
