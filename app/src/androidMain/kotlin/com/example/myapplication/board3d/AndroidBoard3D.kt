@@ -27,6 +27,7 @@ import io.github.sceneview.rememberEnvironmentLoader
 import io.github.sceneview.rememberFillLightNode
 import io.github.sceneview.rememberMainLightNode
 import io.github.sceneview.rememberModelLoader
+import io.github.sceneview.node.CameraNode
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 
 // Compose resources land at this prefix inside Android assets (set by compose.resources config
@@ -67,6 +68,45 @@ internal fun selectPieceMaterialName(materialNames: List<String>, color: PieceCo
     val expected = ChessSetMeshNames.getMaterialName(color)
     return materialNames.firstOrNull { it == expected }
         ?: materialNames.firstOrNull { it.substringAfterLast('/').startsWith(expected) }
+}
+
+/**
+ * Drives SceneView's [CameraNode] from the shared [OrbitCameraController] state.
+ *
+ * SceneView positions the camera from the CameraNode's *node* transform every frame, so we must
+ * move the node (position + lookAt) — setting the raw Filament camera's lookAt has no effect.
+ *
+ * Portrait FOV boost (same logic as CameraMath.effectiveFovYRad / iOS): with aspect < 1 the
+ * horizontal FOV shrinks too far for the board, so widen the vertical FOV to hold a fixed ~60°
+ * horizontal FOV. The picker uses the identical formula to stay in sync.
+ */
+private fun applyCamera(cameraNode: CameraNode, cameraParams: CameraParams) {
+    val pos    = cameraParams.position
+    val tgt    = cameraParams.target
+    val up     = cameraParams.up
+    val aspect = cameraParams.aspect
+
+    val fovY = if (aspect < 1f) {
+        val minFovXRad  = 60.0 * PI / 180.0
+        val tanHalfFovX = tan(minFovXRad / 2.0)
+        (2.0 * atan(tanHalfFovX / aspect.toDouble()) * 180.0 / PI).toFloat()
+    } else {
+        cameraParams.fovYDegrees
+    }
+
+    cameraNode.position = Float3(pos.x, pos.y, pos.z)
+    cameraNode.lookAt(
+        targetWorldPosition = Float3(tgt.x, tgt.y, tgt.z),
+        upDirection = Float3(up.x, up.y, up.z),
+        smooth = false,
+    )
+    cameraNode.setProjection(
+        fovInDegrees = fovY.toDouble(),
+        near = cameraParams.near,
+        far = cameraParams.far,
+        direction = Camera.Fov.VERTICAL,
+        aspect = aspect.toDouble(),
+    )
 }
 
 /**
@@ -136,41 +176,33 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
     val cameraNode  = rememberCameraNode(engine)
     val cameraParams = svRenderer.cameraParams
 
-    // Drive the camera from the shared OrbitCameraController state. SceneView positions the
-    // camera from the CameraNode's *node* transform every frame, so we must move the node
-    // (position + lookAt) — setting the raw Filament camera's lookAt has no effect.
+    SideEffect { applyCamera(cameraNode, cameraParams) }
+
+    // ...and again immediately before every drawn frame, because a SideEffect is NOT the last word
+    // on the projection.
     //
-    // Portrait FOV boost (same logic as CameraMath.effectiveFovYRad / iOS): with aspect < 1 the
-    // horizontal FOV shrinks too far for the board, so widen the vertical FOV to hold a fixed
-    // ~60° horizontal FOV. The board is laid out square today (aspect ~1), so this is a guard for
-    // any future non-square viewport; the picker uses the identical formula to stay in sync.
-    SideEffect {
-        val pos    = cameraParams.position
-        val tgt    = cameraParams.target
-        val up     = cameraParams.up
-        val aspect = cameraParams.aspect
-
-        val fovY = if (aspect < 1f) {
-            val minFovXRad  = 60.0 * PI / 180.0
-            val tanHalfFovX = tan(minFovXRad / 2.0)
-            (2.0 * atan(tanHalfFovX / aspect.toDouble()) * 180.0 / PI).toFloat()
-        } else {
-            cameraParams.fovYDegrees
-        }
-
-        cameraNode.position = Float3(pos.x, pos.y, pos.z)
-        cameraNode.lookAt(
-            targetWorldPosition = Float3(tgt.x, tgt.y, tgt.z),
-            upDirection = Float3(up.x, up.y, up.z),
-            smooth = false,
-        )
-        cameraNode.setProjection(
-            fovInDegrees = fovY.toDouble(),
-            near = cameraParams.near,
-            far = cameraParams.far,
-            direction = Camera.Fov.VERTICAL,
-            aspect = aspect.toDouble(),
-        )
+    // SceneView's own body carries an unkeyed `SideEffect { … cameraNode.setView(view) … }`, and
+    // CameraNode.setView() calls updateProjection(), which recomputes the projection from its 28mm
+    // lens default — vertical FOV 46.4°, discarding the FOV set above. Ours is *recorded* first
+    // (a parent composes before its child), and side effects run in record order, so whenever
+    // SceneView's body recomposes its reset runs last and wins.
+    //
+    // That is not most frames: a published scene only invalidates the content lambda, so
+    // SceneView's body is skipped and the SideEffect above stands. It is exactly the frames where
+    // the `isRendering` argument flips — i.e. every wake of a parked board. A move survives it
+    // (its animation publishes ~60 more frames, each re-running the SideEffect above), but a
+    // one-shot publish onto an idle board — a Hint's highlight squares, a coach highlight — draws
+    // its entire dirty window at 46.4° and then parks there. On a portrait phone the boosted FOV
+    // is ~104°, so that reads as the board abruptly zooming in and staying there until the next
+    // move.
+    //
+    // `onFrame` runs inside SceneRenderer.renderFrame's `onBeforeRender`, i.e. after every side
+    // effect and immediately before `beginFrame`, which makes it ordering-proof. It is remembered,
+    // and reads `cameraParams` at frame time instead of capturing it, so the lambda identity stays
+    // stable — a fresh lambda per recomposition would itself recompose SceneView's body (and
+    // re-trigger the very reset this works around) on every published frame.
+    val applyCameraOnFrame = remember(svRenderer, cameraNode) {
+        { _: Long -> applyCamera(cameraNode, svRenderer.cameraParams) }
     }
 
     val boardScene    = svRenderer.boardScene
@@ -217,6 +249,8 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
             // would latch true and never invalidate anything, and this parameter would silently
             // do nothing.
             isRendering = svRenderer.needsRender || !modelResourcesLoaded,
+            // Re-applies our camera after SceneView's own projection reset; see applyCameraOnFrame.
+            onFrame = applyCameraOnFrame,
         ) {
             // GLB uses 2-unit squares (board +/-8); game uses 1-unit squares (+/-4). All nodes
             // need scale = 0.5 to match. Template pieces are at GLB origin, so position =
