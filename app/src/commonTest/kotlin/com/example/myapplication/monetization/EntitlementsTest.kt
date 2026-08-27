@@ -17,7 +17,9 @@ class EntitlementsTest {
         val entitlements = UnconfiguredEntitlements()
         assertEquals(false, entitlements.isProUnlocked.value)
         assertEquals(PurchaseOutcome.Unavailable, entitlements.purchase("any"))
-        assertEquals(false, entitlements.restorePurchases())
+        // Unavailable, not NothingToRestore: with no billing client this class cannot know whether
+        // the user has a purchase, and the paywall must not tell them they don't.
+        assertEquals(RestoreOutcome.Unavailable, entitlements.restorePurchases())
         // Still locked after a failed attempt — the failure must not be a backdoor.
         assertEquals(false, entitlements.isProUnlocked.value)
     }
@@ -43,7 +45,8 @@ class EntitlementsTest {
         assertEquals(true, persisted)
 
         var restorePersisted: Boolean? = null
-        NoOpEntitlements(onUnlockChanged = { restorePersisted = it }).restorePurchases()
+        val restored = NoOpEntitlements(onUnlockChanged = { restorePersisted = it }).restorePurchases()
+        assertEquals(RestoreOutcome.Restored, restored)
         assertEquals(true, restorePersisted)
     }
 

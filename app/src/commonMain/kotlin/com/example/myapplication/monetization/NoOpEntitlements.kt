@@ -52,9 +52,9 @@ class NoOpEntitlements(
         return PurchaseOutcome.Purchased
     }
 
-    override suspend fun restorePurchases(): Boolean {
+    override suspend fun restorePurchases(): RestoreOutcome {
         unlock()
-        return true
+        return RestoreOutcome.Restored
     }
 
     private fun unlock() {
