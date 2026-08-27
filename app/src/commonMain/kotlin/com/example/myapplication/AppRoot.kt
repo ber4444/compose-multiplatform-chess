@@ -209,7 +209,12 @@ fun AppRoot(
                         )
                     }
                 }
-                Screen.PAYWALL -> PaywallScreen(onClose = { screen = Screen.GAME })
+                // rulesQaAvailable is the same signal the RULES branch above gates on: the paywall
+                // must not list a surface this build can't deliver after payment.
+                Screen.PAYWALL -> PaywallScreen(
+                    onClose = { screen = Screen.GAME },
+                    rulesQaAvailable = rulesQaAnswerer != null,
+                )
                 Screen.CHAT -> when {
                     // Unavailable beats both branches: chat is cloud-only, so without a base URL
                     // it can only ever emit its fixed offline sentence. Say that instead of either
