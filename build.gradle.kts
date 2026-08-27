@@ -54,12 +54,64 @@ plugins {
 // `eachDependency` only rewrites what the UTP/gRPC path requests; a plain constraint wouldn't reach
 // these configurations, which AGP creates outside any dependency block we control. Build/CI-only —
 // UTP ships in neither the app nor the published :chess-core artifact.
+//
+// The other four entries below exist for the same structural reason, and that reason is the whole
+// point of this block: the `constraints` in the two buildscript blocks govern **Gradle's own
+// classpath only**. Everything AGP's Unified Test Platform and KGP's Swift export drag onto the
+// *project* side resolves independently of them, which is why `./gradlew buildEnvironment` reports
+// these already patched while the project configurations still resolve the vulnerable versions:
+//
+//   guava           28.1-android (truth <- compose ui-test, :app:desktopTestRuntimeClasspath)
+//                   31.0.1-jre   (kotlinx-coroutines-guava <- ML Kit genai-prompt, :ondeviceai)
+//   bcprov/bcpkix   1.79         (UTP result-listener-gradle)
+//   commons-lang3   3.16.0       (UTP result-listener-gradle)
+//   httpclient      4.5.6        (UTP result-listener-gradle)
+//   opentelemetry   1.41.0       (kotlin:swift-export-embeddable, swiftExportClasspathResolvable)
+//
+// Versions match the buildscript constraints so the two halves can't drift; re-derive the list with
+// `./gradlew buildEnvironment` plus a resolution sweep of every `isCanBeResolved` configuration,
+// not from the Dependabot alert's manifest path — every one of these is reported against
+// `settings.gradle.kts`, which is where none of them actually resolves.
 allprojects {
     configurations.configureEach {
         resolutionStrategy.eachDependency {
-            if (requested.group == "io.netty" && requested.version?.startsWith("4.1.") == true) {
-                useVersion("4.1.136.Final")
-                because("UTP/grpc-netty pins Netty 4.1.93/4.1.110; 4.1.136.Final is the patched 4.1.x")
+            when (requested.group) {
+                "io.netty" -> if (requested.version?.startsWith("4.1.") == true) {
+                    useVersion("4.1.137.Final")
+                    because("UTP/grpc-netty pins Netty 4.1.93/4.1.110; 4.1.137.Final is the patched 4.1.x")
+                }
+                // Guava publishes two flavours per release and they are not interchangeable — the
+                // `-jre` line compiles against Java 8 APIs the `-android` line avoids. Rewrite the
+                // number and keep whichever flavour was requested, rather than forcing one string
+                // and silently moving an Android classpath onto the JRE build (or vice versa).
+                "com.google.guava" -> if (requested.name == "guava") {
+                    val flavor = if (requested.version?.endsWith("-android") == true) "android" else "jre"
+                    useVersion("33.7.1-$flavor")
+                    because("GHSA-7g45-4rm6-3mm3 / GHSA-5mg8-w23w-74h3 are fixed from 32.0.0")
+                }
+                // bcprov/bcpkix/bcutil move as a set — see the buildscript constraints' note on why
+                // raising one alone desyncs from AGP.
+                "org.bouncycastle" -> if (requested.name.endsWith("-jdk18on")) {
+                    useVersion("1.84")
+                    because("GHSA-c3fc-8qff-9hwx (bcprov LDAP injection) + GHSA-wg6q-6289-32hp (bcpkix)")
+                }
+                "org.apache.commons" -> if (requested.name == "commons-lang3") {
+                    useVersion("3.20.0")
+                    because("GHSA-j288-q9x7-2f5v, uncontrolled recursion on long inputs")
+                }
+                // Scoped to the 4.x line by name: httpclient5 is a different group
+                // (org.apache.httpcomponents.client5) and is pinned in server/build.gradle.kts.
+                "org.apache.httpcomponents" -> if (requested.name == "httpclient") {
+                    useVersion("4.5.14")
+                    because("GHSA-7r82-7xv7-xcpj, XSS in Apache HttpClient")
+                }
+                // api and context ship as a matched pair from the same release; the group-wide
+                // rewrite is what keeps them aligned (a BOM can't be injected into a KGP-internal
+                // configuration). Matches the opentelemetry-bom the buildscripts import.
+                "io.opentelemetry" -> {
+                    useVersion("1.62.0")
+                    because("GHSA-rcgg-9c38-7xpx, unbounded allocation in W3C baggage propagation")
+                }
             }
         }
     }

@@ -51,7 +51,14 @@ dependencies {
     // materializes an unbounded map). This is a *runtime* dependency of the deployed server,
     // distinct from the AGP/UTP build-path Netty that stays on 4.1.x (see the `io.netty` version
     // rewrite in the root build.gradle.kts and the buildscript constraints alongside it).
-    implementation(platform("io.netty:netty-bom:4.2.16.Final"))
+    //
+    // 4.2.16 -> 4.2.17: GHSA-8c42-7qj2-3j46, `CorsHandler` *overwrites* the `Vary` header instead of
+    // appending to it. This one is not theoretical here — the route stack installs
+    // `ktor-server-cors-jvm` above, so a shared cache in front of Fly.io can serve a response
+    // computed for one `Origin` to a request carrying another. The 4.1.x half of the same advisory
+    // is handled by the root build's version rewrite; both halves must move together or the alert
+    // stays open on whichever series lags.
+    implementation(platform("io.netty:netty-bom:4.2.17.Final"))
     // Jackson: swagger-request-validator-core (test-scoped above) pulls jackson transitively at
     // 2.19.x / 2.21.1; GHSA-rmj7-2vxq-3g9f and -j3rv-43j4-c7qm are fixed only in 2.21.4. The BOM
     // aligns the whole family (databind + core + annotations + dataformat-yaml + datatype-jsr310).
