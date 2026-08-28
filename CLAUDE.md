@@ -171,6 +171,22 @@ Entitlement gating lives in `:app`'s `monetization/` package and is **injected l
 `Board3DSupport`**, never resolved statically. `:chess-core` must stay free of any billing
 dependency — it's the artifact the React Native repo compiles against.
 
+> [!IMPORTANT]
+> **`MONETIZATION_ENABLED` (`monetization/MonetizationConfig.kt`) is `false` for the first store
+> release, so everything below describes machinery that is currently *unreachable at runtime*.** All
+> five Pro surfaces render free for everyone, and the app offers no in-app purchase. Read the rest of
+> this section as "what happens when the switch is on"; flipping the one `const` back to `true`
+> restores every behaviour described here, and nothing else needs to change.
+>
+> The switch has four consequences and they are not independent: `AppRoot` folds it into
+> `LocalProUnlockOverride` (the blanket unlock), it nulls the single `onOpenPaywall` route, and both
+> phone entry points skip `RevenueCatEntitlements.createOrNull(...)` so no store SDK is configured.
+> The second one is the one that does **not** follow from the unlock and is easy to drop: the
+> Settings *"Upgrade to Chess Coach Pro"* row keys off `onOpenPaywall != null`, **not** off
+> `isProUnlocked()`, so unlocking alone ships a free app whose Settings screen still advertises an
+> upgrade and still routes to a live purchase screen. `PaywallScreen` is deliberately left compiling
+> and untouched — it is simply unreachable.
+
 - **`Entitlements`** — interface: `isProUnlocked: StateFlow<Boolean>`, `availablePlans()`,
   `purchase(planId)`, `restorePurchases()`. Published to the UI through `LocalEntitlements`
   (`staticCompositionLocalOf<Entitlements?>`, nullable, mirroring `LocalAppSettings`). `ProPlan` /

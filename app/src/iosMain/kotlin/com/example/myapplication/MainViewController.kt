@@ -93,11 +93,18 @@ fun MainViewController(
     }
     // Injected like pgnSharer. Null when no key is configured (see generateRevenueCatConfig in
     // app/build.gradle.kts); the locked UnconfiguredEntitlements then applies.
+    //
+    // Skipped entirely while MONETIZATION_ENABLED is false: v1 sells nothing, so configuring the
+    // SDK would open a StoreKit connection and fetch an entitlement no screen can reach.
     val entitlements = remember {
-        com.example.myapplication.monetization.RevenueCatEntitlements.createOrNull(
-            apiKey = com.example.myapplication.monetization.revenueCatApiKey(debug = debug),
-            debugLogging = debug,
-        )
+        if (com.example.myapplication.monetization.MONETIZATION_ENABLED) {
+            com.example.myapplication.monetization.RevenueCatEntitlements.createOrNull(
+                apiKey = com.example.myapplication.monetization.revenueCatApiKey(debug = debug),
+                debugLogging = debug,
+            )
+        } else {
+            null
+        }
     }
     DisposableEffect(Unit) {
         viewModel.attachEngine(engine)

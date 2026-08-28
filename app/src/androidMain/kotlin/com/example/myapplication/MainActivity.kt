@@ -18,6 +18,7 @@ import com.example.myapplication.share.androidPgnSharer
 import android.content.pm.ApplicationInfo
 import com.example.myapplication.movecoach.MoveCoachManager
 import com.example.myapplication.movecoach.GameSummaryManager
+import com.example.myapplication.monetization.MONETIZATION_ENABLED
 import com.example.myapplication.monetization.RevenueCatEntitlements
 import com.example.myapplication.monetization.UnconfiguredEntitlements
 import com.example.myapplication.monetization.revenueCatApiKey
@@ -89,12 +90,20 @@ class MainActivity : ComponentActivity() {
         // Injected like pgnSharer/board3D. Null when no key is configured (see
         // generateRevenueCatConfig in app/build.gradle.kts) — AppRoot's UnconfiguredEntitlements
         // default then applies, which is locked.
-        val entitlements = RevenueCatEntitlements.createOrNull(
-            // isDebug also picks the key: a debug build uses the RevenueCat Test Store key when one
-            // is configured, so a dev tap never buys a real Play product.
-            apiKey = revenueCatApiKey(debug = isDebug),
-            debugLogging = isDebug,
-        )
+        //
+        // Skipped entirely while MONETIZATION_ENABLED is false: v1 sells nothing, so configuring
+        // the SDK would open a Play Billing connection and fire refresh()'s network call on every
+        // launch to fetch an entitlement no screen can reach.
+        val entitlements = if (MONETIZATION_ENABLED) {
+            RevenueCatEntitlements.createOrNull(
+                // isDebug also picks the key: a debug build uses the RevenueCat Test Store key when
+                // one is configured, so a dev tap never buys a real Play product.
+                apiKey = revenueCatApiKey(debug = isDebug),
+                debugLogging = isDebug,
+            )
+        } else {
+            null
+        }
         entitlements?.let { CoroutineScope(Dispatchers.IO).launch { it.refresh() } }
 
         setContent {

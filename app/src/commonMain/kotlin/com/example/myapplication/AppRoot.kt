@@ -54,6 +54,7 @@ import com.example.ondeviceai.defaultRulesQaAnswerer
 import com.example.myapplication.monetization.Entitlements
 import com.example.myapplication.monetization.LocalEntitlements
 import com.example.myapplication.monetization.LocalProUnlockOverride
+import com.example.myapplication.monetization.MONETIZATION_ENABLED
 import com.example.myapplication.monetization.UnconfiguredEntitlements
 import com.example.myapplication.monetization.PaywallScreen
 import com.example.myapplication.monetization.ProUpsellCard
@@ -125,7 +126,11 @@ fun AppRoot(
     CompositionLocalProvider(
         LocalAppSettings provides settings,
         LocalEntitlements provides entitlements,
-        LocalProUnlockOverride provides forceProUnlocked,
+        // `|| !MONETIZATION_ENABLED` is the v1 blanket unlock. It rides the same override as the
+        // debug unlock because that override is the only signal all five surfaces agree on —
+        // see LocalProUnlockOverride's KDoc for why a per-branch boolean unlocked two of them and
+        // silently left the other two gated.
+        LocalProUnlockOverride provides (forceProUnlocked || !MONETIZATION_ENABLED),
         LocalMoveCoachManager provides moveCoachManager,
         LocalGameSummaryManager provides gameSummaryManager,
         LocalOpeningExplainerStateHolder provides openingExplainerStateHolder,
@@ -134,6 +139,14 @@ fun AppRoot(
         MyApplicationTheme(darkTheme = isSystemInDarkTheme()) {
             var screen by rememberSaveable { mutableStateOf(Screen.GAME) }
             BackHandler(enabled = screen != Screen.GAME) { screen = Screen.GAME }
+
+            // One nullable route rather than four call-site lambdas, because `null` is already the
+            // agreed "this build has nothing to sell" signal: SettingsScreen hides its upgrade row
+            // on it and ProUpsellCard drops its CTA. Killing the route in one place is therefore
+            // what removes every purchase affordance when MONETIZATION_ENABLED is false — the
+            // blanket unlock above does not, and cannot, do that on its own.
+            val onOpenPaywall: (() -> Unit)? =
+                if (MONETIZATION_ENABLED) ({ screen = Screen.PAYWALL }) else null
 
             // Bridge the persisted engine-difficulty setting → the VM (issue #39 Phase 4). The VM
             // seeds its initial value at construction; this forwards subsequent changes from
@@ -169,7 +182,7 @@ fun AppRoot(
                     onOpenSettings = { screen = Screen.SETTINGS },
                     onOpenRules = { screen = Screen.RULES },
                     onOpenChat = { screen = Screen.CHAT },
-                    onOpenPaywall = { screen = Screen.PAYWALL },
+                    onOpenPaywall = onOpenPaywall,
                 )
                 Screen.HISTORY -> if (gameHistory != null) {
                     GameHistoryScreen(
@@ -185,7 +198,7 @@ fun AppRoot(
                 Screen.SETTINGS -> SettingsScreen(
                     onBack = { screen = Screen.GAME },
                     board3D = board3D,
-                    onOpenPaywall = { screen = Screen.PAYWALL },
+                    onOpenPaywall = onOpenPaywall,
                 )
                 // Branching here rather than wrapping in ProGate: RulesQaScreen supplies its own
                 // SubScreenScaffold, so nesting would render two title bars when unlocked.
@@ -204,7 +217,7 @@ fun AppRoot(
                             featureName = "Rules Q&A",
                             pitch = "Ask any rules question and get an answer cited to the " +
                                 "rulebook, entirely on your device.",
-                            onOpenPaywall = { screen = Screen.PAYWALL },
+                            onOpenPaywall = onOpenPaywall,
                             modifier = Modifier.padding(16.dp),
                         )
                     }
@@ -237,7 +250,7 @@ fun AppRoot(
                         ProUpsellCard(
                             featureName = "Position Chat",
                             pitch = "Ask about the position you're in and get grounded answers as you play.",
-                            onOpenPaywall = { screen = Screen.PAYWALL },
+                            onOpenPaywall = onOpenPaywall,
                             modifier = Modifier.padding(16.dp),
                         )
                     }
