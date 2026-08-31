@@ -75,6 +75,12 @@ import androidx.compose.ui.unit.min
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
 import com.example.myapplication.monetization.ProGate
+import com.example.myapplication.ui.theme.BoardDarkSquare
+import com.example.myapplication.ui.theme.BoardLightSquare
+import com.example.myapplication.ui.theme.CaptureMarker
+import com.example.myapplication.ui.theme.MoveMarker
+import com.example.myapplication.ui.theme.SelectionBlockedRing
+import com.example.myapplication.ui.theme.SelectionRing
 import com.example.myapplication.movecoach.FallbackPresentation
 import com.example.myapplication.movecoach.MoveCoachManager
 import com.example.myapplication.movecoach.MoveCoachPanel
@@ -312,7 +318,7 @@ fun GameScreen(
                 Text(
                     modifier = Modifier.testTag("winnerText"),
                     text = stringResource(gameEndMessageFormat, gameState.winState),
-                    color = Color.Red,
+                    color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.titleLarge
                 )
 
@@ -468,7 +474,11 @@ fun GameScreen(
                             }
                         }
                         is GameSummaryUiState.Error -> {
-                            Text("Error: ${(summaryState as GameSummaryUiState.Error).message}", color = Color.Red, style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                "Error: ${(summaryState as GameSummaryUiState.Error).message}",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                     }
                     }
@@ -577,7 +587,7 @@ fun GameScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.White.copy(alpha = 0.85f))
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
                             .zIndex(2f)
                             .testTag("board_3d_entering"),
                         contentAlignment = Alignment.Center
@@ -801,7 +811,7 @@ private fun GameControls(
         if (viewState.board3DUnavailable) {
             Text(
                 text = stringResource(Res.string.board_3d_unavailable),
-                color = Color.Red,
+                color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.testTag("board_3d_unavailable")
             )
         }
@@ -885,10 +895,10 @@ fun RowScope.Square(
     content: @Composable () -> Unit
 ) {
     val (borderWidth, borderColor, shapeType) = when (squareType) {
-        SquareType.CanMove -> Triple(1.dp, Color.Green, RectangleShape)
-        SquareType.CannotMove -> Triple(1.dp, Color.Red, RectangleShape)
-        SquareType.PossibleMove -> Triple(5.dp, Color.Yellow, CircleShape)
-        SquareType.PossibleCapture -> Triple(5.dp, Color.Red, CircleShape)
+        SquareType.CanMove -> Triple(1.dp, SelectionRing, RectangleShape)
+        SquareType.CannotMove -> Triple(1.dp, SelectionBlockedRing, RectangleShape)
+        SquareType.PossibleMove -> Triple(5.dp, MoveMarker, CircleShape)
+        SquareType.PossibleCapture -> Triple(5.dp, CaptureMarker, CircleShape)
         else -> Triple(0.dp, Color.Transparent, RectangleShape)
     }
 
@@ -897,7 +907,7 @@ fun RowScope.Square(
             .weight(1f)
             .aspectRatio(1f)
             .background(
-                color = if (isDarkSquare) MaterialTheme.colorScheme.secondary else Color.White
+                color = if (isDarkSquare) BoardDarkSquare else BoardLightSquare
             )
             // Tinted rather than bordered: the border slot already encodes selection and legal
             // moves, and a second border there would be read as a move hint.
@@ -1155,7 +1165,6 @@ fun AnimatedChessPiece(
             }
             .size(squareSizeDp)
             .zIndex(1f)
-            .border(width = 1.dp, color = Color.Red)
     ) {
         Piece(pieceModel = piece)
     }
