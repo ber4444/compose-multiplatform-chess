@@ -320,6 +320,11 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
     _resourceLoader->addTextureProvider("image/png", _stbProvider);
     _resourceLoader->addTextureProvider("image/jpeg", _stbProvider);
     _resourceLoader->addTextureProvider("image/ktx2", _ktxProvider);
+    // Synchronous on purpose: loadResources() blocks until every texture is decoded, so a renderer
+    // that exists at all is a renderer that can draw a fully textured board. FilamentChessView's
+    // display-link gate leans on that (see -isAssetReady) — swapping this for asyncBeginLoad also
+    // means driving asyncUpdateLoad() from -render and reporting real progress from -isAssetReady,
+    // or an idle board can park mid-upload and sit there untextured.
     _resourceLoader->loadResources(_asset);
 
     _ready = true;
@@ -467,12 +472,18 @@ NSData* loadBundleResource(NSString* name, NSString* ext) {
     if (_view) _view->setViewport({ 0, 0, (uint32_t)width, (uint32_t)height });
 }
 
-- (void)render {
-    if (!_engine || !_renderer || !_swapChain || !_view) return;
-    if (_renderer->beginFrame(_swapChain)) {
-        _renderer->render(_view);
-        _renderer->endFrame();
-    }
+- (BOOL)isAssetReady {
+    // Set once loadResources() has returned; see the property's doc in the header for why this is
+    // currently always YES on a live renderer, and what has to change if the load goes async.
+    return _ready;
+}
+
+- (BOOL)render {
+    if (!_engine || !_renderer || !_swapChain || !_view) return NO;
+    if (!_renderer->beginFrame(_swapChain)) return NO;
+    _renderer->render(_view);
+    _renderer->endFrame();
+    return YES;
 }
 
 - (void)shutdown {

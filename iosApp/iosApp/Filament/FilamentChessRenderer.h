@@ -32,8 +32,25 @@ NS_ASSUME_NONNULL_BEGIN
 /// Resize the swap-chain drawable + viewport (physical pixels).
 - (void)resizeWidth:(int)width height:(int)height;
 
-/// Render one frame. Called from CADisplayLink; cheap no-op until the glTF asset has finished loading.
-- (void)render;
+/// YES once chess.glb's geometry and textures are decoded and uploaded, i.e. once -render can put a
+/// fully textured board on screen.
+///
+/// Today this is YES for the whole life of a successfully constructed renderer: -loadGlb uses
+/// gltfio's *synchronous* @c ResourceLoader::loadResources, which "blocks until all textures have
+/// been decoded", and -initWithMetalLayer: returns nil if it fails. It is still a real query rather
+/// than an assumption because the view gates its display link on it: switching -loadGlb to
+/// @c asyncBeginLoad (a tempting fix for the load-time hitch) would make it genuinely false for a
+/// while, and the gate would then need this — and a per-frame @c asyncUpdateLoad — to avoid parking
+/// mid-upload on an untextured board. That is exactly how the Android backend has to work, because
+/// SceneView finalizes those uploads from inside its own frame loop.
+@property (nonatomic, readonly, getter=isAssetReady) BOOL assetReady;
+
+/// Render one frame. Called from the view's CADisplayLink.
+///
+/// Returns YES only if a frame was actually drawn: @c Renderer::beginFrame declines frames (no
+/// drawable available, frame pacing), and the caller parks the display link once the board is
+/// settled — so "we asked for a frame" and "the new state is on screen" must not be conflated.
+- (BOOL)render;
 
 /// Release all Filament + Metal resources. The renderer is unusable afterwards.
 - (void)shutdown;

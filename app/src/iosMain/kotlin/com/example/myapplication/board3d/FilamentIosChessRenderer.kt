@@ -61,6 +61,20 @@ interface FilamentChessNativeView {
     /** Drawable + viewport resize in physical pixels. */
     fun resize(width: Int, height: Int)
 
+    /**
+     * Resume (`true`) or park (`false`) the native `CADisplayLink`.
+     *
+     * This is iOS's counterpart to SceneView's `isRendering` argument on Android: without it an
+     * idle 3D board redraws at up to 120 Hz for as long as it is on screen. The signal is
+     * [Board3DAnimationDriver.isDirty] — "a frame was published recently", never "an animation is
+     * running"; see [FilamentChessPeer.setRenderingActive].
+     *
+     * The native view keeps its own backstop on top of this (see `FrameLoopGate`), because the
+     * driver's dirty window can lapse before the display link even exists: the view is created
+     * before it has a size, so the renderer is built later, from `layoutSubviews`.
+     */
+    fun setRenderingActive(active: Boolean)
+
     /** Release all Filament + Metal resources; the view is unusable afterwards. */
     fun shutdown()
 }
@@ -83,6 +97,7 @@ class FilamentIosChessRenderer(factory: FilamentChessViewFactory) : Chess3DBoard
             override fun setScene(encoded: String) = nativeView.setScene(encoded)
             override fun setCamera(encoded: String) = nativeView.setCamera(encoded)
             override fun resize(widthPx: Int, heightPx: Int) = nativeView.resize(widthPx, heightPx)
+            override fun setRenderingActive(active: Boolean) = nativeView.setRenderingActive(active)
             override fun attach(surface: Chess3DSurface?) {}
             override fun detach() {}
             override fun shutdown() = nativeView.shutdown()
