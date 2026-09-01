@@ -73,6 +73,10 @@ fun main() = application {
                 backfiller?.start()
             } else {
                 Logger.w("Main") { "Failed to start stockfish." }
+                // Settle the engine seat anyway: the CPU fallback is the opponent now, and until
+                // this runs the VM holds off starting it (see `engineAttachSettled`), which would
+                // strand a game played as Black on White's move.
+                viewModel.attachEngine(null)
             }
         }
         if (System.getenv("CHESS_ENABLE_COACH") == "1") {
