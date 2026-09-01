@@ -57,6 +57,11 @@ private class WasmFilamentPeer(
     private var pendingCamera: String? = null
     private var pendingSize: Pair<Int, Int>? = null
 
+    // Latest [setRenderingActive], queued like the scene/camera above because the JS renderer does
+    // not exist until `init()` has run. Starts true so a board that reaches the glue before the
+    // driver's first signal is still drawn.
+    private var wantsRender = true
+
     override fun attach(surface: Chess3DSurface?) {
         val wasmSurface = surface as? WasmChess3DSurface ?: return
         val isNewCanvas = canvas != wasmSurface.canvas
@@ -127,6 +132,11 @@ private class WasmFilamentPeer(
         if (isReady) filamentSetCameraEncoded(encoded)
     }
 
+    override fun setRenderingActive(active: Boolean) {
+        wantsRender = active
+        if (isReady) filamentSetRenderingActive(active)
+    }
+
     override fun shutdown() {
         detach()
         pendingScene = null
@@ -134,7 +144,13 @@ private class WasmFilamentPeer(
         pendingSize = null
     }
 
+    // The render-loop signal is flushed first, and the state pushes after, because each of those
+    // raises the JS gate's own "undrawn state" term. Async init routinely outlives the driver's
+    // dirty window — it polls at 100 ms granularity while the window is ~48 ms — so `wantsRender` is
+    // usually already false by the time we get here, and a flush that ended on it would park the
+    // loop with the board's very first scene never drawn.
     private fun flushPending() {
+        filamentSetRenderingActive(wantsRender)
         val (width, height) = pendingSize ?: (canvas?.width to canvas?.height)
         if (width != null && height != null) filamentResize(width, height)
         pendingCamera?.let { filamentSetCameraEncoded(it) }
@@ -163,10 +179,15 @@ private external fun filamentSetCameraEncoded(s: String)
 @JsFun("(w, h) => { window.chess3dFilament.resize(w, h); }")
 private external fun filamentResize(w: Int, h: Int)
 
+@JsFun("(active) => { window.chess3dFilament.setRenderingActive(active); }")
+private external fun filamentSetRenderingActive(active: Boolean)
+
 @JsFun("() => { if (window.chess3dFilament) window.chess3dFilament.dispose(); }")
 private external fun filamentDispose()
 
-private val CHESS3D_FILAMENT_JS = """
+// `internal` rather than private so FrameLoopGateTest can inject the glue into the karma browser
+// and drive the frame-loop gate without a GPU; see that test for why it can't go through init().
+internal val CHESS3D_FILAMENT_JS = """
 
 // chess.glb uses 2-unit squares (board spans +/-8); the game uses 1-unit squares, so every node is
 // scaled 0.5 — identical to iOS kModelScale (FilamentChessRenderer.mm) and AndroidBoard3D.
@@ -184,6 +205,49 @@ const INSTANCE_COUNT = MAX_PIECES + MAX_HIGHLIGHTS + 1;
 const HIGHLIGHT_LIFT_Y = 0.005;
 // PieceKind ordinals (Board3DScene.kt): KING, QUEEN, ROOK, BISHOP, KNIGHT, PAWN -> glTF node names.
 const KIND_NAMES = [${ChessSetConventions.KIND_NAMES.joinToString(", ") { "'$it'" }}];
+// How many frames the loop still owes the most recent state push; see chess3dFrameLoopGate.
+const DRAW_SETTLE_FRAMES = 3;
+
+// Whether requestAnimationFrame should be scheduled for another frame.
+//
+// Split out as a pure value for the same reason iOS's FrameLoopGate is a struct: the gate's whole
+// job is to decide when *not* to draw, and getting that wrong shows up as a board that never
+// appears — but the karma browser has no GPU (Filament's Engine.create crashes on swiftshader), so
+// the decision has to be checkable without ever initialising a renderer. See FrameLoopGateTest.
+window.chess3dFrameLoopGate = {
+    create() {
+        return {
+            // Board3DAnimationDriver's dirty flag, pushed down from Kotlin: *a frame was published
+            // recently*. Deliberately not "an animation is running" — the driver publishes with its
+            // loop parked on mount, on a new game, on a coach highlight landing on an idle board,
+            // and after async init, and the narrower signal strands all four undrawn.
+            //
+            // Starts true so anything published before Kotlin's first signal is still drawn.
+            wantsRender: true,
+            // Frames still owed to state that has reached the renderer but that no frame has drawn.
+            // This is the backstop wantsRender cannot be: init() is asynchronous (Filament.init,
+            // then loadResources), and Kotlin's peer polls for readiness every 100 ms, so the
+            // driver's ~48 ms dirty window has almost always closed by the time the queued scene
+            // actually reaches this object — parking on wantsRender alone never draws the board.
+            //
+            // A count rather than iOS's boolean because Renderer::beginFrame declines frames and
+            // the web bindings hide the answer: filament.js exposes render(swapChain, view) as
+            // void, and the beginFrame/renderView/endFrame triple cannot replace it because the
+            // binding's render() also calls Engine::execute(), which is not exposed at all
+            // (jsbindings.cpp). So the loop owes a few attempts instead of one confirmed frame.
+            undrawnFrames: DRAW_SETTLE_FRAMES,
+            // Whether the glTF asset has finished loading. Unlike Android this is not a
+            // texture-upload fence — filament.js decodes on its own setInterval, not inside the
+            // render loop — it just keeps the loop alive across init so the first frame after the
+            // asset lands draws without waiting on another push from Kotlin.
+            assetReady: false,
+        };
+    },
+
+    shouldRender(gate) {
+        return gate.wantsRender || gate.undrawnFrames > 0 || !gate.assetReady;
+    },
+};
 
 window.chess3dFilament = {
     isReady: false,
@@ -198,6 +262,17 @@ window.chess3dFilament = {
     assetLoader: null,
     asset: null,
     instances: null,
+
+    // --- frame loop ---
+    gate: window.chess3dFrameLoopGate.create(),
+    // requestAnimationFrame never returns 0, so 0 is a safe "not scheduled" sentinel. Holding the
+    // handle in one field is also what makes a double init() harmless: it can't start a second loop.
+    rafHandle: 0,
+    boundRender: null,
+    // True only between init() and dispose() — the web counterpart of iOS nilling its CADisplayLink
+    // on shutdown. Without it the gate's `!assetReady` term would keep rescheduling frames after
+    // dispose() (which sets isReady = false), which is the loop-per-toggle leak this replaces.
+    loopActive: false,
 
     init(canvas) {
         Filament.init(['${ChessSetConventions.GLB_ASSET}', '${ChessSetConventions.IBL_ASSET}', '${ChessSetConventions.SKYBOX_ASSET_BLURRED}'], () => {
@@ -234,8 +309,15 @@ window.chess3dFilament = {
                     this.configureInstanceVisibility();
                     this.isReady = true;
                     console.log('[filament] ready: ' + this.instances.length + ' instances');
+                    // A brand-new asset has drawn nothing, whatever Kotlin's dirty signal currently
+                    // says — the scene queued in the peer's pendingScene was very likely published
+                    // long enough ago for the driver's window to have closed. Reassert it rather
+                    // than trusting gate.wantsRender.
+                    this.stateChanged();
                 });
-                requestAnimationFrame(this.render.bind(this));
+                this.boundRender = this.render.bind(this);
+                this.loopActive = true;
+                this.updateFrameLoop();
             } catch (e) {
                 console.error('[filament] init failed', e.stack || e);
             }
@@ -264,8 +346,12 @@ window.chess3dFilament = {
     // Reconcile the fixed instance pool against an encoded Board3DScene ("kind,color,x,y,z,rot;...").
     // Called every animation frame by the shared Board3DAnimationDriver. Mirrors iOS setSceneEncoded.
     setScene(encoded) {
+        // Before the guard: new state has arrived for the renderer either way, and the loop is what
+        // has to put it on screen. (A push that lands before isReady is dropped here, but the
+        // Kotlin peer holds it in pendingScene and re-pushes it on flush.)
+        this.stateChanged();
         if (!this.isReady || !encoded) return;
-        
+
         let piecesStr = encoded;
         let highlightsStr = "";
         const pipePos = encoded.indexOf('|');
@@ -369,6 +455,7 @@ window.chess3dFilament = {
     },
 
     setCamera(px, py, pz, tx, ty, tz, ux, uy, uz, fov, aspect) {
+        this.stateChanged();
         if (!this.camera) return;
         this.camera.lookAt([px, py, pz], [tx, ty, tz], [ux, uy, uz]);
         // Portrait FOV boost: with aspect < 1 the horizontal FOV shrinks too far for the board, so widen
@@ -385,15 +472,46 @@ window.chess3dFilament = {
     },
 
     resize(w, h) {
+        this.stateChanged();
         if (!this.view) return;
         this.view.setViewport([0, 0, w, h]);
     },
 
+    // Resume (true) or park (false) the requestAnimationFrame loop. This is the web's counterpart to
+    // SceneView's `isRendering` on Android and displayLink.isPaused on iOS: an untouched 3D board
+    // otherwise redraws at the display refresh rate for as long as the page is open. Called from
+    // Kotlin with Board3DAnimationDriver's dirty flag; see FilamentChessPeer.setRenderingActive.
+    setRenderingActive(active) {
+        this.gate.wantsRender = !!active;
+        this.updateFrameLoop();
+    },
+
+    // New state reached the renderer; keep drawing until some frames have put it on screen.
+    stateChanged() {
+        this.gate.undrawnFrames = DRAW_SETTLE_FRAMES;
+        this.updateFrameLoop();
+    },
+
+    updateFrameLoop() {
+        this.gate.assetReady = this.isReady;
+        const wanted = this.loopActive && window.chess3dFrameLoopGate.shouldRender(this.gate);
+        if (wanted && !this.rafHandle) {
+            this.rafHandle = requestAnimationFrame(this.boundRender);
+        } else if (!wanted && this.rafHandle) {
+            cancelAnimationFrame(this.rafHandle);
+            this.rafHandle = 0;
+        }
+    },
+
     render() {
-        requestAnimationFrame(this.render.bind(this));
+        // Clear the handle first: this frame has fired, so the slot is free for updateFrameLoop()
+        // below (or for a state push arriving from Kotlin mid-frame) to schedule the next one.
+        this.rafHandle = 0;
         if (this.isReady && this.renderer && this.view && this.swapChain) {
             this.renderer.render(this.swapChain, this.view);
+            if (this.gate.undrawnFrames > 0) this.gate.undrawnFrames--;
         }
+        this.updateFrameLoop();
     },
 
     // Called on every 2D<->3D toggle (Kotlin detach()/dispose()). init() builds a brand-new Engine
@@ -405,6 +523,17 @@ window.chess3dFilament = {
     // Filament.Engine.destroy(engine) (jsbindings.cpp: class_function("destroy", ...) -> Engine::destroy).
     // Wrapped in try/catch so a wrong call can't wedge re-init; state is always reset at the end.
     dispose() {
+        // Stop the frame loop before the Engine it draws through is destroyed, and leave it stopped:
+        // init() is what starts a loop, and `loopActive` is what keeps updateFrameLoop from
+        // resurrecting one. Previously render() rescheduled unconditionally, so every 2D<->3D toggle
+        // left another rAF loop running against a torn-down Engine for the life of the page.
+        if (this.rafHandle) cancelAnimationFrame(this.rafHandle);
+        this.rafHandle = 0;
+        this.loopActive = false;
+        this.boundRender = null;
+        // A fresh gate, so the next init() starts from "nothing has been drawn yet" rather than
+        // inheriting a parked signal from the board that was just torn down.
+        this.gate = window.chess3dFrameLoopGate.create();
         try {
             if (this.assetLoader && this.asset) this.assetLoader.destroyAsset(this.asset);
         } catch (e) { console.warn('[filament] dispose: destroyAsset failed', e); }

@@ -27,9 +27,11 @@ interface FilamentChessPeer {
      * on the Android backend before its `isRendering` gate: 120 fps on a Galaxy Z Fold3, 60 fps and
      * ~1.76 cores on a Pixel 7a, GPU rail alone at 10.36 J per 10 s idle window.
      *
-     * Defaulted to a no-op because only the iOS peer parks a loop today. The desktop peer has no
-     * loop to park — it renders once per push, from [setScene]/[setCamera] — while the web peer's
-     * unconditional `requestAnimationFrame` loop is the same bug, still unfixed there.
+     * Defaulted to a no-op because the desktop peer has no loop to park — it renders once per push,
+     * from [setScene]/[setCamera]. The iOS peer parks a `CADisplayLink` on this and the web peer
+     * stops scheduling `requestAnimationFrame`; both add the same backstop on their own side, since
+     * a peer whose renderer is built asynchronously can be handed a scene *after* the driver's dirty
+     * window has already closed, and parking on this signal alone would then never draw the board.
      */
     fun setRenderingActive(active: Boolean) {}
 }
