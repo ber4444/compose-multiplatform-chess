@@ -736,9 +736,9 @@ git push origin on-device-ai-v0.1.0
 
 | Doc | Phases | Role |
 |---|---|---|
-| [`docs/plans/hybrid-inference-vendor-adoption-plan.md`](../AndroidStudioProjects/compose-multiplatform-chess/docs/plans/hybrid-inference-vendor-adoption-plan.md) | VA-1 … VA-8 | Vendor/runtime breadth: more platforms, more SDKs, telemetry, UI. |
-| [`docs/plans/on-device-coach-rag-unification.md`](../AndroidStudioProjects/compose-multiplatform-chess/docs/plans/on-device-coach-rag-unification.md) | RAG-1 … RAG-6 | Coaching *quality*: `MoveAssessment`, evaluative summary, chat re-scope, habits. |
-| [`docs/plans/on-device-ai-next-steps.md`](../AndroidStudioProjects/compose-multiplatform-chess/docs/plans/on-device-ai-next-steps.md) | — | **New in #138.** The three-step follow-on, written to be picked up cold: the Game Summary validator (done), turning AICore on for that surface (gated on a repeat run — zero invented tags is a hard gate, not a percentage), and the **Rules Q&A benchmark**, which is the one surface with a model live in production on both phones and the only one never measured. |
+| [`docs/plans/hybrid-inference-vendor-adoption-plan.md`](docs/plans/hybrid-inference-vendor-adoption-plan.md) | VA-1 … VA-8 | Vendor/runtime breadth: more platforms, more SDKs, telemetry, UI. |
+| [`docs/plans/on-device-coach-rag-unification.md`](docs/plans/on-device-coach-rag-unification.md) | RAG-1 … RAG-6 | Coaching *quality*: `MoveAssessment`, evaluative summary, chat re-scope, habits. |
+| [`docs/plans/on-device-ai-next-steps.md`](docs/plans/on-device-ai-next-steps.md) | — | **New in #138.** The three-step follow-on, written to be picked up cold: the Game Summary validator (done), turning AICore on for that surface (gated on a repeat run — zero invented tags is a hard gate, not a percentage), and the **Rules Q&A benchmark**, which is the one surface with a model live in production on both phones and the only one never measured. |
 
 ## TODO
 
