@@ -729,3 +729,25 @@ git push origin on-device-ai-v0.1.0
 ```
 
 [Article with screenshots](https://medium.com/p/f6a983db0e45)
+
+## Plan inventory
+
+*Active and proposed plans under `docs/plans/`.*
+
+| Doc | Phases | Role |
+|---|---|---|
+| [`docs/plans/hybrid-inference-vendor-adoption-plan.md`](docs/plans/hybrid-inference-vendor-adoption-plan.md) | VA-1 … VA-8 | Vendor/runtime breadth: more platforms, more SDKs, telemetry, UI. |
+| [`docs/plans/on-device-coach-rag-unification.md`](docs/plans/on-device-coach-rag-unification.md) | RAG-1 … RAG-6 | Coaching *quality*: `MoveAssessment`, evaluative summary, chat re-scope, habits. |
+| [`docs/plans/on-device-ai-next-steps.md`](docs/plans/on-device-ai-next-steps.md) | — | **New in #138.** The three-step follow-on, written to be picked up cold: the Game Summary validator (done), turning AICore on for that surface (gated on a repeat run — zero invented tags is a hard gate, not a percentage), and the **Rules Q&A benchmark**, which is the one surface with a model live in production on both phones and the only one never measured. |
+
+## TODO
+
+| # | Work | Owner doc | Gate / blocker |
+|---|---|---|---|
+| **Before the store release** | | | |
+| 5 | **Hand-verification backlog** — Stop mid-stream | §0.2a item C | Backs a claim already published. |
+| **After Sep 30** | | | |
+| 7 | **Task 2 — AICore on for Game Summary** | `on-device-ai-next-steps.md` | Repeat the 50-game run with the validator in place. **Zero invented `[move-N]` is a hard gate, not a percentage.** The iOS voice problem is a prompt fix, not a validator fix |
+| 8 | **Task 3 — benchmark Rules Q&A** | same, §3a–3e | The only surface with a model live in production on both phones and never measured. Decides whether the model turn earns its place at all. Includes 3e, the missing Android availability probe |
+| 9 | **Bench schema → `DeviceRunScorer` summary mode** | same, Leftovers | Blocked on the summary row carrying the assessed move history. #139 fixed the failure mode only |
+

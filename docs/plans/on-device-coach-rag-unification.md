@@ -1,6 +1,6 @@
 # Coaching grounded in verified game facts
 
-> Status: proposed, not implemented. **Revision 2.** Revision 1 covered only the on-device move
+> Status: in-progress. (RAG-1 through RAG-3 are completed). **Revision 2.** Revision 1 covered only the on-device move
 > coach. This revision folds in the game-summary redesign, memory/habits, chat scoping, and the
 > grounding-substrate switch — after two rounds of on-device and deployed-server evidence showed the
 > original scope was too narrow to fix the actual problem.
@@ -262,14 +262,14 @@ games via the backfill path described above.
 
 ## Phases
 
-**RAG-1 — `MoveAssessment` + subject switch.** Persist per-ply assessments; compute `cpBest`;
+**RAG-1 — `MoveAssessment` + subject switch.** (Status: completed) Persist per-ply assessments; compute `cpBest`;
 implement deterministic motif detection; switch the coach subject to the player's moves. No model
 changes. Unblocks everything else. *This is the load-bearing phase.*
 
-**RAG-2 — Evaluative summary.** Rank by `cpLoss`, cp→concept mapping, difficulty concept gate,
+**RAG-2 — Evaluative summary.** (Status: completed) Rank by `cpLoss`, cp→concept mapping, difficulty concept gate,
 cite `[move-N]`. Answers "what went wrong with my game" proactively.
 
-**RAG-3 — Grounded per-move line.** Ground the line in assessment records + tags. The prompt becomes
+**RAG-3 — Grounded per-move line.** (Status: completed) Ground the line in assessment records + tags. The prompt becomes
 a *rewrite* instruction, not a *reason about chess* instruction.
 
 **Single turn, prose only, no JSON.** Unlike rules Q&A there is nothing to retrieve — RAG-1 has
