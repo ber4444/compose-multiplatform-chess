@@ -163,17 +163,32 @@ object BoardRayPicker {
     private data class PieceHitProxy(val radius: Float, val height: Float)
 
     /**
-     * Cylinders approximate the normalized chess mesh bounds, with a small touch target pad. Keeping
-     * these close to the rendered geometry matters on iOS/SceneKit: an oversized foreground proxy
-     * can steal taps from the visible pawn or square behind it.
+     * Cylinders approximate the rendered chess meshes. **[height] is the piece's real on-board
+     * height** — the `chess.glb` node's POSITION bounds times the fixed 0.5 model scale every
+     * backend instances with (`kModelScale` on iOS, its twin in `AndroidBoard3D`). These were
+     * originally half these values, i.e. the 0.5 scale applied twice, which made the **upper half of
+     * every piece transparent to taps**: a tap on the white king's crown fell through to the board
+     * plane and picked e3, two ranks behind it, so selecting a back-rank piece by its visible top
+     * silently selected an empty square instead. Measured on an iPhone 17 simulator, the king
+     * renders ~77pt tall and the top ~30pt of it did not select it.
+     *
+     * [radius] is deliberately *not* the mesh's max radius: that is the base flare (0.31–0.46),
+     * while the body above it is much narrower, and a cylinder that wide would shadow the squares
+     * behind a piece far beyond what it actually occludes. These are body-width values and are
+     * unchanged.
+     *
+     * A consequence worth knowing before "fixing" it: from the default white camera the e1 king
+     * really does occlude the e2 pawn completely (verified against the render, not just the math),
+     * so that pawn cannot be tapped until the camera is orbited. Shortening the proxies to make it
+     * reachable is what produced the see-through tops.
      */
     private fun hitProxy(kind: PieceKind): PieceHitProxy = when (kind) {
-        PieceKind.KING -> PieceHitProxy(radius = 0.26f, height = 0.95f)
-        PieceKind.QUEEN -> PieceHitProxy(radius = 0.24f, height = 0.83f)
-        PieceKind.BISHOP -> PieceHitProxy(radius = 0.21f, height = 0.71f)
-        PieceKind.KNIGHT -> PieceHitProxy(radius = 0.22f, height = 0.64f)
-        PieceKind.ROOK -> PieceHitProxy(radius = 0.22f, height = 0.60f)
-        PieceKind.PAWN -> PieceHitProxy(radius = 0.20f, height = 0.53f)
+        PieceKind.KING -> PieceHitProxy(radius = 0.26f, height = 1.95f)
+        PieceKind.QUEEN -> PieceHitProxy(radius = 0.24f, height = 1.69f)
+        PieceKind.BISHOP -> PieceHitProxy(radius = 0.21f, height = 1.45f)
+        PieceKind.KNIGHT -> PieceHitProxy(radius = 0.22f, height = 1.29f)
+        PieceKind.ROOK -> PieceHitProxy(radius = 0.22f, height = 1.21f)
+        PieceKind.PAWN -> PieceHitProxy(radius = 0.20f, height = 1.06f)
     }
 
     /**
