@@ -253,9 +253,15 @@ object BoardRayPicker {
     }
 }
 
-/** Pure visual camera state machine (yaw/pitch/distance around board center). */
-class OrbitCameraController(private var aspect: Float) {
-    private var yawDegrees = 0f
+/**
+ * Pure visual camera state machine (yaw/pitch/distance around board center).
+ *
+ * [initialYawDegrees] is how the board is flipped for the side the player is on: 0° looks from
+ * White's end, [BLACK_YAW_DEG] from Black's. It only seeds the yaw — [onDrag] then owns it, so the
+ * player can orbit anywhere from either start.
+ */
+class OrbitCameraController(private var aspect: Float, initialYawDegrees: Float = 0f) {
+    private var yawDegrees = initialYawDegrees
     // Defaults match DEFAULT_WHITE_VIEW so a fresh controller == the default white view.
     private var pitchDegrees = DEFAULT_PITCH_DEG
     private var distance = DEFAULT_DISTANCE
@@ -305,6 +311,17 @@ class OrbitCameraController(private var aspect: Float) {
         /** Vertical FOV the renderers project with (equals horizontal FOV in the square viewport). */
         const val FOV_Y_DEG = 50f
 
+        /**
+         * Yaw that puts the camera behind Black's back rank — the 3D board's half of "flip the board
+         * for the side you're playing". Picking follows for free: `rayFromScreen` inverts whatever
+         * camera it is handed, so no picking code is side-aware.
+         *
+         * The rank/file letters engraved on `chess.glb`'s frame do **not** flip with it; they read
+         * upside down from this end. Fixing that needs a second set of glyphs in the model, not a
+         * camera change.
+         */
+        const val BLACK_YAW_DEG = 180f
+
         val DEFAULT_WHITE_VIEW: CameraParams
             get() = OrbitCameraController(1f).apply {
                 yawDegrees = 0f
@@ -321,8 +338,8 @@ class OrbitCameraController(private var aspect: Float) {
  * user state. Keeping one controller above those surfaces means every renderer creation consumes
  * the same canonical snapshot instead of deriving a new projection from backend state.
  */
-class Board3DSessionState(initialAspect: Float = 1f) {
-    private val controller = OrbitCameraController(initialAspect)
+class Board3DSessionState(initialAspect: Float = 1f, initialYawDegrees: Float = 0f) {
+    private val controller = OrbitCameraController(initialAspect, initialYawDegrees)
 
     val camera: CameraParams get() = controller.camera
 

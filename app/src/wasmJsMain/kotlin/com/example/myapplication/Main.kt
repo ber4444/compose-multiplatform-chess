@@ -57,6 +57,10 @@ fun main() {
             } else {
                 Logger.w("Main") { "Stockfish wasm worker failed to start; using CPU fallback" }
                 engine.close()
+                // Settle the engine seat anyway: the CPU fallback is the opponent now, and until
+                // this runs the VM holds off starting it (see `engineAttachSettled`), which would
+                // strand a game played as Black on White's move.
+                viewModel.attachEngine(null)
             }
         }
 
