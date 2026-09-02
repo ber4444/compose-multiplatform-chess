@@ -12,8 +12,9 @@
 # Usage:  tools/verify_opening_retrieval.sh
 #         COACH_BASE_URL=http://localhost:8080 tools/verify_opening_retrieval.sh
 #
-# Requires the corpus to have been seeded by SeedMain (the eco/moves columns are NULL otherwise,
-# and retrieval silently degrades to vector-only).
+# The corpus ships inside the deployed image (BuildCorpusIndexMain bakes it at build time), so this
+# needs no seeding step -- a successful deploy is enough. `GET /health` reports the index's row count
+# and version if you want to confirm which corpus answered.
 #
 # NOTE: n=8, one call each. Provider hiccups (503/timeout) move the llm-v1 count around by several
 # cases between runs, so treat that number as a wiring check, not a measurement -- use

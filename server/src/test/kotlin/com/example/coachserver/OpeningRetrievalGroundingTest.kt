@@ -114,17 +114,8 @@ class OpeningRetrievalGroundingTest {
         // the new AUTOMATED row would stay green while production retrieval regressed. Pinning them
         // to each other here is what makes the offline gate mean anything.
         val index = CorpusBookIndex.fromCorpus(Path.of("corpus"))
-        val probes = CASES.map(Case::movesSan) + listOf(
-            listOf("e4"),
-            listOf("d4"),
-            listOf("c4", "e5"),
-            listOf("a3", "h6", "a4", "h5"),
-            listOf("e4", "c5", "Nf3", "d6", "d4", "cxd4", "Nxd4", "Nf6", "Nc3", "a6"),
-            listOf("d4", "Nf6", "c4", "e6", "Nf3", "b6", "g3", "Ba6"),
-            emptyList(),
-        )
 
-        val disagreements = probes.mapNotNull { moves ->
+        val disagreements = RetrievalProbes.MOVE_PROBES.mapNotNull { moves ->
             val sql = repository.retrieve(ZERO_VECTOR, 4, moves, null).resolvedEco
             val offline = index.resolve(moves)?.eco
             "$moves: sql=$sql offline=$offline".takeIf { sql != offline }
@@ -133,21 +124,54 @@ class OpeningRetrievalGroundingTest {
         assertTrue(disagreements.isEmpty(), "Offline index disagrees with SQL book tier:\n${disagreements.joinToString("\n")}")
     }
 
-    private data class Case(val name: String, val movesSan: List<String>, val expectedEco: String)
+    @Test
+    fun `the in-memory repository retrieves exactly what the SQL retrieves`() {
+        // InMemoryPassageRepository is what production serves from; this SQL is the reference it was
+        // written against. Nothing at runtime can tell them apart — a divergence produces a fluent,
+        // cited, validator-approved answer about a different opening — so the only place the two can
+        // be held together is here, running both over one corpus.
+        //
+        // Passage *order* is compared, not just membership: the composers quote the first passage's
+        // first sentence, so a repository that returns the right four in the wrong order returns a
+        // different answer.
+        val inMemory = InMemoryPassageRepository(
+            SeedMain.loadCorpus(Path.of("corpus")).map { entry ->
+                IndexedPassage(
+                    passage = entry.passage,
+                    embedding = ZERO_VECTOR,
+                    eco = entry.eco,
+                    moves = entry.moves,
+                )
+            },
+        )
+
+        val disagreements = RetrievalProbes.MOVE_PROBES.flatMap { moves ->
+            (1..4).mapNotNull { limit ->
+                val sql = repository.retrieve(ZERO_VECTOR, limit, moves, null)
+                val memory = inMemory.retrieve(ZERO_VECTOR, limit, moves, null)
+                val sqlIds = sql.passages.map { it.sourceId }
+                val memoryIds = memory.passages.map { it.sourceId }
+                when {
+                    sql.resolvedEco != memory.resolvedEco ->
+                        "$moves limit=$limit: eco sql=${sql.resolvedEco} memory=${memory.resolvedEco}"
+                    sqlIds != memoryIds ->
+                        "$moves limit=$limit: passages sql=$sqlIds memory=$memoryIds"
+                    else -> null
+                }
+            }
+        }
+
+        assertTrue(
+            disagreements.isEmpty(),
+            "In-memory retrieval disagrees with the SQL reference:\n${disagreements.joinToString("\n")}",
+        )
+    }
 
     companion object {
-        private val ZERO_VECTOR = FloatArray(OpeningService.EMBEDDING_DIMENSIONS)
-
-        private val CASES = listOf(
-            Case("Sicilian Defence", listOf("e4", "c5"), "B20"),
-            Case("French Defence", listOf("e4", "e6"), "C00"),
-            Case("Caro-Kann Defence", listOf("e4", "c6"), "B10"),
-            Case("Ruy Lopez", listOf("e4", "e5", "Nf3", "Nc6", "Bb5"), "C60"),
-            Case("Italian Game", listOf("e4", "e5", "Nf3", "Nc6", "Bc4"), "C50"),
-            Case("Queen's Gambit", listOf("d4", "d5", "c4"), "D06"),
-            Case("King's Indian Defence", listOf("d4", "Nf6", "c4", "g6"), "E60"),
-            Case("English Opening", listOf("c4"), "A10"),
-        )
+        // Shared with InMemoryRetrievalGroundingTest, so both repositories are asked the same
+        // questions. See RetrievalProbes.
+        private val ZERO_VECTOR = RetrievalProbes.ZERO_VECTOR
+        private val CASES = RetrievalProbes.CASES
 
         @Container
         @JvmStatic

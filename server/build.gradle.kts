@@ -107,6 +107,13 @@ tasks.register<JavaExec>("seed") {
     mainClass.set("com.example.coachserver.SeedMain")
 }
 
+tasks.register<JavaExec>("buildCorpusIndex") {
+    group = "build"
+    description = "Embeds the corpus and writes the baked retrieval index the server reads at boot."
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("com.example.coachserver.BuildCorpusIndexMain")
+}
+
 tasks.register<JavaExec>("verifyCorpus") {
     group = "verification"
     description = "Verifies corpus_seed_state matches the current corpus without modifying the database."
