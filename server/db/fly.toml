@@ -2,12 +2,36 @@
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
+# DECOMMISSIONED — the deployed server no longer connects to this database.
+#
+# The corpus is read-only at request time (every INSERT in Database.kt is on the seed path) and is
+# derived deterministically from server/corpus/*.tsv, so it is now embedded at image build time and
+# served from memory; see CorpusIndexFile. This app was ~$3.97/month — an always-on machine, a 10 GB
+# volume and its snapshots — to hold ~6 MB of data that was already in git.
+#
+# The config is kept, not deleted, because PostgresPassageRepository is still the reference
+# implementation that InMemoryPassageRepository is pinned to, and because reviving the database is
+# then a `fly deploy` rather than an archaeology exercise. Nothing in the runtime path needs it.
+#
+# To actually stop paying, destroy the app and its volume:
+#   fly apps destroy compose-chess-opening-coach-db
+# The volume goes with the app; confirm with `fly volumes list -a compose-chess-opening-coach-db`
+# first if you want a snapshot kept.
 
 app = 'compose-chess-opening-coach-db'
 primary_region = 'sjc'
 
 [env]
   PRIMARY_REGION = 'sjc'
+
+# Pinned so a redeploy of this config can't silently resize the machine. These are the values it
+# actually ran on: shared-cpu-1x at the 256 MB floor, which is why the Aug 2026 receipt's
+# "Additional RAM" line was attributable entirely to the app machine.
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '256mb'
+  cpus = 1
+  cpu_kind = 'shared'
 
 [[mounts]]
   source = 'pg_data'

@@ -69,9 +69,9 @@ Ten Gradle projects. The five KMP ones carry the app; the rest are JVM-only tool
 - `:androidApp` — thin Android application wrapper (manifest, launcher icons) that depends on `:app`.
 - `:onDeviceAi` — AI orchestration for all five surfaces (move coach, game summary, rules Q&A, opening explainer, position chat) plus the route policy. On-device generation lives behind its `OnDeviceTextGenerator` seam; the two cloud surfaces keep only their orchestrators here and take an injected client. Targets: `android`, `jvm("desktop")`, `iosArm64`, `iosSimulatorArm64`, `js(IR)`, `wasmJs`. Published to GitHub Packages as `io.github.ber4444:onDeviceAi` alongside `:coachApi` (see `.github/workflows/publish-on-device-ai.yml`) so the React Native repo can consume it. Has `api(project(":coachApi"))` — coachApi types leak into `OpeningExplainer.kt`'s public signatures, so both artifacts move in lockstep under one `on-device-ai-v*` tag.
 - `:coachApi` — serialization-only KMP wire models (opening-explain request/response, `PositionChatRequest`, `ChatTurn`, `ChatStreamEvent`) shared by `:onDeviceAi`, `:app`, and the JVM `:server`. Published as `io.github.ber4444:coachApi`. Targets mirror `:onDeviceAi`.
-- `:server` — JVM-only Ktor cloud-AI service: `POST /v1/openings/explain` (one-shot) and `POST /v1/positions/chat/stream` (SSE), both over one Postgres+pgvector corpus with ONNX MiniLM embeddings. Deterministic template composers by default; the provider-LLM composers are opt-in via `COACH_LLM_*` env vars and always validated + fallback-guarded. Deployed to Fly.io (see README). **`server/openapi.yaml` is hand-written on purpose** — a spec generated from the routing tree cannot detect server drift, because it *is* the server. `OpenApiContractTest` validates real responses against it; keep the spec independent of the code it checks. **Retrieval is book-first, not embedding-first** — see [Cloud retrieval](#cloud-retrieval).
+- `:server` — JVM-only Ktor cloud-AI service: `POST /v1/openings/explain` (one-shot) and `POST /v1/positions/chat/stream` (SSE), both over one in-process corpus with ONNX MiniLM embeddings. **There is no database in the request path.** Deterministic template composers by default; the provider-LLM composers are opt-in via `COACH_LLM_*` env vars and always validated + fallback-guarded. Deployed to Fly.io (see README). **`server/openapi.yaml` is hand-written on purpose** — a spec generated from the routing tree cannot detect server drift, because it *is* the server. `OpenApiContractTest` validates real responses against it; keep the spec independent of the code it checks. **Retrieval is book-first, not embedding-first** — see [Cloud retrieval](#cloud-retrieval).
   - **Chat Diagnostics:** The chat stream emits a client-visible `Diagnostics` event (carrying `CloudDiagnostics`) immediately before terminating with `Done` or `Fallback`. For debugging, `COACH_DIAGNOSTICS_RAW=1` includes the full unparsed model output (capped at 4000 chars) in this event. The `finishReason` differentiates success (`completed`), validation vetoes (`validation_rejected`, or `provider_empty` if the model produced no text), and HTTP errors (`provider_failed`).
-  - **Lazy Retrieval:** The chat route's `retrieve()` runs lazily within the SSE flow; a failure here (e.g. database timeout) terminates the stream by emitting a terminal `error` event rather than failing the initial POST.
+  - **Lazy Retrieval:** The chat route's `retrieve()` runs lazily within the SSE flow; a failure here terminates the stream by emitting a terminal `error` event rather than failing the initial POST. (The cause used to be a database timeout; retrieval is in-process now, so what remains is an embedder failure.)
 - `:evals` — JVM-only rule-based eval harness; regenerates `evals/scorecard.md` and fails on grounding regression. Also scores two non-gating columns: `FluencyScorer` (Flesch-Kincaid + three tone rules, bounds calibrated **per surface** against that surface's own deterministic composer — see `docs/benchmarks/on-device-ai/fluency-calibration.md`; the grades are ordinal, not real US grade levels) and `RouterEvalSuite` (the `route-selection` row: four named invariants swept over the full context grid, with a mutation test that injects a broken decider and asserts the sweep goes red). `DeviceRunScorer` (`./gradlew :evals:scoreDeviceRun -Pfile=…`) ingests an `AndroidBenchRunner` `results.jsonl` so a phone run is scored by *this* scorer rather than a second one written next to the data; it rebuilds each row's `MoveCoachRequest` from the facts the row recorded and **cross-checks every verdict against the device's own validator result** — a non-empty `disagreements` list means the JSONL schema and the runner have drifted. Deliberately **not** a `scorecard.md` row: every row there re-runs in CI, and this one needs a specific phone and ~13 minutes. **Routing eval scaffolding lives here, never in `:onDeviceAi`** — that module is published to the RN consumer, so eval types there become public API. Gated in CI by `.github/workflows/ai-coach-evals.yml` on changes to `:onDeviceAi`, `:coachApi`, `:server`, `:evals`, or `app/src/**/{opening,chat}/**`.
 - `:litert-eval` — JVM-only driver that runs the desktop `LitertLmTextGenerator` from the CLI. Depends on `:ondeviceai` + `:coachapi` only, deliberately **not** `:server` (keeps Ktor from pinning this module's coroutines version — see the `force` block in its `build.gradle.kts`).
 - `:perft-mcp` — JVM-only stdio MCP server exposing the perft rig as agent tools. No dependency on `:app`/`:chess-core` (shells out to gradle + stockfish).
@@ -280,7 +280,29 @@ dependency — it's the artifact the React Native repo compiles against.
 
 ## Cloud retrieval
 
-`:server`'s two cloud routes share one retrieval path, and it is **book-first**. Three fences:
+**The corpus lives in the image, not in Postgres.** `BuildCorpusIndexMain` embeds the checked-in
+TSVs at Docker build time into `corpus-index.bin` (3,807 rows, ~7.5 MB); `InMemoryPassageRepository`
+serves every request from it. `PostgresPassageRepository` is still here and still the reference
+implementation — `SeedMain`, `schema.sql`, `verifyCorpus` and the Testcontainers suites all remain —
+but nothing at runtime opens a connection, and `DATABASE_URL` is no longer a runtime variable.
+
+Three things follow, and the first is the one that bites:
+
+- **The two repositories must return identical results, and only one gate proves it.**
+  `OpeningRetrievalGroundingTest`'s parity case runs both over the same corpus and probes and
+  compares resolved ECO *and passage order* (the composers quote the first passage's first
+  sentence, so order is meaning). That test is `disabledWithoutDocker`, so it contributes nothing on
+  a runner without Docker — which is why `InMemoryRetrievalGroundingTest` exists to pin the shipping
+  repository's eight golden openings everywhere. Both draw their probes from `RetrievalProbes`;
+  don't inline a copy into either.
+- **Embeddings are computed at build time on purpose.** Doing it at boot would add ~3,800 MiniLM
+  forward passes to every cold start, and `fly.toml` sets `min_machines_running = 0`. If you change
+  what `SeedMain` embeds, change `BuildCorpusIndexMain` identically or the index and the database
+  stop being interchangeable and the parity gate goes red.
+- **`BOOK_LIMIT` is shared** (`CorpusIndex.kt`) rather than duplicated per repository, for the same
+  no-drift reason.
+
+Retrieval itself is **book-first**, in both implementations. Three fences:
 
 - **An opening is identified by its move prefix, not by vector similarity.**
   `PostgresPassageRepository.retrieve` runs three tiers: exact longest-prefix match on the
@@ -305,6 +327,15 @@ dependency — it's the artifact the React Native repo compiles against.
 The `eco`/`moves` columns are added by `schema.sql` but stay `NULL` until `SeedMain` reseeds; tier 3
 covers that case, so applying the schema without reseeding degrades to exactly the old behaviour
 rather than returning nothing. **A schema change here is not live until the corpus is reseeded.**
+That caveat is seed-path only — the baked index always carries both keys, and a corpus change is not
+live in production until the *image* is rebuilt.
+
+**Hosting.** The service is stateless, pinned to `shared-cpu-1x`/512 MB in `fly.toml`'s `[[vm]]`, and
+scales to zero (`auto_stop_machines = "suspend"`). 512 MB is measured — peak RSS 304 MB over 120
+requests, only ~23 MB of it heap, the rest ONNX Runtime holding MiniLM natively — so `JAVA_OPTS` and
+the `[[vm]]` memory in `fly.toml` have to move together. `main` builds **one** `RetrievalRuntime`
+shared by the opening and chat surfaces; they used to construct an `OnnxMiniLmEmbedder` each, which
+meant two `OrtSession`s and two copies of the same ~90 MB model. See the README's *Running costs*.
 
 ### Why the provider LLM "failed" (four causes, none of them the model)
 

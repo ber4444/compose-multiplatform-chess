@@ -44,8 +44,9 @@ import java.util.concurrent.atomic.AtomicInteger
 
 fun main() {
     val environment = System.getenv()
-    val dependencies = defaultDependencies(environment)
-    val chatService = runCatching { defaultChatDependencies(environment) }.getOrNull()
+    val retrieval = RetrievalRuntime.load(environment)
+    val dependencies = defaultDependencies(environment, retrieval)
+    val chatService = runCatching { defaultChatDependencies(environment, retrieval) }.getOrNull()
     embeddedServer(
         factory = Netty,
         configure = {
@@ -203,13 +204,48 @@ fun Application.openingCoachModule(
     }
 }
 
-fun defaultDependencies(environment: Map<String, String>): ServerDependencies {
-    val dataSource = createDataSource(requireEnvironment(environment, "DATABASE_URL"))
-    applySchema(dataSource)
-    val embedder = OnnxMiniLmEmbedder(
-        modelPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_MODEL")),
-        vocabPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_VOCAB")),
-    )
+/**
+ * The retrieval half of the server: one corpus, one embedder, one repository.
+ *
+ * It is a shared value rather than something each surface builds for itself because it used to be
+ * the latter, and that cost real memory: `main` calls both [defaultDependencies] and
+ * [defaultChatDependencies], and each of them constructed its own [OnnxMiniLmEmbedder] — two
+ * `OrtSession`s holding two copies of the same ~90 MB MiniLM in native memory — alongside its own
+ * connection pool. Nothing needed two; the opening explainer and position chat retrieve over the
+ * identical index.
+ *
+ * The corpus comes from the image, not a database. See [CorpusIndexFile] for why.
+ */
+class RetrievalRuntime(
+    val embedder: Embedder,
+    val passageRepository: PassageRepository,
+    val corpusStatusReader: CorpusStatusReader,
+) {
+    companion object {
+        fun load(environment: Map<String, String>): RetrievalRuntime {
+            val index = CorpusIndexFile.read(
+                Path.of(environment["COACH_CORPUS_INDEX"] ?: BuildCorpusIndexMain.DEFAULT_INDEX_PATH),
+            )
+            println(
+                "Corpus index loaded: rows=${index.manifest.expectedRowCount} " +
+                    "version=${index.manifest.version}",
+            )
+            return RetrievalRuntime(
+                embedder = OnnxMiniLmEmbedder(
+                    modelPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_MODEL")),
+                    vocabPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_VOCAB")),
+                ),
+                passageRepository = InMemoryPassageRepository(index),
+                corpusStatusReader = IndexCorpusStatusReader(index),
+            )
+        }
+    }
+}
+
+fun defaultDependencies(
+    environment: Map<String, String>,
+    retrieval: RetrievalRuntime = RetrievalRuntime.load(environment),
+): ServerDependencies {
     val template = TemplateComposer()
     // Mirrors the chat composer's `chat-provider-failed` line. Without it a configured LLM composer
     // that fails every call is indistinguishable from one that was never configured: both serve
@@ -227,36 +263,32 @@ fun defaultDependencies(environment: Map<String, String>): ServerDependencies {
         }
     }
     return ServerDependencies(
-        embedder = embedder,
-        passageRepository = PostgresPassageRepository(dataSource),
+        embedder = retrieval.embedder,
+        passageRepository = retrieval.passageRepository,
         composer = composer,
         releaseVersion = environment["RELEASE_VERSION"] ?: environment["FLY_IMAGE_REF"] ?: "unknown",
-        corpusStatusReader = PostgresCorpusStatusReader(dataSource),
+        corpusStatusReader = retrieval.corpusStatusReader,
         includeRawDiagnostics = environment["COACH_DIAGNOSTICS_RAW"] == "1",
     )
 }
 
 /**
- * Builds the position-chat service. Shares the embedder + passage repository with the opening
- * explainer (same retrieval index) and constructs a streaming LLM composer under the same
- * `COACH_LLM_*` config precedence; without a key + prices it falls back to [TemplateChatComposer].
- * Returns `null` only if the shared embedding deps can't be built (caller already failed).
+ * Builds the position-chat service. Takes the *same* [RetrievalRuntime] the opening explainer uses
+ * — one embedder, one index — and constructs a streaming LLM composer under the same `COACH_LLM_*`
+ * config precedence; without a key + prices it falls back to [TemplateChatComposer].
  */
-fun defaultChatDependencies(environment: Map<String, String>): PositionChatService {
-    val dataSource = createDataSource(requireEnvironment(environment, "DATABASE_URL"))
-    applySchema(dataSource)
-    val embedder = OnnxMiniLmEmbedder(
-        modelPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_MODEL")),
-        vocabPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_VOCAB")),
-    )
+fun defaultChatDependencies(
+    environment: Map<String, String>,
+    retrieval: RetrievalRuntime = RetrievalRuntime.load(environment),
+): PositionChatService {
     val composer = selectChatComposer(environment, TemplateChatComposer())
     return PositionChatService(
         ChatServerDependencies(
-            embedder = embedder,
-            passageRepository = PostgresPassageRepository(dataSource),
+            embedder = retrieval.embedder,
+            passageRepository = retrieval.passageRepository,
             streamingChatComposer = composer,
             releaseVersion = environment["RELEASE_VERSION"] ?: environment["FLY_IMAGE_REF"] ?: "unknown",
-            corpusStatusReader = PostgresCorpusStatusReader(dataSource),
+            corpusStatusReader = retrieval.corpusStatusReader,
             includeRawDiagnostics = environment["COACH_DIAGNOSTICS_RAW"] == "1"
         ),
     )
