@@ -698,6 +698,12 @@ private fun writeAttemptLog(attempts: List<Pair<String?, ComposeAttempt>>) {
             when (attempt) {
                 is ComposeAttempt.BudgetRejected ->
                     "[budget-rejected] $header prompt was ${attempt.promptChars} chars; provider never called"
+                // A run that trips this measured the daily spend cap, not the model: the remaining
+                // cases never reached a provider. Raise COACH_LLM_MAX_USD_CENTS_PER_DAY for the run
+                // rather than reading the row as a quality result.
+                is ComposeAttempt.LedgerExhausted ->
+                    "[ledger-exhausted] $header spent ${attempt.spentUsdCents}c of ${attempt.capUsdCents}c " +
+                        "for the day; provider never called"
                 is ComposeAttempt.ProviderError -> "[provider-error] $header ${attempt.error}"
                 ComposeAttempt.ProviderEmpty -> "[provider-empty] $header client returned null"
                 is ComposeAttempt.ValidatorRejected ->

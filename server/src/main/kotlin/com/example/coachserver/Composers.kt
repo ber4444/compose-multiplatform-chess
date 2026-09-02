@@ -100,10 +100,19 @@ data class ProviderCostBudget(
     val expectedOutputTokens: Int = DEFAULT_EXPECTED_OUTPUT_TOKENS,
 ) {
     fun admits(inputChars: Int, maxOutputTokens: Int): Boolean {
-        val expected = estimateUsdCents(inputChars, minOf(expectedOutputTokens, maxOutputTokens))
-        if (expected > maxUsdCents) return false
+        if (expectedUsdCents(inputChars, maxOutputTokens) > maxUsdCents) return false
         return estimateUsdCents(inputChars, maxOutputTokens) <= maxUsdCents * WORST_CASE_MULTIPLE
     }
+
+    /**
+     * What one ordinary accepted call is expected to cost, in US cents.
+     *
+     * Extracted so [admits] and the amount [SpendLedger] charges are the same quantity by
+     * construction. Two independently-written estimates would drift, and a ledger charging more than
+     * the per-request gate prices exhausts a cap the operator sized against the gate.
+     */
+    fun expectedUsdCents(inputChars: Int, maxOutputTokens: Int): Double =
+        estimateUsdCents(inputChars, minOf(expectedOutputTokens, maxOutputTokens))
 
     fun estimateUsdCents(inputChars: Int, outputTokens: Int): Double {
         // Three chars/token deliberately overestimates normal English token use.
@@ -146,6 +155,20 @@ data class ProviderCostBudget(
 sealed class ComposeAttempt {
     /** Cost gate refused before any network call: no provider was involved in this fallback. */
     data class BudgetRejected(val promptChars: Int) : ComposeAttempt()
+
+    /**
+     * The aggregate [SpendLedger] window is exhausted; no network call was made.
+     *
+     * Deliberately not folded into [BudgetRejected]: that one means *this request* is too expensive
+     * and is a sizing problem, this one means *the day's spend* is used up and is a traffic problem.
+     * A single "budget" label would put a misconfigured price and an active abuse incident in the
+     * same bucket, which is the conflation this whole taxonomy exists to undo.
+     */
+    data class LedgerExhausted(
+        val spentUsdCents: Double,
+        val capUsdCents: Double,
+        val refusalsInWindow: Long,
+    ) : ComposeAttempt()
     data class ProviderError(val error: String) : ComposeAttempt()
     data object ProviderEmpty : ComposeAttempt()
     data class ValidatorRejected(
@@ -172,6 +195,7 @@ sealed class ComposeAttempt {
     val label: String
         get() = when (this) {
             is BudgetRejected -> "budget-rejected"
+            is LedgerExhausted -> "ledger-exhausted"
             is ProviderError -> "provider-error"
             ProviderEmpty -> "provider-empty"
             is ValidatorRejected -> "validator-rejected"
@@ -194,12 +218,35 @@ class LlmComposer(
      * Override via `COACH_LLM_MAX_OUTPUT_TOKENS`.
      */
     private val maxOutputTokens: Int = DEFAULT_MAX_OUTPUT_TOKENS,
+    /**
+     * Aggregate spend rail, shared with the chat route. Defaults to no ceiling so a test composer
+     * behaves as it always did; production wires the one process-wide ledger through
+     * [selectComposer].
+     */
+    private val ledger: SpendLedger = SpendLedger.unlimited(),
 ) : TextComposer {
     override fun compose(request: OpeningExplainRequest, passages: List<Passage>): ComposedText {
         val prompt = userPrompt(request, passages)
         if (prompt.length > MAX_PROVIDER_INPUT_CHARS || !budget.admits(prompt.length, maxOutputTokens)) {
             probe(ComposeAttempt.BudgetRejected(prompt.length))
             return fallback.compose(request, passages).copy(finishReason = "budget_rejected")
+        }
+        // Reserved before the call, not charged after it: concurrent calls would otherwise all pass
+        // a ledger that still reads zero.
+        val reservation = when (
+            val outcome = ledger.tryReserve(budget.expectedUsdCents(prompt.length, maxOutputTokens))
+        ) {
+            is SpendOutcome.Refused -> {
+                probe(
+                    ComposeAttempt.LedgerExhausted(
+                        spentUsdCents = outcome.spentUsdCents,
+                        capUsdCents = outcome.capUsdCents,
+                        refusalsInWindow = outcome.refusalsInWindow,
+                    ),
+                )
+                return fallback.compose(request, passages).copy(finishReason = "budget_exhausted")
+            }
+            is SpendOutcome.Reserved -> outcome.reservation
         }
         // The exception is captured rather than discarded: an auth failure, a bad model id and a
         // model that simply wrote badly all produced the identical "fell back" row before this.
@@ -229,6 +276,11 @@ class LlmComposer(
                 else -> ComposeAttempt.Accepted(valid, completion.completionTokens)
             },
         )
+        // Settle only on reported usage. A call that errored may still have been billed, so its
+        // reservation stands rather than being credited back on a guess.
+        completion?.completionTokens?.let { billed ->
+            reservation.settle(budget.estimateUsdCents(prompt.length, billed))
+        }
         return if (valid != null) {
             ComposedText(valid, ID, completionTokens = completion.completionTokens, rawProviderOutput = completion.text)
         } else {

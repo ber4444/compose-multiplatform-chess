@@ -220,11 +220,33 @@ class LlmChatComposer(
     // validator then rejected — surfacing as a fallback bubble with no visible cause. Overridable
     // via COACH_LLM_CHAT_MAX_OUTPUT_TOKENS (see [selectChatComposer]) for other providers/models.
     private val maxOutputTokens: Int = DEFAULT_MAX_OUTPUT_TOKENS,
+    /**
+     * The same process-wide [SpendLedger] the opening route reserves against — one cap over both
+     * surfaces, since one provider bill covers both. Defaults to no ceiling so a test composer
+     * behaves as it always did; production wires it through [selectChatComposer].
+     */
+    private val ledger: SpendLedger = SpendLedger.unlimited(),
 ) : StreamingChatComposer {
     override fun streamCompose(request: PositionChatRequest, passages: List<Passage>): Flow<ChatChunk> = flow {
         val prompt = userPrompt(request, passages)
         if (prompt.length > MAX_PROVIDER_INPUT_CHARS || !budget.admits(prompt.length, maxOutputTokens)) {
             fallback.streamCompose(request, passages).collect { emit(it) }
+            return@flow
+        }
+        // The streaming client reports no usage, so this reservation is never settled: the expected
+        // cost is what the day is charged. Deliberate — the alternative is charging nothing for
+        // every chat turn, which would leave the cap bounding one surface out of two.
+        val outcome = ledger.tryReserve(budget.expectedUsdCents(prompt.length, maxOutputTokens))
+        if (outcome is SpendOutcome.Refused) {
+            // Same reason the two downgrades beside it are logged: from the client's side an
+            // exhausted daily cap and a deliberately deterministic deployment are the same bubble.
+            if (outcome.loggable) {
+                println(
+                    "chat-provider-skipped ledger: spent ${"%.2f".format(outcome.spentUsdCents)}c of " +
+                        "${"%.2f".format(outcome.capUsdCents)}c today, ${outcome.refusalsInWindow} refused so far",
+                )
+            }
+            emit(ChatChunk.Fallback(fallbackText(request, passages), finishReason = "budget_exhausted"))
             return@flow
         }
         val accumulated = StringBuilder()
