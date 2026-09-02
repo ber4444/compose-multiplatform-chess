@@ -362,6 +362,7 @@ which must stay above both the heartbeat interval and a thinking model's time-to
 |---|---|---|
 | `COACH_LLM_CHAT_MAX_OUTPUT_TOKENS` | no (default 2048) | Output-token budget for the chat composer, checked against `COACH_LLM_MAX_USD_CENTS` before calling the provider. Larger than the explainer's budget so a *thinking* provider model has room to reason before it emits visible content; a truncated, uncited fragment fails validation |
 | `COACH_LLM_MAX_USD_CENTS` | no (default 1.5) | Per-call cost ceiling in US cents — shared with the opening explainer; the chat route checks it independently against the token budget above |
+| `COACH_LLM_MAX_USD_CENTS_PER_DAY` | no (default 250) | Aggregate daily ceiling — genuinely shared: one `SpendLedger` instance covers both routes, because one provider bill does |
 
 Raising `COACH_LLM_CHAT_MAX_OUTPUT_TOKENS` without also raising `COACH_LLM_MAX_USD_CENTS` will
 silently push every turn over budget onto the template composer.
@@ -435,6 +436,7 @@ from the routing tree, since a contract generated from the implementation cannot
 | `COACH_LLM_INPUT_USD_PER_MILLION` | no | Input token price — required to enforce the configured per-call ceiling |
 | `COACH_LLM_OUTPUT_USD_PER_MILLION` | no | Output token price — required to enforce the configured per-call ceiling |
 | `COACH_LLM_MAX_USD_CENTS` | no (default 1.5) | Per-call cost ceiling in US cents. Checked against the prices above *before* the request; over budget falls back to the template composer. Raise it if you raise the model's output-token budget |
+| `COACH_LLM_MAX_USD_CENTS_PER_DAY` | no (default 250) | **Aggregate** cost ceiling in US cents per rolling 24 h, shared by both cloud routes. Past it every request serves the deterministic composer with `finishReason = budget_exhausted`. `0` is the kill switch (spend nothing); there is no "unlimited" spelling — set an absurd number for that |
 | `COACH_ALLOWED_ORIGINS` | no | Comma-separated hostnames for CORS (e.g. `chess.example.com`; schemes added by server) |
 | `COACH_CORPUS_DIR` | no (default `corpus`) | Seed-time only (`SeedMain`): directory holding the corpus TSVs to chunk, embed, and upsert |
 
@@ -510,6 +512,10 @@ fly secrets set --app compose-chess-opening-coach \
   COACH_LLM_INPUT_USD_PER_MILLION=0.40 \
   COACH_LLM_OUTPUT_USD_PER_MILLION=1.60 \
   COACH_LLM_MAX_USD_CENTS=2.5   # see the sizing note below; 1.5 is the built-in default
+  COACH_LLM_MAX_USD_CENTS_PER_DAY=250   # aggregate rail across BOTH routes; 250 is the built-in
+                                        # default. Set it explicitly: this endpoint is open, and
+                                        # this is the only limit an attacker cannot widen by
+                                        # changing IP. `0` turns the provider off entirely.
 ```
 
 > **`COACH_LLM_MAX_USD_CENTS` is a per-request ceiling on *expected* cost.**
@@ -546,8 +552,29 @@ Chat) share this one base URL.
 
 > **Security Note:** This endpoint is **unauthenticated and open** — client attestation such as
 > Firebase App Check is an Android/Firebase primitive and does not cover the four client targets
-> here (including desktop and web). The Fly app holds only `COACH_LLM_API_KEY` as
-> secrets, but abuse of this open endpoint can incur LLM provider costs if not monitored.
+> here. Android has Play Integrity, iOS has App Attest and the web has reCAPTCHA/Turnstile, but the
+> **desktop JVM build has no attestation primitive at all** and carries the base URL in its own jar,
+> so attestation can bound three targets out of four and none of `curl`.
+>
+> Three rails bound the spend instead, and they bound different things — the third exists because the
+> first two, alone, do not bound the bill:
+>
+> | Rail | Bounds | Configured by |
+> |---|---|---|
+> | `ProviderCostBudget` | one request | `COACH_LLM_MAX_USD_CENTS` (default 1.5c) |
+> | `FixedWindowRateLimiter` | one caller | 30 req/min per client IP |
+> | `SpendLedger` | **the sum** | `COACH_LLM_MAX_USD_CENTS_PER_DAY` (default 250c) |
+>
+> Multiply the first two and the reason for the third is arithmetic: 30 requests/minute at 1.5c is
+> about **$27/hour from one IP**, and nothing capped the total across IPs. The ledger reserves the
+> expected cost before each provider call and settles it against reported usage afterwards, so both
+> cloud routes together cannot exceed the daily cap; past it they serve their deterministic
+> composers and say so (`finishReason = budget_exhausted`, and `opening-provider-skipped ledger` /
+> `chat-provider-skipped ledger` in the logs — first refusal and every hundredth, so the flood that
+> trips the cap cannot also flood the log). It is in-process and resets on restart, which suits a
+> machine that scales to zero; a durable ledger would need the database this service deliberately no
+> longer has. It is **not** an authentication substitute — it converts an unbounded bill into a
+> bounded one, and a determined abuser still gets the day's budget.
 
 #### Running costs
 
