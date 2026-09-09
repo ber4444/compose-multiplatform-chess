@@ -9,6 +9,10 @@
 //
 // Replacing `import.meta` with an empty object literal `({})` at bundle time satisfies the syntax in
 // classic scripts while preserving property lookups like `importMeta.url`.
+//
+// Kotlin 2.4.20 bumped the webpack npm dependency to 5.108.1, which stops ignoring `import.meta`
+// when deciding a file's module type and lists this as a breaking change. Kotlin/JS's documented
+// escape hatch is the `useEsModules()` Gradle DSL; there is no wasmJs equivalent, so this stays.
 const webpack = require('webpack');
 if (config.webpack) {
     config.webpack.plugins = config.webpack.plugins || [];

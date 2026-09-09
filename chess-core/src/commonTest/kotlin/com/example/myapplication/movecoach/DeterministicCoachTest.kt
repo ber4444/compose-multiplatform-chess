@@ -16,6 +16,8 @@ import kotlin.test.assertTrue
  * is the *shipped* per-move line whenever the model loses on the scorecard — so these two functions
  * are the product, not a degraded mode.
  */
+// allDistinct/allEqual: Experimental stdlib, test sources only — see CLAUDE.md, "Build quirks".
+@OptIn(ExperimentalStdlibApi::class)
 class DeterministicCoachTest {
 
     private fun record(
@@ -90,7 +92,7 @@ class DeterministicCoachTest {
         val labels = MoveClass.entries.map {
             DeterministicCoach.buildHeadline(record(assessment = assessment(it)))
         }
-        assertEquals(labels.size, labels.toSet().size, "two MoveClass values render identically: $labels")
+        assertTrue(labels.allDistinct(), "two MoveClass values render identically: $labels")
     }
 
     // --- explanation ------------------------------------------------------------------------

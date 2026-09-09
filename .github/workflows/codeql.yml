@@ -13,9 +13,17 @@ jobs:
     name: Analyze (${{ matrix.language }})
     runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
     timeout-minutes: ${{ (matrix.language == 'swift' && 120) || 360 }}
-    # CodeQL CLI (2.26.x) only supports Kotlin versions < 2.4.20. While on Kotlin 2.4.20-RC, the
-    # java-kotlin extractor halts with `Kotlin version 2.4.20-RC is too recent`. Make non-blocking
-    # until GitHub CodeQL CLI releases support for Kotlin 2.4.20+.
+    # Still needed on Kotlin 2.4.20 final. The java-kotlin extractor halts with `Kotlin version
+    # <v> is too recent` for any version above the newest entry in the CodeQL repo's
+    # `java/kotlin-extractor/versions.bzl`, and the latest released CLI — 2.27.0, checked
+    # 2026-09-09 — still tops out at 2.4.0. Support for 2.4.20 is merged on codeql `main` but has
+    # not shipped in a CLI release yet.
+    #
+    # Removal condition, so this does not outlive its cause: check that tag's versions.bzl lists
+    # 2.4.20, then delete this line and the two step-level `continue-on-error` keys below.
+    #
+    # Note what non-blocking costs while it is on: java-kotlin analysis reports green whether it
+    # extracted this repo or nothing at all, so it is not evidence of coverage until it is removed.
     continue-on-error: ${{ matrix.language == 'java-kotlin' }}
     permissions:
       security-events: write
