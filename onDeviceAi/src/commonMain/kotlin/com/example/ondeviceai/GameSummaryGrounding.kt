@@ -46,7 +46,7 @@ object GameSummaryGrounding {
             request.moveHistory,
             request.playerSide,
             request.engineDifficultyName,
-        ),
+        ).map(GameSummaryPromptBuilder::render),
     )
 
     /** `extractTurningPoints` caps at 3, so [compose]'s lead never needs a larger number. */

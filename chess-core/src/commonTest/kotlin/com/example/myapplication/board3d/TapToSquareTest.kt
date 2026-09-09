@@ -79,22 +79,54 @@ class TapToSquareTest {
     }
 
     @Test
+    fun tapOnPieceTopPicksThatPieceNotTheSquareBehindIt() {
+        // The proxy heights were half the rendered piece height (the 0.5 model scale applied twice),
+        // which made the upper half of every piece transparent to taps: on an iPhone 17 a tap on the
+        // white king's crown fell through to the board plane and picked e3. The user sees a king, so
+        // the picker must return the king for every point on it — including near its top.
+        val king = BoardSquare(7, 4) // e1
+        val center = BoardGeometry.squareCenter(king)
+        val scene = Board3DScene(
+            pieces = listOf(
+                Piece3DInstance(PieceKind.KING, PieceColor.WHITE, king, center, 0f),
+            ),
+            sideToMove = PieceColor.WHITE,
+        )
+
+        // Just under the crown of the rendered king (chess.glb king is 1.949 tall at model scale).
+        val crown = Vec3(center.x, 1.9f, center.z)
+        val screen = CameraMath.worldToScreen(camera, crown)
+        assertNotNull(screen)
+        val ray = CameraMath.rayFromScreen(camera, screen.first, screen.second)
+
+        assertEquals(king, BoardRayPicker.pickSquare(ray, scene))
+        // Plane-only picking lands ranks away — that gap is exactly what the user saw.
+        kotlin.test.assertNotEquals(king, BoardRayPicker.pickSquare(ray, null))
+    }
+
+    @Test
     fun tapOnVisiblePawnBodyIsNotStolenByForegroundPiece() {
-        // From White's low camera the e1 king sits in front of the e2 pawn. The hit proxy must stay
-        // close to the rendered piece bounds; otherwise a tap on the visible upper body of the pawn
-        // intersects the invisible oversized king proxy first and selects e1 on iOS.
-        val king = BoardSquare(7, 4)
-        val pawn = BoardSquare(6, 4)
+        // The other half of the trade-off: proxies must not be so tall/fat that a piece steals taps
+        // aimed past it. A rook (1.21) is short enough that the pawn behind it clears its top from
+        // the default camera, so a tap on the pawn's head must select the pawn, not the rook.
+        //
+        // Deliberately NOT a king in front: chess.glb's king is 1.95 tall and from this camera it
+        // occludes the e2 pawn outright — verified against the render on an iPhone 17, where no part
+        // of that pawn is visible above the crown. Asserting the pawn wins there would be asserting
+        // that the picker disagrees with the picture, and shrinking the proxies to satisfy it is
+        // what produced the see-through tops above.
+        val rook = BoardSquare(7, 4) // e1
+        val pawn = BoardSquare(6, 4) // e2
         val pawnCenter = BoardGeometry.squareCenter(pawn)
         val scene = Board3DScene(
             pieces = listOf(
-                Piece3DInstance(PieceKind.KING, PieceColor.WHITE, king, BoardGeometry.squareCenter(king), 0f),
+                Piece3DInstance(PieceKind.ROOK, PieceColor.WHITE, rook, BoardGeometry.squareCenter(rook), 0f),
                 Piece3DInstance(PieceKind.PAWN, PieceColor.WHITE, pawn, pawnCenter, 0f),
             ),
             sideToMove = PieceColor.WHITE,
         )
 
-        val visiblePawnBody = Vec3(pawnCenter.x, 0.35f, pawnCenter.z)
+        val visiblePawnBody = Vec3(pawnCenter.x, 1.0f, pawnCenter.z)
         val screen = CameraMath.worldToScreen(camera, visiblePawnBody)
         assertNotNull(screen)
         val ray = CameraMath.rayFromScreen(camera, screen.first, screen.second)

@@ -44,8 +44,14 @@ import java.util.concurrent.atomic.AtomicInteger
 
 fun main() {
     val environment = System.getenv()
-    val dependencies = defaultDependencies(environment)
-    val chatService = runCatching { defaultChatDependencies(environment) }.getOrNull()
+    val retrieval = RetrievalRuntime.load(environment)
+    // ONE ledger for the whole process, for the same reason there is one RetrievalRuntime: both
+    // factories below would otherwise build their own, and two half-caps over one provider bill is
+    // not the cap the operator configured.
+    val spendLedger = SpendLedger.fromEnvironment(environment)
+    println("Provider spend cap: ${spendLedger.maxUsdCentsPerWindow}c per day")
+    val dependencies = defaultDependencies(environment, retrieval, spendLedger)
+    val chatService = runCatching { defaultChatDependencies(environment, retrieval, spendLedger) }.getOrNull()
     embeddedServer(
         factory = Netty,
         configure = {
@@ -203,22 +209,72 @@ fun Application.openingCoachModule(
     }
 }
 
-fun defaultDependencies(environment: Map<String, String>): ServerDependencies {
-    val dataSource = createDataSource(requireEnvironment(environment, "DATABASE_URL"))
-    applySchema(dataSource)
-    val embedder = OnnxMiniLmEmbedder(
-        modelPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_MODEL")),
-        vocabPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_VOCAB")),
-    )
+/**
+ * The retrieval half of the server: one corpus, one embedder, one repository.
+ *
+ * It is a shared value rather than something each surface builds for itself because it used to be
+ * the latter, and that cost real memory: `main` calls both [defaultDependencies] and
+ * [defaultChatDependencies], and each of them constructed its own [OnnxMiniLmEmbedder] — two
+ * `OrtSession`s holding two copies of the same ~90 MB MiniLM in native memory — alongside its own
+ * connection pool. Nothing needed two; the opening explainer and position chat retrieve over the
+ * identical index.
+ *
+ * The corpus comes from the image, not a database. See [CorpusIndexFile] for why.
+ */
+class RetrievalRuntime(
+    val embedder: Embedder,
+    val passageRepository: PassageRepository,
+    val corpusStatusReader: CorpusStatusReader,
+) {
+    companion object {
+        fun load(environment: Map<String, String>): RetrievalRuntime {
+            val index = CorpusIndexFile.read(
+                Path.of(environment["COACH_CORPUS_INDEX"] ?: BuildCorpusIndexMain.DEFAULT_INDEX_PATH),
+            )
+            println(
+                "Corpus index loaded: rows=${index.manifest.expectedRowCount} " +
+                    "version=${index.manifest.version}",
+            )
+            return RetrievalRuntime(
+                embedder = OnnxMiniLmEmbedder(
+                    modelPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_MODEL")),
+                    vocabPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_VOCAB")),
+                ),
+                passageRepository = InMemoryPassageRepository(index),
+                corpusStatusReader = IndexCorpusStatusReader(index),
+            )
+        }
+    }
+}
+
+fun defaultDependencies(
+    environment: Map<String, String>,
+    retrieval: RetrievalRuntime = RetrievalRuntime.load(environment),
+    /**
+     * Pass the *same* instance to [defaultChatDependencies]. The default builds a fresh ledger for
+     * callers that only need one surface (tests); `main` builds one and hands it to both.
+     */
+    spendLedger: SpendLedger = SpendLedger.fromEnvironment(environment),
+): ServerDependencies {
     val template = TemplateComposer()
     // Mirrors the chat composer's `chat-provider-failed` line. Without it a configured LLM composer
     // that fails every call is indistinguishable from one that was never configured: both serve
     // `composerId = template-v1` and neither leaves a trace. Accepted calls are not logged — only
     // the downgrades, which are the ones nobody would otherwise notice.
-    val composer = selectComposer(environment, template) { attempt ->
+    val composer = selectComposer(environment, template, spendLedger) { attempt ->
         when (attempt) {
             is ComposeAttempt.BudgetRejected ->
                 println("opening-provider-skipped budget: prompt ${attempt.promptChars} chars, no call made")
+            is ComposeAttempt.LedgerExhausted ->
+                if (SpendLedger.isLoggableRefusal(attempt.refusalsInWindow)) {
+                    println(
+                        "opening-provider-skipped ledger: spent ${"%.2f".format(attempt.spentUsdCents)}c of " +
+                            "${"%.2f".format(attempt.capUsdCents)}c today, " +
+                            "${attempt.refusalsInWindow} refused so far",
+                    )
+                } else {
+                    Unit
+                }
             is ComposeAttempt.ProviderError -> println("opening-provider-failed ${attempt.error}")
             ComposeAttempt.ProviderEmpty -> println("opening-provider-empty")
             is ComposeAttempt.ValidatorRejected ->
@@ -227,36 +283,34 @@ fun defaultDependencies(environment: Map<String, String>): ServerDependencies {
         }
     }
     return ServerDependencies(
-        embedder = embedder,
-        passageRepository = PostgresPassageRepository(dataSource),
+        embedder = retrieval.embedder,
+        passageRepository = retrieval.passageRepository,
         composer = composer,
         releaseVersion = environment["RELEASE_VERSION"] ?: environment["FLY_IMAGE_REF"] ?: "unknown",
-        corpusStatusReader = PostgresCorpusStatusReader(dataSource),
+        corpusStatusReader = retrieval.corpusStatusReader,
         includeRawDiagnostics = environment["COACH_DIAGNOSTICS_RAW"] == "1",
     )
 }
 
 /**
- * Builds the position-chat service. Shares the embedder + passage repository with the opening
- * explainer (same retrieval index) and constructs a streaming LLM composer under the same
- * `COACH_LLM_*` config precedence; without a key + prices it falls back to [TemplateChatComposer].
- * Returns `null` only if the shared embedding deps can't be built (caller already failed).
+ * Builds the position-chat service. Takes the *same* [RetrievalRuntime] the opening explainer uses
+ * — one embedder, one index — and constructs a streaming LLM composer under the same `COACH_LLM_*`
+ * config precedence; without a key + prices it falls back to [TemplateChatComposer].
  */
-fun defaultChatDependencies(environment: Map<String, String>): PositionChatService {
-    val dataSource = createDataSource(requireEnvironment(environment, "DATABASE_URL"))
-    applySchema(dataSource)
-    val embedder = OnnxMiniLmEmbedder(
-        modelPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_MODEL")),
-        vocabPath = Path.of(requireEnvironment(environment, "COACH_EMBEDDING_VOCAB")),
-    )
-    val composer = selectChatComposer(environment, TemplateChatComposer())
+fun defaultChatDependencies(
+    environment: Map<String, String>,
+    retrieval: RetrievalRuntime = RetrievalRuntime.load(environment),
+    /** The instance [defaultDependencies] was given — see the note there. */
+    spendLedger: SpendLedger = SpendLedger.fromEnvironment(environment),
+): PositionChatService {
+    val composer = selectChatComposer(environment, TemplateChatComposer(), spendLedger)
     return PositionChatService(
         ChatServerDependencies(
-            embedder = embedder,
-            passageRepository = PostgresPassageRepository(dataSource),
+            embedder = retrieval.embedder,
+            passageRepository = retrieval.passageRepository,
             streamingChatComposer = composer,
             releaseVersion = environment["RELEASE_VERSION"] ?: environment["FLY_IMAGE_REF"] ?: "unknown",
-            corpusStatusReader = PostgresCorpusStatusReader(dataSource),
+            corpusStatusReader = retrieval.corpusStatusReader,
             includeRawDiagnostics = environment["COACH_DIAGNOSTICS_RAW"] == "1"
         ),
     )
@@ -271,6 +325,7 @@ fun defaultChatDependencies(environment: Map<String, String>): PositionChatServi
 fun selectChatComposer(
     environment: Map<String, String>,
     fallback: TemplateChatComposer,
+    spendLedger: SpendLedger = SpendLedger.fromEnvironment(environment),
 ): StreamingChatComposer {
     val apiKey = environment["COACH_LLM_API_KEY"]?.takeIf(String::isNotBlank) ?: return fallback
     val inputPrice = environment["COACH_LLM_INPUT_USD_PER_MILLION"]?.toDoubleOrNull()
@@ -298,6 +353,7 @@ fun selectChatComposer(
             outputUsdPerMillionTokens = outputPrice,
         ),
         maxOutputTokens = parseChatMaxOutputTokens(environment),
+        ledger = spendLedger,
     )
 }
 
@@ -323,6 +379,9 @@ fun parseChatMaxOutputTokens(environment: Map<String, String>): Int =
 fun selectComposer(
     environment: Map<String, String>,
     fallback: TemplateComposer,
+    spendLedger: SpendLedger = SpendLedger.fromEnvironment(environment),
+    // Declared before `probe` on purpose: `probe` must stay last so the existing trailing-lambda
+    // call sites (`selectComposer(env, template) { … }`, including the eval harness) keep compiling.
     probe: (ComposeAttempt) -> Unit = {},
 ): TextComposer {
     val apiKey = environment["COACH_LLM_API_KEY"]?.takeIf(String::isNotBlank) ?: return fallback
@@ -357,6 +416,7 @@ fun selectComposer(
         probe = probe,
         maxOutputTokens = environment["COACH_LLM_MAX_OUTPUT_TOKENS"]?.toIntOrNull()?.takeIf { it > 0 }
             ?: LlmComposer.DEFAULT_MAX_OUTPUT_TOKENS,
+        ledger = spendLedger,
     )
 }
 

@@ -9,12 +9,53 @@ primary_region = "sjc"
 [env]
   PORT = "8080"
 
+  # Sized against the 512 MB in [[vm]] below, and the two must move together. The JVM does not read
+  # the machine's memory from fly.toml, so bumping one without the other either wastes the RAM or
+  # gets the process OOM-killed.
+  #
+  #   MaxRAMPercentage=45  -> ~230 MB heap, leaving room for what lives *outside* it: ONNX Runtime
+  #                           holds MiniLM in native memory (~120 MB), plus metaspace, code cache
+  #                           and Netty's direct buffers. A percentage rather than -Xmx so the
+  #                           heap tracks the [[vm]] size on the next resize.
+  #   UseSerialGC          -> already the JVM's own choice on one shared vCPU; pinned so a future
+  #                           larger [[vm]] doesn't silently switch to G1 and its region overhead.
+  #   ExitOnOutOfMemoryError -> die and let Fly restart rather than thrash a nearly-full heap. With
+  #                           auto-start on, a restart is cheap; a wedged machine serving timeouts
+  #                           is not.
+  JAVA_OPTS = "-XX:MaxRAMPercentage=45 -XX:MaxMetaspaceSize=128m -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
+
+# Sizes used to live only in Fly's own state, which meant `fly launch` or a fresh clone could
+# silently resize the machine and nobody would find out from the repo. They are pinned here now.
+#
+# 512 MB is a deliberate step down from the 1 GB this ran on: the server no longer holds a Hikari
+# pool, a JDBC driver or pgvector, and the corpus it *does* hold in heap is ~10 MB (3,825 rows,
+# 384-dimension vectors). If the process starts OOM-killing, raise this and MaxRAMPercentage's
+# denominator together — memory = "1gb" restores the previous shape exactly.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  cpus = 1
+  cpu_kind = "shared"
+
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "stop"
+
+  # Scale to zero between requests. This was `min_machines_running = 1` so an interactive chat turn
+  # would never wait on a machine boot — a real concern, but one worth about $6/month, which at zero
+  # users bought protection against a cold start nobody was experiencing.
+  #
+  # "suspend" rather than "stop" because this is a JVM: stop means a cold start (JVM + a ~90 MB ONNX
+  # session + the corpus index), suspend restores the process image. Fly falls back to stopping when
+  # a machine can't be suspended, so the worst case is the old behaviour, not a broken one. Either
+  # way the clients degrade gracefully — DefaultOpeningExplainer and DefaultPositionChat both fall
+  # back to deterministic offline text on a timeout, so a slow wake is a handled state.
+  #
+  # Put `min_machines_running = 1` back the day real traffic arrives; that is a latency decision,
+  # not a cost one.
+  auto_stop_machines = "suspend"
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 0
   processes = ["app"]
 
   [[http_service.checks]]

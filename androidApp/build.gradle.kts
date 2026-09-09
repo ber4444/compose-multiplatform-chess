@@ -1,6 +1,7 @@
 @file:Suppress("UnstableApiUsage")
 
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.androidApplication)
@@ -13,6 +14,16 @@ val sharedComposeAssetsDir = project(":app").layout.buildDirectory
     .asFile
 
 val goldenBenchAssetsDir = layout.buildDirectory.dir("generated/benchAssets").get().asFile
+
+// The Play upload key lives outside the repo; `~/key.properties` points at the
+// keystore so release builds carry the certificate Play expects. When it's absent
+// (fresh clone, CI) release falls back to the debug key — fine for local installs,
+// and Play rejects the upload rather than accepting a wrongly signed build.
+// Same convention as the sibling ics-compose project.
+val uploadKeyProperties = Properties().apply {
+    val f = File(System.getProperty("user.home"), "key.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
 
 android {
     namespace = "com.example.myapplication.app"
@@ -27,9 +38,24 @@ android {
         versionName = "1.0"
     }
 
+    signingConfigs {
+        if (uploadKeyProperties.getProperty("storeFile") != null) {
+            create("upload") {
+                storeFile = File(uploadKeyProperties.getProperty("storeFile"))
+                storePassword = uploadKeyProperties.getProperty("storePassword")
+                keyAlias = uploadKeyProperties.getProperty("keyAlias")
+                keyPassword = uploadKeyProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
+            // Either branch leaves the variant signable, which is what makes AGP register
+            // `installRelease` at all — an unsigned release build type gets `uninstallRelease`
+            // and no matching install task.
+            signingConfig = signingConfigs.findByName("upload") ?: signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "../app/proguard-rules.pro"
@@ -43,7 +69,9 @@ android {
         // :macrobenchmark can drop `androidx.benchmark.suppressErrors=DEBUGGABLE`.
         create("benchmark") {
             initWith(getByName("release"))
-            // Release is unsigned here, and an unsigned APK cannot be installed on the device.
+            // Deliberately the debug key, overriding whatever initWith pulled in from release: this
+            // variant is only ever installed locally for :macrobenchmark and must not be signed
+            // with the upload key.
             signingConfig = signingConfigs.getByName("debug")
             isDebuggable = false
             // Macrobenchmark attaches Perfetto to the app under test, which a non-debuggable build

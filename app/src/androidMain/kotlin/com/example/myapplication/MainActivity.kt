@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity() {
 
         if (isDebug && intent.hasExtra("bench_summary_iterations")) {
             val iterations = intent.getIntExtra("bench_summary_iterations", 1)
+            keepBenchInForeground()
             CoroutineScope(Dispatchers.IO).launch {
                 com.example.myapplication.bench.runAndroidSummaryBench(this@MainActivity, iterations)
                 finish()
@@ -50,6 +51,7 @@ class MainActivity : ComponentActivity() {
 
         if (isDebug && intent.hasExtra("bench_iterations")) {
             val iterations = intent.getIntExtra("bench_iterations", 1)
+            keepBenchInForeground()
             CoroutineScope(Dispatchers.IO).launch {
                 runAndroidBench(this@MainActivity, iterations)
                 // Mirror the JSONL into the app's external files dir. `filesDir` needs `run-as`,
@@ -78,12 +80,7 @@ class MainActivity : ComponentActivity() {
         // equivalent but is not: process death also restores a bundle, and there the holder is a
         // brand-new ViewModel with no orchestrator, so the coach would stay dead for the whole
         // session.
-        // No on-device model on Android, by measurement rather than by omission: every model in
-        // the Cactus catalog was benchmarked on hardware and all of them lost to the deterministic
-        // text on latency, truth, or both — see
-        // docs/benchmarks/on-device-ai/android-model-latency-2026-08.md. The Move Coach renders
-        // DeterministicCoach with no orchestrator; Game Summary composes its turning points.
-        holder.gameSummaryManager.enableDeterministic()
+        attachOnDeviceAi()
 
         val appSettings = AppSettings(createSettings("chess"))
         // PgnSharer needs the host Activity (for ACTION_SEND), so it's built here, not in the holder.
@@ -120,6 +117,105 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Wires ML Kit / AICore into the two on-device surfaces, or leaves them deterministic.
+     *
+     * **This is the integration the Android seam was missing.** `probeAvailableLocalVendors()` had
+     * no caller outside `bench/`, so the app's AICore path could only be exercised by running the
+     * benchmark — an integration nothing in the product ever executed is one that quietly rots. It
+     * now lives on the launch path, one constant from live, and the constant is the record of a
+     * decision rather than of an omission.
+     *
+     * Three details are load-bearing and none of them are obvious:
+     *
+     *  - **The probe can download.** On a device reporting `DOWNLOADABLE`/`DOWNLOADING`,
+     *    `probeAvailableLocalVendors()` calls `warmup()`, which awaits an AICore feature fetch. So
+     *    it is called *inside* the flag, not before it: "inactive" has to mean no network and no
+     *    provisioning, not merely no visible model.
+     *  - **`isAppForegrounded` is read per request, not captured.** AICore refuses to generate in the
+     *    background — `[ErrorCode 30] Background usage is blocked` — so a backgrounded request must
+     *    reach `AiRoutePolicyDecider` as *not foregrounded* and fall back cleanly, rather than
+     *    reaching the model and returning an error the orchestrator can only report as a generation
+     *    failure. `holder.isForeground` is maintained by `onStart`/`onStop`.
+     *  - **The vendor list is probed once and reused.** Re-probing per request costs an AICore
+     *    `checkStatus()` round trip on every coached move; thermal and quota conditions, which do
+     *    change per request, are the decider's own inputs and are unaffected.
+     *
+     * Both flags are off today, for different reasons — see the constants and
+     * `docs/benchmarks/on-device-ai/game-summary-2026-08.md`.
+     */
+    private fun attachOnDeviceAi() {
+        // Unconditional, and *before* the probe. Not "no model, no summary": the composed turning
+        // points are a complete answer, and doing this first means the button is live from the first
+        // frame instead of after a probe that may await an AICore feature download. When a model is
+        // attached below it takes over; `deterministicEnabled` only applies while the orchestrator
+        // is null, so the two cannot fight.
+        holder.gameSummaryManager.enableDeterministic()
+
+        if (!ATTACH_GAME_SUMMARY && !ATTACH_MOVE_COACH) return
+
+        CoroutineScope(Dispatchers.IO).launch {
+            val vendors = com.example.ondeviceai.probeAvailableLocalVendors()
+            Logger.i("MainActivity") { "on-device vendors: $vendors" }
+            // Every emulator, and every device without an AICore feature for this model. The
+            // deterministic summary above already stands, and the coach renders DeterministicCoach
+            // with no orchestrator, so there is nothing further to do.
+            if (vendors.isEmpty()) return@launch
+
+            val executor = com.example.ondeviceai.VendorRouteExecutor()
+            val contextProvider: suspend () -> com.example.ondeviceai.AiContextSnapshot = {
+                com.example.ondeviceai.AiContextSnapshot(
+                    availableLocalVendors = vendors,
+                    isAppForegrounded = holder.isForeground,
+                    userSetting = com.example.ondeviceai.AiUserSetting.OFFLINE_ONLY,
+                )
+            }
+
+            if (ATTACH_GAME_SUMMARY) {
+                holder.gameSummaryManager.attachOrchestrator(
+                    com.example.ondeviceai.DefaultGameSummaryOrchestrator(
+                        executor = executor,
+                        contextProvider = contextProvider,
+                    ),
+                )
+            }
+            if (ATTACH_MOVE_COACH) {
+                holder.moveCoachManager.attachCoachOrchestrator(
+                    com.example.ondeviceai.DefaultAiCoachOrchestrator(
+                        executor = executor,
+                        contextProvider = contextProvider,
+                    ),
+                )
+            }
+        }
+    }
+
+    /**
+     * Turns the screen on, shows over the keyguard, and holds both for the run.
+     *
+     * **AICore refuses to generate unless the calling app is in the foreground** — it fails the
+     * request with `[ErrorCode 30] Background usage is blocked`, per row, in under a second, and the
+     * orchestrator can only report it as an ordinary generation error. A `adb shell am start` on a
+     * locked or sleeping device therefore produces a full JSONL of plausible-looking fallbacks that
+     * measure nothing: it cost 3 rows of the first Game Summary run and all 12 of the second, and
+     * `svc power stayon usb` does not prevent it because the keyguard, not the screen timeout, is
+     * what stops the activity being resumed.
+     *
+     * Bench-only, so this never touches a shipped launch: both callers sit behind `isDebug` plus a
+     * bench intent extra.
+     */
+    private fun keepBenchInForeground() {
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        }
+        // Only dismisses a swipe keyguard; a secured device still needs unlocking by hand, which the
+        // run will make obvious rather than silently mis-measure.
+        (getSystemService(android.content.Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager)
+            ?.requestDismissKeyguard(this, null)
+    }
+
     private fun createStockfishEngine(): ChessEngine? {
         val engine = StockfishEngine(
             nativeLibraryDir = applicationInfo.nativeLibraryDir,
@@ -148,6 +244,40 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         private const val SYSTEM_BAR_SCRIM = 0x66000000
+
+        /**
+         * Whether ML Kit / AICore writes the Move Coach panel. **Off, and decided.**
+         *
+         * `nano-v3` passes `MoveCoachResponseValidator` on 95/100 golden positions against ~89 for
+         * `DeterministicCoach`, but a hand read finds invention the validator cannot catch — a motif
+         * belonging to the played move reattached to the engine's preferred move, an invented
+         * "opens up the h-file" — and it takes ~4.4 s to say what the deterministic line says
+         * instantly. The panel is latency-bound and the deterministic text is already true, so
+         * faster-and-more-fluent is not a reason to attach it.
+         *
+         * Reopening this means covering motif attribution and file/diagonal claims in the validator
+         * first; that rule is the gate. See
+         * `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md`.
+         */
+        private const val ATTACH_MOVE_COACH = false
+
+        /**
+         * Whether ML Kit / AICore writes the Game Summary. **Off, and open** — a different question
+         * from [ATTACH_MOVE_COACH], which is why these are two constants and not one.
+         *
+         * With the prompt's raw PGN removed and `noRepeatNgramSize` widened, AICore went from 7/12
+         * to **12/12** on the 2026-08 fixtures at ~12 s, citing exactly the code-chosen turning
+         * points in 11 of 12 and inventing nothing — the best on-device output measured on this
+         * project. What holds it back is not quality: this surface has **no response validator at
+         * all**, so residual decoration ("a blunder that weakened your pawn structure", about a
+         * knight move) reaches the user unchallenged, and 12 games is a small sample for a surface
+         * where one bad summary is the entire answer.
+         *
+         * Flip it after the validator lands and a larger fixture set agrees — see
+         * `docs/plans/on-device-ai-next-steps.md`. The floor does not move when you do: a rejected
+         * summary falls back to `GameSummaryGrounding`, which is exactly what ships today.
+         */
+        private const val ATTACH_GAME_SUMMARY = false
     }
 }
 

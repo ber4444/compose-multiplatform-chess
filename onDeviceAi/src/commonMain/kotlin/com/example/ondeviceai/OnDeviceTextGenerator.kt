@@ -25,9 +25,15 @@ data class AiGenerationRequest(
     val userPrompt: String,
     val maxOutputTokens: Int,
     val temperature: Double = 0.2,
-    /** Sampler-level repetition penalty, for the runtimes whose API exposes one (wasm today). */
-    val repetitionPenalty: Double? = 1.15,
-    /** B15: cut the completion before an n-gram of this size reoccurs; `null` disables the rule. */
+    /**
+     * B15: cut the completion before an n-gram of this size reoccurs; `null` disables the rule.
+     * This — plus [stopSequences] — is applied post-hoc by [withAntiRepetitionGuard], not at
+     * sampling time. No runtime this project ships to (Foundation Models, LiteRT-LM desktop/wasm,
+     * ML Kit) exposes a repetition/frequency penalty or logit-level n-gram block through its Kotlin
+     * or JS API — checked against each pinned SDK, see
+     * `docs/benchmarks/on-device-ai/b15-generation-side-repetition-2026-08.md`. Only top-k/top-p/
+     * temperature/seed are available anywhere, and none of those is a targeted repetition penalty.
+     */
     val noRepeatNgramSize: Int? = 4,
     val stopSequences: List<String> = emptyList(),
     val tools: List<AiToolSpec> = emptyList(),

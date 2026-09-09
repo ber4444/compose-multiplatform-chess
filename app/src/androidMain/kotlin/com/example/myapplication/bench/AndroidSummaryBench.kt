@@ -1,12 +1,7 @@
 package com.example.myapplication.bench
 
 import android.content.Context
-import com.example.myapplication.MoveAssessment
-import com.example.myapplication.MoveClass
-import com.example.myapplication.MoveRecord
-import com.example.myapplication.Set
 import com.example.ondeviceai.DefaultGameSummaryOrchestrator
-import com.example.ondeviceai.GameSummaryRequest
 import com.example.ondeviceai.GameSummaryResult
 import com.example.ondeviceai.VendorRouteExecutor
 import java.io.File
@@ -23,6 +18,21 @@ import java.io.File
 suspend fun runAndroidSummaryBench(context: Context, iterations: Int) {
     val resultsFile = File(context.filesDir, "bench/summary.jsonl")
     resultsFile.parentFile?.mkdirs()
+    resultsFile.writeText("")
+
+    // Same filesDir-first path as the coach bench, and the same reason: a run can be pointed at an
+    // ad-hoc fixture set by pushing one.
+    val fixturesFile = File(context.filesDir, "golden/summary-fixtures.json")
+    val fixturesJson = when {
+        fixturesFile.exists() -> fixturesFile.readText()
+        else -> runCatching { context.assets.open("golden/summary-fixtures.json").bufferedReader().use { it.readText() } }
+            .getOrNull()
+    }
+    val fixtures = SummaryFixtures.load(fixturesJson)
+    if (fixtures.isEmpty()) {
+        android.util.Log.e("AndroidSummaryBench", "no summary fixtures in filesDir or assets — nothing to measure")
+        return
+    }
 
     val executor = VendorRouteExecutor()
     // Warm the model first so the measurement is generation, not download.
@@ -41,9 +51,17 @@ suspend fun runAndroidSummaryBench(context: Context, iterations: Int) {
         },
     )
 
-    repeat(iterations) { i ->
+    val deviceModel = android.os.Build.MODEL
+    val osVersion = android.os.Build.VERSION.RELEASE
+    val modelIdentifier = when (val r = route) {
+        is com.example.ondeviceai.VendorRoute.MlKitPrompt -> "mlkit-aicore-${r.preference.name.lowercase()}"
+        null -> "none"
+        else -> r::class.simpleName ?: "unknown"
+    }
+
+    for (fixture in (0 until iterations).flatMap { fixtures }) {
         val start = System.currentTimeMillis()
-        val result = orchestrator.summarizeGame(request())
+        val result = orchestrator.summarizeGame(fixture.request)
         val elapsed = System.currentTimeMillis() - start
 
         val text = when (result) {
@@ -51,59 +69,18 @@ suspend fun runAndroidSummaryBench(context: Context, iterations: Int) {
             is GameSummaryResult.FellBack -> result.text
             is GameSummaryResult.Failed -> result.message
         }
-        val kind = result::class.simpleName
-        val line = """{"run":$i,"kind":"$kind","elapsedMs":$elapsed,"model":"${route?.let { it::class.simpleName } ?: "none"}","text":${quote(text)}}"""
-        resultsFile.appendText(line + "\n")
-    }
-}
-
-private fun quote(s: String): String =
-    "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "") + "\""
-
-/**
- * A 24-ply game with three player blunders, so `extractTurningPoints` yields its full cap of 3 and
- * the prompt carries a realistic PGN alongside them.
- */
-private fun request(): GameSummaryRequest {
-    val history = mutableListOf<MoveRecord>()
-    val sans = listOf(
-        "e4", "e5", "Qh5", "Nc6", "Bc4", "Nf6", "Qxf7+", "Kxf7", "Nf3", "d5", "exd5", "Bg4",
-        "d3", "Bb4+", "c3", "Bd6", "O-O", "Re8", "Bg5", "h6", "Bxf6", "Qxf6", "Nbd2", "Rxe1",
-    )
-    sans.forEachIndexed { index, san ->
-        val isPlayer = index % 2 == 0
-        val cpLoss = when (index) {
-            4 -> 420   // Qh5 area — a real blunder
-            12 -> 260
-            18 -> 140
-            else -> 5
-        }
-        history += MoveRecord(
-            uci = "e2e4",
-            san = san,
-            fenAfter = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-            assessment = if (isPlayer) MoveAssessment(
-                cpBefore = 0,
-                cpPlayed = -cpLoss,
-                cpBest = 0,
-                cpLoss = cpLoss,
-                moveClass = when {
-                    cpLoss > 300 -> MoveClass.BLUNDER
-                    cpLoss > 100 -> MoveClass.MISTAKE
-                    cpLoss > 60 -> MoveClass.INACCURACY
-                    else -> MoveClass.BEST
-                },
-                motifs = emptyList(),
-                bestMoveSan = if (cpLoss > 100) "Nf3" else null,
-            ) else null,
+        resultsFile.appendText(
+            SummaryFixtures.jsonLine(
+                fixture = fixture,
+                modelIdentifier = modelIdentifier,
+                deviceModel = deviceModel,
+                osVersion = osVersion,
+                kind = result::class.simpleName ?: "unknown",
+                elapsedMs = elapsed,
+                text = text,
+                fallbackReason = (result as? GameSummaryResult.FellBack)?.reason?.description,
+            ) + "\n",
         )
     }
-    val pgn = sans.chunked(2).mapIndexed { i, pair -> "${i + 1}. ${pair.joinToString(" ")}" }
-        .joinToString(" ")
-    return GameSummaryRequest(
-        pgn = pgn,
-        moveHistory = history,
-        playerSide = Set.WHITE,
-        engineDifficultyName = "MEDIUM",
-    )
 }
+

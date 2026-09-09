@@ -6,6 +6,7 @@ import kotlin.io.path.readLines
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -96,5 +97,38 @@ class DeviceRunScorerTest {
     fun `unknown columns from a newer device build do not fail the load`() {
         val extended = fixture.readLines().map { it.dropLast(1) + ""","addedByALaterBuild":42}""" }
         assertEquals(2, report(extended).scored)
+    }
+
+    /**
+     * A summary run must be refused by name, not by `MissingFieldException`.
+     *
+     * `AndroidSummaryBench` writes to the same directory with a similar filename, so this is the
+     * mistake a human actually makes. The old failure — a stack trace ending in the deserializer —
+     * reads like a broken scorer and sends you to debug the wrong file.
+     */
+    @Test
+    fun `a game summary run is refused with a message that names the reason`() {
+        val summaryRow = """
+            {"gameId":"game-001","plies":42,"playerBlunders":1,"result":"0-1",
+            "modelIdentifier":"mlkit-aicore-full","deviceModel":"Pixel 10 Pro XL","osVersion":"17",
+            "kind":"Success","elapsedMs":10694,"fallbackReason":"None",
+            "deterministicSummary":"Three moments decided this game. [move-3]: You played c3.",
+            "pgn":"1. e4 e5 2. c3 d5","modelSummary":"Okay, let's take a look at the game."}
+        """.trimIndent().replace("\n", "")
+        val file = createTempFile(suffix = ".jsonl").also { it.writeText(summaryRow) }
+
+        val failure = assertFailsWith<IllegalStateException> { DeviceRunLoader.load(file) }
+        val message = failure.message.orEmpty()
+        assertTrue("Game Summary" in message, "should name the run kind, got: $message")
+        assertTrue(
+            "assessments" in message,
+            "should say *why* it cannot be scored, not just that it cannot: $message",
+        )
+    }
+
+    /** The guard keys off the row shape, so a coach run must survive it untouched. */
+    @Test
+    fun `a coach run is not mistaken for a summary run`() {
+        assertEquals(2, report(fixture.readLines()).scored)
     }
 }

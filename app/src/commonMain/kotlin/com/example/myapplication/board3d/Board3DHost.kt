@@ -93,7 +93,10 @@ fun Board3D(
         var zoomGateOpen by remember { mutableStateOf(false) }
 
         // Push the initial (session-preserved) camera once, then open the zoom gate after the guard.
-        LaunchedEffect(currentRenderer) {
+        // Keyed on the session too: switching sides hands down a new one (flipped to the other end
+        // of the board), and without the re-push the renderer would keep the old view until the
+        // next drag.
+        LaunchedEffect(currentRenderer, cameraSession) {
             zoomGateOpen = false
             currentRenderer.onUserInteraction(Board3DInput.SetCamera(cameraSession.cameraForRenderer()))
             currentOnRendererReady()

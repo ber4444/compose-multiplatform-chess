@@ -698,6 +698,12 @@ private fun writeAttemptLog(attempts: List<Pair<String?, ComposeAttempt>>) {
             when (attempt) {
                 is ComposeAttempt.BudgetRejected ->
                     "[budget-rejected] $header prompt was ${attempt.promptChars} chars; provider never called"
+                // A run that trips this measured the daily spend cap, not the model: the remaining
+                // cases never reached a provider. Raise COACH_LLM_MAX_USD_CENTS_PER_DAY for the run
+                // rather than reading the row as a quality result.
+                is ComposeAttempt.LedgerExhausted ->
+                    "[ledger-exhausted] $header spent ${attempt.spentUsdCents}c of ${attempt.capUsdCents}c " +
+                        "for the day; provider never called"
                 is ComposeAttempt.ProviderError -> "[provider-error] $header ${attempt.error}"
                 ComposeAttempt.ProviderEmpty -> "[provider-empty] $header client returned null"
                 is ComposeAttempt.ValidatorRejected ->
@@ -926,22 +932,50 @@ object ScorecardWriter {
                 "was 60%/80% fallback until the JSON schema came out of the prompt; the model had " +
                 "been returning the schema's own placeholder strings as values",
         ),
+        // Superseded rows are deleted, not left with a caveat. The n=10 `aicore-nano-fast` and n=1
+        // `foundation-models-ios` rows that stood here measured three of our own bugs — a client
+        // config that asks for a model variant the device does not provision, a terminal `Final`
+        // event that appended the answer to itself, and a bench runner that passed no facts — plus
+        // a length rule that rejected rather than trimmed. Their notes said "re-measure before
+        // trusting this row"; the re-measurement happened (#137), so the honest move is to publish
+        // it rather than to keep a corrected-but-wrong number under a warning nobody reads. The
+        // articles quote the rows below; a reader who follows the repo link must not find 0.0%
+        // grounded next to a published 91/100.
         ManualRow(
-            route = "aicore-nano-fast",
-            cases = "10", groundingViolation = "0.0%", retry = "0.0%",
-            fallback = "100.0%", lengthViolation = "100.0%",
-            note = "Pixel 10 Pro XL, Gemini Nano via AICore developer preview, 2026-07-31 — " +
-                "TTFT ~170 ms, complete ~500 ms, ~125 MB peak. Every case is grounded and rejected " +
-                "on length: the model emits correct coaching text, then repeats it verbatim " +
-                "(314 chars against a 300 cap). A repetition loop, not a quality failure — the " +
-                "length gate fires first and masks that",
+            route = "mlkit-aicore-full",
+            cases = "100", groundingViolation = "9.0%", retry = "0.0%",
+            fallback = "0.0%", lengthViolation = "1.0%", fluencyViolation = "79.0%",
+            note = "Pixel 10 Pro XL / Android 16, Gemini Nano (`nano-v3`) via ML Kit, one pass over " +
+                "the 100-case golden set, 2026-08-15 — init 444–734 ms, TTFT median 610 ms, complete " +
+                "median 4.4 s, no download. Grounding rejections: 7 × a causal clause about the " +
+                "engine's preferred move, which the facts never supply; 1 × unsupported claim; " +
+                "1 × the player's own hanging piece credited to the opponent. Scored by " +
+                "`:evals:scoreDeviceRun`, which cross-checks every verdict against the device's own " +
+                "validator. Supersedes the n=10 `aicore-nano-fast` row, which used " +
+                "`preference = FAST` — the one variant this device does not provision",
         ),
         ManualRow(
             route = "foundation-models-ios",
-            cases = "1", groundingViolation = "0.0%", retry = "0.0%",
-            fallback = "0.0%", lengthViolation = "0.0%",
-            note = "iPhone 17 Simulator / iOS 26.5, n=1, 2026-07-29 — real success, 30 tokens. " +
-                "A Simulator on an M4 host, not a physical iPhone; draw no latency conclusions",
+            cases = "100", groundingViolation = "25.0%", retry = "0.0%",
+            fallback = "0.0%", lengthViolation = "0.0%", fluencyViolation = "39.0%",
+            note = "iPhone 17 Pro Simulator / iOS 26.5 on an Apple Silicon host, one pass over the " +
+                "same 100 cases with the facts assessed once on the Pixel and replayed, 2026-08-15 — " +
+                "complete median 650 ms, answer length median 68 chars. Grounding rejections: " +
+                "19 × repeated the prompt's own baseline sentence; 3 × named a piece other than the " +
+                "one moved; 2 × restated without explaining; 1 × the player's own hanging piece " +
+                "credited to the opponent. Supersedes the n=1 row that recorded a single correct " +
+                "sentence about `e4`; across 100 positions that pattern does not hold",
+        ),
+        ManualRow(
+            route = "deterministic-coach",
+            cases = "100", groundingViolation = "28.0%", retry = "0.0%",
+            fallback = "0.0%", lengthViolation = "0.0%", fluencyViolation = "0.0%",
+            note = "The baseline both rows above are scored against, same 100 cases, 2026-08-15 — " +
+                "computed on-device in microseconds with no model and no download. **17 of its 28 " +
+                "rejections are `isEchoedPrompt` firing on the column against itself**: this line " +
+                "*is* the prompt's baseline sentence, so a rule written to catch copying cannot " +
+                "score the thing being copied. Discounting those it is ~11%. The remaining 11 are " +
+                "lines carrying no `CONCEPT_VOCAB` word, a real if small gap in `DeterministicCoach`",
         ),
     )
 

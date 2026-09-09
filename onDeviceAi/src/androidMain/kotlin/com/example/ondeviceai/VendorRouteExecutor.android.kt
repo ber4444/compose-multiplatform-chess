@@ -24,13 +24,20 @@ package com.example.ondeviceai
  * 488–574 ms to first token, 3.0–3.9 s complete. It costs no download; emulators still report
  * `Unavailable` and fall through to deterministic text.
  *
- * **Available is not the same as attached.** `MainActivity` does not call
- * [probeAvailableLocalVendors] and does not construct this executor — the probe's only Android
- * callers live under `app/src/androidMain/.../bench/`. So the coach and summary still run
- * deterministically on every device, and this path is exercised by the benchmark alone. Wiring it
- * into the app is an open decision: the deterministic layer is the shipped product, and the model
- * has to beat it on truth, not only on fluency. The Cactus catalogue lost that comparison; whether
- * nano-v3 wins it has not been measured.
+ * **Available is not the same as attached.** `MainActivity.attachOnDeviceAi()` holds the whole
+ * wiring — probe, executor, both orchestrators — behind one `ATTACH_ON_DEVICE_AI` constant that is
+ * `false`, so the coach and summary run deterministically on every device. The constant is inside
+ * the probe call rather than outside it on purpose: on a device reporting `DOWNLOADABLE`,
+ * [probeAvailableLocalVendors] awaits an AICore feature fetch, and "inactive" has to mean no
+ * network, not merely no visible model.
+ *
+ * Whether nano-v3 beats the deterministic layer has now been measured per surface, and the answers
+ * differ. **Move Coach: no** — 95/100 validator passes against ~89, but ~4.4 s to say what
+ * `DeterministicCoach` says instantly, and a hand read finds invention the validator cannot catch.
+ * **Game Summary: close enough to be a product decision** — 12/12 at ~12 s, citing exactly the
+ * code-chosen turning points, once the bench harness and the prompt were fixed; what still argues
+ * against it is that the surface has no response validator at all. See
+ * `docs/benchmarks/on-device-ai/game-summary-2026-08.md`.
  */
 actual class VendorRouteExecutor : AiRouteExecutor {
     actual override suspend fun execute(route: VendorRoute): OnDeviceTextGenerator? {

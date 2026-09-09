@@ -106,8 +106,30 @@ class GameViewModel(
     /** Current engine difficulty (issue #39 Phase 4). Applied to the engine on attach + on change. */
     private var engineDifficulty: EngineDifficulty = initialEngineDifficulty
 
-    /** The side the player is playing as. Defaults to WHITE. (issue #39 Phase 4). */
-    var playerSide: Set = Set.WHITE
+    private val _playerSide = MutableStateFlow(Set.WHITE)
+
+    /**
+     * The side the player is playing as, as a flow so the board can flip when it changes. Kept
+     * alongside the plain [playerSide] `var` rather than replacing it: `:chess-core` is published,
+     * and the RN consumer assigns that property.
+     */
+    val playerSideFlow: StateFlow<Set> get() = _playerSide
+
+    /**
+     * The side the player is playing as. Defaults to WHITE. (issue #39 Phase 4).
+     *
+     * Assigning this **starts the opponent** when the new side hands them the move — picking Black
+     * before White has opened, say. Nothing else does: engine turns are otherwise driven by
+     * `animationEnd()`, and after `resetGame()` there is no animation to end, so a fresh game as
+     * Black used to sit on White's move forever with every board correctly refusing taps.
+     */
+    var playerSide: Set
+        get() = _playerSide.value
+        set(value) {
+            if (_playerSide.value == value) return
+            _playerSide.value = value
+            maybeResumeEngine()
+        }
 
     /** `true` when a real engine (Stockfish) drives the opponent; `false` = built-in CPU fallback.
      *  Used for PGN player naming (issue #39 Phase 3: Black = "Stockfish" vs "CPU"). */
@@ -117,15 +139,29 @@ class GameViewModel(
         private val logger = Logger.withTag("GameViewModel")
     }
 
+    /**
+     * Set once [attachEngine] has run, whatever it was handed. Until then the opponent must not be
+     * started, because entry points attach Stockfish asynchronously: a resume that fired first would
+     * have `pickMoveStockfish` fall through to the capture-preferring random `pickMoveCPU`, so
+     * choosing Black would open every game with a junk move a fraction of a second before the real
+     * engine arrived. `attachEngine` re-runs the resume itself, so nothing is lost by waiting.
+     *
+     * It is deliberately **not** `chessEngine != null`: the desktop and wasm entry points call
+     * `attachEngine(null)` when Stockfish fails to start, and that seat is settled too — the CPU
+     * fallback is then the opponent and has to be able to open.
+     */
+    private var engineAttachSettled = false
+
     fun attachEngine(engine: ChessEngine?) {
         chessEngine?.close()
         chessEngine = engine
+        engineAttachSettled = true
         // Apply the current difficulty to the new engine (issue #39 Phase 4). The default no-op
         // configure() leaves the CPU fallback unaffected; real engines send the setoption.
         applyDifficulty()
         // Resume-later: if the game was restored from autosave and it's the engine's move, nudge the
-        // turn-driven engine flow (mirrors `animationEnd()`'s engine branch). Skipped when there's
-        // no engine (CPU fallback resumes lazily via `moveCPU`) or the game is already over.
+        // turn-driven engine flow (mirrors `animationEnd()`'s engine branch). Also the point where a
+        // game already waiting on the opponent (a fresh game played as Black) finally gets going.
         maybeResumeEngine()
     }
 
@@ -143,7 +179,7 @@ class GameViewModel(
     val engineSide: Set get() = if (playerSide == Set.WHITE) Set.BLACK else Set.WHITE
 
     private fun maybeResumeEngine() {
-        if (chessEngine == null) return
+        if (!engineAttachSettled) return
         if (_gameState.value.turn != engineSide) return
         if (_gameState.value.winState != WinState.NONE) return
         if (_animState.value.pieceToAnimate != null) return  // don't race an in-flight animation
@@ -192,11 +228,16 @@ class GameViewModel(
                 throw IllegalStateException("Cannot identify selected Piece!")
             }
 
+            // Ally/enemy are relative to the player, exactly as they are everywhere else in this
+            // function. This one call used to be pinned to White, so playing Black tested the move
+            // against *White's* legal moves — no Black move is ever in that list, and every single
+            // one was refused as "Cannot move into Check!". Both boards looked frozen.
+            val playingWhite = playerSide == Set.WHITE
             val legalMoves = getAllLegalMoves(
-                enemyPositions = gameState.value.positionsBlack,
-                enemyPieces = gameState.value.piecesBlack,
-                allyPositions = gameState.value.positionsWhite,
-                allyPieces = gameState.value.piecesWhite,
+                enemyPositions = if (playingWhite) gameState.value.positionsBlack else gameState.value.positionsWhite,
+                enemyPieces = if (playingWhite) gameState.value.piecesBlack else gameState.value.piecesWhite,
+                allyPositions = if (playingWhite) gameState.value.positionsWhite else gameState.value.positionsBlack,
+                allyPieces = if (playingWhite) gameState.value.piecesWhite else gameState.value.piecesBlack,
                 castlingRights = gameState.value.castlingRights,
                 enPassantTarget = gameState.value.enPassantTarget
             )
@@ -392,6 +433,9 @@ class GameViewModel(
         // The fresh empty game replaces the autosaved one; drop the stale snapshot so a relaunch
         // doesn't restore into a board the user already abandoned.
         snapshotSink?.clear()
+        // A new game always starts on White, so when the player is Black the opponent moves first.
+        // No animation ends here, so this is the only thing that can start them.
+        maybeResumeEngine()
     }
 
     /**

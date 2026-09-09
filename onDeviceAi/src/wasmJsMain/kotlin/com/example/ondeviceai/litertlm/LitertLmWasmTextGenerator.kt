@@ -103,7 +103,6 @@ class LitertLmWasmTextGenerator(
             "userPrompt" to request.userPrompt,
             "maxTokens" to request.maxOutputTokens.toString(),
             "temperature" to request.temperature.toString(),
-            "repetitionPenalty" to (request.repetitionPenalty?.toString() ?: "1.0"),
         )
         worker?.postMessage(req.toJsString())
 

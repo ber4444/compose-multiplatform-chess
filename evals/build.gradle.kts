@@ -20,6 +20,14 @@ dependencies {
 
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.13.4")
+
+    // Same Apache HttpComponents constraint as :server, and for the same reason — see the long
+    // comment there. It has to be repeated because constraints are per-configuration and this
+    // module takes `ktor-server-test-host-jvm` as `implementation` (the harness boots the server
+    // in-process from main, not from a test), so :server's test-scoped constraint doesn't reach it.
+    constraints {
+        implementation("org.apache.httpcomponents.client5:httpclient5:5.6.4")
+    }
 }
 
 kotlin {

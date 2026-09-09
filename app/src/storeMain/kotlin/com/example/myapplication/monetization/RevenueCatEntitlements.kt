@@ -27,6 +27,12 @@ import kotlin.coroutines.suspendCoroutine
  */
 class RevenueCatEntitlements private constructor(
     private val entitlementId: String,
+    /**
+     * Whether this instance was configured with a `test_…` Test Store key, which only a debug build
+     * ever resolves (see `revenueCatApiKey`). Kept solely so [restorePurchases] can explain an empty
+     * restore instead of blaming a store account that doesn't exist on that key.
+     */
+    private val isTestStore: Boolean,
 ) : Entitlements {
 
     private val _isProUnlocked = MutableStateFlow(false)
@@ -111,15 +117,51 @@ class RevenueCatEntitlements private constructor(
         return outcome
     }
 
-    override suspend fun restorePurchases(): Boolean {
-        val unlocked = suspendCoroutine {
+    /**
+     * Restores from the **store account**, which is the only place a purchase survives an uninstall:
+     * the SDK re-reads the App Store / Play account's transactions and syncs them onto this install's
+     * App User ID. Nothing is configured with a stable app user id here — [Purchases.configure] takes
+     * no `appUserID` — so every install is a fresh anonymous `$RCAnonymousID:…` and the store account
+     * is the *only* link back to a previous one.
+     *
+     * **A RevenueCat Test Store (`test_…`) purchase therefore cannot be restored after a reinstall,
+     * and that is not a bug here.** The Test Store has no Apple/Google account behind it: the
+     * transaction exists only against the anonymous id that install generated, and uninstalling
+     * erases it. Validate restore against the Play/App Store sandbox instead — see
+     * https://www.revenuecat.com/docs/getting-started/restoring-purchases.
+     *
+     * An error is reported as [RestoreOutcome.Failed] and leaves [isProUnlocked] alone, for the same
+     * reason [refresh] does: a failed lookup is not a signal that the user lost their subscription.
+     * Only a successful store answer moves the flag.
+     */
+    override suspend fun restorePurchases(): RestoreOutcome {
+        val outcome = suspendCoroutine<RestoreOutcome> { continuation ->
             Purchases.sharedInstance.restorePurchases(
-                onSuccess = { customerInfo -> it.resume(customerInfo.hasPro()) },
-                onError = { _ -> it.resume(false) },
+                onSuccess = { customerInfo ->
+                    continuation.resume(
+                        when {
+                            customerInfo.hasPro() -> RestoreOutcome.Restored
+                            // Not NothingToRestore: on the Test Store the empty answer is a property
+                            // of the *store*, not of the account. Saying "this account has no
+                            // purchase" would blame a Play/App Store account that isn't involved.
+                            isTestStore -> RestoreOutcome.Failed(
+                                "Test Store purchases can't be restored — they belong to this " +
+                                    "install, not to a store account. Use the Play/App Store " +
+                                    "sandbox to test restore.",
+                            )
+                            else -> RestoreOutcome.NothingToRestore
+                        },
+                    )
+                },
+                onError = { error -> continuation.resume(RestoreOutcome.Failed(error.message)) },
             )
         }
-        _isProUnlocked.value = unlocked
-        return unlocked
+        when (outcome) {
+            RestoreOutcome.Restored -> _isProUnlocked.value = true
+            RestoreOutcome.NothingToRestore -> _isProUnlocked.value = false
+            RestoreOutcome.Unavailable, is RestoreOutcome.Failed -> Unit
+        }
+        return outcome
     }
 
     private fun CustomerInfo.hasPro(): Boolean = entitlements.active.containsKey(entitlementId)
@@ -127,6 +169,9 @@ class RevenueCatEntitlements private constructor(
     companion object {
         /** The entitlement identifier configured in the RevenueCat dashboard. */
         const val DEFAULT_ENTITLEMENT_ID = "pro"
+
+        /** RevenueCat's prefix for a Test Store key; production keys are `goog_` / `appl_`. */
+        private const val TEST_STORE_KEY_PREFIX = "test_"
 
         private val PLAN_ORDER = listOf(
             PackageType.LIFETIME,
@@ -157,9 +202,16 @@ class RevenueCatEntitlements private constructor(
             if (apiKey.isBlank()) return null
             if (!Purchases.isConfigured) {
                 Purchases.logLevel = if (debugLogging) LogLevel.DEBUG else LogLevel.WARN
+                // No `appUserId`: every install is a fresh anonymous `$RCAnonymousID:…`, and the
+                // store account is what carries a purchase across installs and devices. Setting a
+                // device-derived id here would make restore device-scoped instead — see the note on
+                // restorePurchases before considering it.
                 Purchases.configure(PurchasesConfiguration(apiKey))
             }
-            return RevenueCatEntitlements(entitlementId)
+            return RevenueCatEntitlements(
+                entitlementId = entitlementId,
+                isTestStore = apiKey.startsWith(TEST_STORE_KEY_PREFIX),
+            )
         }
     }
 }

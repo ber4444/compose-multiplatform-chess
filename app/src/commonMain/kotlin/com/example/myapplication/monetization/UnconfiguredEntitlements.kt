@@ -32,6 +32,9 @@ class UnconfiguredEntitlements : Entitlements {
     /** Always [PurchaseOutcome.Unavailable] — no billing client to run a purchase through. */
     override suspend fun purchase(planId: String): PurchaseOutcome = PurchaseOutcome.Unavailable
 
-    /** Always `false` — nothing to restore without a billing client. */
-    override suspend fun restorePurchases(): Boolean = false
+    /**
+     * Always [RestoreOutcome.Unavailable] — not [RestoreOutcome.NothingToRestore]. There is no
+     * billing client to ask, so "you have no purchase" would be a claim this class cannot make.
+     */
+    override suspend fun restorePurchases(): RestoreOutcome = RestoreOutcome.Unavailable
 }

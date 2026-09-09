@@ -22,3 +22,13 @@ app/src/desktopMain/filament/filament
 .worktrees/
 .idea/
 .fleet/
+
+# Platform binaries and 3D/model assets. The image builds ONLY `:server:installDist`, whose module
+# graph is :server -> :coachapi; none of these are inputs to that, and none are read during Gradle
+# configuration (androidApp's `jniLibs {}` block is packaging DSL, not a file-existence check).
+# Together they are ~250 MB of a ~268 MB context, so excluding them is most of the deploy's
+# context-transfer time. If this Dockerfile ever builds an Android/iOS/wasm target, revisit.
+app/src/androidMain/jniLibs
+iosApp/iosApp/Resources/*.nnue
+app/src/wasmJsMain/resources/stockfish
+**/*.glb

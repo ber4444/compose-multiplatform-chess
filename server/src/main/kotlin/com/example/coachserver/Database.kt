@@ -101,6 +101,15 @@ class PostgresPassageRepository(
     /**
      * Longest-prefix match over the corpus move index. `moves` never contains `%` or `_` (it is
      * SAN), so it is safe to use the stored value as the LIKE pattern rather than the parameter.
+     *
+     * The `COLLATE "C"` on the tie-break is load-bearing, and it is not a style choice. Under a
+     * locale collation like `en_US.utf8` the `-` separators are effectively ignored, so
+     * `lichess-b-10-b00` sorts *before* `lichess-b-1-b00`; byte ordering puts them the other way
+     * round. Two consequences: this ordering silently depended on the locale of whichever Postgres
+     * image happened to be running, and it disagreed with [InMemoryPassageRepository] — which
+     * serves production and can only compare Kotlin strings byte-wise. `COLLATE "C"` pins both to
+     * byte order. The tie-break only decides equidistant rows, so which order is "right" is
+     * arbitrary; that the two implementations agree, deterministically, is not.
      */
     private fun queryBook(
         connection: Connection,
@@ -116,7 +125,7 @@ class PostgresPassageRepository(
             ORDER BY length(moves) DESC
             LIMIT 1
         )
-        ORDER BY source_id
+        ORDER BY source_id COLLATE "C"
         LIMIT ?
         """.trimIndent(),
     ).use { statement ->
@@ -139,9 +148,9 @@ class PostgresPassageRepository(
         eco: String?,
     ): List<Passage> {
         val sql = if (eco == null) {
-            "SELECT source_id, title, text FROM passages ORDER BY embedding <=> ?, source_id LIMIT ?"
+            """SELECT source_id, title, text FROM passages ORDER BY embedding <=> ?, source_id COLLATE "C" LIMIT ?"""
         } else {
-            "SELECT source_id, title, text FROM passages WHERE eco = ? ORDER BY embedding <=> ?, source_id LIMIT ?"
+            """SELECT source_id, title, text FROM passages WHERE eco = ? ORDER BY embedding <=> ?, source_id COLLATE "C" LIMIT ?"""
         }
         return connection.prepareStatement(sql).use { statement ->
             var index = 1
@@ -280,8 +289,6 @@ class PostgresPassageRepository(
     }
 
     private companion object {
-        /** Book hits are capped so the vector tiers still contribute related material. */
-        const val BOOK_LIMIT = 2
         const val DEFAULT_SEED_BATCH_SIZE = 200
         val UPSERT_SEEDED_PASSAGE =
             """

@@ -37,6 +37,25 @@ sealed interface PurchaseOutcome {
 }
 
 /**
+ * Outcome of a restore attempt.
+ *
+ * [NothingToRestore] and [Failed] are distinct because collapsing them into one `false` is what made
+ * a restore that *could never work* look like a broken one: a network error, an unconfigured key and
+ * a genuinely empty store account all rendered as "No previous purchase found." The user then has no
+ * way to tell "you never bought this" from "we couldn't ask".
+ */
+sealed interface RestoreOutcome {
+    /** The store account owns the entitlement; Pro is now unlocked. */
+    data object Restored : RestoreOutcome
+    /** The store answered, and this account has no purchase to restore. */
+    data object NothingToRestore : RestoreOutcome
+    /** No store or no billing client — the same "nothing we can do" as [PurchaseOutcome.Unavailable]. */
+    data object Unavailable : RestoreOutcome
+    /** The store was asked and errored. **Not** a signal to revoke an existing unlock. */
+    data class Failed(val message: String?) : RestoreOutcome
+}
+
+/**
  * Injected monetization seam for feature entitlement gating (§0.4).
  *
  * Tier structure:
@@ -62,6 +81,12 @@ interface Entitlements {
     /** Launch the store purchase flow for [planId], which must come from [availablePlans]. */
     suspend fun purchase(planId: String): PurchaseOutcome
 
-    /** Restore a previous purchase. Returns whether Pro is unlocked afterwards. */
-    suspend fun restorePurchases(): Boolean
+    /**
+     * Restore a previous purchase from the underlying **store account**.
+     *
+     * That is the whole mechanism: the SDK re-reads the App Store / Play account's transactions and
+     * syncs them onto the current App User ID. Nothing here can recover a purchase the store has no
+     * record of — see the Test Store note in `RevenueCatEntitlements`.
+     */
+    suspend fun restorePurchases(): RestoreOutcome
 }

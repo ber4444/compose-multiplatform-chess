@@ -163,17 +163,32 @@ object BoardRayPicker {
     private data class PieceHitProxy(val radius: Float, val height: Float)
 
     /**
-     * Cylinders approximate the normalized chess mesh bounds, with a small touch target pad. Keeping
-     * these close to the rendered geometry matters on iOS/SceneKit: an oversized foreground proxy
-     * can steal taps from the visible pawn or square behind it.
+     * Cylinders approximate the rendered chess meshes. **[height] is the piece's real on-board
+     * height** — the `chess.glb` node's POSITION bounds times the fixed 0.5 model scale every
+     * backend instances with (`kModelScale` on iOS, its twin in `AndroidBoard3D`). These were
+     * originally half these values, i.e. the 0.5 scale applied twice, which made the **upper half of
+     * every piece transparent to taps**: a tap on the white king's crown fell through to the board
+     * plane and picked e3, two ranks behind it, so selecting a back-rank piece by its visible top
+     * silently selected an empty square instead. Measured on an iPhone 17 simulator, the king
+     * renders ~77pt tall and the top ~30pt of it did not select it.
+     *
+     * [radius] is deliberately *not* the mesh's max radius: that is the base flare (0.31–0.46),
+     * while the body above it is much narrower, and a cylinder that wide would shadow the squares
+     * behind a piece far beyond what it actually occludes. These are body-width values and are
+     * unchanged.
+     *
+     * A consequence worth knowing before "fixing" it: from the default white camera the e1 king
+     * really does occlude the e2 pawn completely (verified against the render, not just the math),
+     * so that pawn cannot be tapped until the camera is orbited. Shortening the proxies to make it
+     * reachable is what produced the see-through tops.
      */
     private fun hitProxy(kind: PieceKind): PieceHitProxy = when (kind) {
-        PieceKind.KING -> PieceHitProxy(radius = 0.26f, height = 0.95f)
-        PieceKind.QUEEN -> PieceHitProxy(radius = 0.24f, height = 0.83f)
-        PieceKind.BISHOP -> PieceHitProxy(radius = 0.21f, height = 0.71f)
-        PieceKind.KNIGHT -> PieceHitProxy(radius = 0.22f, height = 0.64f)
-        PieceKind.ROOK -> PieceHitProxy(radius = 0.22f, height = 0.60f)
-        PieceKind.PAWN -> PieceHitProxy(radius = 0.20f, height = 0.53f)
+        PieceKind.KING -> PieceHitProxy(radius = 0.26f, height = 1.95f)
+        PieceKind.QUEEN -> PieceHitProxy(radius = 0.24f, height = 1.69f)
+        PieceKind.BISHOP -> PieceHitProxy(radius = 0.21f, height = 1.45f)
+        PieceKind.KNIGHT -> PieceHitProxy(radius = 0.22f, height = 1.29f)
+        PieceKind.ROOK -> PieceHitProxy(radius = 0.22f, height = 1.21f)
+        PieceKind.PAWN -> PieceHitProxy(radius = 0.20f, height = 1.06f)
     }
 
     /**
@@ -253,9 +268,15 @@ object BoardRayPicker {
     }
 }
 
-/** Pure visual camera state machine (yaw/pitch/distance around board center). */
-class OrbitCameraController(private var aspect: Float) {
-    private var yawDegrees = 0f
+/**
+ * Pure visual camera state machine (yaw/pitch/distance around board center).
+ *
+ * [initialYawDegrees] is how the board is flipped for the side the player is on: 0° looks from
+ * White's end, [BLACK_YAW_DEG] from Black's. It only seeds the yaw — [onDrag] then owns it, so the
+ * player can orbit anywhere from either start.
+ */
+class OrbitCameraController(private var aspect: Float, initialYawDegrees: Float = 0f) {
+    private var yawDegrees = initialYawDegrees
     // Defaults match DEFAULT_WHITE_VIEW so a fresh controller == the default white view.
     private var pitchDegrees = DEFAULT_PITCH_DEG
     private var distance = DEFAULT_DISTANCE
@@ -305,6 +326,17 @@ class OrbitCameraController(private var aspect: Float) {
         /** Vertical FOV the renderers project with (equals horizontal FOV in the square viewport). */
         const val FOV_Y_DEG = 50f
 
+        /**
+         * Yaw that puts the camera behind Black's back rank — the 3D board's half of "flip the board
+         * for the side you're playing". Picking follows for free: `rayFromScreen` inverts whatever
+         * camera it is handed, so no picking code is side-aware.
+         *
+         * The rank/file letters engraved on `chess.glb`'s frame do **not** flip with it; they read
+         * upside down from this end. Fixing that needs a second set of glyphs in the model, not a
+         * camera change.
+         */
+        const val BLACK_YAW_DEG = 180f
+
         val DEFAULT_WHITE_VIEW: CameraParams
             get() = OrbitCameraController(1f).apply {
                 yawDegrees = 0f
@@ -321,8 +353,8 @@ class OrbitCameraController(private var aspect: Float) {
  * user state. Keeping one controller above those surfaces means every renderer creation consumes
  * the same canonical snapshot instead of deriving a new projection from backend state.
  */
-class Board3DSessionState(initialAspect: Float = 1f) {
-    private val controller = OrbitCameraController(initialAspect)
+class Board3DSessionState(initialAspect: Float = 1f, initialYawDegrees: Float = 0f) {
+    private val controller = OrbitCameraController(initialAspect, initialYawDegrees)
 
     val camera: CameraParams get() = controller.camera
 

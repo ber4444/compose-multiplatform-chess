@@ -362,6 +362,7 @@ which must stay above both the heartbeat interval and a thinking model's time-to
 |---|---|---|
 | `COACH_LLM_CHAT_MAX_OUTPUT_TOKENS` | no (default 2048) | Output-token budget for the chat composer, checked against `COACH_LLM_MAX_USD_CENTS` before calling the provider. Larger than the explainer's budget so a *thinking* provider model has room to reason before it emits visible content; a truncated, uncited fragment fails validation |
 | `COACH_LLM_MAX_USD_CENTS` | no (default 1.5) | Per-call cost ceiling in US cents — shared with the opening explainer; the chat route checks it independently against the token budget above |
+| `COACH_LLM_MAX_USD_CENTS_PER_DAY` | no (default 250) | Aggregate daily ceiling — genuinely shared: one `SpendLedger` instance covers both routes, because one provider bill does |
 
 Raising `COACH_LLM_CHAT_MAX_OUTPUT_TOKENS` without also raising `COACH_LLM_MAX_USD_CENTS` will
 silently push every turn over budget onto the template composer.
@@ -405,21 +406,27 @@ from the routing tree, since a contract generated from the implementation cannot
   bounded batches in one transaction, replaces stale rows only after every batch succeeds, and
   records a deterministic corpus version, row count, and final sorted source id in
   `corpus_seed_state`.
-- **Retrieval is book-first.** An opening is a property of its move prefix, so
-  `PostgresPassageRepository` resolves the line by exact longest-prefix match on the stored move
-  sequence, then fills the remaining slots with ECO-scoped and finally unscoped vector neighbours.
+- **Retrieval runs in process, over a corpus baked into the image.** `InMemoryPassageRepository`
+  reads the ~7.5 MB index `BuildCorpusIndexMain` writes at Docker build time; there is no database
+  in the request path. `PostgresPassageRepository` remains the reference implementation and the seed
+  path, and `OpeningRetrievalGroundingTest` runs both over the same probes and requires identical
+  results — a divergence would serve a fluent, cited answer about the wrong opening.
+- **Retrieval is book-first.** An opening is a property of its move prefix, so both repositories
+  resolve the line by exact longest-prefix match on the stored move
+  sequence, then fill the remaining slots with ECO-scoped and finally unscoped vector neighbours.
   Vector similarity alone identifies openings badly (measured 8/8 wrong on real openings: 1.e4 c5 →
   English Opening, 1.e4 e6 → Catalan) and a wrong answer is still fluent and cited, so nothing
   downstream can catch it. `OpeningRetrievalGroundingTest` pins eight openings with all-zero
-  embeddings, so it can only pass through the book tier.
+  embeddings, so it can only pass through the book tier; `InMemoryRetrievalGroundingTest` pins the
+  same eight against the shipping repository and, unlike that one, needs no Docker to run.
   **The `eco`/`moves` columns are `NULL` until you reseed** — applying the schema alone silently
-  leaves retrieval vector-only.
+  leaves retrieval vector-only. (Seed-path only; the baked index always carries both.)
 
 **Runtime configuration** is read only from environment variables (no secrets are committed):
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `DATABASE_URL` | yes | Postgres connection string (Fly Postgres, Neon, etc.) with pgvector enabled |
+| `COACH_CORPUS_INDEX` | no (default `corpus-index.bin`) | The baked retrieval corpus, embeddings included, generated at image build time. Boot fails loudly if it is missing |
 | `COACH_EMBEDDING_MODEL` | yes | Path to the MiniLM ONNX model (baked into the Docker image at `/opt/models/model.onnx`) |
 | `COACH_EMBEDDING_VOCAB` | yes | Path to the MiniLM vocab.txt (baked into the Docker image at `/opt/models/vocab.txt`) |
 | `PORT` | no (default 8080) | HTTP listen port |
@@ -429,6 +436,7 @@ from the routing tree, since a contract generated from the implementation cannot
 | `COACH_LLM_INPUT_USD_PER_MILLION` | no | Input token price — required to enforce the configured per-call ceiling |
 | `COACH_LLM_OUTPUT_USD_PER_MILLION` | no | Output token price — required to enforce the configured per-call ceiling |
 | `COACH_LLM_MAX_USD_CENTS` | no (default 1.5) | Per-call cost ceiling in US cents. Checked against the prices above *before* the request; over budget falls back to the template composer. Raise it if you raise the model's output-token budget |
+| `COACH_LLM_MAX_USD_CENTS_PER_DAY` | no (default 250) | **Aggregate** cost ceiling in US cents per rolling 24 h, shared by both cloud routes. Past it every request serves the deterministic composer with `finishReason = budget_exhausted`. `0` is the kill switch (spend nothing); there is no "unlimited" spelling — set an absurd number for that |
 | `COACH_ALLOWED_ORIGINS` | no | Comma-separated hostnames for CORS (e.g. `chess.example.com`; schemes added by server) |
 | `COACH_CORPUS_DIR` | no (default `corpus`) | Seed-time only (`SeedMain`): directory holding the corpus TSVs to chunk, embed, and upsert |
 
@@ -453,66 +461,49 @@ normal product state in the panel.
 
 #### Deploying to Fly.io
 
-The service is packaged as a multi-stage Docker image (`server/Dockerfile`): a build stage runs
-`./gradlew :server:installDist`, and the `eclipse-temurin:21-jre-jammy` runtime stage bakes in the
-pinned MiniLM ONNX model + vocab. `server/fly.toml` configures the app
-(`compose-chess-opening-coach`, region `sjc`, `min_machines_running = 1` so an interactive chat turn
-never waits on a machine boot, health check `GET /health`). Its `dockerfile` path is resolved
-relative to `server/`, the directory holding `fly.toml` — not the build context.
+The service is packaged as a multi-stage Docker image (`server/Dockerfile`): a `models` stage pulls
+the pinned MiniLM ONNX model + vocab, a build stage runs `./gradlew :server:installDist` and then
+embeds the corpus into `corpus-index.bin`, and the `eclipse-temurin:21-jre-jammy` runtime stage
+carries both. `server/fly.toml` configures the app (`compose-chess-opening-coach`, region `sjc`,
+`shared-cpu-1x`/512 MB pinned in `[[vm]]`, health check `GET /health`). Its `dockerfile` path is
+resolved relative to `server/`, the directory holding `fly.toml` — not the build context.
+
+**The service is stateless and scales to zero.** It holds its whole retrieval corpus in memory, so
+`min_machines_running = 0` with `auto_stop_machines = "suspend"` costs nothing between requests; a
+cold wake is a handled state, since both clients fall back to deterministic offline text on a
+timeout. Set `min_machines_running = 1` when real traffic makes the wake latency matter — that is a
+latency decision, not a cost one. See [Running costs](#running-costs).
 
 No credential is committed — the base URL below is a public hostname, but every secret
-(`DATABASE_URL`, `COACH_LLM_API_KEY`) stays a Fly secret. Deployment is intentionally a human step:
+(`COACH_LLM_API_KEY`) stays a Fly secret. Deployment is intentionally a human step:
 
 ```bash
 # 1. Create the Fly app (does not deploy yet)
 fly launch --no-deploy --config server/fly.toml
 
-# 2. Provision Postgres with pgvector and attach it
-# Note: As of late 2024, Fly defaults to PG 18 which lacks pgvector. We explicitly use PG 16.
-fly pg create --name compose-chess-pg --region sjc --initial-cluster-size 1 --image-ref flyio/postgres-flex:16.3
-fly pg attach compose-chess-pg --app compose-chess-opening-coach
-# This sets DATABASE_URL as a Fly secret automatically. Verify:
-fly secrets list --app compose-chess-opening-coach
-
-# 3. Enable the pgvector extension (needed before the schema applies on startup)
-fly ssh console --app compose-chess-opening-coach --command \
-  'psql "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS vector;"'
-# Alternatively, the app's applySchema() runs "CREATE EXTENSION IF NOT EXISTS vector" on boot,
-# so the first deploy will create it if the connecting role has permission.
-
-# 4. Deploy the service (the schema is applied idempotently on startup)
+# 2. Deploy the service. There is no database step: the corpus is embedded during the image
+#    build, so a deploy ships the index and the code together and they cannot fall out of sync.
 # Note: The `.` is required to set the build context to the repository root so it can find gradlew.
 fly deploy . --config server/fly.toml
 
-# 5. Seed the opening corpus into the live database. Seeding is the :server:seed Gradle task, run
-#    locally against the prod DATABASE_URL (pull it from `fly secrets`); point the MiniLM
-#    model/vocab paths at your local copies:
-DATABASE_URL=… COACH_EMBEDDING_MODEL=model.onnx COACH_EMBEDDING_VOCAB=vocab.txt ./gradlew :server:seed
-#    Or invoke SeedMain inside the Fly container, on the runtime classpath the image ships:
-fly ssh console --app compose-chess-opening-coach --command \
-  'DATABASE_URL="$DATABASE_URL" COACH_EMBEDDING_MODEL=/opt/models/model.onnx COACH_EMBEDDING_VOCAB=/opt/models/vocab.txt java -cp "/opt/coach-server/lib/*" com.example.coachserver.SeedMain'
-
-
-# 6. Verify the service is live
+# 3. Verify the service is live. `corpus.ready` and `rowCount` come from the baked index's own
+#    manifest, so this is also the check that the index shipped intact.
 curl https://compose-chess-opening-coach.fly.dev/health
-# → {"status":"ok","releaseVersion":"…","corpus":{"ready":true,…}}
+# → {"status":"ok","releaseVersion":"…","corpus":{"ready":true,"rowCount":3807,…}}
 
-# 6a. Verify the database is seeded from this image's corpus rather than inferring it from API prose.
-DATABASE_URL=… ./gradlew :server:verifyCorpus
-
-# 7. Collect diagnostics for R-1 hand-review (before testing with the app):
+# 4. Collect diagnostics for R-1 hand-review (before testing with the app):
 tools/collect_cloud_samples.sh https://compose-chess-opening-coach.fly.dev
 # → inspect the written samples directory and record the verdict
 
-# 8. Point the app at it (local dev via local.properties, or CI/deploy via env var):
+# 5. Point the app at it (local dev via local.properties, or CI/deploy via env var):
 echo "coach.baseUrl=https://compose-chess-opening-coach.fly.dev" >> local.properties
 # or: export CHESS_COACH_BASE_URL=https://compose-chess-opening-coach.fly.dev
 
-# 9. Verify retrieval end to end (eight real openings; sends eco = null like the real clients):
+# 6. Verify retrieval end to end (eight real openings; sends eco = null like the real clients):
 tools/verify_opening_retrieval.sh
 # → each row should show the expected ECO and `wrong ECO retrieved: 0/8`
 
-# 10. (Optional) Enable the paid LLM composer for richer prose. Set the cost cap explicitly,
+# 7. (Optional) Enable the paid LLM composer for richer prose. Set the cost cap explicitly,
 #    sized as described below:
 fly secrets set --app compose-chess-opening-coach \
   COACH_LLM_API_KEY=… \
@@ -521,6 +512,10 @@ fly secrets set --app compose-chess-opening-coach \
   COACH_LLM_INPUT_USD_PER_MILLION=0.40 \
   COACH_LLM_OUTPUT_USD_PER_MILLION=1.60 \
   COACH_LLM_MAX_USD_CENTS=2.5   # see the sizing note below; 1.5 is the built-in default
+  COACH_LLM_MAX_USD_CENTS_PER_DAY=250   # aggregate rail across BOTH routes; 250 is the built-in
+                                        # default. Set it explicitly: this endpoint is open, and
+                                        # this is the only limit an attacker cannot widen by
+                                        # changing IP. `0` turns the provider off entirely.
 ```
 
 > **`COACH_LLM_MAX_USD_CENTS` is a per-request ceiling on *expected* cost.**
@@ -557,8 +552,61 @@ Chat) share this one base URL.
 
 > **Security Note:** This endpoint is **unauthenticated and open** — client attestation such as
 > Firebase App Check is an Android/Firebase primitive and does not cover the four client targets
-> here (including desktop and web). The Fly app holds only `DATABASE_URL` and `COACH_LLM_API_KEY` as
-> secrets, but abuse of this open endpoint can incur LLM provider costs if not monitored.
+> here. Android has Play Integrity, iOS has App Attest and the web has reCAPTCHA/Turnstile, but the
+> **desktop JVM build has no attestation primitive at all** and carries the base URL in its own jar,
+> so attestation can bound three targets out of four and none of `curl`.
+>
+> Three rails bound the spend instead, and they bound different things — the third exists because the
+> first two, alone, do not bound the bill:
+>
+> | Rail | Bounds | Configured by |
+> |---|---|---|
+> | `ProviderCostBudget` | one request | `COACH_LLM_MAX_USD_CENTS` (default 1.5c) |
+> | `FixedWindowRateLimiter` | one caller | 30 req/min per client IP |
+> | `SpendLedger` | **the sum** | `COACH_LLM_MAX_USD_CENTS_PER_DAY` (default 250c) |
+>
+> Multiply the first two and the reason for the third is arithmetic: 30 requests/minute at 1.5c is
+> about **$27/hour from one IP**, and nothing capped the total across IPs. The ledger reserves the
+> expected cost before each provider call and settles it against reported usage afterwards, so both
+> cloud routes together cannot exceed the daily cap; past it they serve their deterministic
+> composers and say so (`finishReason = budget_exhausted`, and `opening-provider-skipped ledger` /
+> `chat-provider-skipped ledger` in the logs — first refusal and every hundredth, so the flood that
+> trips the cap cannot also flood the log). It is in-process and resets on restart, which suits a
+> machine that scales to zero; a durable ledger would need the database this service deliberately no
+> longer has. It is **not** an authentication substitute — it converts an unbounded bill into a
+> bounded one, and a determined abuser still gets the day's budget.
+
+#### Running costs
+
+The Aug 2026 Fly invoice for this service, at zero users and occasional testing, was **~$10.12/month**:
+two always-on `shared-cpu-1x` machines ($4.79), 768 MB of additional RAM (~$3.75), a 10 GB volume
+($1.55) and snapshots ($0.03). None of it was driven by traffic. Three changes removed most of it:
+
+| Change | What it was | What it is | Saved |
+|---|---|---|---|
+| Corpus in the image, not a database | app + Postgres machine, 10 GB volume, snapshots | one stateless app machine | ~$3.97/mo |
+| Scale to zero | `min_machines_running = 1` | `0`, with `auto_stop_machines = "suspend"` | app machine bills only while awake |
+| Right-sized RAM | 1 GB, no JVM flags | 512 MB, `MaxRAMPercentage=45` | ~$1.9/mo |
+
+At zero users this is now approximately **$0/month**; the app bills only for the seconds it is awake.
+
+**The database went away because it was never doing database work.** Every `INSERT` in
+`Database.kt` is on the seed path — at request time the corpus is strictly read-only, and it is
+derived deterministically from the TSVs in `server/corpus`, which are in git. That is 3,807 rows and
+~7.5 MB with embeddings, so an always-on Postgres machine and a 10 GB volume were being rented to
+serve something the image can simply contain. Retrieval is brute-force cosine over 3,807 × 384
+floats: the worst case is an unscoped full scan at a warm median of 3.6 ms (p95 5.1 ms), and a book-tier
+hit is faster still. A pgvector index buys nothing at this scale, and costs approximation.
+
+**512 MB is measured, not guessed.** With the flags in `fly.toml`, peak RSS over 120 requests is
+**304 MB**, of which only ~23 MB is heap — the rest is ONNX Runtime holding MiniLM in native memory.
+That leaves ~40% headroom and rules out 256 MB. Consolidating the embedder helped: `main` builds one
+`RetrievalRuntime` now, where `defaultDependencies` and `defaultChatDependencies` each used to
+construct their own `OnnxMiniLmEmbedder` — two `OrtSession`s holding two copies of the same ~90 MB
+model.
+
+If wake latency starts mattering, put `min_machines_running = 1` back. That is the one item here
+that trades a product property for money; the other two are free.
 
 ### AI coach eval harness
 
@@ -697,7 +745,8 @@ To measure performance metrics of the on-device AI integration (init times, toke
 - `./gradlew :coachApi:publishToMavenLocal :onDeviceAi:publishToMavenLocal` publishes both AI artifacts to the local Maven cache (for local cross-repo iteration with the RN port)
 - `./gradlew :server:test` runs the cloud-AI service tests — opening explainer + position chat (Testcontainers Postgres; skips without Docker)
 - `./gradlew :litert-eval:run` runs the desktop LiteRT-LM coach runtime headlessly (prompt/model iteration without launching the app)
-- `./gradlew :server:seed` seeds the opening corpus into a Postgres database (needs `DATABASE_URL` + embedding model paths)
+- `./gradlew :server:buildCorpusIndex` embeds the corpus into the baked index the server boots from (needs the embedding model paths; the Docker build runs it for you)
+- `./gradlew :server:seed` seeds the same corpus into Postgres for the reference implementation and its tests (needs `DATABASE_URL` + embedding model paths)
 - `./gradlew :evals:run` runs the rule-based eval harness and regenerates `evals/scorecard.md` (fails on grounding regression; includes the `local-template-chat` route: 200 scored turns, 100 cases × 2 turns, 0% grounding-drift violations)
 - `./gradlew :chess-core:desktopTest --tests "*Perft*"` runs the [perft gate](docs/perft.md) (canonical counts + Stockfish cross-check)
 - `./gradlew :chess-core:desktopTest --tests "*PerftDeepTest*" -Dperft.deep=true` runs the deep perft tier (nightly-only depths; slow)
@@ -729,3 +778,25 @@ git push origin on-device-ai-v0.1.0
 ```
 
 [Article with screenshots](https://medium.com/p/f6a983db0e45)
+
+## Plan inventory
+
+*Active and proposed plans under `docs/plans/`.*
+
+| Doc | Phases | Role |
+|---|---|---|
+| [`docs/plans/hybrid-inference-vendor-adoption-plan.md`](docs/plans/hybrid-inference-vendor-adoption-plan.md) | VA-1 … VA-8 | Vendor/runtime breadth: more platforms, more SDKs, telemetry, UI. |
+| [`docs/plans/on-device-coach-rag-unification.md`](docs/plans/on-device-coach-rag-unification.md) | RAG-1 … RAG-6 | Coaching *quality*: `MoveAssessment`, evaluative summary, chat re-scope, habits. |
+| [`docs/plans/on-device-ai-next-steps.md`](docs/plans/on-device-ai-next-steps.md) | — | **New in #138.** The three-step follow-on, written to be picked up cold: the Game Summary validator (done), turning AICore on for that surface (gated on a repeat run — zero invented tags is a hard gate, not a percentage), and the **Rules Q&A benchmark**, which is the one surface with a model live in production on both phones and the only one never measured. |
+
+## TODO
+
+| # | Work | Owner doc | Gate / blocker |
+|---|---|---|---|
+| **Before the store release** | | | |
+| 5 | **Hand-verification backlog** — Stop mid-stream | §0.2a item C | Backs a claim already published. |
+| **After Sep 30** | | | |
+| 7 | **Task 2 — AICore on for Game Summary** | `on-device-ai-next-steps.md` | Repeat the 50-game run with the validator in place. **Zero invented `[move-N]` is a hard gate, not a percentage.** The iOS voice problem is a prompt fix, not a validator fix |
+| 8 | **Task 3 — benchmark Rules Q&A** | same, §3a–3e | The only surface with a model live in production on both phones and never measured. Decides whether the model turn earns its place at all. Includes 3e, the missing Android availability probe |
+| 9 | **Bench schema → `DeviceRunScorer` summary mode** | same, Leftovers | Blocked on the summary row carrying the assessed move history. #139 fixed the failure mode only |
+

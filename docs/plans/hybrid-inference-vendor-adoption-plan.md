@@ -16,17 +16,17 @@ This plan outlines the staged adoption of hybrid (on-device and cloud) inference
 - Implement `FirebaseHybridGenerator` using `Firebase.vertexAI` for cloud inference.
 - Route dynamically based on `effectiveOfflineOnly` flags and privacy class.
 
-### VA-3: iOS Foundation Models (Status: proposed)
+### VA-3: iOS Foundation Models (Status: completed)
 - Update `Orchestrator` and `FoundationModelsBridge` for native iOS Foundation Models.
 - Hook into Apple's on-device APIs for offline inference.
 
-### VA-4: Desktop Backend (Status: proposed)
+### VA-4: Desktop Backend (Status: completed)
 - Provide a standalone desktop implementation (e.g., local ONNX, server proxy, or mock fallback).
 
-### VA-5: Web / Wasm Backend (Status: proposed)
+### VA-5: Web / Wasm Backend (Status: abandoned)
 - Implement browser-compatible WebGL/WebGPU or standard REST inference routes.
 
-### VA-6: Telemetry & Quota Handling (Status: proposed)
+### VA-6: Telemetry & Quota Handling (Status: completed)
 - Gracefully handle `AiAvailability.Busy` and quota limits across vendors.
 
 ### VA-7: UI & UX Integration (Status: proposed)

@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
+import com.google.mlkit.genai.prompt.Candidate
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.ModelPreference
 import com.google.mlkit.genai.prompt.ModelReleaseStage
@@ -110,9 +111,18 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
         val start = System.currentTimeMillis()
         var firstTokenMs: Long? = null
         model.generateContentStream(genRequest).collect { response ->
-            response.candidates.firstOrNull()?.text?.let { chunk ->
+            val candidate = response.candidates.firstOrNull()
+            candidate?.text?.let { chunk ->
                 if (firstTokenMs == null) firstTokenMs = System.currentTimeMillis() - start
                 emit(AiTokenOrFinal.Token(chunk))
+            }
+            // ML Kit says *why* it stopped, and the official sample surfaces it
+            // (`OpenPromptActivity.resultToContentItems` appends "(FinishReason: MAX_TOKENS)").
+            // We were dropping it, which left "cut off by the token cap" indistinguishable from
+            // "cut off by withAntiRepetitionGuard" and from "the model finished" — and Game Summary
+            // has no response validator, so a capped answer is shown as if it were complete.
+            if (candidate?.finishReason == Candidate.FinishReason.MAX_TOKENS) {
+                android.util.Log.w("MlKitPrompt", "output hit maxOutputTokens=${request.maxOutputTokens}")
             }
         }
         // `text = ""`, matching every other generator (iOS FoundationModelsBridge, desktop and wasm
@@ -148,6 +158,12 @@ class MlKitPromptGenerator(private val routePreference: com.example.ondeviceai.M
     }.withAntiRepetitionGuard(
         // The other streaming backends chain this; ML Kit was the one that did not, so it had
         // neither of the two nets that would have caught the duplication.
+        //
+        // Post-hoc is the only option, and that is measured rather than assumed:
+        // GenerateContentRequest.Builder (genai-prompt:1.0.0-beta4) exposes temperature/seed/topK/
+        // candidateCount/maxOutputTokens/promptPrefix/cachedContextName/enableThinking — no
+        // repetition or frequency penalty, no n-gram block, and no stop-sequence setter. Neither do
+        // the other three runtimes' samplers. See b15-generation-side-repetition-2026-08.md.
         ngramSize = request.noRepeatNgramSize,
         stopSequences = request.stopSequences,
     )

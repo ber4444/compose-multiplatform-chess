@@ -1,5 +1,9 @@
 package com.example.ondeviceai
 
+import com.example.myapplication.MoveAssessment
+import com.example.myapplication.MoveClass
+import com.example.myapplication.MoveRecord
+import com.example.myapplication.Set
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -11,6 +15,24 @@ class DefaultGameSummaryOrchestratorTest {
 
     private val request = GameSummaryRequest(
         pgn = "1. e4 e5 2. Nf3 Nc6",
+        moveHistory = listOf(
+            MoveRecord(
+                uci = "e2e4", san = "e4", fenAfter = "",
+                assessment = MoveAssessment(
+                    cpBefore = 0, cpPlayed = 0, cpBest = 0, cpLoss = 0,
+                    moveClass = MoveClass.BEST, motifs = emptyList(),
+                ),
+            ),
+            MoveRecord(
+                uci = "e7e5", san = "e5", fenAfter = "",
+                assessment = MoveAssessment(
+                    cpBefore = 0, cpPlayed = -200, cpBest = 0, cpLoss = 200,
+                    moveClass = MoveClass.MISTAKE, motifs = emptyList(), bestMoveSan = "e6",
+                ),
+            ),
+        ),
+        playerSide = Set.BLACK,
+        engineDifficultyName = "HARD",
         policy = AiRoutePolicies.moveCoachOffline,
     )
 
@@ -28,7 +50,7 @@ class DefaultGameSummaryOrchestratorTest {
 
     @Test
     fun `success path returns explanation`() = runTest {
-        val gen = FakeTextGenerator(response = "The greatest mistake was e5.")
+        val gen = FakeTextGenerator(response = "At [move-2], you played e5 instead of e6, which was a mistake.")
         val result = orchestrator(gen).summarizeGame(request)
         assertIs<GameSummaryResult.Success>(result)
         assertEquals(AiRoute.OnDevice, result.explanation.route)
@@ -89,7 +111,7 @@ class DefaultGameSummaryOrchestratorTest {
     @Test
     fun `streaming surfaces complete event with success result`() = runTest {
         val gen = FakeTextGenerator().apply {
-            chunks = listOf("The mistake ", "was ", "e5.")
+            chunks = listOf("At [move-2], ", "you played e5 instead of e6, ", "which was a mistake.")
             tokenDelayMs = 1
         }
         val events = orchestrator(gen).summarizeGameStreaming(request).toListActual()
@@ -118,7 +140,7 @@ class DefaultGameSummaryOrchestratorTest {
 
     @Test
     fun `always closes generator after success`() = runTest {
-        val gen = FakeTextGenerator(response = "The mistake was e5.")
+        val gen = FakeTextGenerator(response = "At [move-2], you played e5 instead of e6, which was a mistake.")
         orchestrator(gen).summarizeGame(request)
         assertEquals(1, gen.releaseCount)
     }

@@ -60,10 +60,17 @@ struct BenchmarkView: View {
                 .foregroundColor(.white)
         ).task {
             do {
-                // The same engine the app plays with, so the bench can assess each golden position
-                // and hand the model real facts — without it every row is `factsPopulated:false`
-                // and measures the harness rather than Foundation Models.
-                try await IosBenchRunnerKt.runIosBench(engine: StockfishChessEngine(), iterations: 1)
+                // BENCHMARK_SUITE=summary measures Game Summary instead of the Move Coach. They are
+                // different surfaces with different budgets — a wait that disqualifies the coach
+                // may be fine behind a button at game end — so they are never averaged together.
+                if ProcessInfo.processInfo.environment["BENCHMARK_SUITE"] == "summary" {
+                    try await IosSummaryBenchKt.runIosSummaryBench(iterations: 1)
+                } else {
+                    // The same engine the app plays with, so the bench can assess each golden
+                    // position and hand the model real facts — without it every row is
+                    // `factsPopulated:false` and measures the harness rather than Foundation Models.
+                    try await IosBenchRunnerKt.runIosBench(engine: StockfishChessEngine(), iterations: 1)
+                }
                 status = "Benchmark Complete"
             } catch {
                 print("Benchmark failed: \(error)")

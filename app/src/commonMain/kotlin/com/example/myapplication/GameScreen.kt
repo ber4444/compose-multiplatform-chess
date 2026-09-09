@@ -6,6 +6,7 @@ import com.example.myapplication.board3d.BoardSquare
 import com.example.myapplication.board3d.HighlightTone
 import com.example.myapplication.board3d.HighlightedSquare
 import com.example.myapplication.board3d.Board3DSessionState
+import com.example.myapplication.board3d.OrbitCameraController
 import com.example.myapplication.persistence.GameActions
 import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.persistence.LocalAppSettings
@@ -75,6 +76,12 @@ import androidx.compose.ui.unit.min
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
 import com.example.myapplication.monetization.ProGate
+import com.example.myapplication.ui.theme.BoardDarkSquare
+import com.example.myapplication.ui.theme.BoardLightSquare
+import com.example.myapplication.ui.theme.CaptureMarker
+import com.example.myapplication.ui.theme.MoveMarker
+import com.example.myapplication.ui.theme.SelectionBlockedRing
+import com.example.myapplication.ui.theme.SelectionRing
 import com.example.myapplication.movecoach.FallbackPresentation
 import com.example.myapplication.movecoach.MoveCoachManager
 import com.example.myapplication.movecoach.MoveCoachPanel
@@ -249,7 +256,15 @@ fun GameScreen(
     }
     val board3DEnabled by board3DEnabledFlow.collectAsState()
     val show3D = viewState.show3D && board3D != null
-    val board3DCameraSession = remember { Board3DSessionState() }
+    // Both boards are drawn from the player's end. Collected rather than read off `viewModel`
+    // directly: `playerSide` is a plain `var` there, so a Settings change would not recompose and
+    // the board would keep the previous orientation until something else invalidated it.
+    val playerSide by viewModel.playerSideFlow.collectAsState()
+    val board3DCameraSession = remember(playerSide) {
+        Board3DSessionState(
+            initialYawDegrees = if (playerSide == Set.BLACK) OrbitCameraController.BLACK_YAW_DEG else 0f,
+        )
+    }
     var isEntering3D by remember { mutableStateOf(false) }
     var isTearingDown3D by remember { mutableStateOf(false) }
     var showResetConfirmation by remember { mutableStateOf(false) }
@@ -313,7 +328,7 @@ fun GameScreen(
                 Text(
                     modifier = Modifier.testTag("winnerText"),
                     text = stringResource(gameEndMessageFormat, gameState.winState),
-                    color = Color.Red,
+                    color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.titleLarge
                 )
 
@@ -469,7 +484,11 @@ fun GameScreen(
                             }
                         }
                         is GameSummaryUiState.Error -> {
-                            Text("Error: ${(summaryState as GameSummaryUiState.Error).message}", color = Color.Red, style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                "Error: ${(summaryState as GameSummaryUiState.Error).message}",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                     }
                     }
@@ -499,7 +518,11 @@ fun GameScreen(
             )
         }
 
-        if (gameState.drawOffer == Set.BLACK && gameState.winState == WinState.NONE) {
+        // The *opponent's* offer, which is White's when the player is Black — the VM already writes
+        // `engineSide` here. Hard-coding BLACK didn't merely hide the dialog for a Black player: an
+        // unanswered offer makes `playerMove` return early, so the board froze for the rest of the
+        // game with no way to accept or decline.
+        if (gameState.drawOffer == viewModel.engineSide && gameState.winState == WinState.NONE) {
             DrawOfferDialog(onAccept = viewModel::acceptDrawOffer, onDecline = viewModel::declineDrawOffer)
         }
 
@@ -552,23 +575,31 @@ fun GameScreen(
                     }
 
                     // Route a 3D tap through the same selection/move logic the 2D board uses.
-                    if (animState.pieceToAnimate != null || gameState.turn != Set.WHITE) return@onSquareTapped
+                    // Everything below is relative to the *player's* side, not White: `playerSide`
+                    // is a Settings choice, and hard-coding White left the whole 3D board inert for
+                    // a player who picked Black (the turn guard never opened).
+                    if (animState.pieceToAnimate != null || gameState.turn != playerSide) return@onSquareTapped
+                    val playingWhite = playerSide == Set.WHITE
+                    val ownPositions = if (playingWhite) gameState.positionsWhite else gameState.positionsBlack
+                    val ownPieces = if (playingWhite) gameState.piecesWhite else gameState.piecesBlack
+                    val enemyPositions = if (playingWhite) gameState.positionsBlack else gameState.positionsWhite
+                    val enemyPieces = if (playingWhite) gameState.piecesBlack else gameState.piecesWhite
                     val pos = Pair(sq.row, sq.col)
-                    val selectedPieceIndex = gameState.positionsWhite.indexOf(gameState.selectedSquare)
+                    val selectedPieceIndex = ownPositions.indexOf(gameState.selectedSquare)
                     val legalMoves = if (selectedPieceIndex != -1) {
                         getLegalMovesForPiece(
                             pieceIndex = selectedPieceIndex,
-                            enemyPieces = gameState.piecesBlack,
-                            enemyPositions = gameState.positionsBlack,
-                            allyPositions = gameState.positionsWhite,
-                            allyPieces = gameState.piecesWhite,
+                            enemyPieces = enemyPieces,
+                            enemyPositions = enemyPositions,
+                            allyPositions = ownPositions,
+                            allyPieces = ownPieces,
                             castlingRights = gameState.castlingRights,
                             enPassantTarget = gameState.enPassantTarget,
                         )
                     } else emptyList()
                     when {
                         pos in legalMoves -> viewModel.playerMove(selectedPieceIndex, pos)
-                        pos in gameState.positionsWhite -> viewModel.updateSelected(pos)
+                        pos in ownPositions -> viewModel.updateSelected(pos)
                     }
                     }
                 )
@@ -578,7 +609,7 @@ fun GameScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.White.copy(alpha = 0.85f))
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
                             .zIndex(2f)
                             .testTag("board_3d_entering"),
                         contentAlignment = Alignment.Center
@@ -654,6 +685,7 @@ fun GameScreen(
                         gameState = gameState,
                         animState = animState,
                         windowSize = windowSize,
+                        playerSide = playerSide,
                         updateSelected = viewModel::updateSelected,
                         playerMove = viewModel::playerMove,
                         animationEnd = viewModel::animationEnd,
@@ -813,7 +845,7 @@ private fun GameControls(
         if (viewState.board3DUnavailable) {
             Text(
                 text = stringResource(Res.string.board_3d_unavailable),
-                color = Color.Red,
+                color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.testTag("board_3d_unavailable")
             )
         }
@@ -878,6 +910,23 @@ enum class SquareType {
     PossibleCapture
 }
 
+/**
+ * Which board square the grid cell at view position [row]/[column] shows.
+ *
+ * White sees the board as stored (view row 0 = rank 8, view column 0 = file a); Black sees it
+ * rotated 180°, so view (0,0) is h1. The mapping is its own inverse — [boardToView] is the same
+ * transform — which is why one function covers both directions.
+ *
+ * Test tags keep using the **board** square, so UI tests address squares by chess coordinate and are
+ * unaffected by the flip.
+ */
+internal fun viewToBoard(row: Int, column: Int, playingWhite: Boolean): Pair<Int, Int> =
+    if (playingWhite) Pair(row, column) else Pair(7 - row, 7 - column)
+
+/** Where board square [square] is drawn. Inverse of [viewToBoard]; `INVALID_POSITION` passes through. */
+internal fun boardToView(square: Pair<Int, Int>, playingWhite: Boolean): Pair<Int, Int> =
+    if (playingWhite || square == INVALID_POSITION) square else Pair(7 - square.first, 7 - square.second)
+
 private const val BOARD_SQUARE_TEST_TAG_PREFIX = "board_square"
 
 private fun squareTestTag(position: Pair<Int, Int>, squareType: SquareType): String {
@@ -897,10 +946,10 @@ fun RowScope.Square(
     content: @Composable () -> Unit
 ) {
     val (borderWidth, borderColor, shapeType) = when (squareType) {
-        SquareType.CanMove -> Triple(1.dp, Color.Green, RectangleShape)
-        SquareType.CannotMove -> Triple(1.dp, Color.Red, RectangleShape)
-        SquareType.PossibleMove -> Triple(5.dp, Color.Yellow, CircleShape)
-        SquareType.PossibleCapture -> Triple(5.dp, Color.Red, CircleShape)
+        SquareType.CanMove -> Triple(1.dp, SelectionRing, RectangleShape)
+        SquareType.CannotMove -> Triple(1.dp, SelectionBlockedRing, RectangleShape)
+        SquareType.PossibleMove -> Triple(5.dp, MoveMarker, CircleShape)
+        SquareType.PossibleCapture -> Triple(5.dp, CaptureMarker, CircleShape)
         else -> Triple(0.dp, Color.Transparent, RectangleShape)
     }
 
@@ -909,7 +958,7 @@ fun RowScope.Square(
             .weight(1f)
             .aspectRatio(1f)
             .background(
-                color = if (isDarkSquare) MaterialTheme.colorScheme.secondary else Color.White
+                color = if (isDarkSquare) BoardDarkSquare else BoardLightSquare
             )
             // Tinted rather than bordered: the border slot already encodes selection and legal
             // moves, and a second border there would be read as a move hint.
@@ -946,6 +995,8 @@ fun Board(
     gameState: GameUiState,
     animState: PieceAnimationState,
     windowSize: WindowWidthSizeClass,
+    /** The side the player is on. Drives both the flip and which pieces are selectable. */
+    playerSide: Set = Set.WHITE,
     updateSelected: (Pair<Int, Int>) -> Unit,
     playerMove: (Int, Pair<Int, Int>) -> Unit,
     animationEnd: () -> Unit,
@@ -966,15 +1017,21 @@ fun Board(
         highlightedSquares.associate { (it.square.row to it.square.col) to it.tone }
     }
 
+    val playingWhite = playerSide == Set.WHITE
+    val ownPositions = if (playingWhite) gameState.positionsWhite else gameState.positionsBlack
+    val ownPieces = if (playingWhite) gameState.piecesWhite else gameState.piecesBlack
+    val enemyPositions = if (playingWhite) gameState.positionsBlack else gameState.positionsWhite
+    val enemyPieces = if (playingWhite) gameState.piecesBlack else gameState.piecesWhite
+
     if (gameState.selectedSquare != INVALID_POSITION) {
-        val pieceIndex = gameState.positionsWhite.indexOf(gameState.selectedSquare)
+        val pieceIndex = ownPositions.indexOf(gameState.selectedSquare)
         if (pieceIndex != -1) {
             selectedPossibleMoves.value = getLegalMovesForPiece(
                 pieceIndex = pieceIndex,
-                enemyPieces = gameState.piecesBlack,
-                enemyPositions = gameState.positionsBlack,
-                allyPositions = gameState.positionsWhite,
-                allyPieces = gameState.piecesWhite,
+                enemyPieces = enemyPieces,
+                enemyPositions = enemyPositions,
+                allyPositions = ownPositions,
+                allyPieces = ownPieces,
                 castlingRights = gameState.castlingRights,
                 enPassantTarget = gameState.enPassantTarget
             )
@@ -1001,7 +1058,11 @@ fun Board(
                     horizontalArrangement = Arrangement.Center
                 ) {
                     repeat(8) { column ->
-                        val currentSquare = Pair(row, column)
+                        // The grid index is a *view* position; `currentSquare` is the board square
+                        // it shows. Playing Black rotates the board 180°, which is what "flip the
+                        // board" means — and because the rotation preserves (row + col) parity, the
+                        // light/dark pattern comes out right without a second case.
+                        val currentSquare = viewToBoard(row, column, playingWhite)
 
                         val squareType = if (currentSquare == gameState.selectedSquare) {
                             if (selectedPossibleMoves.value.isEmpty()) {
@@ -1012,21 +1073,25 @@ fun Board(
                         } else {
                             when {
                                 currentSquare in selectedPossibleMoves.value -> {
-                                    if (currentSquare in gameState.positionsBlack) {
+                                    if (currentSquare in enemyPositions) {
                                         SquareType.PossibleCapture
                                     } else {
                                         SquareType.PossibleMove
                                     }
                                 }
+                                // These two stay literally white/black: they pick which drawable is
+                                // rendered and they name the test tag. Whether a square is *yours*
+                                // is `currentSquare in ownPositions`, asked separately below.
                                 currentSquare in gameState.positionsWhite -> SquareType.WhitePiece
                                 currentSquare in gameState.positionsBlack -> SquareType.BlackPiece
                                 else -> SquareType.Empty
                             }
                         }
 
+                        val isOwnPiece = currentSquare in ownPositions
                         val clickable = onSquareTapped != null || squareType == SquareType.PossibleMove ||
                             squareType == SquareType.PossibleCapture ||
-                            squareType == SquareType.WhitePiece
+                            isOwnPiece
 
                         Square(
                             modifier = Modifier.onGloballyPositioned {
@@ -1037,7 +1102,7 @@ fun Board(
                                     squareAvgSizePx.value = it.size
                                 }
                             },
-                            isDarkSquare = (row + column) % 2 == 1,
+                            isDarkSquare = (currentSquare.first + currentSquare.second) % 2 == 1,
                             squareType = squareType,
                             clickable = clickable,
                             testTag = squareTestTag(currentSquare, squareType),
@@ -1056,14 +1121,18 @@ fun Board(
                                         val moveIndex = gameState.selectedSquare
                                         updateSelected(INVALID_POSITION)
                                         selectedPossibleMoves.value = emptyList()
-                                        val idx = gameState.positionsWhite.indexOf(moveIndex)
+                                        val idx = ownPositions.indexOf(moveIndex)
                                         if (idx != -1) {
                                             playerMove(idx, currentSquare)
                                         }
                                     }
-                                    SquareType.WhitePiece -> if (gameState.turn == Set.WHITE) {
-                                        updateSelected(currentSquare)
-                                    }
+                                    // Both colours reach here now — `clickable` only lets a square
+                                    // through when it holds one of *your* pieces, so the branch is
+                                    // on the turn, not on the colour.
+                                    SquareType.WhitePiece, SquareType.BlackPiece ->
+                                        if (gameState.turn == playerSide) {
+                                            updateSelected(currentSquare)
+                                        }
                                     else -> error("Should not be clickable")
                                 }
                             }
@@ -1074,22 +1143,17 @@ fun Board(
                                 !(animState.secondaryPiece != null &&
                                     (animState.secondaryStart == currentSquare ||
                                         animState.secondaryEnd == currentSquare))) {
-                                if (
-                                    squareType == SquareType.WhitePiece ||
-                                    squareType == SquareType.CannotMove ||
-                                    squareType == SquareType.CanMove
-                                ) {
-                                    val idx = gameState.positionsWhite.indexOf(currentSquare)
-                                    if (idx != -1) {
-                                        Piece(pieceModel = gameState.piecesWhite[idx])
-                                    }
+                                // Look the square up in both lists rather than deriving the colour
+                                // from `squareType`: a square can hold only one piece, and the old
+                                // form drew the white list for CanMove/CannotMove, which is the
+                                // *selected* square — so a Black player's selected piece vanished.
+                                val whiteIdx = gameState.positionsWhite.indexOf(currentSquare)
+                                if (whiteIdx != -1) {
+                                    Piece(pieceModel = gameState.piecesWhite[whiteIdx])
                                 }
-
-                                if (squareType == SquareType.BlackPiece || squareType == SquareType.PossibleCapture) {
-                                    val idx = gameState.positionsBlack.indexOf(currentSquare)
-                                    if (idx != -1) {
-                                        Piece(pieceModel = gameState.piecesBlack[idx])
-                                    }
+                                val blackIdx = gameState.positionsBlack.indexOf(currentSquare)
+                                if (blackIdx != -1) {
+                                    Piece(pieceModel = gameState.piecesBlack[blackIdx])
                                 }
                             }
                         }
@@ -1101,11 +1165,14 @@ fun Board(
         val primaryPiece = animState.pieceToAnimate
         if (primaryPiece != null) {
             if (animState.moveIsValid()) {
+                // The animated piece is offset in grid cells from the board's top-left corner, so
+                // it travels in *view* coordinates. Feeding it raw board squares on a flipped board
+                // sent every piece to the mirrored square and back.
                 AnimatedChessPiece(
                     piece = primaryPiece,
                     squareSizePx = squareSizePx.value,
-                    from = animState.animatePositionStart,
-                    to = animState.animatePositionEnd,
+                    from = boardToView(animState.animatePositionStart, playingWhite),
+                    to = boardToView(animState.animatePositionEnd, playingWhite),
                     animationEnd = animationEnd
                 )
                 val secondaryPiece = animState.secondaryPiece
@@ -1114,8 +1181,8 @@ fun Board(
                     AnimatedChessPiece(
                         piece = secondaryPiece,
                         squareSizePx = fallbackSize,
-                        from = animState.secondaryStart,
-                        to = animState.secondaryEnd,
+                        from = boardToView(animState.secondaryStart, playingWhite),
+                        to = boardToView(animState.secondaryEnd, playingWhite),
                         animationEnd = {}
                     )
                 }
@@ -1167,7 +1234,6 @@ fun AnimatedChessPiece(
             }
             .size(squareSizeDp)
             .zIndex(1f)
-            .border(width = 1.dp, color = Color.Red)
     ) {
         Piece(pieceModel = piece)
     }
