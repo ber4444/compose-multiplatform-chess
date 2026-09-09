@@ -10,6 +10,8 @@ import kotlin.test.assertTrue
  * Board coordinates are `Pair(row, col)`, 0-indexed from the top-left exactly as FEN is written:
  * rank 8 is row 0, rank 1 is row 7, file a is col 0. So e3 is `Pair(5, 4)`.
  */
+// allDistinct/allEqual: Experimental stdlib, test sources only — see CLAUDE.md, "Build quirks".
+@OptIn(ExperimentalStdlibApi::class)
 class MotifDetectorTest {
 
     private fun detect(fenBefore: String, fenAfter: String, side: Set, to: Pair<Int, Int>) =
@@ -151,7 +153,7 @@ class MotifDetectorTest {
                 Pair(5, 4),
             )
         }
-        assertTrue(runs.all { it == runs.first() }, "detector produced varying output: $runs")
+        assertTrue(runs.allEqual(), "detector produced varying output: $runs")
     }
 
     // --- the guard that was missing -------------------------------------------------------------

@@ -460,7 +460,13 @@ tasks.withType<JavaExec>().configureEach {
 // recompile of :app:compileKotlinWasmJs. The kotlin.incremental.js.klib/.wasm/.ir gradle
 // properties are not honored by this KGP, so disable IC directly on the wasm klib compile task.
 // `incremental` is the public toggle; `incrementalJsKlib` is the klib-specific one (internal in
-// KGP, set reflectively). Remove both once on Kotlin 2.4+, where wasm IC is stable.
+// KGP, set reflectively).
+//
+// The old note here said "remove once on Kotlin 2.4+". That condition passed without anyone
+// checking, so it is restated as what it actually is: **untested on 2.4.20**. Verifying it costs a
+// clean `:app:compileKotlinWasmJs`, an edit to a wasmJsMain file, and a *second* compile — one
+// build proves nothing, because the crash is in the incremental path only, which is also why no CI
+// job can catch a regression here.
 tasks.withType<Kotlin2JsCompile>().configureEach {
     incremental = false
     javaClass.methods

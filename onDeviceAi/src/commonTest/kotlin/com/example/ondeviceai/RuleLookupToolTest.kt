@@ -5,6 +5,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+// allDistinct/allEqual: Experimental stdlib, test sources only — see CLAUDE.md, "Build quirks".
+@OptIn(ExperimentalStdlibApi::class)
 class RuleLookupToolTest {
 
     @Test
@@ -41,6 +43,6 @@ class RuleLookupToolTest {
 
         assertTrue(results.isNotEmpty())
         assertTrue(results.size <= 3)
-        assertEquals(results.map { it.id }.distinct().size, results.size)
+        assertTrue(results.allDistinctBy { it.id }, "lookup returned the same passage twice: $results")
     }
 }
