@@ -1,6 +1,7 @@
 package com.example.myapplication.persistence
 
 import com.example.myapplication.GameUiState
+import com.example.myapplication.Set
 import com.example.myapplication.WinState
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -17,6 +18,28 @@ class GameActionsTest {
 
         val withCpu = GameActions.pgnTags(state, engineAttached = false, date = "2026.07.02")
         assertEquals("CPU", withCpu.black)
+    }
+
+    @Test
+    fun `pgnTags puts Player on Black's side when playerSide is BLACK`() {
+        val state = GameUiState(winState = WinState.BLACK)
+        val tags = GameActions.pgnTags(state, engineAttached = true, date = "2026.07.02", playerSide = Set.BLACK)
+        assertEquals("Stockfish", tags.white)
+        assertEquals("Player", tags.black)
+    }
+
+    @Test
+    fun `toSavedGame records playerSide and labels colours accordingly`() {
+        val state = GameUiState(winState = WinState.BLACK)
+        val saved = GameActions.toSavedGame(
+            state,
+            engineAttached = false,
+            savedAtEpochMillis = 1_700_000_000_000L,
+            playerSide = Set.BLACK,
+        )
+        assertEquals("BLACK", saved.playerSide)
+        assertEquals("CPU", saved.white)
+        assertEquals("Player", saved.black)
     }
 
     @Test

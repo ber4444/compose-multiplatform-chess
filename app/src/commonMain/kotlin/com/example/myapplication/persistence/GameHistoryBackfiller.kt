@@ -18,8 +18,13 @@ import com.example.myapplication.Set
 import com.example.myapplication.MoveRecord
 
 /**
- * Iterates over stored historical games in [GameHistoryRepository] and annotates White's unassessed
- * moves in the background using the attached [ChessEngine].
+ * Iterates over stored historical games in [GameHistoryRepository] and annotates the player's
+ * unassessed moves in the background using the attached [ChessEngine].
+ *
+ * Which plies are the player's follows [SavedGame.playerSide], the same rule
+ * `GameViewModel.runIdleAnalysis` applies live: even-index plies are White's, and the player is
+ * White only when the saved game says so. Games saved before that field existed default to
+ * `"WHITE"`, which was the only side selectable at the time.
  */
 class GameHistoryBackfiller(
     private val repository: GameHistoryRepository,
@@ -48,23 +53,30 @@ class GameHistoryBackfiller(
         job = null
     }
 
-    private suspend fun backfillNext() {
+    /** `internal` rather than `private` so `GameHistoryBackfillerTest` can drive one iteration directly instead of racing the real `start()`/`delay` loop. */
+    internal suspend fun backfillNext() {
         val games = repository.games.value
         for (game in games) {
-            val unassessedIndex = game.moveRecords.indexOfFirst {
-                // White moves only, and only those lacking an assessment
-                val isWhiteMove = game.moveRecords.indexOf(it) % 2 == 0
-                isWhiteMove && it.assessment == null
+            val playerIsWhite = game.playerSide != "BLACK"
+            val unassessedIndex = game.moveRecords.indexOfFirst { record ->
+                // The player's moves only, and only those lacking an assessment.
+                val isPlayerMove = (game.moveRecords.indexOf(record) % 2 == 0) == playerIsWhite
+                isPlayerMove && record.assessment == null
             }
 
             if (unassessedIndex != -1) {
                 logger.i { "Backfilling assessment for game ${game.id} ply $unassessedIndex" }
                 val record = game.moveRecords[unassessedIndex]
-                
-                // If the engine didn't provide cpAfter during gameplay, we evaluate fenAfter.
-                // We evaluate from White's perspective. fenAfter is Black to move, so evaluate returns from Black's perspective.
-                // We must negate it to get White's perspective.
-                val cpPlayed = record.cpAfter ?: engine.evaluate(record.fenAfter)?.let { -it }
+                val moverIsWhite = unassessedIndex % 2 == 0
+
+                // If the engine didn't provide cpAfter during gameplay, evaluate fenAfter instead.
+                // engine.evaluate() already normalizes to White's perspective (UciEvaluation
+                // .toWhitePerspective, applied by every transport) — it does not need negating here.
+                // This used to negate unconditionally, which silently inverted every backfilled
+                // assessment that hit this fallback (any game played without a live-attached engine,
+                // e.g. the CPU fallback) into its opposite: a blunder recorded as excellent and vice
+                // versa.
+                val cpPlayed = record.cpAfter ?: engine.evaluate(record.fenAfter)
                 if (cpPlayed == null) return
 
                 val fenBefore = if (unassessedIndex == 0) {
@@ -88,7 +100,7 @@ class GameHistoryBackfiller(
                     MotifDetector.detectDetailed(
                         stateBefore = stateBefore,
                         stateAfter = stateAfter,
-                        movingSide = Set.WHITE,
+                        movingSide = if (moverIsWhite) Set.WHITE else Set.BLACK,
                         toSquare = moveAppFormat.position,
                         fromSquare = UciMoveConverter.parseUciMove(record.uci).first,
                         promoted = record.uci.length > 4,

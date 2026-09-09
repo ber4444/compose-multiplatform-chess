@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import com.example.myapplication.LocalGameSummaryManager
+import com.example.myapplication.LocalHabitsManager
 import com.example.myapplication.LocalMoveCoachManager
 import com.example.myapplication.isAndroidPlatform
 import androidx.compose.runtime.LaunchedEffect
@@ -446,6 +447,8 @@ private data class ProFeature(val title: String, val blurb: String)
  *   identical `DeterministicCoach` line a free one does. No phone platform attaches one today.
  * - Game Summary — `GameSummaryManager.uiState !is Unavailable`, the check `GameScreen` uses both to
  *   hide the button and to set `ProGate.available`.
+ * - Habits — `LocalHabitsManager.current != null`, which `AppRoot` constructs only when the entry
+ *   point supplied a `GameHistoryRepository`.
  * - Position Chat / Opening Explainer — `cloudCoachConfigured`, the flag their two `ProGate`s and
  *   `AppRoot`'s chat branch already read.
  * - Rules Q&A — [rulesQaAvailable], `AppRoot`'s `rulesQaAnswerer != null`.
@@ -456,6 +459,7 @@ private data class ProFeature(val title: String, val blurb: String)
 private fun proFeatures(rulesQaAvailable: Boolean): List<ProFeature> {
     val modelCoach = LocalMoveCoachManager.current?.hasOrchestrator == true
     val gameSummary = gameSummaryAvailable()
+    val hasHabits = LocalHabitsManager.current != null
     return listOfNotNull(
         ProFeature(
             "Move Coach in the model's words",
@@ -465,6 +469,10 @@ private fun proFeatures(rulesQaAvailable: Boolean): List<ProFeature> {
             "Game Summary",
             "A coach's read on the whole game — the turning points and what to work on.",
         ).takeIf { gameSummary },
+        ProFeature(
+            "Habits",
+            "See the mistakes that keep recurring across your games, with the exact positions to practice.",
+        ).takeIf { hasHabits },
         ProFeature(
             "Position Chat",
             "Ask about the position you're in and get grounded answers as you play.",
