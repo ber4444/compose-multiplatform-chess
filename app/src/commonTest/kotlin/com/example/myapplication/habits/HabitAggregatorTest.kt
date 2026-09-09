@@ -34,6 +34,9 @@ class HabitAggregatorTest {
     private fun unassessedRecord(san: String = "e4"): MoveRecord =
         MoveRecord(uci = "e2e4", san = san, fenAfter = "8/8/8/8/8/8/8/8 b - - 0 1")
 
+    private fun hintRecord(san: String = "Nf3"): MoveRecord =
+        MoveRecord(uci = "g1f3", san = san, fenAfter = "8/8/8/8/8/8/8/8 b - - 0 1", hintUsed = true)
+
     /** [playerMoves] land on even plies (0, 2, 4, ...); the odd plies are always filler. */
     private fun game(
         id: String,
@@ -193,5 +196,83 @@ class HabitAggregatorTest {
             assertEquals("Nf6", it.bestMoveSan)
             assertTrue(it.fenBefore.isNotBlank())
         }
+    }
+
+    @Test
+    fun `excessive hint taking across multiple games is detected as a behavioral habit`() {
+        val games = listOf(
+            game("1", playerMoves = listOf(hintRecord("d4"), hintRecord("Nf3"))),
+            game("2", playerMoves = listOf(hintRecord("e4"), hintRecord("c4"))),
+            game("3", playerMoves = listOf(unassessedRecord("e4"))),
+        )
+        val summaries = HabitAggregator.aggregate(games)
+        assertEquals(1, summaries.size)
+        val habit = summaries.first()
+        assertEquals(HabitCategory.BEHAVIORAL, habit.category)
+        assertEquals(HabitAggregator.MOTIF_EXCESSIVE_HINTS, habit.motif)
+        assertEquals(2, habit.gamesAffected)
+        assertEquals(3, habit.gamesConsidered)
+        assertEquals(4, habit.occurrences.size)
+        assertTrue(habit.occurrences.all { it.isHint })
+    }
+
+    @Test
+    fun `single hint in a game does not trigger excessive hint habit`() {
+        val games = listOf(
+            game("1", playerMoves = listOf(hintRecord("d4"), unassessedRecord("Nf3"))),
+            game("2", playerMoves = listOf(hintRecord("e4"), unassessedRecord("c4"))),
+            game("3", playerMoves = listOf(unassessedRecord("e4"))),
+        )
+        val summaries = HabitAggregator.aggregate(games)
+        assertEquals(emptyList(), summaries)
+    }
+
+    @Test
+    fun `a single game with many hints does not trigger habit`() {
+        val games = listOf(
+            game("1", playerMoves = listOf(hintRecord(), hintRecord(), hintRecord(), hintRecord())),
+            game("2", playerMoves = listOf(unassessedRecord())),
+            game("3", playerMoves = listOf(unassessedRecord())),
+        )
+        assertEquals(emptyList(), HabitAggregator.aggregate(games))
+    }
+
+    @Test
+    fun `tactical and behavioral habits are both returned alongside each other in player profile`() {
+        val hung = assessedRecord()
+        val hint1 = hintRecord("d4")
+        val hint2 = hintRecord("Nf3")
+        val games = listOf(
+            game("1", playerMoves = listOf(hung, hint1, hint2)),
+            game("2", playerMoves = listOf(hung, hint1, hint2)),
+            game("3", playerMoves = listOf(unassessedRecord())),
+        )
+        val summaries = HabitAggregator.aggregate(games)
+        assertEquals(2, summaries.size)
+        assertEquals(HabitCategory.TACTICAL, summaries[0].category)
+        assertEquals(MotifDetector.HANGS_PIECE, summaries[0].motif)
+        assertEquals(HabitCategory.BEHAVIORAL, summaries[1].category)
+        assertEquals(HabitAggregator.MOTIF_EXCESSIVE_HINTS, summaries[1].motif)
+    }
+
+    @Test
+    fun `engine-side hints are never counted towards behavioral habit`() {
+        val playerClean = unassessedRecord("e4")
+        val engineHint = hintRecord("e5")
+        val games = (1..3).map { i ->
+            val moveRecords = listOf(playerClean, engineHint)
+            SavedGame(
+                id = i.toString(),
+                savedAtEpochMillis = 0L,
+                result = "1-0",
+                white = "Player",
+                black = "Stockfish",
+                moveCount = moveRecords.size,
+                pgn = "",
+                moveRecords = moveRecords,
+                playerSide = "WHITE",
+            )
+        }
+        assertEquals(emptyList(), HabitAggregator.aggregate(games))
     }
 }

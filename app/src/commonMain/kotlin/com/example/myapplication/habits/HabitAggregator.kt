@@ -35,6 +35,11 @@ object HabitAggregator {
     /** A motif (or the general fallback) must recur in at least this many distinct games to count. */
     private const val MIN_GAMES_FOR_HABIT = 2
 
+    const val MOTIF_EXCESSIVE_HINTS = "excessive-hints"
+
+    /** A player must take at least this many hints in a game for that game to count as hint-reliant. */
+    const val MIN_HINTS_PER_GAME_FOR_HABIT = 2
+
     private const val MAX_HABITS = 2
     private const val MAX_OCCURRENCES_PER_HABIT = 5
 
@@ -53,10 +58,19 @@ object HabitAggregator {
         val record: MoveRecord,
     )
 
+    private data class FlaggedHint(
+        val game: SavedGame,
+        val gamesAgo: Int,
+        val plyIndex: Int,
+        val record: MoveRecord,
+    )
+
     /**
-     * The player's assessed MISTAKE/BLUNDER moves across the most recent [window] saved games
-     * (newest first, matching [com.example.myapplication.persistence.GameHistoryRepository.games]),
-     * or `emptyList()` when there isn't enough data or no pattern recurs.
+     * The player's habits across the most recent [window] saved games (newest first, matching
+     * [com.example.myapplication.persistence.GameHistoryRepository.games]), displaying tactical
+     * habits (e.g. hangs-piece, general lost winning chances) and behavioral habits (excessive hints)
+     * alongside each other as part of the same player profile. Returns `emptyList()` when there
+     * isn't enough data or no pattern recurs.
      */
     fun aggregate(games: List<SavedGame>, window: Int = DEFAULT_WINDOW): List<HabitSummary> {
         val considered = games.take(window)
@@ -76,18 +90,56 @@ object HabitAggregator {
                 }
             }
         }
-        if (flagged.isEmpty()) return emptyList()
 
-        val motifHabits = COSTLY_MOTIFS.mapNotNull { motif ->
-            val matches = flagged.filter { motif in it.record.assessment!!.motifs }
-            summaryOrNull(motif, matches, considered.size)
-        }.sortedByDescending { it.gamesAffected }
+        val tacticalHabits = if (flagged.isNotEmpty()) {
+            val motifHabits = COSTLY_MOTIFS.mapNotNull { motif ->
+                val matches = flagged.filter { motif in it.record.assessment!!.motifs }
+                summaryOrNull(motif, matches, considered.size)
+            }.sortedByDescending { it.gamesAffected }
 
-        if (motifHabits.isNotEmpty()) return motifHabits.take(MAX_HABITS)
+            if (motifHabits.isNotEmpty()) {
+                motifHabits.take(MAX_HABITS)
+            } else {
+                listOfNotNull(summaryOrNull(motif = null, matches = flagged, gamesConsidered = considered.size))
+            }
+        } else {
+            emptyList()
+        }
 
-        // Tier 2: no specific motif recurred often enough — fall back to the general rate, still
-        // subject to the same MIN_GAMES_FOR_HABIT bar.
-        return listOfNotNull(summaryOrNull(motif = null, matches = flagged, gamesConsidered = considered.size))
+        // Behavioral aggregation: excessive hint taking
+        val flaggedHints = considered.flatMapIndexed { gamesAgo, game ->
+            val playerIsWhite = game.playerSide != "BLACK"
+            game.moveRecords.mapIndexedNotNull { index, record ->
+                val isPlayerMove = (index % 2 == 0) == playerIsWhite
+                if (isPlayerMove && record.hintUsed) {
+                    FlaggedHint(game, gamesAgo, index, record)
+                } else {
+                    null
+                }
+            }
+        }
+
+        val hintsByGame = flaggedHints.groupBy { it.game.id }
+        val qualifyingHintGames = hintsByGame.filter { it.value.size >= MIN_HINTS_PER_GAME_FOR_HABIT }
+        val behavioralHabits = if (qualifyingHintGames.size >= MIN_GAMES_FOR_HABIT) {
+            val occurrences = qualifyingHintGames.values.flatten()
+                .sortedWith(compareBy<FlaggedHint> { it.gamesAgo }.thenBy { it.plyIndex })
+                .take(MAX_OCCURRENCES_PER_HABIT)
+                .map { it.toOccurrence() }
+            listOf(
+                HabitSummary(
+                    motif = MOTIF_EXCESSIVE_HINTS,
+                    gamesAffected = qualifyingHintGames.size,
+                    gamesConsidered = considered.size,
+                    occurrences = occurrences,
+                    category = HabitCategory.BEHAVIORAL,
+                )
+            )
+        } else {
+            emptyList()
+        }
+
+        return tacticalHabits + behavioralHabits
     }
 
     private fun summaryOrNull(motif: String?, matches: List<Flagged>, gamesConsidered: Int): HabitSummary? {
@@ -100,7 +152,7 @@ object HabitAggregator {
             .take(MAX_OCCURRENCES_PER_HABIT)
             .map { it.toOccurrence() }
 
-        return HabitSummary(motif, gamesAffected, gamesConsidered, occurrences)
+        return HabitSummary(motif, gamesAffected, gamesConsidered, occurrences, HabitCategory.TACTICAL)
     }
 
     private fun Flagged.toOccurrence(): HabitOccurrence {
@@ -115,6 +167,22 @@ object HabitAggregator {
             moveClass = assessment.moveClass,
             cpLoss = assessment.cpLoss,
             bestMoveSan = assessment.bestMoveSan,
+            isHint = false,
+        )
+    }
+
+    private fun FlaggedHint.toOccurrence(): HabitOccurrence {
+        return HabitOccurrence(
+            gameId = game.id,
+            gameResult = game.result,
+            gamesAgo = gamesAgo,
+            plyNumber = plyIndex + 1,
+            san = record.san,
+            fenBefore = fenBefore(game, plyIndex),
+            moveClass = record.assessment?.moveClass,
+            cpLoss = record.assessment?.cpLoss ?: 0,
+            bestMoveSan = record.assessment?.bestMoveSan,
+            isHint = true,
         )
     }
 

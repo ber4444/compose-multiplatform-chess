@@ -44,6 +44,7 @@ class GameViewModel(
     private val _hintSquares = MutableStateFlow<List<Pair<Int, Int>>>(emptyList())
     val hintSquares: StateFlow<List<Pair<Int, Int>>> = _hintSquares
     private var hintJob: Job? = null
+    private var hintUsedOnCurrentTurn: Boolean = false
 
     /**
      * Guards the engine's *global* skill level, which is process-wide state on a single UCI
@@ -60,6 +61,10 @@ class GameViewModel(
      * Requires an attached engine, guards turn state, and cancels previous hint requests.
      */
     fun requestHint() {
+        val current = _gameState.value
+        if (current.turn == playerSide && current.winState == WinState.NONE) {
+            hintUsedOnCurrentTurn = true
+        }
         hintJob?.cancel()
         hintJob = scope.launch { computeHintDirectly() }
     }
@@ -67,6 +72,7 @@ class GameViewModel(
     suspend fun computeHintDirectly() {
         val current = _gameState.value
         if (current.turn != playerSide || current.winState != WinState.NONE) return
+        hintUsedOnCurrentTurn = true
         val engine = chessEngine ?: return
 
         val allyPositions = if (current.turn == Set.WHITE) current.positionsWhite else current.positionsBlack
@@ -427,6 +433,8 @@ class GameViewModel(
 
     fun resetGame(show3D: Boolean = viewState.value.show3D) {
         logger.i { "Game reset" }
+        hintUsedOnCurrentTurn = false
+        clearHint()
         _gameState.value = GameUiState()
         _viewState.value = ViewState(show3D = show3D)
         _animState.value = PieceAnimationState()
@@ -575,6 +583,12 @@ class GameViewModel(
             (movingPiece is Pawn && fromPosition.second != newPosition.second && newPosition == preMove.enPassantTarget)
         val castleRook = castlingRookMove(movingPiece, fromPosition, newPosition)
 
+        val isPlayerMove = preMove.turn == playerSide
+        val hintUsed = isPlayerMove && hintUsedOnCurrentTurn
+        if (isPlayerMove) {
+            hintUsedOnCurrentTurn = false
+        }
+
         val record = MoveRecord(
             uci = UciMoveConverter.appMoveToUci(fromPosition, newPosition) +
                 (promotion?.uciChar?.toString() ?: ""),
@@ -590,6 +604,7 @@ class GameViewModel(
                 checkSuffix = checkSuffix,
             ),
             fenAfter = FenConverter.gameStateToFen(finalState),
+            hintUsed = hintUsed,
         )
         return finalState.copy(moveHistory = preMove.moveHistory + record)
     }

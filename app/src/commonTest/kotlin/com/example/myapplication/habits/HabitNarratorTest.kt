@@ -51,4 +51,45 @@ class HabitNarratorTest {
         assertTrue("3...Nc6" in line)
         assertEquals(false, line.contains(" — "))
     }
+
+    @Test
+    fun `headline formats excessive hints behavioral habit`() {
+        val summary = HabitSummary(
+            motif = HabitAggregator.MOTIF_EXCESSIVE_HINTS,
+            gamesAffected = 3,
+            gamesConsidered = 10,
+            occurrences = emptyList(),
+            category = HabitCategory.BEHAVIORAL,
+        )
+        val headline = HabitNarrator.headline(summary)
+        assertEquals("You relied on hints in 3 of your last 10 games.", headline)
+    }
+
+    @Test
+    fun `explanation provides calculation advice for excessive hints behavioral habit`() {
+        val summary = HabitSummary(
+            motif = HabitAggregator.MOTIF_EXCESSIVE_HINTS,
+            gamesAffected = 3,
+            gamesConsidered = 10,
+            occurrences = emptyList(),
+            category = HabitCategory.BEHAVIORAL,
+        )
+        val explanation = HabitNarrator.explanation(summary)
+        assertTrue("calculation stamina" in explanation)
+    }
+
+    @Test
+    fun `occurrence line formats hint used move`() {
+        val occ = HabitOccurrence(
+            gameId = "g1",
+            gameResult = "1-0",
+            gamesAgo = 0,
+            plyNumber = 23,
+            san = "Nf3",
+            fenBefore = "startpos",
+            isHint = true,
+        )
+        val line = HabitNarrator.occurrenceLine(occ)
+        assertEquals("In your most recent game, 12.Nf3 (hint used).", line)
+    }
 }

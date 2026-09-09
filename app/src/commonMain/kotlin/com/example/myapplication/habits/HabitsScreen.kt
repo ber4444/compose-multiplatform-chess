@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -37,7 +39,12 @@ fun HabitsScreen(manager: HabitsManager, onBack: () -> Unit) {
                 )
             }
         } else {
-            Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp)
+            ) {
                 summaries.forEachIndexed { index, summary ->
                     HabitCard(summary, modifier = Modifier.testTag("habit_card_$index"))
                 }
@@ -53,6 +60,16 @@ private fun HabitCard(summary: HabitSummary, modifier: Modifier = Modifier) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
+            val categoryLabel = when (summary.category) {
+                HabitCategory.TACTICAL -> "Tactical Habit"
+                HabitCategory.BEHAVIORAL -> "Behavioral Habit"
+            }
+            Text(
+                categoryLabel.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
             Text(HabitNarrator.headline(summary), style = MaterialTheme.typography.titleMedium)
             Text(
                 HabitNarrator.explanation(summary),

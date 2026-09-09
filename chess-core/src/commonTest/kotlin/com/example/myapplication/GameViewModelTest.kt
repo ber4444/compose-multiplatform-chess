@@ -504,4 +504,36 @@ class GameViewModelTest {
                 "player's EASY setting to be restored. Sequence: $configured",
         )
     }
+
+    @Test
+    fun `move played after requesting hint is recorded with hintUsed true`() = kotlinx.coroutines.test.runTest {
+        val fakeEngine = object : ChessEngine {
+            override suspend fun configure(difficulty: EngineDifficulty) {}
+            override suspend fun getBestMove(fen: String, thinkTimeMs: Long?): BestMoveResult? =
+                BestMoveResult("e2e4", evaluationCp = 30)
+            override fun close() {}
+        }
+        val vm = GameViewModel()
+        vm.attachEngine(fakeEngine)
+
+        // Player White requests hint
+        vm.computeHintDirectly()
+        // White plays e2-e4: find e2 in positionsWhite
+        val e2Index = vm.gameState.value.positionsWhite.indexOf(Pair(6, 4))
+        assertTrue(e2Index != -1, "e2 pawn should exist")
+        vm.playerMove(e2Index, Pair(4, 4))
+
+        val moves = vm.gameState.value.moveHistory
+        assertEquals(1, moves.size)
+        assertTrue(moves[0].hintUsed, "First move after hint should have hintUsed = true")
+
+        // In a new game without hint, hintUsed is false
+        val vm2 = GameViewModel()
+        vm2.attachEngine(fakeEngine)
+        val e2Index2 = vm2.gameState.value.positionsWhite.indexOf(Pair(6, 4))
+        vm2.playerMove(e2Index2, Pair(4, 4))
+        val moves2 = vm2.gameState.value.moveHistory
+        assertEquals(1, moves2.size)
+        assertFalse(moves2[0].hintUsed, "Move without hint should have hintUsed = false")
+    }
 }

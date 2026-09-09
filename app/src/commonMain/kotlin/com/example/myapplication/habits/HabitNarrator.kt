@@ -23,12 +23,17 @@ object HabitNarrator {
     )
 
     fun headline(summary: HabitSummary): String {
+        if (summary.category == HabitCategory.BEHAVIORAL || summary.motif == HabitAggregator.MOTIF_EXCESSIVE_HINTS) {
+            return "You relied on hints in ${summary.gamesAffected} of your last ${summary.gamesConsidered} games."
+        }
         val verb = summary.motif?.let { MOTIF_PHRASES[it] } ?: "given back winning chances"
         return "You've $verb in ${summary.gamesAffected} of your last ${summary.gamesConsidered} games."
     }
 
-    fun explanation(summary: HabitSummary): String = when (summary.motif) {
-        MotifDetector.HANGS_PIECE ->
+    fun explanation(summary: HabitSummary): String = when {
+        summary.category == HabitCategory.BEHAVIORAL || summary.motif == HabitAggregator.MOTIF_EXCESSIVE_HINTS ->
+            "Try calculating candidate moves and defenses on your own first — relying on the engine in critical moments prevents building calculation stamina:"
+        summary.motif == MotifDetector.HANGS_PIECE ->
             "A piece was left undefended and lost for nothing — here's where it happened:"
         else ->
             "These moves gave back significant winning chances, without one specific tactic behind all of them:"
@@ -44,6 +49,9 @@ object HabitNarrator {
         val moveNumber = (occurrence.plyNumber - 1) / 2 + 1
         val isBlackMove = (occurrence.plyNumber - 1) % 2 == 1
         val moveLabel = if (isBlackMove) "$moveNumber...${occurrence.san}" else "$moveNumber.${occurrence.san}"
+        if (occurrence.isHint) {
+            return "In $recency, $moveLabel (hint used)."
+        }
         val better = occurrence.bestMoveSan?.let { " — $it kept the position level" } ?: ""
         return "In $recency, $moveLabel$better."
     }
