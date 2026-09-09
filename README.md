@@ -1,7 +1,7 @@
 # game
 
-Compose Multiplatform chess app with full support for all standard chess rules, a 3D view mode, and
-five [AI coaching surfaces](#ai-features) (three on-device, two cloud), targeting:
+Compose Multiplatform chess app with full support for all standard chess rules, a 3D view mode,
+cross-game habit analysis, and five [AI coaching surfaces](#ai-features) (three on-device, two cloud), targeting:
 
 - Android (minSdk 26)
 - Desktop (JVM): Linux and macOS
@@ -140,10 +140,11 @@ graph TD
   `motifs`), computed by `MoveAssessor` + `MotifDetector` in `:chess-core` and persisted on
   `MoveRecord`. This is what grounds the coach and the game summary: **code detects, the model only
   narrates.** `GameHistoryBackfiller` fills assessments in for games saved before the feature
-  existed. Two caveats worth knowing: the classification thresholds (10 / 30 / 60 / 100 / 300
-  centipawns) are calibrated to *Stockfish's* evaluation scale, so swapping engines invalidates
-  stored assessments; and the whole record depends on the engine, so assessments are absent when no
-  engine is attached.
+  existed, respecting `SavedGame.playerSide` to evaluate only the human player's moves, with an
+  evaluation fallback that normalizes to White's perspective without double negation. Two caveats
+  worth knowing: the classification thresholds (10 / 30 / 60 / 100 / 300 centipawns) are calibrated
+  to *Stockfish's* evaluation scale, so swapping engines invalidates stored assessments; and the whole
+  record depends on the engine, so assessments are absent when no engine is attached.
 - **Hint:** A **Hint** button asks the attached engine for the best move in the current position and
   shows it in SAN ("Hint: Try Nf3"). No LLM, no network, no tokens. Two deliberate behaviours: the
   button is **hidden when no engine is attached** (the CPU fallback picks a capture-preferring
@@ -151,8 +152,15 @@ graph TD
   `EngineDifficulty.HARD` regardless of the opponent's difficulty setting, so a hint on Easy doesn't
   teach a deliberately weakened move. It is disabled on the opponent's turn and during animation,
   and clears on the next move.
+- **Cross-Game Habits (B6 / RAG-5):** Aggregates the player's assessed mistakes and blunders
+  across recent saved games in `GameHistoryRepository`, grouping by recurring costly tactical motifs
+  (`hangs-piece`) with a general lost-winning-chances rate fallback when no single motif recurs
+  enough (requiring repetition across multiple games, not multiple blunders in a single bad game).
+  Re-projects existing `MoveAssessment` records into practice positions (`fenBefore` plus the
+  engine's `bestMoveSan` alternative) with deterministic narration (`HabitNarrator`). Requires no
+  model or network calls on any platform. Accessible via the **Habits** screen and gated behind Pro.
 - **Engine Difficulty:** A persisted Easy / Medium / Hard / Max setting (in **Settings**) weakens or strengthens Stockfish play via the UCI `Skill Level` option and a per-move think-time budget. Applies to the Stockfish engine on every platform.
-- **Settings & Navigation:** A minimal multiplatform navigation host (`AppRoot`) switches between the game, **History**, **Settings**, **Rules**, **Chat**, and the **paywall** screens. Settings holds four persisted controls: the 3D-board toggle (default on), the engine-difficulty selector, the AI Move Coach toggle (default on), and the **player side** selector — you can play as Black, in which case the engine opens.
+- **Settings & Navigation:** A minimal multiplatform navigation host (`AppRoot`) switches between the game, **History**, **Habits**, **Settings**, **Rules**, **Chat**, and the **paywall** screens. Settings holds four persisted controls: the 3D-board toggle (default on), the engine-difficulty selector, the AI Move Coach toggle (default on), and the **player side** selector — you can play as Black, in which case the engine opens.
 
 ### Board rendering, engines & verification
 
@@ -672,24 +680,27 @@ paywall renders on every target and its layout is checkable at phone, desktop an
 omits the argument neither configure a billing SDK nor make a network call. It is not
 interchangeable with `NoOpEntitlements`, whose `purchase()` unlocks Pro on the spot.
 
-**What's gated.** `ProGate` wraps Game Summary and Opening Explainer in `GameScreen`; the Rules and
-Chat screens own their own `SubScreenScaffold`, so `AppRoot` branches on `isProUnlocked()` and drops
-a bare `ProUpsellCard` into its own scaffold instead of nesting a gate; `MoveCoachManager.proUnlocked`
-gives free users the deterministic coach line as a finished answer rather than an upsell mid-game.
-A gate also takes an `available` flag, and when it is false **nothing renders — not even the
-upsell**: a build with no coach orchestrator, no `coach.baseUrl`, or no rules answerer must not sell
-a feature that would stay dead after payment. Note that `isProUnlocked()` treats a null
-`LocalEntitlements` as unrestricted (right for previews), so **no Compose UI test can catch a
-paywall regression** — that surface is hand-tested. `EntitlementsTest` covers the parts that are
-unit-testable: the locked defaults, the storeless unlock, and its persistence round-trip.
+**What's gated.** `ProGate` wraps Game Summary and Opening Explainer in `GameScreen`; the Habits,
+Rules, and Chat screens own their own `SubScreenScaffold`, so `AppRoot` branches on `isProUnlocked()`
+and drops a bare `ProUpsellCard` into its own scaffold instead of nesting a gate;
+`MoveCoachManager.proUnlocked` gives free users the deterministic coach line as a finished answer
+rather than an upsell mid-game. A gate also takes an `available` flag, and when it is false
+**nothing renders — not even the upsell**: a build with no coach orchestrator, no `coach.baseUrl`, no
+rules answerer, or no game history (for Habits) must not sell a feature that would stay dead after
+payment. Note that `isProUnlocked()` treats a null `LocalEntitlements` as unrestricted (right for
+previews), so **no Compose UI test can catch a paywall regression** — that surface is hand-tested.
+`EntitlementsTest` covers the parts that are unit-testable: the locked defaults, the storeless unlock,
+and its persistence round-trip.
 
 **The paywall** is `PaywallScreen`, reached as `Screen.PAYWALL` from any upsell card's *See Pro*
-button. It lists the Pro surfaces, renders one selectable row per `ProPlan` (pre-selecting
-`isBestValue`, else the first), and offers *Unlock Pro* plus *Restore purchases*. Three states are
-distinct on purpose: plans still loading, an **empty** plan list — "purchases aren't available on
-this device right now", covering a storeless target, a missing key and an empty offering — and Pro
-already active. It reads `LocalEntitlements` directly rather than through `isProUnlocked()`, which
-would report Pro as active in a preview.
+button. It dynamically lists the available Pro surfaces (Habits when `GameHistoryRepository` is
+present, Game Summary, Position Chat, Opening Explainer, Rules Q&A, and Move Coach when an
+orchestrator is attached), renders one selectable row per `ProPlan` (pre-selecting `isBestValue`, else
+the first), and offers *Unlock Pro* plus *Restore purchases*. Three states are distinct on purpose:
+plans still loading, an **empty** plan list — "purchases aren't available on this device right now",
+covering a storeless target, a missing key and an empty offering — and Pro already active. It reads
+`LocalEntitlements` directly rather than through `isProUnlocked()`, which would report Pro as active
+in a preview.
 
 The SDK dependency is `com.revenuecat.purchases:purchases-kmp-core`, which publishes Android and iOS
 variants only. It therefore lives in `:app`'s `storeMain` intermediate source set
@@ -777,7 +788,9 @@ git tag -a on-device-ai-v0.1.0 -m "Publish io.github.ber4444:onDeviceAi:0.1.0 + 
 git push origin on-device-ai-v0.1.0
 ```
 
-[Article with screenshots](https://medium.com/p/f6a983db0e45)
+- articles on the app: https://medium.com/@gabor.berenyi.california
+- app on google play: https://play.google.com/store/apps/details?id=io.github.ber4444.chess
+- [RevenueCat Shipaton 2026 entry](https://devpost.com/software/ai-chess-coach-3d)
 
 ## Plan inventory
 
@@ -786,15 +799,13 @@ git push origin on-device-ai-v0.1.0
 | Doc | Phases | Role |
 |---|---|---|
 | [`docs/plans/hybrid-inference-vendor-adoption-plan.md`](docs/plans/hybrid-inference-vendor-adoption-plan.md) | VA-1 … VA-8 | Vendor/runtime breadth: more platforms, more SDKs, telemetry, UI. |
-| [`docs/plans/on-device-coach-rag-unification.md`](docs/plans/on-device-coach-rag-unification.md) | RAG-1 … RAG-6 | Coaching *quality*: `MoveAssessment`, evaluative summary, chat re-scope, habits. |
+| [`docs/plans/on-device-coach-rag-unification.md`](docs/plans/on-device-coach-rag-unification.md) | RAG-1 … RAG-6 | Coaching *quality*: `MoveAssessment` (RAG-1), evaluative summary (RAG-2), coach headline grounding (RAG-3), counterfactuals/hints (RAG-4 partial), habit aggregation across games (RAG-5 landed in #136). |
 | [`docs/plans/on-device-ai-next-steps.md`](docs/plans/on-device-ai-next-steps.md) | — | **New in #138.** The three-step follow-on, written to be picked up cold: the Game Summary validator (done), turning AICore on for that surface (gated on a repeat run — zero invented tags is a hard gate, not a percentage), and the **Rules Q&A benchmark**, which is the one surface with a model live in production on both phones and the only one never measured. |
 
 ## TODO
 
 | # | Work | Owner doc | Gate / blocker |
 |---|---|---|---|
-| **Before the store release** | | | |
-| 5 | **Hand-verification backlog** — Stop mid-stream | §0.2a item C | Backs a claim already published. |
 | **After Sep 30** | | | |
 | 7 | **Task 2 — AICore on for Game Summary** | `on-device-ai-next-steps.md` | Repeat the 50-game run with the validator in place. **Zero invented `[move-N]` is a hard gate, not a percentage.** The iOS voice problem is a prompt fix, not a validator fix |
 | 8 | **Task 3 — benchmark Rules Q&A** | same, §3a–3e | The only surface with a model live in production on both phones and never measured. Decides whether the model turn earns its place at all. Includes 3e, the missing Android availability probe |
