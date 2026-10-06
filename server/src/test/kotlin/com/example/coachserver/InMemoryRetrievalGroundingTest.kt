@@ -21,6 +21,8 @@ import kotlin.test.assertTrue
  * vector tiers can contribute nothing and these assertions can only pass through the book tier.
  * That also means no ONNX model is needed on the test classpath.
  */
+// allDistinct/allEqual: Experimental stdlib, test sources only — see CLAUDE.md, "Build quirks".
+@OptIn(ExperimentalStdlibApi::class)
 class InMemoryRetrievalGroundingTest {
 
     @Test
@@ -105,9 +107,8 @@ class InMemoryRetrievalGroundingTest {
             (1..4).forEach { limit ->
                 val passages = repository.retrieve(RetrievalProbes.ZERO_VECTOR, limit, moves, null).passages
                 assertTrue(passages.size <= limit, "$moves at limit=$limit returned ${passages.size}")
-                assertEquals(
-                    passages.map { it.sourceId }.distinct().size,
-                    passages.size,
+                assertTrue(
+                    passages.allDistinctBy { it.sourceId },
                     "$moves at limit=$limit returned a duplicate passage",
                 )
             }

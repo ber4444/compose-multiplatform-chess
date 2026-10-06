@@ -14,6 +14,8 @@ import kotlin.test.assertTrue
  * with ~500 claims spread over 3,803 rows: every passage in an ECO opened with the same sentence,
  * and the composers quote the first sentence. These assertions are what "fixed" means.
  */
+// allDistinct/allEqual: Experimental stdlib, test sources only — see CLAUDE.md, "Build quirks".
+@OptIn(ExperimentalStdlibApi::class)
 class LineNarratorTest {
 
     @Test
@@ -113,7 +115,7 @@ class LineNarratorTest {
         val leadSentences = b20.map { it.passage.text.substringBefore('.').trim() }
 
         assertTrue(
-            leadSentences.toSet().size > 1,
+            !leadSentences.allEqual(),
             "All ${b20.size} B20 passages still lead with the same claim:\n${leadSentences.first()}",
         )
     }
@@ -127,7 +129,7 @@ class LineNarratorTest {
         val byEco = corpus.groupBy { it.eco }.filterValues { it.size >= 4 }
 
         val uniform = byEco.filterValues { group ->
-            group.map { it.passage.text.substringBefore('.') }.toSet().size == 1
+            group.map { it.passage.text.substringBefore('.') }.allEqual()
         }
 
         assertEquals(
