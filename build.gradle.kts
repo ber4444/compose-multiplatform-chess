@@ -92,7 +92,7 @@ allprojects {
                 // bcprov/bcpkix/bcutil move as a set — see the buildscript constraints' note on why
                 // raising one alone desyncs from AGP.
                 "org.bouncycastle" -> if (requested.name.endsWith("-jdk18on")) {
-                    useVersion("1.84")
+                    useVersion("1.85")
                     because("GHSA-c3fc-8qff-9hwx (bcprov LDAP injection) + GHSA-wg6q-6289-32hp (bcpkix)")
                 }
                 "org.apache.commons" -> if (requested.name == "commons-lang3") {
