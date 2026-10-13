@@ -6,7 +6,7 @@ buildscript {
     dependencies {
         // BOM imports rather than per-module constraints: both of these ship many modules that must
         // move together, and pinning one member against an older sibling is its own breakage.
-        classpath(platform("com.fasterxml.jackson:jackson-bom:2.21.5"))
+        classpath(platform("com.fasterxml.jackson:jackson-bom:2.21.7"))
         classpath(platform("io.opentelemetry:opentelemetry-bom:1.62.0"))
         constraints {
             // BouncyCastle moves as a set. bcprov sat at 1.80.2 because raising it alone would
@@ -108,6 +108,13 @@ allprojects {
                 // api and context ship as a matched pair from the same release; the group-wide
                 // rewrite is what keeps them aligned (a BOM can't be injected into a KGP-internal
                 // configuration). Matches the opentelemetry-bom the buildscripts import.
+                // Only :macrobenchmark resolves wire, via benchmark-traceprocessor 1.5.0's plain
+                // `requires 6.4.0` (no longer the `strictly` pin 1.4.x carried, so this can lift it).
+                // The overflow left by CVE-2026-45799's incomplete fix is patched from 6.4.5; 6.4.7 is the latest 6.4.x.
+                "com.squareup.wire" -> if (requested.name.startsWith("wire-runtime")) {
+                    useVersion("6.4.7")
+                    because("GHSA for ByteArrayProtoReader32 length overflow, fixed in 6.4.5")
+                }
                 "io.opentelemetry" -> {
                     useVersion("1.62.0")
                     because("GHSA-rcgg-9c38-7xpx, unbounded allocation in W3C baggage propagation")
