@@ -55,18 +55,6 @@ class MoveCoachManager(
      */
     private val recentOpeningFrames = ArrayDeque<String>(MAX_REMEMBERED_FRAMES)
 
-    /**
-     * Whether the model-phrased coach is unlocked (§0.4). Bridged from `Entitlements.isProUnlocked`
-     * by `AppRoot`, mirroring how `AppSettings.aiCoachEnabled` reaches `GameViewModel`.
-     *
-     * Defaults to `true` so every existing caller — desktop/wasm entry points, Compose UI tests,
-     * and `MoveCoachManagerTest` — keeps its current behaviour; only a real locked `Entitlements`
-     * flips it. When `false` the free tier still gets a **complete** coach line, built from the
-     * same `DeterministicCoach` text the orchestrator would fall back to; the model is simply never
-     * invoked, so a locked user costs no inference and sees no upsell mid-game.
-     */
-    @Volatile var proUnlocked: Boolean = true
-
     init {
         // Register the callback to automatically trigger the coach on engine moves.
         //
@@ -147,7 +135,7 @@ class MoveCoachManager(
      * that was just played.
      *
      * The request is built here rather than by the screen for the same reason [triggerCoach]'s is:
-     * `launchCoach` is private, the free-tier and cancellation rules live behind it, and two call
+     * `launchCoach` is private, the no-model and cancellation rules live behind it, and two call
      * sites (the 2D board and the 3D board) would otherwise assemble the same `MoveCoachRequest`
      * by hand and drift apart.
      *
@@ -188,16 +176,15 @@ class MoveCoachManager(
         lastRequest = request
         coachJob?.cancel()
 
-        // The verdict rides on every state this request produces, including the free-tier and
+        // The verdict rides on every state this request produces, including the deterministic and
         // fallback ones: the colour is a property of the *move*, not of which text path answered,
         // so a deterministic line about a blunder must still paint the board red.
         val tone = MoveClass.entries.firstOrNull { it.name == request.moveClassName }.toHighlightTone()
         // From/to, straight off the UCI, so the board tints the move whatever the sentence says.
         val squares = squaresOf(request.moveUci)
 
-        // Two ways to have no model, and both render the deterministic line as a *finished answer*
-        // rather than a Fallback: it is complete and correct, and labelling it a degraded state
-        // would be a lie about the product.
+        // No model renders the deterministic line as a *finished answer* rather than a Fallback: it
+        // is complete and correct, and labelling it a degraded state would be a lie about the product.
         //
         // **The orchestrator check moved down here, and that is the point.** It used to be the very
         // first line of this function, above everything, so a build that attaches no orchestrator at
@@ -206,15 +193,10 @@ class MoveCoachManager(
         // would have shipped a blank panel to every user. The deterministic coach must not need a
         // model orchestrator in order to be seen.
         //
-        // B11: the route still says Fallback either way, because no model wrote this text and the
-        // badge would otherwise credit one. The *reason* differs, and the distinction is load
-        // bearing for the log line and for FallbackPresentation: free tier means a model may well
-        // exist and be warm and the user simply hasn't unlocked it, while no orchestrator means
-        // there is no model on this platform at all.
-        if (orchestrator == null || !proUnlocked) {
-            // No-model outranks free-tier when both apply: telling a free user to unlock a model
-            // this platform does not have would be an upsell for something that does not exist.
-            val deterministicRoute = if (orchestrator == null) NO_MODEL_ROUTE else FREE_TIER_ROUTE
+        // B11: the route still says Fallback, because no model wrote this text and the badge would
+        // otherwise credit one; NoLocalModel is the reason the log line and FallbackPresentation see.
+        if (orchestrator == null) {
+            val deterministicRoute = NO_MODEL_ROUTE
             _coachUiState.value = MoveCoachUiState.Ready(
                 com.example.ondeviceai.MoveCoachExplanation(
                     headline = request.deterministicHeadline,
@@ -339,23 +321,15 @@ class MoveCoachManager(
         /** Keeps the per-move debug line to an identifying excerpt rather than the whole answer. */
         private const val LOG_EXCERPT_CHARS = 120
 
-        /** Provenance of the free tier's deterministic line: engine-derived, no model involved. */
-        private val FREE_TIER_ROUTE = com.example.ondeviceai.AiRoute.Fallback(
-            com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.Other(
-                "free tier: deterministic coach",
-            ),
-        )
-
         /**
          * Provenance when this build has no coach orchestrator at all — Android since the on-device
-         * models were measured and none beat the deterministic line. Distinct from
-         * [FREE_TIER_ROUTE]: the user has not been denied anything they could unlock.
+         * models were measured and none beat the deterministic line.
          */
         private val NO_MODEL_ROUTE = com.example.ondeviceai.AiRoute.Fallback(
             com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.NoLocalModel,
         )
 
-        /** Provenance of an Explain-mode answer: read off the board, on every tier. */
+        /** Provenance of an Explain-mode answer: read off the board, whatever model is attached. */
         private val SQUARE_INSIGHT_ROUTE = com.example.ondeviceai.AiRoute.Fallback(
             com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.Other(
                 "square insight: computed from the position",

@@ -75,7 +75,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
-import com.example.myapplication.monetization.ProGate
 import com.example.myapplication.ui.theme.BoardDarkSquare
 import com.example.myapplication.ui.theme.BoardLightSquare
 import com.example.myapplication.ui.theme.CaptureMarker
@@ -191,7 +190,6 @@ fun GameScreen(
     onOpenSettings: () -> Unit = {},
     onOpenRules: () -> Unit = {},
     onOpenChat: () -> Unit = {},
-    onOpenPaywall: (() -> Unit)? = null,
 ) {
     val gameState by viewModel.gameState.collectAsState()
     val animState by viewModel.animState.collectAsState()
@@ -219,7 +217,7 @@ fun GameScreen(
      * Parsed from the text the panel is displaying rather than from a field carried on the Ready
      * state: only a model-authored `Ready` ever populated that field, so the tint was dead on the
      * two paths that produce most of the lines a user actually sees — the deterministic fallback
-     * and the free tier — and on Explain mode, which usually lands on one of them.
+     * and the no-model coach line — and on Explain mode, which usually lands on one of them.
      */
     val coachHighlights = remember(coachState) {
         val tone = coachState.highlightTone
@@ -382,15 +380,7 @@ fun GameScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                     }
 
-                    ProGate(
-                        featureName = "Game Summary",
-                        pitch = "Get a coach's read on the whole game — the turning points and what to work on.",
-                        onOpenPaywall = onOpenPaywall,
-                        // Same Unavailable check that hides the button: with no orchestrator
-                        // attached the feature would not work after a purchase either, so the
-                        // upsell has to disappear alongside it.
-                        available = summaryState !is GameSummaryUiState.Unavailable,
-                    ) {
+                    if (summaryState !is GameSummaryUiState.Unavailable) {
                     when (summaryState) {
                         GameSummaryUiState.Unavailable -> Unit
                         is GameSummaryUiState.Hidden -> {
@@ -481,14 +471,8 @@ fun GameScreen(
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                ProGate(
-                    featureName = "Opening Explainer",
-                    pitch = "See what opening you played and the ideas behind it.",
-                    onOpenPaywall = onOpenPaywall,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    // No base URL → the panel can only ever show its offline sentence.
-                    available = cloudCoachConfigured,
-                ) {
+                // No base URL → the panel could only ever show its offline sentence, so hide it.
+                if (cloudCoachConfigured) {
                 OpeningExplainerPanel(
                     state = openingExplainerState,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),

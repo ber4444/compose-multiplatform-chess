@@ -9,7 +9,7 @@ import androidx.compose.ui.unit.sp
 /**
  * The full Material 3 ramp, rather than the template's three overridden styles.
  *
- * The app uses eleven of these roles across the paywall, the coach panel, the game-over popup and
+ * The app uses most of these roles across the coach panel, the game-over popup, settings and
  * the sub-screens; the eight the template left unset came from Material's defaults, so the ramp had
  * two different rhythms in it depending on which style a screen happened to reach for.
  *
@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.sp
  * bundled font would either miss a target's fallback chain or add a megabyte to the wasm bundle.
  * The character comes from weight and tracking instead — titles sit at Medium, display and headline
  * styles carry slightly negative tracking so large text doesn't read as loose, and label styles
- * carry positive tracking so the small all-caps ones ("PRO ADDS", "BEST VALUE") stay legible.
+ * carry positive tracking so small all-caps labels stay legible.
  */
 val Typography = Typography(
     displayLarge = TextStyle(

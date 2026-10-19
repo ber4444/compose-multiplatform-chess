@@ -17,7 +17,7 @@ import com.example.myapplication.getAllLegalMoves
  * Deterministic strategic read on one square, for Explain mode's tap-a-square query.
  *
  * Same contract as [DeterministicCoach]: code detects, the model only narrates. The text this
- * produces is both the free-tier/fallback answer *and* the thing the model is asked to rewrite, so
+ * produces is both the deterministic/fallback answer *and* the thing the model is asked to rewrite, so
  * whatever it fails to notice is invisible downstream — an explanation of "Empty square on f3" can
  * only ever be rewritten into a fluent way of saying nothing.
  */

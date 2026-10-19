@@ -158,7 +158,7 @@ class GameSummaryManager {
     private companion object {
         /**
          * Provenance of a composed summary: the app wrote it, from the engine's own assessments.
-         * `NoLocalModel` rather than a free-tier reason — the platform has no model to unlock.
+         * `NoLocalModel`, because no model was involved in writing it.
          */
         private val DETERMINISTIC_ROUTE = com.example.ondeviceai.AiRoute.Fallback(
             com.example.ondeviceai.AiRoutePolicyDecider.FallbackReason.NoLocalModel,

@@ -18,9 +18,6 @@ import com.example.myapplication.share.androidPgnSharer
 import android.content.pm.ApplicationInfo
 import com.example.myapplication.movecoach.MoveCoachManager
 import com.example.myapplication.movecoach.GameSummaryManager
-import com.example.myapplication.monetization.RevenueCatEntitlements
-import com.example.myapplication.monetization.UnconfiguredEntitlements
-import com.example.myapplication.monetization.revenueCatApiKey
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
 import com.example.myapplication.bench.runAndroidBench
@@ -86,17 +83,6 @@ class MainActivity : ComponentActivity() {
         // PgnSharer needs the host Activity (for ACTION_SEND), so it's built here, not in the holder.
         val pgnSharer = androidPgnSharer(this)
 
-        // Injected like pgnSharer/board3D. Null when no key is configured (see
-        // generateRevenueCatConfig in app/build.gradle.kts) — AppRoot's UnconfiguredEntitlements
-        // default then applies, which is locked.
-        val entitlements = RevenueCatEntitlements.createOrNull(
-            // isDebug also picks the key: a debug build uses the RevenueCat Test Store key when one
-            // is configured, so a dev tap never buys a real Play product.
-            apiKey = revenueCatApiKey(debug = isDebug),
-            debugLogging = isDebug,
-        )
-        entitlements?.let { CoroutineScope(Dispatchers.IO).launch { it.refresh() } }
-
         setContent {
             AppRoot(
                 viewModel = holder.gameViewModel,
@@ -106,12 +92,6 @@ class MainActivity : ComponentActivity() {
                 pgnSharer = pgnSharer,
                 moveCoachManager = holder.moveCoachManager,
                 gameSummaryManager = holder.gameSummaryManager,
-                entitlements = entitlements
-                    // Stays UnconfiguredEntitlements even in debug: the dev unlock is
-                    // forceProUnlocked below, which covers all five Pro surfaces *and* leaves
-                    // PaywallScreen — which reads LocalEntitlements directly — inspectable.
-                    ?: androidx.compose.runtime.remember { UnconfiguredEntitlements() },
-                forceProUnlocked = isDebug,
                 isDebug = isDebug,
             )
         }

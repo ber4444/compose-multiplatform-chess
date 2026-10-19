@@ -58,20 +58,17 @@ class MoveCoachToneTest {
 
     private lateinit var vm: GameViewModel
 
-    private fun manager(result: MoveCoachResult, proUnlocked: Boolean = true): MoveCoachManager {
+    private fun manager(result: MoveCoachResult): MoveCoachManager {
         vm = GameViewModel()
         vm.aiCoachEnabled = true
-        return MoveCoachManager(vm).apply {
-            this.proUnlocked = proUnlocked
-            attachCoachOrchestrator(orchestrator(result))
-        }
+        return MoveCoachManager(vm).apply { attachCoachOrchestrator(orchestrator(result)) }
     }
 
     /** A manager with no orchestrator at all — Android, and any build with no on-device model. */
     private fun managerWithoutOrchestrator(): MoveCoachManager {
         vm = GameViewModel()
         vm.aiCoachEnabled = true
-        return MoveCoachManager(vm).apply { proUnlocked = true }
+        return MoveCoachManager(vm)
     }
 
     /** triggerCoach is private; it fires through the VM callback the manager registers in `init`. */
@@ -95,19 +92,6 @@ class MoveCoachToneTest {
         vm.close()
     }
 
-    @Test
-    fun `a blundered move is red on the free tier`() = runTest {
-        val manager = manager(
-            MoveCoachResult.FellBack("x", AiRoutePolicyDecider.FallbackReason.NoLocalModel),
-            proUnlocked = false,
-        )
-        coach(blunder())
-        waitForToned(manager)
-
-        assertEquals(HighlightTone.BAD, manager.coachUiState.value.highlightTone)
-        manager.close()
-        vm.close()
-    }
 
     @Test
     fun `the move's own squares reach the state rather than whatever the prose named`() =
@@ -190,10 +174,9 @@ class MoveCoachToneTest {
     }
 
     @Test
-    fun `no orchestrator is reported as no local model rather than the free tier`() = runTest {
-        // The distinction reaches the log line and FallbackPresentation. Free tier means a model may
-        // exist and the user simply hasn't unlocked it; no orchestrator means this platform has none
-        // to unlock, and an upsell for it would be selling something that does not exist.
+    fun `no orchestrator is reported as no local model`() = runTest {
+        // The reason reaches the log line and FallbackPresentation, which must see that this
+        // platform has no model at all rather than a generic fallback.
         val manager = managerWithoutOrchestrator()
         coach(blunder())
         waitForToned(manager)
