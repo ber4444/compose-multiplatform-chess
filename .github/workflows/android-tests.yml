@@ -1,10 +1,13 @@
 name: Multiplatform CI
 
 on:
+  # Every push to main and every PR against it; the schedule below adds the nightly perft run.
   push:
-    branches: [ main ]
+    branches:
+      - main
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
   schedule:
     # 07:00 UTC daily — runs the opt-in depth-5/6 perft gate (PerftDeepTest) plus the full
     # Stockfish-backed Oracle 2 that's too slow / off-path for the per-commit gate.
@@ -17,27 +20,24 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Android: assemble every target, then run the Compose UI tests on an API 35 emulator.
   instrumented-tests:
     name: Build + Android tests (API ${{ matrix.api-level }}, Device ${{ matrix.profile }} / ${{ matrix.target }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     strategy:
       matrix:
         include:
           - api-level: 35
             profile: pixel_7
             target: default
-
     steps:
-      - name: Checkout code
+      - name: Check out the repository
         uses: actions/checkout@v7
 
       - name: Set up JDK
         uses: actions/setup-java@v5
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+        with: { distribution: temurin, java-version: '17' }
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -47,43 +47,29 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Install latest command-line tools
+      - name: SDK tools, emulator and system image
+        # Newest command-line tools first, then bring everything else current, then the emulator
+        # and the x86_64 image for the matrix's API level and target.
         run: |
           sdkmanager --install "cmdline-tools;latest"
           yes | sdkmanager --update
+          sdkmanager "emulator" "system-images;android-${{ matrix.api-level }};${{ matrix.target }};x86_64"
 
-      - name: Update SDK tools
-        run: yes | sdkmanager --update
-
-      - name: Install emulator + system image
-        run: sdkmanager "emulator" "system-images;android-${{ matrix.api-level }};${{ matrix.target }};x86_64"
-
-      - name: Enable KVM group perms
+      - name: Let the runner user open /dev/kvm
+        # Hardware acceleration for the emulator; the udev rule is the one android-emulator-runner documents.
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Clean AVD state
+      - name: Start from an empty AVD directory
         run: rm -rf ~/.android/avd/*
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
-    # - name: AVD cache
-    #   uses: actions/cache@v6
-    #   id: avd-cache
-    #   with:
-    #     path: |
-    #       ~/.android/avd/*
-    #       ~/.android/adb*
-    #     key: avd-${{ matrix.api-level }}
-
       - name: Show testing environment
-        run: |
-          echo "Running on API level: ${{ matrix.api-level }}"
-          echo "Running on device: ${{ matrix.profile }}"
-          echo "Building Android, Linux desktop, and Wasm targets"
+        run: echo "API ${{ matrix.api-level }} on ${{ matrix.profile }} — building Android, Linux desktop, and Wasm targets"
 
       - name: Install desktop Filament native build prerequisites + Stockfish
         # stockfish is installed here (not just in the nightly) so the per-commit :chess-core:check
@@ -120,7 +106,7 @@ jobs:
             echo "### Perft Stockfish localizer: ran" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Run instrumentation tests
+      - name: Run the device tests on an emulator
         uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: ${{ matrix.api-level }}
@@ -130,17 +116,10 @@ jobs:
           disable-animations: true
           force-avd-creation: true
           emulator-boot-timeout: 600  # Increase boot timeout to 10 minutes
-          emulator-options: >
-            -no-snapshot-save
-            -noaudio
-            -no-boot-anim
-            -gpu swiftshader_indirect
-            -camera-back none
-            -no-window
-            -grpc 8554
-            -grpc-use-jwt
-            -memory 2048
-            -cores 2
+          # Headless, software GPU, no audio/camera, nothing persisted. gRPC (with JWT auth) is on
+          # because espresso-device drives rotation through the emulator-control API.
+          emulator-options: -no-snapshot-save -noaudio -no-boot-anim -gpu swiftshader_indirect -camera-back none -no-window -grpc 8554 -grpc-use-jwt -memory 2048 -cores 2
+          # The allowlist line opens that gRPC API to the test process.
           script: |
             echo "grpc.allowlist=*" >> ~/.android/avd/test.avd/config.ini
             ./gradlew :app:connectedAndroidDeviceTest
@@ -148,7 +127,7 @@ jobs:
       - name: Upload test results
         uses: actions/upload-artifact@v7
         with:
-          name: test-results-api-${{ matrix.api-level }}-device-${{ matrix.profile }}
+          name: android-device-test-results-api${{ matrix.api-level }}-${{ matrix.profile }}
           path: |
             app/build/reports/androidTests/connected/
             app/build/outputs/androidTest-results/connected/
@@ -162,14 +141,12 @@ jobs:
     timeout-minutes: 40
 
     steps:
-      - name: Checkout code
+      - name: Check out the repository
         uses: actions/checkout@v7
 
       - name: Set up JDK
         uses: actions/setup-java@v5
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+        with: { distribution: temurin, java-version: '17' }
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
@@ -259,14 +236,12 @@ jobs:
     timeout-minutes: 40
 
     steps:
-      - name: Checkout code
+      - name: Check out the repository
         uses: actions/checkout@v7
 
       - name: Set up JDK
         uses: actions/setup-java@v5
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+        with: { distribution: temurin, java-version: '17' }
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
@@ -385,14 +360,12 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout code
+      - name: Check out the repository
         uses: actions/checkout@v5.0.0
 
       - name: Set up JDK
         uses: actions/setup-java@v5.0.0
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+        with: { distribution: temurin, java-version: '17' }
 
       # PerftDeepTest gates on -Dperft.deep=true (see chess-core/build.gradle.kts systemProperty
       # forwarding). Without the flag the deep tests assume-skip; the broad --tests filter

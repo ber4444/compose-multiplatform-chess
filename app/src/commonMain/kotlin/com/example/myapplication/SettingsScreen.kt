@@ -58,6 +58,8 @@ fun SettingsScreen(
      * Null hides it, which is what previews and Compose UI tests get.
      */
     onOpenPaywall: (() -> Unit)? = null,
+    /** Opens the open-source licences screen. Null hides the row (previews, Compose UI tests). */
+    onOpenLicenses: (() -> Unit)? = null,
 ) {
     val settings = LocalAppSettings.current
         ?: error("SettingsScreen requires AppSettings. Render it under AppRoot.")
@@ -157,6 +159,16 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth().testTag("settings_upgrade"),
             ) {
                 Text(if (unlocked) "Chess Coach Pro — active" else "Upgrade to Chess Coach Pro")
+            }
+        }
+
+        if (onOpenLicenses != null) {
+            HorizontalDivider(modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
+            TextButton(
+                onClick = onOpenLicenses,
+                modifier = Modifier.fillMaxWidth().testTag("settings_licenses"),
+            ) {
+                Text("Open-source licences")
             }
         }
     }

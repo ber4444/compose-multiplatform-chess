@@ -719,6 +719,17 @@ falls back to the locked default — a fresh clone builds and runs, it just can'
 Pro surfaces show their upsell. What Pro actually adds is per-surface; see the tier columns in
 [AI features](#ai-features).
 
+## Licence
+
+The app is free software under the **GNU General Public License, version 3 or later** —
+[COPYING.md](COPYING.md) states the terms and lists the third-party files that keep their own
+licences (Stockfish, the piece artwork, the openings and rules corpora, the Gradle wrapper), and
+[LICENSE](LICENSE) holds the full text. Store builds carry the same notice in-app under
+**Settings → Open-source licences** (`LicensesScreen`), together with the GPL text and a link to this
+repository, so every recipient of a binary gets the licence and a route to the source. Stockfish is
+GPL software from its own authors and is shipped unmodified on Android; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## Benchmarking
 
 To measure performance metrics of the on-device AI integration (init times, tokens/sec, memory), the project includes a dedicated benchmarking harness for both Android and iOS targets. 

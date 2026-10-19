@@ -298,6 +298,30 @@ dependency — it's the artifact the React Native repo compiles against.
   difficulty, the coach (deterministic on every platform), PGN export and history; Pro adds
   Game Summary, Position Chat, Opening Explainer and Rules Q&A.
 
+## Licensing
+
+GPL-3.0-or-later. [COPYING.md](COPYING.md) is the Lichess-style statement (copyright, terms,
+corresponding-source URL, a per-file exceptions table for third-party code and assets, external
+services); [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) holds the attribution detail. Store
+builds carry the same information in-app: **Settings → Open-source licences** (`LicensesScreen`,
+reached as `Screen.LICENSES`) shows the GPL notice, a link to the repo, the third-party list
+(`thirdPartyNotices`), and the full GPL text from `composeResources/files/licenses/GPL-3.0.txt` — a
+byte-for-byte copy of the root `LICENSE`, which is also Stockfish's licence text.
+
+Three things to keep straight:
+
+- **The maintainer is the sole copyright holder of the project's own code**, on purpose. Code from
+  earlier outside contributors was rewritten (Oct 2026) so that the licence — e.g. a GPLv3 §7
+  App Store permission — can be changed without collecting anyone's consent. Accepting outside
+  code again reintroduces that problem unless contributions come with an agreement.
+- **Stockfish is not covered by any of that.** It is GPL software from its own authors, shipped on
+  Android as the official `sf_17` executables and on iOS via ChessKitEngine; App Store / TestFlight
+  distribution relies on the same tolerance Lichess's mobile app does, plus the in-app licence
+  text and source pointer the Stockfish README asks for.
+- **Keep `LicensesScreen.thirdPartyNotices`, COPYING.md's exceptions table and
+  THIRD_PARTY_NOTICES.md in step.** Adding a vendored asset or engine means adding it to all three;
+  the in-app list is what a store user actually sees.
+
 ## Cloud retrieval
 
 **The corpus lives in the image, not in Postgres.** `BuildCorpusIndexMain` embeds the checked-in

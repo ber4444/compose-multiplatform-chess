@@ -67,7 +67,7 @@ import com.example.myapplication.monetization.isProUnlocked
  * Replaces the per-platform `MyApplicationTheme { ChessApp(...) }` duplication. New screens
  * (History, Settings) are added here as the lifecycle/persistence work lands.
  */
-enum class Screen { GAME, HISTORY, SETTINGS, RULES, CHAT, PAYWALL }
+enum class Screen { GAME, HISTORY, SETTINGS, RULES, CHAT, PAYWALL, LICENSES }
 
 val LocalMoveCoachManager = staticCompositionLocalOf<MoveCoachManager?> { null }
 val LocalGameSummaryManager = staticCompositionLocalOf<GameSummaryManager?> { null }
@@ -133,7 +133,10 @@ fun AppRoot(
     ) {
         MyApplicationTheme(darkTheme = isSystemInDarkTheme()) {
             var screen by rememberSaveable { mutableStateOf(Screen.GAME) }
-            BackHandler(enabled = screen != Screen.GAME) { screen = Screen.GAME }
+            // Licences is the one screen nested under another (Settings), so back returns there.
+            BackHandler(enabled = screen != Screen.GAME) {
+                screen = if (screen == Screen.LICENSES) Screen.SETTINGS else Screen.GAME
+            }
 
             // Bridge the persisted engine-difficulty setting → the VM (issue #39 Phase 4). The VM
             // seeds its initial value at construction; this forwards subsequent changes from
@@ -186,7 +189,9 @@ fun AppRoot(
                     onBack = { screen = Screen.GAME },
                     board3D = board3D,
                     onOpenPaywall = { screen = Screen.PAYWALL },
+                    onOpenLicenses = { screen = Screen.LICENSES },
                 )
+                Screen.LICENSES -> LicensesScreen(onBack = { screen = Screen.SETTINGS })
                 // Branching here rather than wrapping in ProGate: RulesQaScreen supplies its own
                 // SubScreenScaffold, so nesting would render two title bars when unlocked.
                 //

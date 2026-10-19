@@ -303,46 +303,34 @@ fun GameScreen(
             // between games, or hideWindow flips). Keyed on the result token so a genuinely new
             // finished game can be saved even if the previous popup wasn't dismissed.
             var gameSaved by remember(gameState.winState, gameState.fullmoveNumber) { mutableStateOf(false) }
+            // true = start over; false = just close the popup and keep looking at the final position.
             val resetGame: (Boolean) -> Unit = { reset: Boolean ->
-                if (reset) {
+                if (!reset) viewModel.hideWindow() else {
                     viewModel.resetGame(show3D = board3DEnabled)
                     moveCoachManager?.hideWindow()
-                } else {
-                    viewModel.hideWindow()
                 }
             }
-            PopupWindow(resetGame) {
+            PopupWindow(onDismiss = resetGame) {
                 val (winIcon, gameEndMessageFormat) = when (gameState.winState) {
                     WinState.NONE -> error("Invalid Game State")
                     WinState.WHITE -> Res.drawable.king_light to Res.string.game_end_message_winner
                     WinState.BLACK -> Res.drawable.king_dark to Res.string.game_end_message_winner
                     WinState.DRAW, WinState.STALEMATE -> Res.drawable.no_winner to Res.string.game_end_message_no_winner
                 }
-                Icon(
-                    painter = painterResource(winIcon),
-                    tint = Color.Unspecified,
-                    modifier = Modifier.size(50.dp),
-                    contentDescription = null
-                )
+                // Decorative: the result line below says the same thing in words.
+                Icon(painterResource(winIcon), contentDescription = null, Modifier.size(50.dp), tint = Color.Unspecified)
                 Text(
-                    modifier = Modifier.testTag("winnerText"),
                     text = stringResource(gameEndMessageFormat, gameState.winState),
+                    modifier = Modifier.testTag("winnerText"),
                     color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.titleLarge
                 )
 
                 Row(horizontalArrangement = Arrangement.SpaceBetween) {
-                    Button(
-                        modifier = Modifier.padding(5.dp),
-                        onClick = { resetGame(true) }
-                    ) {
-                        Text(stringResource(Res.string.play_again_button))
-                    }
-                    Button(
-                        modifier = Modifier.padding(5.dp),
-                        onClick = { resetGame(false) }
-                    ) {
-                        Text(stringResource(Res.string.cancel_button))
+                    for ((label, startOver) in listOf(Res.string.play_again_button to true, Res.string.cancel_button to false)) {
+                        Button(onClick = { resetGame(startOver) }, modifier = Modifier.padding(5.dp)) {
+                            Text(stringResource(label))
+                        }
                     }
                 }
 
@@ -587,13 +575,8 @@ fun GameScreen(
                     val selectedPieceIndex = ownPositions.indexOf(gameState.selectedSquare)
                     val legalMoves = if (selectedPieceIndex != -1) {
                         getLegalMovesForPiece(
-                            pieceIndex = selectedPieceIndex,
-                            enemyPieces = enemyPieces,
-                            enemyPositions = enemyPositions,
-                            allyPositions = ownPositions,
-                            allyPieces = ownPieces,
-                            castlingRights = gameState.castlingRights,
-                            enPassantTarget = gameState.enPassantTarget,
+                            selectedPieceIndex, enemyPositions, enemyPieces, ownPositions, ownPieces,
+                            gameState.castlingRights, gameState.enPassantTarget,
                         )
                     } else emptyList()
                     when {
@@ -995,9 +978,13 @@ fun Board(
     highlightedSquares: List<HighlightedSquare> = emptyList(),
     onSquareTapped: ((Pair<Int, Int>) -> Unit)? = null,
 ) {
+    // Size of the square the moving piece starts on, which is what the animation steps by.
     val squareSizePx = remember { mutableStateOf(IntSize.Zero) }
+    // Any square's size, captured once; a fallback for the castling rook, whose start square may
+    // not have been measured.
     val squareAvgSizePx = remember { mutableStateOf(IntSize.Zero) }
-    val selectedPossibleMoves = remember { mutableStateOf(emptyList<Pair<Int, Int>>()) }
+    // Legal destinations of the selected piece; empty when nothing (or a stuck piece) is selected.
+    val selectedPossibleMoves = remember { mutableStateOf<List<Pair<Int, Int>>>(emptyList()) }
     // A set, not the list: this is tested once per square, 64 times per recomposition.
     // Last tone wins on a collision, which only happens when a hint and a coach line name the same
     // square; the coach's verdict is the more specific statement, and it is appended second.
@@ -1015,24 +1002,20 @@ fun Board(
         val pieceIndex = ownPositions.indexOf(gameState.selectedSquare)
         if (pieceIndex != -1) {
             selectedPossibleMoves.value = getLegalMovesForPiece(
-                pieceIndex = pieceIndex,
-                enemyPieces = enemyPieces,
-                enemyPositions = enemyPositions,
-                allyPositions = ownPositions,
-                allyPieces = ownPieces,
-                castlingRights = gameState.castlingRights,
-                enPassantTarget = gameState.enPassantTarget
+                pieceIndex, enemyPositions, enemyPieces, ownPositions, ownPieces,
+                gameState.castlingRights, gameState.enPassantTarget,
             )
         }
     }
 
     val boxModifier = Modifier
         .then(if (boardMaxSize != Dp.Unspecified) Modifier.size(boardMaxSize) else Modifier.fillMaxWidth())
+        // Wider windows get a margin around the board; a phone in portrait uses every pixel.
         .padding(
             when (windowSize) {
-                WindowWidthSizeClass.Expanded -> 18.dp
-                WindowWidthSizeClass.Medium -> 12.dp
                 WindowWidthSizeClass.Compact -> 0.dp
+                WindowWidthSizeClass.Medium -> 12.dp
+                WindowWidthSizeClass.Expanded -> 18.dp
             }
         )
 
@@ -1040,33 +1023,23 @@ fun Board(
         modifier = boxModifier
     ) {
         Column(modifier = Modifier.testTag("chess_board")) {
-            repeat(8) { row ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    repeat(8) { column ->
+            for (row in 0 until BOARD_SIZE) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    for (column in 0 until BOARD_SIZE) {
                         // The grid index is a *view* position; `currentSquare` is the board square
                         // it shows. Playing Black rotates the board 180°, which is what "flip the
                         // board" means — and because the rotation preserves (row + col) parity, the
                         // light/dark pattern comes out right without a second case.
                         val currentSquare = viewToBoard(row, column, playingWhite)
 
+                        val targets = selectedPossibleMoves.value
                         val squareType = if (currentSquare == gameState.selectedSquare) {
-                            if (selectedPossibleMoves.value.isEmpty()) {
-                                SquareType.CannotMove
-                            } else {
-                                SquareType.CanMove
-                            }
+                            // The selected square says whether the piece on it can go anywhere.
+                            if (targets.isEmpty()) SquareType.CannotMove else SquareType.CanMove
                         } else {
                             when {
-                                currentSquare in selectedPossibleMoves.value -> {
-                                    if (currentSquare in enemyPositions) {
-                                        SquareType.PossibleCapture
-                                    } else {
-                                        SquareType.PossibleMove
-                                    }
-                                }
+                                currentSquare in targets ->
+                                    if (currentSquare in enemyPositions) SquareType.PossibleCapture else SquareType.PossibleMove
                                 // These two stay literally white/black: they pick which drawable is
                                 // rendered and they name the test tag. Whether a square is *yours*
                                 // is `currentSquare in ownPositions`, asked separately below.
@@ -1082,13 +1055,9 @@ fun Board(
                             isOwnPiece
 
                         Square(
-                            modifier = Modifier.onGloballyPositioned {
-                                if (animState.animatePositionStart == currentSquare) {
-                                    squareSizePx.value = it.size
-                                }
-                                if (squareAvgSizePx.value == IntSize.Zero) {
-                                    squareAvgSizePx.value = it.size
-                                }
+                            modifier = Modifier.onGloballyPositioned { coords ->
+                                if (squareAvgSizePx.value == IntSize.Zero) squareAvgSizePx.value = coords.size
+                                if (currentSquare == animState.animatePositionStart) squareSizePx.value = coords.size
                             },
                             isDarkSquare = (currentSquare.first + currentSquare.second) % 2 == 1,
                             squareType = squareType,
@@ -1106,10 +1075,10 @@ fun Board(
                                     onSquareTapped(currentSquare)
                                 } else when (currentSquareType) {
                                     SquareType.PossibleMove, SquareType.PossibleCapture -> {
-                                        val moveIndex = gameState.selectedSquare
-                                        updateSelected(INVALID_POSITION)
+                                        // Resolve the mover before the selection is cleared.
+                                        val idx = ownPositions.indexOf(gameState.selectedSquare)
                                         selectedPossibleMoves.value = emptyList()
-                                        val idx = ownPositions.indexOf(moveIndex)
+                                        updateSelected(INVALID_POSITION)
                                         if (idx != -1) {
                                             playerMove(idx, currentSquare)
                                         }
@@ -1190,63 +1159,60 @@ fun Piece(pieceModel: Piece) {
     )
 }
 
+/**
+ * A piece gliding from [from] to [to], both in *view* grid cells. Position is animated in cell
+ * units and scaled by [squareSizePx] at layout time, so a resize mid-flight cannot strand it.
+ * [animationEnd] fires once both axes have arrived.
+ */
 @Composable
-fun AnimatedChessPiece(
-    piece: Piece,
-    squareSizePx: IntSize,
-    from: Pair<Int, Int>,
-    to: Pair<Int, Int>,
-    animationEnd: () -> Unit
-) {
-    val offsetY = remember(from) { Animatable(from.first.toFloat()) }
-    val offsetX = remember(from) { Animatable(from.second.toFloat()) }
-
-    val squareSizeDp = with(LocalDensity.current) {
+fun AnimatedChessPiece(piece: Piece, squareSizePx: IntSize, from: Pair<Int, Int>, to: Pair<Int, Int>, animationEnd: () -> Unit) {
+    // Re-keyed on `from`: a new move restarts from its own origin rather than wherever the last one ended.
+    val row = remember(from) { Animatable(from.first.toFloat()) }
+    val col = remember(from) { Animatable(from.second.toFloat()) }
+    val cellDp = with(LocalDensity.current) {
         DpSize(width = squareSizePx.width.toDp(), height = squareSizePx.height.toDp())
     }
 
     LaunchedEffect(from) {
-        val yAnim = launch { offsetY.animateTo(to.first.toFloat(), animationSpec = tween(500)) }
-        val xAnim = launch { offsetX.animateTo(to.second.toFloat(), animationSpec = tween(500)) }
-        joinAll(yAnim, xAnim)
+        val glide = tween<Float>(500)
+        joinAll(
+            launch { row.animateTo(to.first.toFloat(), glide) },
+            launch { col.animateTo(to.second.toFloat(), glide) },
+        )
         animationEnd()
     }
 
     Box(
-        modifier = Modifier
-            .offset {
-                IntOffset(
-                    (offsetX.value * squareSizePx.width).roundToInt(),
-                    (offsetY.value * squareSizePx.height).roundToInt()
-                )
-            }
-            .size(squareSizeDp)
-            .zIndex(1f)
+        Modifier
+            .offset { IntOffset((col.value * squareSizePx.width).roundToInt(), (row.value * squareSizePx.height).roundToInt()) }
+            .size(cellDp)
+            .zIndex(1f) // above the squares it passes over
     ) {
         Piece(pieceModel = piece)
     }
 }
 
+/**
+ * Modal card used for the game-over and promotion prompts. Tapping outside calls
+ * `onDismiss(false)`; the content decides what `true` means.
+ */
 @Composable
 fun PopupWindow(onDismiss: (Boolean) -> Unit, content: @Composable () -> Unit) {
-    val cornerRoundness = 25.dp
-    val contentPadding = 15.dp
     val scrollState = rememberScrollState()
-
     Dialog(onDismissRequest = { onDismiss(false) }) {
         Card(
             modifier = Modifier.fillMaxWidth().heightIn(max = 640.dp),
-            shape = RoundedCornerShape(cornerRoundness),
+            shape = RoundedCornerShape(25.dp),
         ) {
+            // Scrolls rather than clips when the prompt is taller than a landscape phone.
             Column(
-                modifier = Modifier
-                    .padding(contentPadding)
+                Modifier
+                    .padding(15.dp)
                     .verticalScroll(scrollState)
                     .wrapContentHeight(Alignment.CenterVertically),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                content()
-            }
+                horizontalAlignment = Alignment.CenterHorizontally,
+                content = { content() },
+            )
         }
     }
 }
