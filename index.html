@@ -345,12 +345,13 @@
 
   <div class="summary">
     <h2>The short version</h2>
-    <p class="lede">AI Chess Coach 3D is free. It has no purchases, no accounts, no sign-in, no advertising, and no analytics or crash-reporting SDKs. Your games, settings, and history are stored on your device and are never uploaded.</p>
-    <p>One thing leaves your device, and only in the situations described below:</p>
+    <p class="lede">AI Chess Coach 3D is free. It has no purchases, no accounts, no sign-in, no advertising, and we have added no analytics or crash-reporting SDKs. Your games, settings, and history are stored on your device and are never uploaded.</p>
+    <p>Two things leave your device, and only in the situations described below:</p>
     <ol class="exceptions">
       <li><strong>The two cloud AI features</strong> — Opening Explainer and Position Chat. These send the chess position you are looking at and, for chat, the question you type.</li>
+      <li><strong>Google ML Kit diagnostics, on Android only.</strong> When you use Rules Q&amp;A on Android, Google's on-device AI library reports diagnostics about its own operation to Google. Your question and the answer are not part of it.</li>
     </ol>
-    <p>Everything else — the chess engine, the 3D board, the move coach, the game summary, and rules Q&amp;A — runs entirely offline on your device.</p>
+    <p>Everything else — the chess engine, the 3D board, the move coach, the game summary, and the answering itself in rules Q&amp;A — runs on your device.</p>
     <p>The app is open source. If you would rather read the code than take our word for any of this, it is all <a href="https://github.com/ber4444/compose-multiplatform-chess">on GitHub</a>.</p>
   </div>
 
@@ -397,10 +398,24 @@
       <p>The <strong>Move Coach</strong>, <strong>Game Summary</strong>, and <strong>Rules Q&amp;A</strong> features run entirely on your device.</p>
       <p>The <strong>Move Coach</strong> does not use an AI model on either platform: its text is computed deterministically from the chess engine's own analysis of your game.</p>
       <ul>
-        <li><strong>On Android</strong>, <strong>Game Summary</strong> is computed the same deterministic way, and <strong>Rules Q&amp;A</strong> uses Android's built-in on-device AI, where your device supports it, to phrase its answer.</li>
+        <li><strong>On Android</strong>, <strong>Game Summary</strong> is computed the same deterministic way. <strong>Rules Q&amp;A</strong> uses Google's <strong>ML Kit</strong> library to run Gemini Nano, Google's on-device model, through Android's AICore service on devices that support it. Your question and the answer are processed on the device and are not sent anywhere. Where the model is unavailable, Rules Q&amp;A answers directly from its bundled rulebook. Two things do involve Google:
+          <ul>
+            <li>Each time Rules Q&amp;A runs, ML Kit checks whether the model is available — and, where it is, generates the answer — and reports <strong>diagnostics</strong> about those calls to Google, as described below.</li>
+            <li>On a supported device that does not have the model yet, a Rules Q&amp;A question can prompt Android's AICore service to <strong>download Gemini Nano</strong> from Google. That download is made by Android itself, under Google's terms.</li>
+          </ul>
+        </li>
         <li><strong>On iOS</strong>, <strong>Game Summary</strong> and <strong>Rules Q&amp;A</strong> use Apple's on-device foundation model, part of Apple Intelligence, where your iPhone supports it and Apple Intelligence is turned on (iOS 26 or later). The app uses only the model that runs on your device — not Apple's Private Cloud Compute — so these requests do not leave your iPhone. Where Apple Intelligence is unavailable, Game Summary is not offered and Rules Q&amp;A answers directly from its bundled rulebook.</li>
       </ul>
-      <p>The app downloads no AI model of its own for any of these features, and none of them sends anything anywhere.</p>
+      <h3>Google ML Kit diagnostics (Android only)</h3>
+      <p>ML Kit is a Google library built into the Android app, and Google collects the following from it for its own diagnostics and usage analytics of ML Kit, as Google describes in its <a href="https://developers.google.com/ml-kit/android-data-disclosure">ML Kit data disclosure</a>:</p>
+      <ul>
+        <li>Device information — manufacturer, model, OS version and build, and available ML hardware accelerators — and the app's package name and version.</li>
+        <li>Performance metrics such as latency, the API configuration, the size of inputs and outputs (not their content), the feature version, event types such as initialization, model download and inference, and error codes.</li>
+        <li>The configured languages.</li>
+        <li>Identifiers: per-installation identifiers that Google says are not meant to uniquely identify a user or device, and — as Google describes its GenAI features — user, device or other identifiers.</li>
+      </ul>
+      <p>This goes directly from the library to Google over HTTPS; <strong>we never receive it</strong>. Google states that it does not transfer this data to third parties. It is governed by <a href="https://policies.google.com/privacy">Google's privacy policy</a>. In this app, ML Kit runs only when you use Rules Q&amp;A on Android, so not using Rules Q&amp;A means none of this is sent. The iOS app does not include ML Kit.</p>
+      <p>The app downloads no AI model of its own. Apart from the ML Kit diagnostics above, none of these on-device features sends anything anywhere.</p>
       <p><strong>Nothing about your games is uploaded for these features</strong>, and they work with no network connection.</p>
     </div>
   </section>
@@ -425,10 +440,20 @@
               <td>The same request, to compose the answer</td>
               <td>Position and your typed message; not your IP</td>
             </tr>
+            <tr>
+              <td>Google ML Kit (Android only)</td>
+              <td>You use Rules Q&amp;A</td>
+              <td>The diagnostics and identifiers listed in section 03; not your question or the answer</td>
+            </tr>
+            <tr>
+              <td>Android's AICore service (Google), Android only</td>
+              <td>A Rules Q&amp;A question on a supported device that lacks the model</td>
+              <td>A model download made by Android itself, under Google's terms</td>
+            </tr>
           </tbody>
         </table>
       </div>
-      <p>On Android the app requests only the <code>INTERNET</code> permission; on iOS it requests no permissions at all. It does not ask for contacts, location, camera, microphone, photos, or storage access on either platform, and it has no access to them. The connections above are the same on Android and iOS.</p>
+      <p>The app never shows a permission prompt. On Android it declares only permissions that Android grants automatically at install: internet access, viewing network connections, vibration (declared by the 3D board library), and access to Android's own on-device AI service; on iOS it declares none. It does not ask for contacts, location, camera, microphone, photos, or storage access on either platform, and it has no access to them. Apart from the two Android-only rows, the connections above are the same on Android and iOS.</p>
     </div>
   </section>
 
@@ -451,7 +476,7 @@
     <p class="num">06</p>
     <h2 class="head">Children</h2>
     <div class="body">
-      <p>AI Chess Coach 3D is not directed at children under 13, or the equivalent minimum age in your country, and we do not knowingly collect personal information from children. Since the app collects no identifying information at all, there is nothing for us to delete on request.</p>
+      <p>AI Chess Coach 3D is not directed at children under 13, or the equivalent minimum age in your country, and we do not knowingly collect personal information from children. Since we receive no identifying information at all, there is nothing for us to delete on request.</p>
     </div>
   </section>
 
@@ -463,6 +488,7 @@
       <ul>
         <li><strong>To delete everything the app stores about you</strong>, delete the app, or on Android clear its data. This removes your games, history, and settings permanently — we hold no copy.</li>
         <li><strong>For TestFlight feedback and crash data</strong>, contact Apple, or ask us to delete what reached App Store Connect.</li>
+        <li><strong>For ML Kit diagnostics</strong> (Android), contact Google, which holds them; we never receive them.</li>
         <li><strong>For anything else</strong>, <a href="https://github.com/ber4444/compose-multiplatform-chess/issues">open an issue</a> and we will respond within the period your local law requires. The issue tracker is <strong>public</strong> — please do not post personal details in it.</li>
       </ul>
       <p><strong>We do not sell or share your personal information</strong> as those terms are defined under California law, and we do not engage in targeted advertising.</p>
@@ -481,6 +507,7 @@
           </thead>
           <tbody>
             <tr><td>Games, history, settings</td><td>Until you delete them or uninstall the app — stored only on your device</td></tr>
+            <tr><td>ML Kit diagnostics (Android)</td><td>Held by Google under its own policies; never received by us</td></tr>
             <tr><td>TestFlight feedback, crash reports and usage data</td><td>Held by Apple in App Store Connect under Apple's own retention rules</td></tr>
             <tr><td>Cloud AI requests</td><td>Not stored. Processed in memory to produce the answer, then discarded</td></tr>
             <tr><td>Abuse-detection logs at Google</td><td>A limited period set by Google, for enforcing its usage policy and legal disclosure only — see section 02</td></tr>
@@ -496,7 +523,7 @@
     <p class="num">09</p>
     <h2 class="head">Security</h2>
     <div class="body">
-      <p>Traffic to our AI service and to the Gemini API uses HTTPS. Requests to the AI service are size-limited and rate-limited. Because the app stores no credentials and holds no account, there is no login to compromise. No system is perfectly secure, but the amount of data at risk here is deliberately kept near zero.</p>
+      <p>Traffic to our AI service and to the Gemini API, and ML Kit's diagnostics to Google, use HTTPS. Requests to the AI service are size-limited and rate-limited. Because the app stores no credentials and holds no account, there is no login to compromise. No system is perfectly secure, but the amount of data at risk here is deliberately kept near zero.</p>
     </div>
   </section>
 
