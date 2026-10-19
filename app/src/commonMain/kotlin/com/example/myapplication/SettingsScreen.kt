@@ -11,8 +11,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.TextButton
-import com.example.myapplication.monetization.LocalEntitlements
-import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,18 +44,8 @@ import org.jetbrains.compose.resources.stringResource
 fun SettingsScreen(
     onBack: () -> Unit,
     board3D: Board3DSupport? = null,
-    /**
-     * The **only** route to the paywall that isn't an upsell card.
-     *
-     * Every other entry point is a `ProGate` CTA, and those hide themselves when the feature behind
-     * them is unavailable on this build (`ProGate(available = false)` renders nothing — selling a
-     * surface that would stay dead after payment is the one paywall bug that earns a refund). The
-     * consequence is that on a build where no gated surface is available, the paywall has no route
-     * at all and a willing buyer cannot reach it. This row is that route.
-     *
-     * Null hides it, which is what previews and Compose UI tests get.
-     */
-    onOpenPaywall: (() -> Unit)? = null,
+    /** Opens the open-source licences screen. Null hides the row (previews, Compose UI tests). */
+    onOpenLicenses: (() -> Unit)? = null,
 ) {
     val settings = LocalAppSettings.current
         ?: error("SettingsScreen requires AppSettings. Render it under AppRoot.")
@@ -145,18 +133,13 @@ fun SettingsScreen(
             }
         }
 
-        if (onOpenPaywall != null) {
+        if (onOpenLicenses != null) {
             HorizontalDivider(modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
-            // Reads LocalEntitlements directly rather than through isProUnlocked(), for the same
-            // reason PaywallScreen does: that helper treats a null Entitlements as unrestricted,
-            // which is right for previews and would make this row claim Pro is already active.
-            val entitlements = LocalEntitlements.current
-            val unlocked by (entitlements?.isProUnlocked ?: MutableStateFlow(false)).collectAsState()
             TextButton(
-                onClick = onOpenPaywall,
-                modifier = Modifier.fillMaxWidth().testTag("settings_upgrade"),
+                onClick = onOpenLicenses,
+                modifier = Modifier.fillMaxWidth().testTag("settings_licenses"),
             ) {
-                Text(if (unlocked) "Chess Coach Pro — active" else "Upgrade to Chess Coach Pro")
+                Text("Open-source licences")
             }
         }
     }

@@ -52,9 +52,7 @@ The project is split into focused Gradle modules:
   Also home to the [perft verification rig](docs/perft.md) — the move generator is proven correct
   against arithmetic ground truth (canonical perft counts + Stockfish cross-check).
 - **`:app`** — the Compose Multiplatform app: all UI screens, platform glue, Stockfish bridges, and
-  the 3D renderers. Depends on `:chess-core` via `api(project(":chess-core"))`. Also home to the
-  [monetization seam](#monetization--entitlements), whose RevenueCat implementation lives in a
-  `storeMain` source set shared by Android and iOS only.
+  the 3D renderers. Depends on `:chess-core` via `api(project(":chess-core"))`.
 - **`:androidApp`** — thin Android application wrapper (manifest, launcher icons) that depends on `:app`.
 - **`:onDeviceAi`** — on-device AI orchestration (move coach, rules Q&A, opening explainer, route
   policy) in `commonMain`, with platform-specific LLM runtimes injected (none on Android — the coach is
@@ -152,7 +150,7 @@ graph TD
   teach a deliberately weakened move. It is disabled on the opponent's turn and during animation,
   and clears on the next move.
 - **Engine Difficulty:** A persisted Easy / Medium / Hard / Max setting (in **Settings**) weakens or strengthens Stockfish play via the UCI `Skill Level` option and a per-move think-time budget. Applies to the Stockfish engine on every platform.
-- **Settings & Navigation:** A minimal multiplatform navigation host (`AppRoot`) switches between the game, **History**, **Settings**, **Rules**, **Chat**, and the **paywall** screens. Settings holds four persisted controls: the 3D-board toggle (default on), the engine-difficulty selector, the AI Move Coach toggle (default on), and the **player side** selector — you can play as Black, in which case the engine opens.
+- **Settings & Navigation:** A minimal multiplatform navigation host (`AppRoot`) switches between the game, **History**, **Settings**, **Rules** and **Chat** screens, plus **Open-source licences** under Settings. Settings holds four persisted controls: the 3D-board toggle (default on), the engine-difficulty selector, the AI Move Coach toggle (default on), and the **player side** selector — you can play as Black, in which case the engine opens.
 
 ### Board rendering, engines & verification
 
@@ -172,21 +170,21 @@ graph TD
 
 Five AI surfaces share one seam — `:onDeviceAi` owns the route policies, prompt builders, validators
 and deterministic fallbacks; `:app` owns the UI and injects the platform runtime. They differ in
-where inference runs, what leaves the device, and what the free tier gets:
+where inference runs and what leaves the device:
 
-| Feature | Where it appears | Route & policy | Free tier | Pro tier |
-|---|---|---|---|---|
-| **Move Coach** | Panel below the board, after your move is answered | On-device; `AiRoutePolicies.moveCoachOffline` — `LOCAL_ONLY`, 0¢ | The deterministic explanation of that ply's `MoveAssessment`, rendered as ordinary coach text | The same assessment, phrased by the model |
-| **Game Summary** | *Get Coach Summary* in the game-over popup | On-device; reuses `moveCoachOffline` | Upsell card | Full feature |
-| **Rules Q&A** | **Rules** screen | On-device retrieval **and** generation; `AiRoutePolicies.rulesQaOffline` — `LOCAL_ONLY`, 0¢ | Upsell card | Full feature |
-| **Opening Explainer** | Post-game panel, once per finished game | Cloud; `AiRoutePolicies.openingExplainer` — `PUBLIC_OR_SYNTHETIC`; server cost cap defaults to 1.5¢ | Upsell card | Full feature |
-| **Position Chat** | **Chat** screen, any number of turns mid-game | Cloud SSE; `AiRoutePolicies.positionChat` — `PUBLIC_OR_SYNTHETIC`; server cost cap defaults to 1.5¢ | Upsell card | Full feature |
+| Feature | Where it appears | Route & policy |
+|---|---|---|
+| **Move Coach** | Panel below the board, after your move is answered — the deterministic explanation of that ply's `MoveAssessment`, phrased by a model only where one is attached | On-device; `AiRoutePolicies.moveCoachOffline` — `LOCAL_ONLY`, 0¢ |
+| **Game Summary** | *Get Coach Summary* in the game-over popup | On-device; reuses `moveCoachOffline` |
+| **Rules Q&A** | **Rules** screen | On-device retrieval **and** generation; `AiRoutePolicies.rulesQaOffline` — `LOCAL_ONLY`, 0¢ |
+| **Opening Explainer** | Post-game panel, once per finished game | Cloud; `AiRoutePolicies.openingExplainer` — `PUBLIC_OR_SYNTHETIC`; server cost cap defaults to 1.5¢ |
+| **Position Chat** | **Chat** screen, any number of turns mid-game | Cloud SSE; `AiRoutePolicies.positionChat` — `PUBLIC_OR_SYNTHETIC`; server cost cap defaults to 1.5¢ |
 
-Pro is the entitlement described under [Monetization & entitlements](#monetization--entitlements);
-free play is unlimited and keeps both boards, the full engine-difficulty range, the deterministic
-coach, PGN export and history. Where a build cannot run a surface at all — no coach orchestrator, no
-`coach.baseUrl`, no rules answerer — it renders *nothing*, not even the upsell, so the paywall never
-sells a feature that would stay dead after payment.
+Everything is free — there are no purchases, subscriptions or paywall. The AI features are
+experimental, and charging for them was not justified at their current quality. Where a build cannot
+run a surface at all — no coach orchestrator, no `coach.baseUrl`, no rules answerer — the surface is
+hidden (Game Summary, Opening Explainer) or says why it is unavailable (Rules, Chat) rather than
+showing a control that does nothing.
 
 Only the two cloud policies set `allowCloud = true`, and they carry public chess data only (FEN, SAN
 move list, bounded conversation history — no user identifiers, no free-form PII). The three
@@ -648,76 +646,16 @@ COACH_DEPLOYED_URL=https://… ./gradlew :evals:run   # also score the live depl
 EVAL_CALIBRATION=1 ./gradlew :evals:run             # print per-route reading-grade distributions
 ```
 
-## Monetization & entitlements
+## Licence
 
-Feature gating goes through an injected `Entitlements` seam in `:app`'s `monetization/` package —
-never resolved statically, and never in `:chess-core`, which is the artifact the React Native repo
-compiles against and must stay free of any billing dependency. The interface is
-`isProUnlocked: StateFlow<Boolean>` / `availablePlans()` / `purchase(planId)` / `restorePurchases()`,
-published to the UI through `LocalEntitlements`. Its wire types are store-agnostic so they can cross
-into `commonMain`: `ProPlan` (opaque id, title, the store's own localized `priceLabel`, optional
-detail, `isBestValue`) and `PurchaseOutcome` (`Purchased` / `Cancelled` / `Unavailable` / `Failed`),
-where `Cancelled` is distinct so backing out of the store sheet raises no error.
-
-Three implementations, and which one you get is deliberate. **All three start locked**, so the
-paywall renders on every target and its layout is checkable at phone, desktop and browser sizes:
-
-| Implementation | Used by | Behaviour |
-|---|---|---|
-| `RevenueCatEntitlements` | Android, iOS | Backed by the RevenueCat KMP SDK, checking the `pro` entitlement (`DEFAULT_ENTITLEMENT_ID`). Built by `MainActivity` / `MainViewController` through `createOrNull(apiKey, debugLogging)`, which returns `null` on a blank key; the entry point then calls `refresh()` explicitly, so no network call runs from `init {}` on the composition thread |
-| `NoOpEntitlements` | Desktop, Web | No store on those targets: offers one synthetic plan priced "Free", and `purchase()` unlocks locally. Entry points seed it from `AppSettings.proUnlocked` and pass `AppSettings::setProUnlocked` as `onUnlockChanged`, so the unlock survives a restart. That key is never read on Android or iOS, where a device-writable setting would be a paywall bypass |
-| `UnconfiguredEntitlements` | The `AppRoot` **default** | Locked; `purchase()` returns `Unavailable` |
-
-`UnconfiguredEntitlements` is the default so that previews, Compose UI tests, and any caller that
-omits the argument neither configure a billing SDK nor make a network call. It is not
-interchangeable with `NoOpEntitlements`, whose `purchase()` unlocks Pro on the spot.
-
-**What's gated.** `ProGate` wraps Game Summary and Opening Explainer in `GameScreen`; the Rules and
-Chat screens own their own `SubScreenScaffold`, so `AppRoot` branches on `isProUnlocked()` and drops
-a bare `ProUpsellCard` into its own scaffold instead of nesting a gate; `MoveCoachManager.proUnlocked`
-gives free users the deterministic coach line as a finished answer rather than an upsell mid-game.
-A gate also takes an `available` flag, and when it is false **nothing renders — not even the
-upsell**: a build with no coach orchestrator, no `coach.baseUrl`, or no rules answerer must not sell
-a feature that would stay dead after payment. Note that `isProUnlocked()` treats a null
-`LocalEntitlements` as unrestricted (right for previews), so **no Compose UI test can catch a
-paywall regression** — that surface is hand-tested. `EntitlementsTest` covers the parts that are
-unit-testable: the locked defaults, the storeless unlock, and its persistence round-trip.
-
-**The paywall** is `PaywallScreen`, reached as `Screen.PAYWALL` from any upsell card's *See Pro*
-button. It lists the Pro surfaces, renders one selectable row per `ProPlan` (pre-selecting
-`isBestValue`, else the first), and offers *Unlock Pro* plus *Restore purchases*. Three states are
-distinct on purpose: plans still loading, an **empty** plan list — "purchases aren't available on
-this device right now", covering a storeless target, a missing key and an empty offering — and Pro
-already active. It reads `LocalEntitlements` directly rather than through `isProUnlocked()`, which
-would report Pro as active in a preview.
-
-The SDK dependency is `com.revenuecat.purchases:purchases-kmp-core`, which publishes Android and iOS
-variants only. It therefore lives in `:app`'s `storeMain` intermediate source set
-(`commonMain` ← `storeMain` ← `androidMain` + `iosMain`), and the `iosSimulatorArm64` test binary
-carries an explicit `-L` to the host's Swift toolchain for RevenueCat's prebuilt Swift objects.
-
-**Configuration.** Keys are read at build time with the same precedence as the coach base URL and
-generated into `storeMain` by `generateRevenueCatConfig`; nothing is committed:
-
-```bash
-# env, or revenuecat.androidKey / revenuecat.iosKey in local.properties
-export REVENUECAT_ANDROID_KEY=goog_…
-export REVENUECAT_IOS_KEY=appl_…
-
-# optional Test Store keys — debug builds prefer these, release builds never use them
-export REVENUECAT_ANDROID_TEST_KEY=test_…
-export REVENUECAT_IOS_TEST_KEY=test_…
-```
-
-`revenueCatApiKey(debug)` picks between them. A **debug** build (`FLAG_DEBUGGABLE` on Android,
-`Platform.isDebugBinary` on iOS) uses the test key when one is set and otherwise falls back to the
-production key, so an existing single-key setup keeps working. A **release** build never resolves to
-a test key at all — shipping one would give every user a free, unverifiable "purchase".
-
-With no key configured, `RevenueCatEntitlements.createOrNull(...)` returns `null` and the entry point
-falls back to the locked default — a fresh clone builds and runs, it just can't purchase, and the
-Pro surfaces show their upsell. What Pro actually adds is per-surface; see the tier columns in
-[AI features](#ai-features).
+The app is free software under the **GNU General Public License, version 3 or later** —
+[COPYING.md](COPYING.md) states the terms and lists the third-party files that keep their own
+licences (Stockfish, the piece artwork, the openings and rules corpora, the Gradle wrapper), and
+[LICENSE](LICENSE) holds the full text. Store builds carry the same notice in-app under
+**Settings → Open-source licences** (`LicensesScreen`), together with the GPL text and a link to this
+repository, so every recipient of a binary gets the licence and a route to the source. Stockfish is
+GPL software from its own authors and is shipped unmodified on Android; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Benchmarking
 

@@ -8,8 +8,8 @@ import androidx.compose.runtime.Composable
 
 /**
  * Both schemes are filled in past the template's three roles, because the app reads more than
- * three: `surfaceVariant` backs the paywall's feature card and plan rows, `primaryContainer` the
- * "Pro is active" row, `onSurfaceVariant` most secondary copy. Left at their defaults those roles
+ * three: `surfaceVariant` and `primaryContainer` back cards and highlighted rows,
+ * `onSurfaceVariant` most secondary copy. Left at their defaults those roles
  * were derived from the template purple and pulled a cool grey-lavender through screens whose
  * neutrals are warm.
  */

@@ -13,7 +13,7 @@ import com.example.ondeviceai.AiRoute
  * the route recorded with the text (`explanation.route`, or `AiRoute.Fallback(reason)`), never a
  * literal guess.
  *
- * [AiRoute.Fallback] renders **nothing at all**. Deterministic text (the free tier's
+ * [AiRoute.Fallback] renders **nothing at all**. Deterministic text (the
  * `DeterministicCoach` line, `MoveCoachFallback`, the server's template composers) is
  * engine-derived, and labelling it model-phrased is the misreport this badge exists to prevent —
  * but the badge is the wrong place to say so. It sat under every coach line on the two phone

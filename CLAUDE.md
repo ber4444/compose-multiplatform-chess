@@ -119,7 +119,7 @@ onDeviceAi commonMain            (on-device AI orchestration; published as io.gi
  └── iosMain
 ```
 
-A custom intermediate source set `jvmCommonMain` sits between `commonMain` and the two JVM-backed targets (`androidMain`, `desktopMain`); it holds process/IO code that can't live in commonMain (Wasm has no `java.lang.Process`). A second one, `storeMain`, sits between `commonMain` and the two *store* targets (`androidMain`, `iosMain`) and holds anything depending on the RevenueCat SDK — see [Monetization seam](#monetization-seam). `iosMain` dependsOn commonMain holding `MainViewController`; `iosSimulatorArm64Test` holds Compose UI tests; `iosApp/` Xcode project is generated using XcodeGen (`project.yml` as source of truth — regenerate with `xcodegen generate`).
+A custom intermediate source set `jvmCommonMain` sits between `commonMain` and the two JVM-backed targets (`androidMain`, `desktopMain`); it holds process/IO code that can't live in commonMain (Wasm has no `java.lang.Process`). `iosMain` dependsOn commonMain holding `MainViewController`; `iosSimulatorArm64Test` holds Compose UI tests; `iosApp/` Xcode project is generated using XcodeGen (`project.yml` as source of truth — regenerate with `xcodegen generate`).
 
 Application ID is `io.github.ber4444.chess` (renamed for store eligibility in §0.3). All Kotlin source code uses package `com.example.myapplication` even though the project is named `game`. Generated compose resources class is `game.app.generated.resources`.
 
@@ -169,7 +169,7 @@ Stockfish binaries are vendored at `app/src/androidMain/jniLibs/{arm64-v8a,armea
 
 The app persists three things via `multiplatform-settings` (russhwolf) + `kotlinx-serialization`, all constructed over one `createSettings("chess")` backend per entry point:
 
-- **`AppSettings`** (`commonMain/.../persistence/AppSettings.kt`) — typed, observable view over `Settings`. Plain class (mirrors `GameViewModel` — not androidx ViewModel), constructed at the entry point and threaded into `AppRoot` via `LocalAppSettings` (`staticCompositionLocalOf<AppSettings?>`, nullable so `GameScreen` renders in tests without `AppRoot`). Holds `MutableStateFlow`s seeded from settings + write-through setters. Surface: `board3DEnabled` (default true; drives the 3D surface mount/teardown via a `GameScreen` `LaunchedEffect`), `engineDifficulty` (default `MEDIUM`; bridged to `viewModel.setEngineDifficulty` by an `AppRoot` collector), `aiCoachEnabled` (default true; bridged to `viewModel.aiCoachEnabled` — the user-facing half of the Move Coach gate, on top of the per-platform build gate), and `playerSide` (`StateFlow<String>`, read by `SettingsScreen`). Plus one plain (non-flow) value: `proUnlocked` — a **storeless-targets-only** seed/sink for `NoOpEntitlements` on desktop and wasm. Never read it on Android/iOS: entitlement state there comes from RevenueCat, and a device-writable settings key would be a trivial paywall bypass. The persisted theme override was removed — theme always follows system dark mode.
+- **`AppSettings`** (`commonMain/.../persistence/AppSettings.kt`) — typed, observable view over `Settings`. Plain class (mirrors `GameViewModel` — not androidx ViewModel), constructed at the entry point and threaded into `AppRoot` via `LocalAppSettings` (`staticCompositionLocalOf<AppSettings?>`, nullable so `GameScreen` renders in tests without `AppRoot`). Holds `MutableStateFlow`s seeded from settings + write-through setters. Surface: `board3DEnabled` (default true; drives the 3D surface mount/teardown via a `GameScreen` `LaunchedEffect`), `engineDifficulty` (default `MEDIUM`; bridged to `viewModel.setEngineDifficulty` by an `AppRoot` collector), `aiCoachEnabled` (default true; bridged to `viewModel.aiCoachEnabled` — the user-facing half of the Move Coach gate, on top of the per-platform build gate), and `playerSide` (`StateFlow<String>`, read by `SettingsScreen`). The persisted theme override was removed — theme always follows system dark mode.
 - **`CurrentGameStore`** (`commonMain/.../persistence/CurrentGameStore.kt`) — autosave/resume-later. The in-progress game is serialized as a `GameSnapshot` (FEN + small `@Serializable` DTOs for `moveHistory`/`positionHistory`/win/draw fields) under a versioned key `current_game.v1`. Saved on every completed move/draw resolution (explicit `autosave()` calls in `deriveNewGameState`/draw handlers — **not** on transient `selectedSquare` updates); restored at construction via `CurrentGameStoreSupport.loadInitialState` (a finished game starts fresh + clears the stale snapshot). `resetGame()` clears it.
 - **`GameHistoryRepository`** (`commonMain/.../persistence/GameHistory.kt`) — the list of finished games (`SavedGame` DTOs: id/result/players/moveCount/pgn), persisted as one JSON blob under `game_history.v1`, exposed as a `StateFlow<List<SavedGame>>` (newest first, capped at 200). `GameActions` builds the PGN (`PgnSerializer`/`PgnTags`) + `SavedGame` from a `GameUiState` at game end.
 
@@ -179,124 +179,54 @@ The app persists three things via `multiplatform-settings` (russhwolf) + `kotlin
 
 ## Navigation
 
-`AppRoot` (`commonMain/.../AppRoot.kt`) is the single navigation host and the single home for `MyApplicationTheme` (always `darkTheme = isSystemInDarkTheme()` — the per-entry-point theme duplication was removed). It owns a `Screen` enum (`GAME`, `HISTORY`, `SETTINGS`, `RULES`, `CHAT`, `PAYWALL`) in `rememberSaveable` state and a multiplatform `BackHandler` (`androidx.compose.ui.backhandler.BackHandler`, CMP 1.10) that pops to `GAME`. Entry points render `AppRoot(viewModel, settings, board3D, gameHistory, pgnSharer, moveCoachManager, gameSummaryManager, entitlements, switchTopPadding)` instead of `ChessApp` directly. `entitlements` defaults to `UnconfiguredEntitlements()` — see [Monetization seam](#monetization-seam); `PAYWALL` hosts `PaywallScreen` and is reached from any upsell card's *See Pro* button.
+`AppRoot` (`commonMain/.../AppRoot.kt`) is the single navigation host and the single home for `MyApplicationTheme` (always `darkTheme = isSystemInDarkTheme()` — the per-entry-point theme duplication was removed). It owns a `Screen` enum (`GAME`, `HISTORY`, `SETTINGS`, `RULES`, `CHAT`, `LICENSES`) in `rememberSaveable` state and a multiplatform `BackHandler` (`androidx.compose.ui.backhandler.BackHandler`, CMP 1.10) that pops to `GAME` — except from `LICENSES`, which is nested under Settings and pops back there. Entry points render `AppRoot(viewModel, settings, board3D, gameHistory, pgnSharer, moveCoachManager, gameSummaryManager, switchTopPadding, isDebug)` instead of `ChessApp` directly.
 
 `AppRoot` is also the wiring point for the AI surfaces:
 - Two `LaunchedEffect` collectors bridge settings → VM: `AppSettings.engineDifficulty` → `viewModel.setEngineDifficulty`, and `AppSettings.aiCoachEnabled` → `viewModel.aiCoachEnabled`.
 - It `remember`s the cloud/on-device holders it owns — `OpeningExplainerStateHolder(createOpeningExplainer())`, `ChatViewModel(createPositionChat())`, and `RulesQaStateHolder(...)` over `defaultRulesQaAnswerer(createBundledRuleLookupTool())` — and closes the first two in `DisposableEffect`. The move-coach and game-summary managers are *not* created here: entry points own them (they need the platform runtime + lifecycle) and pass them in, then `AppRoot` publishes them via `LocalMoveCoachManager` / `LocalGameSummaryManager` / `LocalOpeningExplainerStateHolder` so `GameScreen` can read them.
 
-## Monetization seam
+## No monetization (and why the paywall is gone)
 
-Entitlement gating lives in `:app`'s `monetization/` package and is **injected like `PgnSharer` /
-`Board3DSupport`**, never resolved statically. `:chess-core` must stay free of any billing
-dependency — it's the artifact the React Native repo compiles against.
+There are **no purchases, subscriptions, entitlements or paywall**, on any platform. RevenueCat, the
+`monetization/` package, `ProGate`/`ProUpsellCard`/`PaywallScreen`, the `storeMain` source set and
+`AppSettings.proUnlocked` were all removed deliberately: the AI surfaces are experimental, and
+charging for them was not justified at their quality. Every surface renders wherever the build can
+run it.
 
-- **`Entitlements`** — interface: `isProUnlocked: StateFlow<Boolean>`, `availablePlans()`,
-  `purchase(planId)`, `restorePurchases()`. Published to the UI through `LocalEntitlements`
-  (`staticCompositionLocalOf<Entitlements?>`, nullable, mirroring `LocalAppSettings`). `ProPlan` /
-  `PurchaseOutcome` are store-agnostic on purpose — a leaked RevenueCat type in `commonMain` breaks
-  desktop and wasm at dependency resolution.
-- **Three implementations, and the split is load-bearing. All three start locked** — every target
-  shows the paywall, so its layout is checkable at phone, desktop *and* browser window sizes:
-  - `NoOpEntitlements` — desktop and wasm. No store on those targets (`purchases-kmp-core` has no
-    JVM/wasm variant), so it offers **one synthetic plan priced "Free"** and `purchase()` unlocks
-    locally. Non-empty plans are deliberate: an empty list drives the paywall's "purchases aren't
-    available" copy, which would lock a storeless user out permanently. Entry points seed it from
-    `AppSettings.proUnlocked` and pass `AppSettings::setProUnlocked` as `onUnlockChanged`, so the
-    free unlock survives a restart instead of re-showing the paywall every launch.
-  - `UnconfiguredEntitlements` — the `AppRoot` **default**. Locked, `purchase()` returns
-    `Unavailable`. Keep it as the default: previews, Compose UI tests, and any caller that omits the
-    argument must not configure a billing SDK or hit the network. Do **not** "simplify" it to
-    `NoOpEntitlements` — that one's `purchase()` flips the flag and returns `Purchased`, handing out
-    Pro for a tap on exactly the two targets where money is meant to change hands.
-  - `RevenueCatEntitlements` — Android and iOS, injected by `MainActivity` / `MainViewController`
-    via `createOrNull(apiKey, debugLogging)`, which returns `null` on a blank key so an unkeyed
-    clone lands on the locked default instead of failing. Call `refresh()` from the entry point;
-    it is deliberately not fired from `init {}` (that ran a network call on the composition thread).
-- **Gating is live, and the `available` flag is the part that's easy to get wrong.** `ProGate`
-  (`monetization/ProGate.kt`) wraps Game Summary and Opening Explainer in `GameScreen`; `AppRoot`
-  branches on `isProUnlocked()` for the Rules and Chat screens (they own their own
-  `SubScreenScaffold`, so nesting would double the title bar); `MoveCoachManager.proUnlocked`
-  renders the deterministic line for free users rather than an upsell mid-game.
-  - `ProGate(available = false)` renders **nothing — not even the upsell**. Selling a feature that
-    stays dead after payment is the paywall bug that earns a refund and a one-star review, so every
-    call site passes a real availability signal: `summaryState !is GameSummaryUiState.Unavailable`
-    (no coach orchestrator attached), `cloudCoachConfigured` (no `coach.baseUrl` → both cloud
-    surfaces can only emit their offline sentence), and `rulesQaAnswerer != null` (desktop/wasm/JS
-    return `null` unconditionally). Availability is a property of the **build**, not the
-    entitlement — `LocalEntitlements` cannot know it, so it must stay an argument.
-  - `isProUnlocked()` treats a `null` `LocalEntitlements` as **unrestricted**, which is right for
-    previews but means **no Compose UI test can catch a paywall regression** — they never install a
-    provider, so `:app:connectedAndroidDeviceTest` always sees everything unlocked. Paywall
-    behaviour is hand-test-only; see `EntitlementsTest` for the parts that are unit-testable.
-  - The locked branch is `ProUpsellCard` (the standalone half of `ProGate`, for the screens that own
-    their own scaffold); its *See Pro* button routes to `Screen.PAYWALL` → `PaywallScreen`, which
-    lists the Pro surfaces, renders one row per `ProPlan` (pre-selecting `isBestValue`), and offers
-    *Unlock Pro* + *Restore purchases*. It keeps **loading**, **empty plans** ("purchases aren't
-    available on this device right now") and **already-active** as distinct states, and reads
-    `LocalEntitlements` directly rather than through `isProUnlocked()` — that helper's null-means-
-    unrestricted rule would have the paywall claim Pro is active in a preview.
-  - **The feature list obeys the same `available` rule as `ProGate`, line by line.**
-    `PaywallScreen.proFeatures()` takes each of the five bullets from the signal that gates its
-    surface — `MoveCoachManager.hasOrchestrator`, `GameSummaryManager.uiState !is Unavailable`,
-    `cloudCoachConfigured` (twice), and a `rulesQaAvailable` argument `AppRoot` fills from its own
-    `rulesQaAnswerer != null`. Only the coach line used to be keyed, so a plain desktop run
-    advertised four features and unlocked none, and an iOS build without Apple Intelligence sold a
-    Game Summary the game-over popup then hid. When **every** line drops out, the purchase button
-    goes with it (Restore stays — it moves no money, and an existing subscriber may be on that
-    build), which is why exercising the desktop/wasm purchase layout needs `coach.baseUrl` or
-    `CHESS_ENABLE_COACH=1`.
-  - **`PaywallScreen` is its own `Surface` and applies `WindowInsets.safeDrawing` itself.** It is the
-    one destination with no `SubScreenScaffold`, so nothing else supplies a background, a content
-    colour, or a status-bar inset: without them the title sat under the iOS clock and the dark
-    scheme's pale-lavender button rendered on the platform's white window, which reads as a
-    washed-out button rather than as a missing background.
-- **The RevenueCat coordinate and source set are both non-obvious:**
-  - The artifact is `com.revenuecat.purchases:purchases-kmp-core`. A bare `purchases-kmp` is **not
-    published at any version** — that coordinate 404s on Maven Central.
-  - It publishes only `android` / `iosArm64` / `iosSimulatorArm64` / `iosX64` variants, so it lives
-    in `:app`'s **`storeMain`** intermediate source set (`commonMain` ← `storeMain` ← `androidMain`
-    + `iosMain`), never `commonMain`. In `commonMain` it breaks `:app:compileKotlinDesktop` at
-    dependency resolution, before any Kotlin is compiled.
-  - The iOS **test** binary needs an explicit `-L` to this host's Swift toolchain (see the
-    `linkerOpts` on `iosSimulatorArm64`). `purchases-kmp-core` ships RevenueCat's *prebuilt* Swift
-    objects whose embedded `LC_LINKER_OPTION` points at the Xcode path on RevenueCat's build
-    machine; that path doesn't exist locally, so `ld` skips it and `swiftCompatibility56` /
-    `swiftCompatibilityConcurrency` go undefined. The app *framework* link does not catch this —
-    it defers symbols to Xcode — so the failure only appears in `:app:iosSimulatorArm64Test`.
-  - Keys come from `REVENUECAT_ANDROID_KEY` / `REVENUECAT_IOS_KEY` env → `revenuecat.androidKey` /
-    `revenuecat.iosKey` in `local.properties` → empty, generated into `storeMain` by
-    `generateRevenueCatConfig` (mirrors `generateOpeningExplainerConfig`). No key is committed.
-  - **Four keys, not two.** `REVENUECAT_ANDROID_TEST_KEY` / `REVENUECAT_IOS_TEST_KEY` (→
-    `revenuecat.androidTestKey` / `revenuecat.iosTestKey`) hold the dashboard's `test_…` Test Store
-    keys. `revenueCatApiKey(debug)` — an `expect fun`, not a val — picks them: **debug** prefers the
-    test key and falls back to the production key when none is set (so a single-key setup keeps
-    working); **release never resolves to a test key at all**, because shipping one would give every
-    user a free unverifiable "purchase". The debug signal is `FLAG_DEBUGGABLE` on Android and
-    `Platform.isDebugBinary` on iOS, and it drives `debugLogging` in the same call.
-  - **A Test Store purchase cannot be restored after a reinstall, and that is not a bug.** Restore
-    re-reads the *store account's* transactions (App Store / Play) and syncs them onto this install's
-    App User ID; the Test Store has no Apple/Google account behind it. Nothing calls
-    `Purchases.logIn`, and `PurchasesConfiguration(apiKey)` takes no `appUserID`, so every install is
-    a fresh anonymous `$RCAnonymousID:…` and the store account is the only link back to the previous
-    one — which the `test_…` key does not have. Debug builds prefer the test key, so this is the
-    default state when testing restore on a phone. Validate restore in the Play/App Store sandbox, or
-    give the app a stable app user id. `restorePurchases()` returns a **`RestoreOutcome`**, not a
-    `Boolean`, for this reason: `NothingToRestore` / `Unavailable` / `Failed(message)` used to
-    collapse into one "No previous purchase found." on the paywall, which is what made an expected
-    limitation read as a broken button. `Failed` also leaves `isProUnlocked` alone — a failed lookup
-    is not a signal that the user lost their subscription, the same rule `refresh()` follows. A
-    `test_` key is detected at construction (`isTestStore`), so an empty Test Store restore explains
-    itself rather than returning `NothingToRestore` and blaming a store account that isn't involved;
-    the paywall names that account ("Google Play account" / "App Store account" via
-    `isAndroidPlatform`) because **the app has no accounts of its own** and "this store account" sent
-    the reader hunting for an app login that doesn't exist. Do not "fix" restore by deriving an
-    `appUserId` from a device identifier: it makes restore device-scoped (no new phone, no second
-    device), `identifierForVendor` resets on exactly the reinstall being tested, and `ANDROID_ID`
-    differs between the debug and release signing keys.
-- Tiering (§0.4 of the Shipaton plan): free keeps unlimited play, both boards, full engine
-  difficulty, the coach (deterministic on every platform), PGN export and history; Pro adds
-  Game Summary, Position Chat, Opening Explainer and Rules Q&A.
+What survives from the gating work is the **availability** rule, which was never about money: a
+surface the build cannot run must not show a control that does nothing. `GameScreen` hides Game
+Summary unless `summaryState !is GameSummaryUiState.Unavailable` and hides the Opening Explainer
+unless `cloudCoachConfigured`; the Rules screen reports itself unavailable when
+`defaultRulesQaAnswerer` returns `null` (desktop/wasm/JS); the Chat screen says it has no coach
+server when `cloudCoachConfigured` is false. Keep those signals if you touch these call sites.
+
+Also gone with RevenueCat: the iOS test binary's explicit `-L` to the host Swift toolchain, which
+existed only to resolve RevenueCat's prebuilt Swift objects. Reintroducing any SDK that ships
+prebuilt Swift will likely need it back (see git history for the `linkerOpts` block).
+
+## Licensing
+
+GPL-3.0-or-later. [COPYING.md](COPYING.md) is the Lichess-style statement (copyright, terms,
+corresponding-source URL, a per-file exceptions table for third-party code and assets, external
+services); [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) holds the attribution detail. Store
+builds carry the same information in-app: **Settings → Open-source licences** (`LicensesScreen`,
+reached as `Screen.LICENSES`) shows the GPL notice, a link to the repo, the third-party list
+(`thirdPartyNotices`), and the full GPL text from `composeResources/files/licenses/GPL-3.0.txt` — a
+byte-for-byte copy of the root `LICENSE`, which is also Stockfish's licence text.
+
+Three things to keep straight:
+
+- **The maintainer is the sole copyright holder of the project's own code**, on purpose. Code from
+  earlier outside contributors was rewritten (Oct 2026) so that the licence — e.g. a GPLv3 §7
+  App Store permission — can be changed without collecting anyone's consent. Accepting outside
+  code again reintroduces that problem unless contributions come with an agreement.
+- **Stockfish is not covered by any of that.** It is GPL software from its own authors, shipped on
+  Android as the official `sf_17` executables and on iOS via ChessKitEngine; App Store / TestFlight
+  distribution relies on the same tolerance Lichess's mobile app does, plus the in-app licence
+  text and source pointer the Stockfish README asks for.
+- **Keep `LicensesScreen.thirdPartyNotices`, COPYING.md's exceptions table and
+  THIRD_PARTY_NOTICES.md in step.** Adding a vendored asset or engine means adding it to all three;
+  the in-app list is what a store user actually sees.
 
 ## Cloud retrieval
 
@@ -414,7 +344,7 @@ Three things to know before editing it:
   - **Autosave + resume-later** — the in-progress game is serialized as a `GameSnapshot` (FEN + DTOs) on every move and restored on next launch (`CurrentGameStore`/`CurrentGameStoreSupport`); a finished game clears the snapshot so the app starts fresh.
   - **Game history + save/share** — at game end the popup offers **Save game** (writes a `SavedGame` to `GameHistoryRepository`, double-save guarded) and **Share PGN** (platform `PgnSharer`); the **History** screen lists saved games with a detail view + delete.
   - **Engine difficulty** — a persisted `EngineDifficulty` (Easy/Medium/Hard/Max) weakens/strengthens Stockfish via `setoption name Skill Level` + a per-move `movetime` budget, applied through the additive `ChessEngine.configure`. Selected in **Settings**.
-  - **Settings & navigation** — `AppRoot` hosts a `Screen` enum (GAME/HISTORY/SETTINGS/RULES/CHAT/PAYWALL) + multiplatform `BackHandler`; `SettingsScreen` holds four persisted controls: the engine-difficulty selector, the 3D toggle (default on), the AI Move Coach toggle (default on), and the player-side selector (`AppSettings.playerSide` — picking Black makes the engine open). The persisted theme override was removed (theme follows system dark mode).
+  - **Settings & navigation** — `AppRoot` hosts a `Screen` enum (GAME/HISTORY/SETTINGS/RULES/CHAT/LICENSES) + multiplatform `BackHandler`; `SettingsScreen` holds four persisted controls: the engine-difficulty selector, the 3D toggle (default on), the AI Move Coach toggle (default on), and the player-side selector (`AppSettings.playerSide` — picking Black makes the engine open). The persisted theme override was removed (theme follows system dark mode).
 - **3D Board View:** The 3D toggle lives in **Settings** (`AppSettings.board3DEnabled`, default on); `GameScreen` observes it and re-runs its entry/teardown frame choreography when it flips. Exactly one board (2D `chess_board` or 3D `board_3d`) is visible at a time. The 3D view is defined by the `Chess3DBoardRenderer` interface in `commonMain`, injected mirroring `ChessEngine`. `Board3DSceneMapper.fromFen` turns a FEN into a renderer-agnostic `Board3DScene`. Interaction (camera drag, pinch zoom, ray-picked tap-to-move, and piece transitions) uses shared commonMain logic (`OrbitCameraController`, `CameraMath.rayFromScreen`, `BoardRayPicker`, `Board3DSceneDiffer`) so backend cameras stay in sync with the picker.
   - **Desktop backend:** **Native C++ Filament**. `DesktopFilamentChessRenderer` delegates shared FEN-to-scene, camera, selection, and transition logic to `FilamentEncodedChessRenderer`, then drives a JNI/CMake bridge (`desktop_filament_bridge`) that renders `chess.glb` with the same fixed Filament instance-pool convention as iOS/web. The native bridge uses a headless Filament swap chain, papermill IBL/blurred skybox KTX assets from common Compose resources, and `Renderer::readPixels` to hand RGBA frames to `ImageBitmapChess3DSurface`. Run `tools/fetch_filament_desktop.sh` after a clean checkout to fetch the gitignored Filament desktop release used by the bridge.
   - **Web backend:** **Filament (Wasm)**. `FilamentWasmChessRenderer` delegates lifecycle, camera, scene, selection, and animation state to `FilamentEncodedChessRenderer`, then its Wasm peer dynamically loads `filament.js` from `unpkg` and renders through WebGL into an absolutely positioned overlay `<canvas>`. The peer queues encoded scene/camera state until the JS renderer is ready. Filament replaced the previous three.js implementation for better rendering consistency across targets.
@@ -511,7 +441,7 @@ through `:server`.**
 
 The `allowLocal = false` flag on `openingExplainer` and `positionChat` policies is **load-bearing**: it ensures cloud-first policies never route to an on-device generator even when a capable local model exists. This provides a structural, type-safe guarantee for the cloud route that is checked by `AiRoutePolicyDecider` and pinned by the 90-context invariant test.
 
-- **On-device AI Move Coach:** A Compose panel (`MoveCoachPanel`) that explains **the player's own move**, grounded in the `MoveAssessment` recorded for that ply. Wiring: `GameViewModel.runIdleAnalysis` fires `onMoveCoached(fenBefore, moveRecord)` once it has assessed that move (skipped when the game is over) and the VM exposes an `aiCoachEnabled` flag; `MoveCoachManager` (in `:app`) registers that callback in its `init` and owns the private `triggerCoach(...)` — cancellable, never blocks the move. There is **no** `GameViewModel.triggerCoach`; the VM stays coach-agnostic apart from the callback + flag. The request carries `deterministicHeadline`/`deterministicExplanation` from `DeterministicCoach` plus the ply's code-detected facts (`moveClassName`, `centipawnLoss`, `motifs`), and the headline is never model-authored — `DefaultAiCoachOrchestrator.success` uses `deterministicHeadline` whatever the model returns. **The prompt is no longer a rewrite task and the two halves must keep agreeing on that:** a prompt holding one finished sentence can only produce a reworded copy of it, so `userPrompt` states the facts and the task while `SYSTEM_PROMPT` states the no-invention constraint. `MoveCoachPromptBuilder` also spells motif slugs out (`discovered-attack` → "discovered attack") — a 270M model copies the nearest token, and a raw id in the prompt is a raw id in the panel. `MoveCoachManager.proUnlocked = false` short-circuits to exactly that deterministic text as a `Ready` state (not a `Fallback` — the free tier is a complete answer, not a degraded one). **A model is optional, and on Android none is attached.** Not the same claim as before: a Pixel 10-class device *can* run Gemini Nano through ML Kit (measured — see the Android backend note below), and the wiring now exists — `MainActivity.attachOnDeviceAi()` holds probe → `VendorRouteExecutor` → both orchestrators behind one `ATTACH_ON_DEVICE_AI` constant, which is `false`. **The constant sits inside the probe call, not outside it**: on a device reporting `DOWNLOADABLE`, `probeAvailableLocalVendors()` calls `warmup()` and awaits an AICore feature fetch, so "inactive" has to mean no network and no provisioning, not merely no visible model. Two other details there are load-bearing: `isAppForegrounded` is read per request from `holder.isForeground` (AICore refuses to generate in the background with `ErrorCode 30`, and the decider must see that as "not foregrounded" rather than the model returning an error), and the vendor list is probed once and reused (thermal and quota, which do change per request, are the decider's own inputs). `MoveCoachManager` renders `DeterministicCoach` directly when no orchestrator is attached, so the panel answers instantly on every platform whether or not a model exists; a model, where one exists, only rephrases. **Two gates used to suppress the panel entirely in that case and either one alone renders a blank panel** — the `orchestrator != null` condition on the `onMoveCoached` callback, and an early return at the top of `launchCoach`. Both are gone and both are pinned by `MoveCoachToneTest`; do not reintroduce either. `AppSettings.aiCoachEnabled` (Settings switch, default on) still gates the whole thing, because off means off. Backed by a shared KMP module `:onDeviceAi` holding the routing policy (`AiRoutePolicies.moveCoachOffline`), prompt builder, validator, and deterministic text in `commonMain`; platform runtimes are injected at the entry points (desktop `CHESS_ENABLE_COACH=1`, wasm `?coach=1`) — **no phone attaches one**. Android never did; iOS stopped on 2026-08-15, when Foundation Models was measured against the same 100 golden positions as ML Kit and came back faster, more fluent and less truthful (75/100 grounded against 91). Both phone platforms therefore render `DeterministicCoach`, and the coach is **not a Pro surface** — `PaywallScreen.proFeatures()` keys that line off `MoveCoachManager.hasOrchestrator` (as it now does for all five), so it drops out on its own rather than selling something no one can receive.
+- **On-device AI Move Coach:** A Compose panel (`MoveCoachPanel`) that explains **the player's own move**, grounded in the `MoveAssessment` recorded for that ply. Wiring: `GameViewModel.runIdleAnalysis` fires `onMoveCoached(fenBefore, moveRecord)` once it has assessed that move (skipped when the game is over) and the VM exposes an `aiCoachEnabled` flag; `MoveCoachManager` (in `:app`) registers that callback in its `init` and owns the private `triggerCoach(...)` — cancellable, never blocks the move. There is **no** `GameViewModel.triggerCoach`; the VM stays coach-agnostic apart from the callback + flag. The request carries `deterministicHeadline`/`deterministicExplanation` from `DeterministicCoach` plus the ply's code-detected facts (`moveClassName`, `centipawnLoss`, `motifs`), and the headline is never model-authored — `DefaultAiCoachOrchestrator.success` uses `deterministicHeadline` whatever the model returns. **The prompt is no longer a rewrite task and the two halves must keep agreeing on that:** a prompt holding one finished sentence can only produce a reworded copy of it, so `userPrompt` states the facts and the task while `SYSTEM_PROMPT` states the no-invention constraint. `MoveCoachPromptBuilder` also spells motif slugs out (`discovered-attack` → "discovered attack") — a 270M model copies the nearest token, and a raw id in the prompt is a raw id in the panel. **A model is optional, and on Android none is attached.** Not the same claim as before: a Pixel 10-class device *can* run Gemini Nano through ML Kit (measured — see the Android backend note below), and the wiring now exists — `MainActivity.attachOnDeviceAi()` holds probe → `VendorRouteExecutor` → both orchestrators behind one `ATTACH_ON_DEVICE_AI` constant, which is `false`. **The constant sits inside the probe call, not outside it**: on a device reporting `DOWNLOADABLE`, `probeAvailableLocalVendors()` calls `warmup()` and awaits an AICore feature fetch, so "inactive" has to mean no network and no provisioning, not merely no visible model. Two other details there are load-bearing: `isAppForegrounded` is read per request from `holder.isForeground` (AICore refuses to generate in the background with `ErrorCode 30`, and the decider must see that as "not foregrounded" rather than the model returning an error), and the vendor list is probed once and reused (thermal and quota, which do change per request, are the decider's own inputs). `MoveCoachManager` renders `DeterministicCoach` directly when no orchestrator is attached, so the panel answers instantly on every platform whether or not a model exists; a model, where one exists, only rephrases. **Two gates used to suppress the panel entirely in that case and either one alone renders a blank panel** — the `orchestrator != null` condition on the `onMoveCoached` callback, and an early return at the top of `launchCoach`. Both are gone and both are pinned by `MoveCoachToneTest`; do not reintroduce either. `AppSettings.aiCoachEnabled` (Settings switch, default on) still gates the whole thing, because off means off. Backed by a shared KMP module `:onDeviceAi` holding the routing policy (`AiRoutePolicies.moveCoachOffline`), prompt builder, validator, and deterministic text in `commonMain`; platform runtimes are injected at the entry points (desktop `CHESS_ENABLE_COACH=1`, wasm `?coach=1`) — **no phone attaches one**. Android never did; iOS stopped on 2026-08-15, when Foundation Models was measured against the same 100 golden positions as ML Kit and came back faster, more fluent and less truthful (75/100 grounded against 91). Both phone platforms therefore render `DeterministicCoach`.
   - **Android backend:** **none attached — the coach runs deterministically, for two different reasons.** Cactus is ruled out by measurement; ML Kit is unattached by decision, and the two must not be conflated. Cactus was removed after every model in its catalog was benchmarked on a Galaxy Z Fold 3 and all of them lost to the deterministic text: `gemma3-270m` echoed its own prompt, `qwen3-0.6` needed 20–36 s (every `qwen3-*` is a reasoning model and `/no_think` is inert through Cactus), `gemma3-1b` spent 5–20 s on generic waffle, and `lfm2-700m` was fluent and false — "Nh3 … immediately controls the center" about a knight on the rim, passing every validator gate. On **Game Summary**, which has no response validator at all, `gemma3-1b` invented a bishop sacrifice on move 1 and once answered in German; all three runs were accepted. So no Cactus model ships, nothing downloads, and `GameSummaryManager.enableDeterministic()` composes the turning points instead. **ML Kit/AICore reaches a real model, and the earlier "no AICore on this device" verdict was a client-config bug.** A Pixel 10 Pro XL reports `AVAILABLE` with `baseModelName = nano-v3` under the Google sample's default config *and* under `preference = FULL`; only `preference = FAST` — the one variant this codebase ever constructed — reports `FEATURE_NOT_FOUND: Feature 645`. Measured at 444–734 ms init, 488–574 ms to first token, 3.0–3.9 s complete. **Its output quality has now been measured over the full golden set, and the answer is "fluent, fast, and not verifiably truthful."** 100 cases on a Pixel 10 Pro XL (2026-08-15): 95/100 pass `MoveCoachResponseValidator` against 72/100 for `DeterministicCoach` — but 17 of the deterministic column's 28 rejections are `isEchoedPrompt` firing on the text that *is* the prompt's baseline line, so the honest comparison is ~95 vs ~89, and 79/100 model answers fail `FluencyScorer` on conversational filler. A hand read finds invention the validator cannot catch: a motif belonging to the played move reattached to `betterMoveDisplay` ("e4 … because it develops a piece"), and an invented "opens up the h-file". `validateReasonFaithfulness` covers mate/check/capture claims and `validatePieceType` covers piece nouns; **neither covers motif attribution or file/diagonal claims**, and that rule is the gate for attaching this model. Every older `aicore-nano-fast` and `cactus-android` row on that page predates the fixture fix and measured the harness: `AndroidBenchRunner` used to build every `MoveCoachRequest` with a placeholder `deterministicExplanation` ("This was a strong move.") and no facts at all. It costs no download, and emulators still report `Unavailable` and fall through to deterministic text. **AICore refuses to generate in the background** (`ErrorCode 30`), and the screen timeout is not the whole story — the *keyguard* is what stops the bench activity being resumed, so `svc power stayon usb` does not prevent it. `MainActivity.keepBenchInForeground()` (bench-only) holds `FLAG_KEEP_SCREEN_ON` + `setShowWhenLocked`; without it a locked device produces a full JSONL of sub-second fallbacks that measure nothing. **But it is not attached in the app yet** — see the wiring note in the Move Coach bullet above. On **Game Summary** the verdict is much closer than on the coach: 12/12 at ~12 s citing exactly the code-chosen turning points, once three of *our* bugs were fixed (see `docs/benchmarks/on-device-ai/game-summary-2026-08.md`). The "AICore repetition loop" in `evals/scorecard.md` was ours, not the model's (`AiTokenOrFinal.Final` carried the accumulated text on top of the streamed tokens). See `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md`.
   - **iOS backend:** **Foundation Models** (Apple Intelligence) via `FoundationMoveCoachBridge` registered into `FoundationModelsBridgeRegistry` from `iOSApp.swift`. Requires **iOS 26.0+** (every Foundation Models call is `@available(iOS 26.0, *)`-gated; the app's own deployment target is 16.0) plus `SystemLanguageModel.default.availability == .available`. Unlike Android/desktop/wasm there is **no build flag or debug/release distinction** — `MainViewController` probes availability at launch on every build and falls back to rule-based text when unavailable (old OS, ineligible device, or Apple Intelligence off in Settings — all surface identically). **It is no longer attached to the Move Coach**, and the claim it used to carry — that iOS was the one platform where an on-device model earned its place, measured at 1.8 s for *"e4 is a good move because it controls the center."* — was one sentence about one position. Measured against the same 100 golden positions as ML Kit on identical prompts (2026-08-15): **650 ms** median against 4.4 s and 39 fluency violations against 79, but **75/100 grounded against 91**, an LLM judge preferring the deterministic line **54–46** where it preferred nano-v3 52–48, and a hand read finding **5 of 8** sampled flags real — it calls an inaccuracy a mistake, calls a best move bad, and offers the player's own hanging pawn as the reason the move was good. Where it does not contradict the facts it usually repeats the deterministic sentence verbatim. `MainViewController` still probes availability, but only Game Summary and Rules Q&A consume it. The **Simulator supports it** on an Apple Silicon host with Apple Intelligence enabled, so benchmarking needs no physical iPhone; it does need the real app under `BENCHMARK_MODE`, since the bridge is registered from `iOSApp.swift` and the Kotlin/Native test runner sees no vendors.
   - **Desktop backend:** **LiteRT-LM** (`com.google.ai.edge.litertlm:litertlm-jvm`, Google AI Edge) — the Kotlin/JVM API over LiteRT-LM, with native libs bundled inside the jar (linux-x86_64 / linux-aarch64 / darwin-aarch64 / win-x86_64; **no Intel Mac** — those hosts fall back). The Qwen3-0.6B-int4 model (~347 MB `.litertlm`) is downloaded from Hugging Face on first launch by `LitertLmModelStore` and cached under `~/.chess-coach-models/`. Gated behind `CHESS_ENABLE_COACH=1` (env var) in `Main.kt` — without it the coach panel stays `Hidden` (the previous default). Android no longer has an equivalent gate; desktop and wasm are now the only gated targets. Implemented by `LitertLmTextGenerator` in `:onDeviceAi` desktopMain, wired via the same `OnDeviceTextGenerator` seam as Foundation Models; the entire `DefaultAiCoachOrchestrator` → `MoveCoachManager` pipeline is reused unchanged. (The literal "LiteRT.js"/prebuilt LiteRT C++ SDK are not LLM runtimes — see `docs/benchmarks/on-device-ai/desktop-wasm-litert-lm.md` for why LiteRT-LM was chosen.)
