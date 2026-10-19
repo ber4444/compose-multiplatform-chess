@@ -338,19 +338,19 @@
       </div>
       <div>
         <dt>Effective &middot; last updated</dt>
-        <dd>27 August 2026</dd>
+        <dd>19 October 2026</dd>
       </div>
     </dl>
   </header>
 
   <div class="summary">
     <h2>The short version</h2>
-    <p class="lede">AI Chess Coach 3D has no accounts, no sign-in, no advertising, and no analytics or crash-reporting SDKs. Your games, settings, and history are stored on your device and are never uploaded.</p>
-    <p>Two things leave your device, and only in the situations described below:</p>
+    <p class="lede">AI Chess Coach 3D is free. It has no purchases, no accounts, no sign-in, no advertising, and no analytics or crash-reporting SDKs. Your games, settings, and history are stored on your device and are never uploaded.</p>
+    <p>One thing leaves your device, and only in the situations described below:</p>
     <ol class="exceptions">
-      <li><strong>Purchases.</strong> If you buy Pro, purchase data is processed by Google Play and by our subscription provider, RevenueCat.</li>
-      <li><strong>The two cloud AI features</strong> — Opening Explainer and Position Chat, both Pro. These send the chess position you are looking at and, for chat, the question you type.</li>
+      <li><strong>The two cloud AI features</strong> — Opening Explainer and Position Chat. These send the chess position you are looking at and, for chat, the question you type.</li>
     </ol>
+    <p>Earlier versions of the app offered an optional paid Pro upgrade. That has been removed and every feature is now free; if you bought Pro, section 02 explains what happened to that purchase data.</p>
     <p>Everything else — the chess engine, the 3D board, the move coach, the game summary, and rules Q&amp;A — runs entirely offline on your device.</p>
     <p>The app is open source. If you would rather read the code than take our word for any of this, it is all <a href="https://github.com/ber4444/compose-multiplatform-chess">on GitHub</a>.</p>
   </div>
@@ -371,23 +371,21 @@
 
   <section>
     <p class="num">02</p>
-    <h2 class="head">Purchases and subscriptions</h2>
+    <h2 class="head">Purchases in earlier versions</h2>
     <div class="body">
-      <p>Pro is sold through Google Play, with <a href="https://www.revenuecat.com/privacy/">RevenueCat</a> managing entitlements and receipt validation.</p>
+      <p>The app no longer sells anything and no longer contacts any purchase or subscription service. Earlier versions offered an optional Pro upgrade, sold through Google Play, with <a href="https://www.revenuecat.com/privacy/">RevenueCat</a> managing entitlements and receipt validation. If you bought it:</p>
       <ul>
-        <li><strong>We never see or handle your payment details.</strong> Card and billing information goes to Google and is never available to us or to this app.</li>
-        <li>The app does <strong>not</strong> create an account or ask for an email address. RevenueCat assigns an <strong>anonymous app user ID</strong> — a random identifier not linked to your name — and uses it to remember what you have purchased and to restore purchases on request.</li>
-        <li>To operate the purchase, RevenueCat and Google Play process: the anonymous user ID, the purchase receipt and subscription status, the product purchased, device model, Android and app version, and a country derived from your IP address.</li>
-        <li><strong>Restore purchases</strong> asks Google Play and RevenueCat for the entitlements attached to your Google account.</li>
+        <li><strong>We never saw or handled your payment details.</strong> Card and billing information went to Google and was never available to us or to the app.</li>
+        <li>No account was created and no email address was asked for. RevenueCat assigned an <strong>anonymous app user ID</strong> — a random identifier not linked to your name — to remember the purchase and to restore it on request.</li>
+        <li>To operate the purchase, RevenueCat and Google Play processed: the anonymous user ID, the purchase receipt and subscription status, the product purchased, device model, Android and app version, and a country derived from your IP address.</li>
       </ul>
-      <p>We use this data only to decide whether Pro is unlocked, and to see anonymous, aggregate revenue figures. We do not use it for advertising and we do not sell it.</p>
-      <p>RevenueCat handles this data <strong>on our behalf</strong> — as our processor, under its data processing agreement, and only for the purposes above. Google Play is the seller of record for the transaction and an independent controller of the payment details it takes from you directly, which never pass through us. Their policies: <a href="https://policies.google.com/privacy">Google</a>, <a href="https://www.revenuecat.com/privacy/">RevenueCat</a>.</p>
+      <p>That data was used only to decide whether Pro was unlocked and to see anonymous, aggregate revenue figures — never for advertising, and never sold. RevenueCat handled it <strong>on our behalf</strong>, as our processor under its data processing agreement. Google Play was the seller of record and an independent controller of the payment details it took from you directly, which never passed through us. Any records that remain are held by them under their own policies: <a href="https://policies.google.com/privacy">Google</a>, <a href="https://www.revenuecat.com/privacy/">RevenueCat</a>. To cancel a subscription bought in an earlier version, use Google Play's subscription settings.</p>
     </div>
   </section>
 
   <section>
     <p class="num">03</p>
-    <h2 class="head">Cloud AI features (Pro)</h2>
+    <h2 class="head">Cloud AI features</h2>
     <div class="body">
       <p>Two features send data to our AI service, which runs on <a href="https://fly.io/legal/privacy-policy/">Fly.io</a>.</p>
       <p><strong>Opening Explainer</strong> — after a game ends, sends the board position (FEN), the first 20 moves in standard notation, the opening's ECO code, and your language preference.</p>
@@ -396,7 +394,7 @@
       <ul>
         <li>These requests carry <strong>chess data and your typed question only</strong>. The app does not attach a user ID, account data, device identifier, advertising ID, or location to them.</li>
         <li>Your <strong>IP address</strong> reaches our server as an unavoidable part of any internet request. We use it only for short-term rate limiting — held in memory for a rolling 60-second window, never written to a database, never used to build a profile.</li>
-        <li>Our database stores only the chess opening reference corpus the answers are drawn from. <strong>No user request is written to it.</strong> Server logs record errors for reliability purposes; they are not used to profile users and are retained only briefly.</li>
+        <li>The service has no database: the chess opening reference corpus the answers are drawn from is built into the server itself. <strong>No user request is stored.</strong> Server logs record errors for reliability purposes; they are not used to profile users and are retained only briefly.</li>
       </ul>
       <p class="note"><strong>Please do not type personal information into the chat box.</strong> It is a free-text field, so anything you write there is sent to our service and on to the model provider named below. Keep it to chess.</p>
       <h3>Third-party language model</h3>
@@ -428,11 +426,6 @@
           </thead>
           <tbody>
             <tr>
-              <td>Google Play, RevenueCat</td>
-              <td>Purchase, restore, or entitlement check</td>
-              <td>Purchase data as described in section 02</td>
-            </tr>
-            <tr>
               <td>Our AI service on Fly.io</td>
               <td>You use Opening Explainer or Position Chat</td>
               <td>Position and your typed message; IP address</td>
@@ -445,7 +438,7 @@
           </tbody>
         </table>
       </div>
-      <p>The app requests only the <code>INTERNET</code> permission. It does not ask for contacts, location, camera, microphone, photos, or storage permissions, and it has no access to them.</p>
+      <p>Earlier versions also contacted Google Play and RevenueCat for purchases; see section 02. The app requests only the <code>INTERNET</code> permission. It does not ask for contacts, location, camera, microphone, photos, or storage permissions, and it has no access to them.</p>
     </div>
   </section>
 
@@ -453,7 +446,7 @@
     <p class="num">06</p>
     <h2 class="head">Children</h2>
     <div class="body">
-      <p>AI Chess Coach 3D is not directed at children under 13, or the equivalent minimum age in your country, and we do not knowingly collect personal information from children. Since the app collects no identifying information at all, there is nothing for us to delete on request; purchases made by a minor should be raised with Google Play.</p>
+      <p>AI Chess Coach 3D is not directed at children under 13, or the equivalent minimum age in your country, and we do not knowingly collect personal information from children. Since the app collects no identifying information at all, there is nothing for us to delete on request; a purchase a minor made in an earlier version should be raised with Google Play.</p>
     </div>
   </section>
 
@@ -464,7 +457,7 @@
       <p>Depending on where you live — for example under the GDPR in the EU and UK, or the CCPA/CPRA in California — you may have rights to access, correct, delete, or port your personal data, and to object to its processing. <strong>We do not hold data that identifies you</strong>, so in most cases:</p>
       <ul>
         <li><strong>To delete everything the app stores about you</strong>, uninstall the app or clear its data. This removes your games, history, and settings permanently — we hold no copy.</li>
-        <li><strong>For purchase data</strong>, contact RevenueCat or Google, who hold it.</li>
+        <li><strong>For purchase data from an earlier version</strong>, contact RevenueCat or Google, who hold it.</li>
         <li><strong>For anything else</strong>, <a href="https://github.com/ber4444/compose-multiplatform-chess/issues">open an issue</a> and we will respond within the period your local law requires. The issue tracker is <strong>public</strong> — please do not post personal details in it.</li>
       </ul>
       <p><strong>We do not sell or share your personal information</strong> as those terms are defined under California law, and we do not engage in targeted advertising.</p>
@@ -483,7 +476,7 @@
           </thead>
           <tbody>
             <tr><td>Games, history, settings</td><td>Until you delete them or uninstall the app — stored only on your device</td></tr>
-            <tr><td>Purchase and entitlement records</td><td>As long as RevenueCat and Google Play retain them under their own policies</td></tr>
+            <tr><td>Purchase and entitlement records (earlier versions only)</td><td>As long as RevenueCat and Google Play retain them under their own policies</td></tr>
             <tr><td>Cloud AI requests</td><td>Not stored. Processed in memory to produce the answer, then discarded</td></tr>
             <tr><td>Abuse-detection logs at Google</td><td>A limited period set by Google, for enforcing its usage policy and legal disclosure only — see section 03</td></tr>
             <tr><td>Rate-limiting IP counters</td><td>A rolling 60-second window, in memory only</td></tr>
@@ -498,7 +491,7 @@
     <p class="num">09</p>
     <h2 class="head">Security</h2>
     <div class="body">
-      <p>Traffic to our AI service, to Google Play, and to the Gemini API uses HTTPS. Requests to the AI service are size-limited and rate-limited. Because the app stores no credentials and holds no account, there is no login to compromise. No system is perfectly secure, but the amount of data at risk here is deliberately kept near zero.</p>
+      <p>Traffic to our AI service and to the Gemini API uses HTTPS. Requests to the AI service are size-limited and rate-limited. Because the app stores no credentials and holds no account, there is no login to compromise. No system is perfectly secure, but the amount of data at risk here is deliberately kept near zero.</p>
     </div>
   </section>
 
