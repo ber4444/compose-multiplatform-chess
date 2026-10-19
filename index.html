@@ -322,7 +322,7 @@
       </div>
       <div>
         <dt>Platform</dt>
-        <dd>Android, via Google Play</dd>
+        <dd>Android, via Google Play<br>iOS, via TestFlight beta</dd>
       </div>
       <div>
         <dt>Developer</dt>
@@ -350,7 +350,7 @@
     <ol class="exceptions">
       <li><strong>The two cloud AI features</strong> — Opening Explainer and Position Chat. These send the chess position you are looking at and, for chat, the question you type.</li>
     </ol>
-    <p>Earlier versions of the app offered an optional paid Pro upgrade. That has been removed and every feature is now free; if you bought Pro, section 02 explains what happened to that purchase data.</p>
+    <p>Earlier Android versions of the app offered an optional paid Pro upgrade. That has been removed and every feature is now free; if you bought Pro, section 02 explains what happened to that purchase data.</p>
     <p>Everything else — the chess engine, the 3D board, the move coach, the game summary, and rules Q&amp;A — runs entirely offline on your device.</p>
     <p>The app is open source. If you would rather read the code than take our word for any of this, it is all <a href="https://github.com/ber4444/compose-multiplatform-chess">on GitHub</a>.</p>
   </div>
@@ -359,13 +359,13 @@
     <p class="num">01</p>
     <h2 class="head">Information stored on your device</h2>
     <div class="body">
-      <p>The app saves the following locally, in Android's own SharedPreferences storage:</p>
+      <p>The app saves the following locally, in the platform's own app storage — SharedPreferences on Android, UserDefaults on iOS:</p>
       <ul>
         <li><strong>The game in progress</strong>, so you can resume after closing the app.</li>
         <li><strong>Your game history</strong> — finished games as PGN, including result, move count, and date, capped at the 200 most recent games.</li>
         <li><strong>Your settings</strong> — preferred side, engine difficulty, 3D board on or off, AI coach on or off.</li>
       </ul>
-      <p>This data is not transmitted to us or to anyone else. It is removed when you uninstall the app or clear the app's data from Android Settings. If you use <strong>Share PGN</strong>, the game text is handed to the app you pick — mail, messaging, a file — and that destination's own privacy terms then apply.</p>
+      <p>This data is never sent to us. It is removed when you delete the app, or on Android when you clear the app's data in Settings; on iOS, <em>Offload App</em> keeps it, and only deleting the app removes it. If device backup is turned on — Android's backup to your Google account, or iCloud or computer backup on iPhone — this data is included in <strong>your own</strong> backup, which Google or Apple store under your account; we have no access to it. If you use <strong>Share PGN</strong>, the game text is handed to the app you pick — mail, messaging, a file — and that destination's own privacy terms then apply.</p>
     </div>
   </section>
 
@@ -373,7 +373,7 @@
     <p class="num">02</p>
     <h2 class="head">Purchases in earlier versions</h2>
     <div class="body">
-      <p>The app no longer sells anything and no longer contacts any purchase or subscription service. Earlier versions offered an optional Pro upgrade, sold through Google Play, with <a href="https://www.revenuecat.com/privacy/">RevenueCat</a> managing entitlements and receipt validation. If you bought it:</p>
+      <p>The app no longer sells anything and no longer contacts any purchase or subscription service. The iOS app never offered purchases. Earlier Android versions offered an optional Pro upgrade, sold through Google Play, with <a href="https://www.revenuecat.com/privacy/">RevenueCat</a> managing entitlements and receipt validation. If you bought it:</p>
       <ul>
         <li><strong>We never saw or handled your payment details.</strong> Card and billing information went to Google and was never available to us or to the app.</li>
         <li>No account was created and no email address was asked for. RevenueCat assigned an <strong>anonymous app user ID</strong> — a random identifier not linked to your name — to remember the purchase and to restore it on request.</li>
@@ -410,7 +410,12 @@
     <h2 class="head">On-device AI</h2>
     <div class="body">
       <p>The <strong>Move Coach</strong>, <strong>Game Summary</strong>, and <strong>Rules Q&amp;A</strong> features run entirely on your device.</p>
-      <p><strong>Rules Q&amp;A</strong> uses Android's built-in on-device AI, where your device supports it, to phrase its answer. The <strong>Move Coach</strong> and <strong>Game Summary</strong> do not use an AI model at all: their text is computed deterministically from the chess engine's own analysis of your game. No model is downloaded for any of these features, and none of them sends anything anywhere.</p>
+      <p>The <strong>Move Coach</strong> does not use an AI model on either platform: its text is computed deterministically from the chess engine's own analysis of your game.</p>
+      <ul>
+        <li><strong>On Android</strong>, <strong>Game Summary</strong> is computed the same deterministic way, and <strong>Rules Q&amp;A</strong> uses Android's built-in on-device AI, where your device supports it, to phrase its answer.</li>
+        <li><strong>On iOS</strong>, <strong>Game Summary</strong> and <strong>Rules Q&amp;A</strong> use Apple's on-device foundation model, part of Apple Intelligence, where your iPhone supports it and Apple Intelligence is turned on (iOS 26 or later). The app uses only the model that runs on your device — not Apple's Private Cloud Compute — so these requests do not leave your iPhone. Where Apple Intelligence is unavailable, Game Summary is not offered and Rules Q&amp;A answers directly from its bundled rulebook.</li>
+      </ul>
+      <p>The app downloads no AI model of its own for any of these features, and none of them sends anything anywhere.</p>
       <p><strong>Nothing about your games is uploaded for these features</strong>, and they work with no network connection.</p>
     </div>
   </section>
@@ -438,12 +443,27 @@
           </tbody>
         </table>
       </div>
-      <p>Earlier versions also contacted Google Play and RevenueCat for purchases; see section 02. The app requests only the <code>INTERNET</code> permission. It does not ask for contacts, location, camera, microphone, photos, or storage permissions, and it has no access to them.</p>
+      <p>Earlier versions also contacted Google Play and RevenueCat for purchases; see section 02. On Android the app requests only the <code>INTERNET</code> permission; on iOS it requests no permissions at all. It does not ask for contacts, location, camera, microphone, photos, or storage access on either platform, and it has no access to them. The connections above are the same on Android and iOS.</p>
     </div>
   </section>
 
   <section>
     <p class="num">06</p>
+    <h2 class="head">Beta testing on iOS (TestFlight)</h2>
+    <div class="body">
+      <p>The iOS app is currently distributed as a beta through Apple's <a href="https://testflight.apple.com/">TestFlight</a>. Apple runs TestFlight under its own terms and <a href="https://www.apple.com/legal/privacy/">privacy policy</a>, and may make some information about your use of the beta available to us in App Store Connect:</p>
+      <ul>
+        <li><strong>Feedback and screenshots</strong> you choose to send from TestFlight, with any comments you add.</li>
+        <li><strong>Crash reports</strong>, if your device allows sharing crash data with app developers.</li>
+        <li>Basic usage information such as installs, sessions and the build and device model in use.</li>
+        <li>If we invited you <strong>by email</strong>, that email address and the name you were invited under. If you joined through a <strong>public link</strong>, Apple does not give us your name or email.</li>
+      </ul>
+      <p>We use this only to find and fix problems in the beta. It is not combined with anything else, and the app itself sends nothing beyond what this policy describes. To stop, remove the beta in the TestFlight app; data Apple holds is governed by Apple's policy.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="num">07</p>
     <h2 class="head">Children</h2>
     <div class="body">
       <p>AI Chess Coach 3D is not directed at children under 13, or the equivalent minimum age in your country, and we do not knowingly collect personal information from children. Since the app collects no identifying information at all, there is nothing for us to delete on request; a purchase a minor made in an earlier version should be raised with Google Play.</p>
@@ -451,13 +471,14 @@
   </section>
 
   <section>
-    <p class="num">07</p>
+    <p class="num">08</p>
     <h2 class="head">Your rights</h2>
     <div class="body">
       <p>Depending on where you live — for example under the GDPR in the EU and UK, or the CCPA/CPRA in California — you may have rights to access, correct, delete, or port your personal data, and to object to its processing. <strong>We do not hold data that identifies you</strong>, so in most cases:</p>
       <ul>
-        <li><strong>To delete everything the app stores about you</strong>, uninstall the app or clear its data. This removes your games, history, and settings permanently — we hold no copy.</li>
-        <li><strong>For purchase data from an earlier version</strong>, contact RevenueCat or Google, who hold it.</li>
+        <li><strong>To delete everything the app stores about you</strong>, delete the app, or on Android clear its data. This removes your games, history, and settings permanently — we hold no copy.</li>
+        <li><strong>For purchase data from an earlier Android version</strong>, contact RevenueCat or Google, who hold it.</li>
+        <li><strong>For TestFlight feedback and crash data</strong>, contact Apple, or ask us to delete what reached App Store Connect.</li>
         <li><strong>For anything else</strong>, <a href="https://github.com/ber4444/compose-multiplatform-chess/issues">open an issue</a> and we will respond within the period your local law requires. The issue tracker is <strong>public</strong> — please do not post personal details in it.</li>
       </ul>
       <p><strong>We do not sell or share your personal information</strong> as those terms are defined under California law, and we do not engage in targeted advertising.</p>
@@ -466,7 +487,7 @@
   </section>
 
   <section>
-    <p class="num">08</p>
+    <p class="num">09</p>
     <h2 class="head">Retention</h2>
     <div class="body">
       <div class="scroller">
@@ -476,7 +497,8 @@
           </thead>
           <tbody>
             <tr><td>Games, history, settings</td><td>Until you delete them or uninstall the app — stored only on your device</td></tr>
-            <tr><td>Purchase and entitlement records (earlier versions only)</td><td>As long as RevenueCat and Google Play retain them under their own policies</td></tr>
+            <tr><td>TestFlight feedback, crash reports and usage data</td><td>Held by Apple in App Store Connect under Apple's own retention rules</td></tr>
+            <tr><td>Purchase and entitlement records (earlier Android versions only)</td><td>As long as RevenueCat and Google Play retain them under their own policies</td></tr>
             <tr><td>Cloud AI requests</td><td>Not stored. Processed in memory to produce the answer, then discarded</td></tr>
             <tr><td>Abuse-detection logs at Google</td><td>A limited period set by Google, for enforcing its usage policy and legal disclosure only — see section 03</td></tr>
             <tr><td>Rate-limiting IP counters</td><td>A rolling 60-second window, in memory only</td></tr>
@@ -488,7 +510,7 @@
   </section>
 
   <section>
-    <p class="num">09</p>
+    <p class="num">10</p>
     <h2 class="head">Security</h2>
     <div class="body">
       <p>Traffic to our AI service and to the Gemini API uses HTTPS. Requests to the AI service are size-limited and rate-limited. Because the app stores no credentials and holds no account, there is no login to compromise. No system is perfectly secure, but the amount of data at risk here is deliberately kept near zero.</p>
@@ -496,7 +518,7 @@
   </section>
 
   <section>
-    <p class="num">10</p>
+    <p class="num">11</p>
     <h2 class="head">Changes to this policy</h2>
     <div class="body">
       <p>If we change how the app handles data, we will update this page and the "last updated" date above. Material changes will be noted in the app's release notes. Continuing to use the app after a change means you accept the revised policy.</p>
@@ -504,7 +526,7 @@
   </section>
 
   <section>
-    <p class="num">11</p>
+    <p class="num">12</p>
     <h2 class="head">Contact</h2>
     <div class="body">
       <p>Questions about this policy or about your data: <a href="https://github.com/ber4444/compose-multiplatform-chess/issues">open an issue on GitHub</a>. The tracker is public, so please do not include personal details.</p>
