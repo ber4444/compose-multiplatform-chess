@@ -428,7 +428,7 @@
           </tbody>
         </table>
       </div>
-      <p>On Android the app requests only the <code>INTERNET</code> permission; on iOS it requests no permissions at all. It does not ask for contacts, location, camera, microphone, photos, or storage access on either platform, and it has no access to them. The connections above are the same on Android and iOS.</p>
+      <p>The app never shows a permission prompt. On Android it declares only permissions that Android grants automatically at install: internet access, viewing network connections, vibration (declared by the 3D board library), and access to Android's own on-device AI service; on iOS it declares none. It does not ask for contacts, location, camera, microphone, photos, or storage access on either platform, and it has no access to them. The connections above are the same on Android and iOS.</p>
     </div>
   </section>
 
