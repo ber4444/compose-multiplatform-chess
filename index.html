@@ -350,7 +350,6 @@
     <ol class="exceptions">
       <li><strong>The two cloud AI features</strong> — Opening Explainer and Position Chat. These send the chess position you are looking at and, for chat, the question you type.</li>
     </ol>
-    <p>Earlier Android versions of the app offered an optional paid Pro upgrade. That has been removed and every feature is now free; if you bought Pro, section 02 explains what happened to that purchase data.</p>
     <p>Everything else — the chess engine, the 3D board, the move coach, the game summary, and rules Q&amp;A — runs entirely offline on your device.</p>
     <p>The app is open source. If you would rather read the code than take our word for any of this, it is all <a href="https://github.com/ber4444/compose-multiplatform-chess">on GitHub</a>.</p>
   </div>
@@ -371,20 +370,6 @@
 
   <section>
     <p class="num">02</p>
-    <h2 class="head">Purchases in earlier versions</h2>
-    <div class="body">
-      <p>The app no longer sells anything and no longer contacts any purchase or subscription service. The iOS app never offered purchases. Earlier Android versions offered an optional Pro upgrade, sold through Google Play, with <a href="https://www.revenuecat.com/privacy/">RevenueCat</a> managing entitlements and receipt validation. If you bought it:</p>
-      <ul>
-        <li><strong>We never saw or handled your payment details.</strong> Card and billing information went to Google and was never available to us or to the app.</li>
-        <li>No account was created and no email address was asked for. RevenueCat assigned an <strong>anonymous app user ID</strong> — a random identifier not linked to your name — to remember the purchase and to restore it on request.</li>
-        <li>To operate the purchase, RevenueCat and Google Play processed: the anonymous user ID, the purchase receipt and subscription status, the product purchased, device model, Android and app version, and a country derived from your IP address.</li>
-      </ul>
-      <p>That data was used only to decide whether Pro was unlocked and to see anonymous, aggregate revenue figures — never for advertising, and never sold. RevenueCat handled it <strong>on our behalf</strong>, as our processor under its data processing agreement. Google Play was the seller of record and an independent controller of the payment details it took from you directly, which never passed through us. Any records that remain are held by them under their own policies: <a href="https://policies.google.com/privacy">Google</a>, <a href="https://www.revenuecat.com/privacy/">RevenueCat</a>. To cancel a subscription bought in an earlier version, use Google Play's subscription settings.</p>
-    </div>
-  </section>
-
-  <section>
-    <p class="num">03</p>
     <h2 class="head">Cloud AI features</h2>
     <div class="body">
       <p>Two features send data to our AI service, which runs on <a href="https://fly.io/legal/privacy-policy/">Fly.io</a>.</p>
@@ -406,7 +391,7 @@
   </section>
 
   <section>
-    <p class="num">04</p>
+    <p class="num">03</p>
     <h2 class="head">On-device AI</h2>
     <div class="body">
       <p>The <strong>Move Coach</strong>, <strong>Game Summary</strong>, and <strong>Rules Q&amp;A</strong> features run entirely on your device.</p>
@@ -421,7 +406,7 @@
   </section>
 
   <section>
-    <p class="num">05</p>
+    <p class="num">04</p>
     <h2 class="head">Every connection the app can make</h2>
     <div class="body">
       <div class="scroller">
@@ -443,12 +428,12 @@
           </tbody>
         </table>
       </div>
-      <p>Earlier versions also contacted Google Play and RevenueCat for purchases; see section 02. On Android the app requests only the <code>INTERNET</code> permission; on iOS it requests no permissions at all. It does not ask for contacts, location, camera, microphone, photos, or storage access on either platform, and it has no access to them. The connections above are the same on Android and iOS.</p>
+      <p>On Android the app requests only the <code>INTERNET</code> permission; on iOS it requests no permissions at all. It does not ask for contacts, location, camera, microphone, photos, or storage access on either platform, and it has no access to them. The connections above are the same on Android and iOS.</p>
     </div>
   </section>
 
   <section>
-    <p class="num">06</p>
+    <p class="num">05</p>
     <h2 class="head">Beta testing on iOS (TestFlight)</h2>
     <div class="body">
       <p>The iOS app is currently distributed as a beta through Apple's <a href="https://testflight.apple.com/">TestFlight</a>. Apple runs TestFlight under its own terms and <a href="https://www.apple.com/legal/privacy/">privacy policy</a>, and may make some information about your use of the beta available to us in App Store Connect:</p>
@@ -463,21 +448,20 @@
   </section>
 
   <section>
-    <p class="num">07</p>
+    <p class="num">06</p>
     <h2 class="head">Children</h2>
     <div class="body">
-      <p>AI Chess Coach 3D is not directed at children under 13, or the equivalent minimum age in your country, and we do not knowingly collect personal information from children. Since the app collects no identifying information at all, there is nothing for us to delete on request; a purchase a minor made in an earlier version should be raised with Google Play.</p>
+      <p>AI Chess Coach 3D is not directed at children under 13, or the equivalent minimum age in your country, and we do not knowingly collect personal information from children. Since the app collects no identifying information at all, there is nothing for us to delete on request.</p>
     </div>
   </section>
 
   <section>
-    <p class="num">08</p>
+    <p class="num">07</p>
     <h2 class="head">Your rights</h2>
     <div class="body">
       <p>Depending on where you live — for example under the GDPR in the EU and UK, or the CCPA/CPRA in California — you may have rights to access, correct, delete, or port your personal data, and to object to its processing. <strong>We do not hold data that identifies you</strong>, so in most cases:</p>
       <ul>
         <li><strong>To delete everything the app stores about you</strong>, delete the app, or on Android clear its data. This removes your games, history, and settings permanently — we hold no copy.</li>
-        <li><strong>For purchase data from an earlier Android version</strong>, contact RevenueCat or Google, who hold it.</li>
         <li><strong>For TestFlight feedback and crash data</strong>, contact Apple, or ask us to delete what reached App Store Connect.</li>
         <li><strong>For anything else</strong>, <a href="https://github.com/ber4444/compose-multiplatform-chess/issues">open an issue</a> and we will respond within the period your local law requires. The issue tracker is <strong>public</strong> — please do not post personal details in it.</li>
       </ul>
@@ -487,7 +471,7 @@
   </section>
 
   <section>
-    <p class="num">09</p>
+    <p class="num">08</p>
     <h2 class="head">Retention</h2>
     <div class="body">
       <div class="scroller">
@@ -498,9 +482,8 @@
           <tbody>
             <tr><td>Games, history, settings</td><td>Until you delete them or uninstall the app — stored only on your device</td></tr>
             <tr><td>TestFlight feedback, crash reports and usage data</td><td>Held by Apple in App Store Connect under Apple's own retention rules</td></tr>
-            <tr><td>Purchase and entitlement records (earlier Android versions only)</td><td>As long as RevenueCat and Google Play retain them under their own policies</td></tr>
             <tr><td>Cloud AI requests</td><td>Not stored. Processed in memory to produce the answer, then discarded</td></tr>
-            <tr><td>Abuse-detection logs at Google</td><td>A limited period set by Google, for enforcing its usage policy and legal disclosure only — see section 03</td></tr>
+            <tr><td>Abuse-detection logs at Google</td><td>A limited period set by Google, for enforcing its usage policy and legal disclosure only — see section 02</td></tr>
             <tr><td>Rate-limiting IP counters</td><td>A rolling 60-second window, in memory only</td></tr>
             <tr><td>Server error logs</td><td>A short operational period, then rotated out</td></tr>
           </tbody>
@@ -510,7 +493,7 @@
   </section>
 
   <section>
-    <p class="num">10</p>
+    <p class="num">09</p>
     <h2 class="head">Security</h2>
     <div class="body">
       <p>Traffic to our AI service and to the Gemini API uses HTTPS. Requests to the AI service are size-limited and rate-limited. Because the app stores no credentials and holds no account, there is no login to compromise. No system is perfectly secure, but the amount of data at risk here is deliberately kept near zero.</p>
@@ -518,7 +501,7 @@
   </section>
 
   <section>
-    <p class="num">11</p>
+    <p class="num">10</p>
     <h2 class="head">Changes to this policy</h2>
     <div class="body">
       <p>If we change how the app handles data, we will update this page and the "last updated" date above. Material changes will be noted in the app's release notes. Continuing to use the app after a change means you accept the revised policy.</p>
@@ -526,7 +509,7 @@
   </section>
 
   <section>
-    <p class="num">12</p>
+    <p class="num">11</p>
     <h2 class="head">Contact</h2>
     <div class="body">
       <p>Questions about this policy or about your data: <a href="https://github.com/ber4444/compose-multiplatform-chess/issues">open an issue on GitHub</a>. The tracker is public, so please do not include personal details.</p>
