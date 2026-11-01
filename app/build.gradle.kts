@@ -159,6 +159,8 @@ kotlin {
             implementation(libs.androidx.core.ktx)
             implementation(libs.androidx.lifecycle.runtime.compose)
             implementation(libs.sceneview)
+            // Auto-initializes AndroidX Tracer and exposes start/flush controls to profiling tools.
+            implementation(libs.androidx.tracing.wire)
         }
 
         jvmCommonMain.dependencies {

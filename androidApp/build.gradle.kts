@@ -6,6 +6,7 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.baselineprofile)
 }
 
 val sharedComposeAssetsDir = project(":app").layout.buildDirectory
@@ -52,6 +53,10 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            // R8-integrated (optimized) resource shrinking, AGP 9's default: resources are traced
+            // through the same reachability graph as code. Compose Multiplatform resources ship as
+            // assets, which the shrinker never touches, so this only reaches Android `res/`.
+            isShrinkResources = true
             // Either branch leaves the variant signable, which is what makes AGP register
             // `installRelease` at all — an unsigned release build type gets `uninstallRelease`
             // and no matching install task.
@@ -79,12 +84,9 @@ android {
             // `<profileable android:shell="true"/>` at manifest merge, so the shared
             // androidApp/src/main/AndroidManifest.xml stays release-only.
             isProfileable = true
-            // Inherited `true` from release. R8 is orthogonal to a frame-*count* measurement while
-            // being the largest risk surface in this app (Compose Multiplatform + SceneView and
-            // Filament both reach for types reflectively), so the benchmark variant does not pay
-            // for it. Flip this on if a future benchmark measures something R8 can actually move,
-            // such as startup.
-            isMinifyEnabled = false
+            // Startup benchmarks must measure the same R8 optimization and startup DEX layout as
+            // release. Profile generation uses the plugin's separate nonMinifiedRelease variant.
+            isMinifyEnabled = true
             // :macrobenchmark has no `release`; without this AGP cannot resolve its dependency on
             // this project for the benchmark variant.
             matchingFallbacks += listOf("release")
@@ -109,6 +111,12 @@ android {
         getByName("main").assets.srcDir(sharedComposeAssetsDir)
         getByName("debug").assets.srcDir(goldenBenchAssetsDir)
     }
+}
+
+baselineProfile {
+    // Check generated profiles into source control; normal/CI builds need no device.
+    automaticGenerationDuringBuild = false
+    mergeIntoMain = true
 }
 
 // `AndroidBenchRunner` reads its golden set from `golden/candidates.json` in assets. Stage it from
@@ -136,11 +144,16 @@ tasks.configureEach {
 dependencies {
     implementation(project(":app"))
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.profileinstaller)
+    baselineProfile(project(":macrobenchmark"))
     debugImplementation(libs.androidx.activity.compose)
+    debugImplementation(libs.leakcanary.android)
 
     androidTestImplementation(libs.androidx.compose.ui.test.junit4.android)
     androidTestImplementation(libs.androidx.espresso.device)
     androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.leakcanary.instrumentation)
+    androidTestImplementation(libs.androidx.uiautomator)
 }
 
 configurations.all {

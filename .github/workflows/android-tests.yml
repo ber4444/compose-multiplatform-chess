@@ -123,6 +123,7 @@ jobs:
           script: |
             echo "grpc.allowlist=*" >> ~/.android/avd/test.avd/config.ini
             ./gradlew :app:connectedAndroidDeviceTest
+            ./gradlew :androidApp:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notAnnotation=com.example.myapplication.Filament3D
 
       - name: Upload test results
         uses: actions/upload-artifact@v7
@@ -131,6 +132,8 @@ jobs:
           path: |
             app/build/reports/androidTests/connected/
             app/build/outputs/androidTest-results/connected/
+            androidApp/build/reports/androidTests/connected/
+            androidApp/build/outputs/androidTest-results/connected/
 
   # The Apple checks are split into two jobs that run concurrently (Kotlin + Xcode). The previous
   # single job ran them sequentially (~9 min of heavy work); splitting caps wall-clock at the
