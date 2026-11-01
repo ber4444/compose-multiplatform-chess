@@ -1,23 +1,21 @@
 package com.example.myapplication.performance
 
 import android.os.Trace
-import androidx.tracing.Tracer
 
 /**
- * Low-frequency launch boundaries visible in both CLI system traces and AndroidX in-process
- * traces. tracing-wire supplies the global tracer; its default initializer enables recording
- * only for a connected profiling session. No game/position data is recorded.
+ * Low-frequency launch boundaries, recorded as atrace sections: visible in any system trace of a
+ * profileable or debuggable build, and what `StartupBenchmark`'s `TraceSectionMetric`s read. No
+ * game or position data is recorded.
+ *
+ * Plain `android.os.Trace` on purpose. `androidx.tracing:tracing-wire` was tried here and removed
+ * (2026-11-01): its startup initializer pre-allocated ~4 MiB of pooled trace objects in every
+ * process, profiler attached or not, and cost 5–17 ms of `bindApplication`.
  */
-internal inline fun <T> chessStartupTrace(name: String, crossinline block: () -> T): T =
-    Tracer.global.trace(
-        category = "com.example.myapplication.startup",
-        name = name,
-        metadataBlock = { addMetadataEntry("sourceFile", "MainActivity.kt") },
-    ) {
-        Trace.beginSection(name)
-        try {
-            block()
-        } finally {
-            Trace.endSection()
-        }
+internal inline fun <T> chessStartupTrace(name: String, block: () -> T): T {
+    Trace.beginSection(name)
+    try {
+        return block()
+    } finally {
+        Trace.endSection()
     }
+}

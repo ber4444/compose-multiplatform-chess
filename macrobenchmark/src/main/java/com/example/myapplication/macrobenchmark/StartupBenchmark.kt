@@ -29,8 +29,8 @@ class StartupBenchmark {
         packageName = CHESS_PACKAGE,
         metrics = listOf(
             StartupTimingMetric(),
-            // Mode.First: chessStartupTrace emits every section twice (AndroidX Tracer + atrace),
-            // and the default Mode.Sum reported each one at double its real length.
+            // Mode.First: each section runs once per launch, so report its duration rather than the
+            // default Mode.Sum's sum-and-count pair.
             TraceSectionMetric("Chess.startStockfish", TraceSectionMetric.Mode.First),
             TraceSectionMetric("Chess.restoreGame", TraceSectionMetric.Mode.First),
             TraceSectionMetric("Chess.createGameViewModel", TraceSectionMetric.Mode.First),

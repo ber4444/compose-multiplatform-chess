@@ -116,14 +116,16 @@ jobs:
           disable-animations: true
           force-avd-creation: true
           emulator-boot-timeout: 600  # Increase boot timeout to 10 minutes
-          # Headless, software GPU, no audio/camera, nothing persisted. gRPC (with JWT auth) is on
-          # because espresso-device drives rotation through the emulator-control API.
-          emulator-options: -no-snapshot-save -noaudio -no-boot-anim -gpu swiftshader_indirect -camera-back none -no-window -grpc 8554 -grpc-use-jwt -memory 2048 -cores 2
-          # The allowlist line opens that gRPC API to the test process.
+          # Headless, software GPU, no audio/camera, nothing persisted. gRPC is on because
+          # espresso-device drives rotation through the emulator-control API. Deliberately without
+          # `-grpc-use-jwt`: AGP 9.5's built-in test engine connects without the JWT that mode
+          # requires (UTP's emulator-control plugin used to mint it), and rotation failed with
+          # "UNAUTHENTICATED: Missing the 'authorization' header". The emulator is local to the runner.
+          emulator-options: -no-snapshot-save -noaudio -no-boot-anim -gpu swiftshader_indirect -camera-back none -no-window -grpc 8554 -memory 2048 -cores 2
           script: |
-            echo "grpc.allowlist=*" >> ~/.android/avd/test.avd/config.ini
             ./gradlew :app:connectedAndroidDeviceTest
             ./gradlew :androidApp:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notAnnotation=com.example.myapplication.Filament3D
+            grep -rqsE 'tests="[1-9]' app/build/outputs/androidTest-results/connected && grep -rqsE 'tests="[1-9]' androidApp/build/outputs/androidTest-results/connected || (echo "::error::A device-test task ran zero tests; AGP 9.5 reports success when the test APK fails to install" && exit 1)
 
       - name: Upload test results
         # Always: the report is the only place a failure is named. AGP 9.5's connected-test task

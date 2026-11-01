@@ -39,7 +39,6 @@ genaiPrompt = "1.0.0-beta4"
 genaiSchema = "1.0.0-alpha1"
 mockk = "1.13.10"
 leakcanary = "2.14"
-tracing = "2.0.5"
 profileinstaller = "1.4.1"
 
 [libraries]
@@ -85,7 +84,6 @@ genai-schema-compiler = { module = "com.google.mlkit:genai-schema-compiler", ver
 mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
 leakcanary-android = { module = "com.squareup.leakcanary:leakcanary-android", version.ref = "leakcanary" }
 leakcanary-instrumentation = { module = "com.squareup.leakcanary:leakcanary-android-instrumentation", version.ref = "leakcanary" }
-androidx-tracing-wire = { module = "androidx.tracing:tracing-wire", version.ref = "tracing" }
 androidx-profileinstaller = { module = "androidx.profileinstaller:profileinstaller", version.ref = "profileinstaller" }
 
 [plugins]
