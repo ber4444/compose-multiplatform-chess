@@ -18,10 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -99,16 +96,16 @@ fun MoveCoachPanel(
         state is MoveCoachUiState.LoadingModel
 
     val scrollState = rememberScrollState()
-    var autoScrolled by remember(text) { mutableStateOf(false) }
+    // Parsed once per text, not on every recomposition of the panel.
+    val renderedText = remember(text) { com.example.myapplication.ui.InlineMarkdown.render(text) }
 
     // Auto-scroll to the bottom after 5 seconds so the user can read the
-    // beginning first, then see the rest if the text overflows.
+    // beginning first, then see the rest if the text overflows. Keyed on the text, so a new line
+    // restarts the wait and each line scrolls at most once.
     LaunchedEffect(text) {
-        autoScrolled = false
         delay(5000)
-        if (scrollState.maxValue > 0 && !autoScrolled) {
+        if (scrollState.maxValue > 0) {
             scrollState.animateScrollTo(scrollState.maxValue)
-            autoScrolled = true
         }
     }
 
@@ -144,7 +141,7 @@ fun MoveCoachPanel(
             Text(
                 // Rendered, not shown as syntax: a model that reaches for **bold** should read as
                 // bold rather than as asterisks. See InlineMarkdown.
-                text = com.example.myapplication.ui.InlineMarkdown.render(text),
+                text = renderedText,
                 style = MaterialTheme.typography.bodySmall,
                 color = contentColor,
             )

@@ -137,6 +137,15 @@ class GameViewModel(
      *  Used for PGN player naming (issue #39 Phase 3: Black = "Stockfish" vs "CPU"). */
     val engineAttached: Boolean get() = chessEngine != null
 
+    private val _engineAttachedFlow = MutableStateFlow(false)
+
+    /**
+     * [engineAttached], observable. Entry points attach Stockfish asynchronously, after the first
+     * frame, so a UI that reads the plain getter (the Hint button does) would not show the engine
+     * until something unrelated recomposed it.
+     */
+    val engineAttachedFlow: StateFlow<Boolean> = _engineAttachedFlow.asStateFlow()
+
     companion object {
         private val logger = Logger.withTag("GameViewModel")
     }
@@ -157,6 +166,7 @@ class GameViewModel(
     fun attachEngine(engine: ChessEngine?) {
         chessEngine?.close()
         chessEngine = engine
+        _engineAttachedFlow.value = engine != null
         engineAttachSettled = true
         // Apply the current difficulty to the new engine (issue #39 Phase 4). The default no-op
         // configure() leaves the CPU fallback unaffected; real engines send the setoption.
@@ -195,6 +205,7 @@ class GameViewModel(
         gameMoves?.cancel()
         chessEngine?.close()
         chessEngine = null
+        _engineAttachedFlow.value = false
         scope.cancel()
     }
 

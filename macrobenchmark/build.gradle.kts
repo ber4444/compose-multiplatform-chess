@@ -1,6 +1,11 @@
 plugins {
     alias(libs.plugins.androidTest)
     id("org.jetbrains.kotlin.android")
+    alias(libs.plugins.baselineprofile)
+}
+
+baselineProfile {
+    useConnectedDevices = true
 }
 
 android {

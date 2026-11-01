@@ -1,6 +1,5 @@
 package com.example.myapplication.bench
 
-import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
 import android.os.Debug
@@ -25,13 +24,29 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
     resultsFile.writeText("")
     
     val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
 
     // Stockfish is vendored on device, so the bench can assess each golden position with the same
     // engine the app uses. Null when it can't start — the run then degrades to unassessed fixtures
     // and says so per row rather than silently producing prompt-starved results.
     val assessmentEngine = createBenchEngine(context)
+    // Closed on every exit, not as the run's last line. Two exits used to skip it: the loop's early
+    // returns (no on-device route — every device without a model, emulators included) and the
+    // cancellation MainActivity's lifecycleScope delivers when the Activity finishes mid-run. Either
+    // one orphaned the Stockfish process and its StockfishReader thread (BenchmarkLeakTest).
+    try {
+        runBench(context, iterations, resultsFile, pm, assessmentEngine)
+    } finally {
+        assessmentEngine?.close()
+    }
+}
 
+private suspend fun runBench(
+    context: Context,
+    iterations: Int,
+    resultsFile: File,
+    pm: PowerManager,
+    assessmentEngine: com.example.myapplication.ChessEngine?,
+) {
     // filesDir first so a run can be pointed at an ad-hoc golden file by pushing one; otherwise the
     // copy staged into debug assets by `:androidApp`'s stageGoldenBenchAssets. Reading only filesDir
     // is what produced the 2026-08-15 run: nothing had written it, so every row came back
@@ -170,7 +185,6 @@ suspend fun runAndroidBench(context: Context, iterations: Int) {
             "all ${goldenCasesList.size} golden cases assessed; prompts carry engine facts",
         )
     }
-    assessmentEngine?.close()
 }
 
 

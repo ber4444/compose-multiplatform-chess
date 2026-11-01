@@ -1,6 +1,6 @@
 [versions]
 kotlinxCoroutines = "1.9.0"
-agp = "9.1.1"
+agp = "9.5.0"
 kermit = "2.0.5"
 kotlin = "2.4.20"
 composeMultiplatform = "1.10.3"
@@ -38,6 +38,8 @@ ksp = "2.3.10"
 genaiPrompt = "1.0.0-beta4"
 genaiSchema = "1.0.0-alpha1"
 mockk = "1.13.10"
+leakcanary = "2.14"
+profileinstaller = "1.4.1"
 
 [libraries]
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
@@ -80,10 +82,14 @@ genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "genaiP
 genai-schema = { module = "com.google.mlkit:genai-schema", version.ref = "genaiSchema" }
 genai-schema-compiler = { module = "com.google.mlkit:genai-schema-compiler", version.ref = "genaiSchema" }
 mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
+leakcanary-android = { module = "com.squareup.leakcanary:leakcanary-android", version.ref = "leakcanary" }
+leakcanary-instrumentation = { module = "com.squareup.leakcanary:leakcanary-android-instrumentation", version.ref = "leakcanary" }
+androidx-profileinstaller = { module = "androidx.profileinstaller:profileinstaller", version.ref = "profileinstaller" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }
 androidTest = { id = "com.android.test", version.ref = "agp" }
+baselineprofile = { id = "androidx.baselineprofile", version.ref = "benchmarkMacroJunit4" }
 androidKotlinMultiplatformLibrary = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }

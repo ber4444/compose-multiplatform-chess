@@ -2,6 +2,7 @@ package com.example.myapplication.bench
 
 import com.example.myapplication.ChessEngine
 import com.example.ondeviceai.MoveCoachRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -140,6 +141,8 @@ object GoldenFixtures {
                         playedSan = display,
                         thinkTimeMs = thinkTimeMs,
                     )
+                }.onFailure {
+                    if (it is CancellationException) throw it
                 }.getOrNull()
             } else {
                 null

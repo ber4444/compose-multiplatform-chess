@@ -90,7 +90,7 @@ private fun GameHistoryList(
 
     // Each row: date, result, players, move count. The whole card is selectable.
     LazyColumn(modifier = Modifier.fillMaxWidth()) {
-        items(games, key = { it.id }) { game ->
+        items(games, key = { it.id }, contentType = { "saved_game" }) { game ->
             GameHistoryRow(
                 game = game,
                 canShare = pgnSharer != null,

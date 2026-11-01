@@ -32,8 +32,8 @@ import com.example.myapplication.SubScreenScaffold
 
 /**
  * Interactive position-chat screen. Renders each `token` event as it arrives; Stop cancels the
- * in-flight stream, Retry re-issues the last turn. The message list uses stable keys so a token
- * arrival only recomposes the in-flight row, not the whole transcript.
+ * in-flight stream, Retry re-issues the last turn. The in-flight row is its own keyed item, so a
+ * token arrival only recomposes that row, not the whole transcript.
  *
  * **The UI is incremental; the wire currently is not.** Measured against the deployment on
  * 2026-08-05, a turn arrives as one `token` event 10.9 s after the request, immediately followed by
@@ -81,7 +81,7 @@ fun ChatScreen(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(state.messages) { message ->
+                items(state.messages, contentType = { it.role }) { message ->
                     MessageRow(message)
                 }
                 if (state.streaming) {

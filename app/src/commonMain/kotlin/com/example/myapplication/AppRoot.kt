@@ -44,6 +44,7 @@ import com.example.myapplication.opening.OpeningExplainerStateHolder
 import com.example.myapplication.opening.createOpeningExplainer
 import com.example.myapplication.opening.cloudCoachConfigured
 import androidx.compose.runtime.staticCompositionLocalOf
+import kotlinx.coroutines.launch
 import com.example.myapplication.rules.RulesQaScreen
 import com.example.myapplication.rules.RulesQaStateHolder
 import com.example.ondeviceai.AiContextSnapshot
@@ -82,7 +83,6 @@ fun AppRoot(
 ) {
     val openingExplainerStateHolder = remember { OpeningExplainerStateHolder(createOpeningExplainer()) }
     val chatViewModel = remember { ChatViewModel(createPositionChat()) }
-    val gameState by viewModel.gameState.collectAsState()
     // Hoisted out of the RulesQaStateHolder construction below because a null answerer also means
     // "this build cannot answer rules questions" — desktop, wasm and JS return null unconditionally.
     val ruleLookupTool = remember { createBundledRuleLookupTool() }
@@ -126,16 +126,16 @@ fun AppRoot(
             // Bridge the persisted engine-difficulty setting → the VM (issue #39 Phase 4). The VM
             // seeds its initial value at construction; this forwards subsequent changes from
             // SettingsScreen, applying them to the attached engine via setEngineDifficulty.
+            // One effect, three collectors: the bridges share a lifetime, so they need not each
+            // pay for an effect node and a coroutine launch.
             LaunchedEffect(Unit) {
-                settings.engineDifficulty.collect { viewModel.setEngineDifficulty(it) }
-            }
-            LaunchedEffect(Unit) {
-                settings.aiCoachEnabled.collect { viewModel.aiCoachEnabled = it }
-            }
-            LaunchedEffect(Unit) {
-                settings.playerSide.collect { sideStr -> 
-                    val side = if (sideStr == "BLACK") Set.BLACK else Set.WHITE
-                    viewModel.playerSide = side
+                launch { settings.engineDifficulty.collect { viewModel.setEngineDifficulty(it) } }
+                launch { settings.aiCoachEnabled.collect { viewModel.aiCoachEnabled = it } }
+                launch {
+                    settings.playerSide.collect { sideStr ->
+                        val side = if (sideStr == "BLACK") Set.BLACK else Set.WHITE
+                        viewModel.playerSide = side
+                    }
                 }
             }
 
@@ -177,6 +177,9 @@ fun AppRoot(
                 // Chat is cloud-only, so without a base URL it could only ever emit its fixed offline
                 // sentence. Say that instead of pretending the input box works.
                 Screen.CHAT -> if (cloudCoachConfigured) {
+                    // Collected here, not at the top of AppRoot: only Chat reads the position, and a
+                    // top-level collector re-ran this whole host on every move and selection tap.
+                    val gameState by viewModel.gameState.collectAsState()
                     ChatScreen(
                         viewModel = chatViewModel,
                         gameState = gameState,

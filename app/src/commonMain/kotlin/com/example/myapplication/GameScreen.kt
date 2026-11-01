@@ -55,6 +55,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -64,7 +65,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
@@ -207,9 +208,10 @@ fun GameScreen(
      * every tap would be swallowed. One-shot means even a mis-tap on the toggle costs one tap, not
      * a stuck mode.
      */
-    var explainMode by remember { mutableStateOf(false) }
-    // Leaving the mode armed across a move would fire it on an unrelated later tap.
-    LaunchedEffect(gameState.moveHistory.size) { explainMode = false }
+    // Keyed so a move disarms it: leaving the mode armed across a move would fire it on an unrelated
+    // later tap. A keyed remember rather than a LaunchedEffect that writes `false`, which cost a
+    // coroutine plus a second recomposition on every move.
+    var explainMode by remember(gameState.moveHistory.size) { mutableStateOf(false) }
 
     /**
      * Squares the coach line currently on screen names, as board coordinates.
@@ -257,6 +259,9 @@ fun GameScreen(
     // directly: `playerSide` is a plain `var` there, so a Settings change would not recompose and
     // the board would keep the previous orientation until something else invalidated it.
     val playerSide by viewModel.playerSideFlow.collectAsState()
+    // Collected for the same reason: the engine attaches after the first frame, and the Hint button
+    // reading the plain `engineAttached` getter stayed hidden until something else recomposed.
+    val engineAttached by viewModel.engineAttachedFlow.collectAsState()
     val board3DCameraSession = remember(playerSide) {
         Board3DSessionState(
             initialYawDegrees = if (playerSide == Set.BLACK) OrbitCameraController.BLACK_YAW_DEG else 0f,
@@ -614,6 +619,7 @@ fun GameScreen(
                     animState = animState,
                     viewState = viewState,
                     viewModel = viewModel,
+                    engineAttached = engineAttached,
                     onResetGame = { showResetConfirmation = true },
                     transparentButtons = true,
                     explainMode = explainMode,
@@ -672,6 +678,7 @@ fun GameScreen(
                         animState = animState,
                         viewState = viewState,
                         viewModel = viewModel,
+                        engineAttached = engineAttached,
                         onResetGame = { showResetConfirmation = true },
                         explainMode = explainMode,
                         onToggleExplainMode = moveCoachManager?.let { { explainMode = !explainMode } },
@@ -787,6 +794,7 @@ private fun GameControls(
     animState: PieceAnimationState,
     viewState: ViewState,
     viewModel: GameViewModel,
+    engineAttached: Boolean,
     onResetGame: () -> Unit,
     transparentButtons: Boolean = false,
     explainMode: Boolean = false,
@@ -813,7 +821,7 @@ private fun GameControls(
                 ) {
                     Text(stringResource(Res.string.reset_button))
                 }
-                if (viewModel.engineAttached) {
+                if (engineAttached) {
                     TransparentUnderlineButton(
                         onClick = viewModel::requestHint,
                         enabled = gameState.turn == viewModel.playerSide && gameState.winState == WinState.NONE && animState.pieceToAnimate == null,
@@ -835,7 +843,7 @@ private fun GameControls(
                 ) {
                     Text(stringResource(Res.string.reset_button))
                 }
-                if (viewModel.engineAttached) {
+                if (engineAttached) {
                     Button(
                         onClick = viewModel::requestHint,
                         enabled = gameState.turn == viewModel.playerSide && gameState.winState == WinState.NONE && animState.pieceToAnimate == null,
@@ -962,13 +970,11 @@ fun Board(
     highlightedSquares: List<HighlightedSquare> = emptyList(),
     onSquareTapped: ((Pair<Int, Int>) -> Unit)? = null,
 ) {
-    // Size of the square the moving piece starts on, which is what the animation steps by.
-    val squareSizePx = remember { mutableStateOf(IntSize.Zero) }
-    // Any square's size, captured once; a fallback for the castling rook, whose start square may
-    // not have been measured.
-    val squareAvgSizePx = remember { mutableStateOf(IntSize.Zero) }
-    // Legal destinations of the selected piece; empty when nothing (or a stuck piece) is selected.
-    val selectedPossibleMoves = remember { mutableStateOf<List<Pair<Int, Int>>>(emptyList()) }
+    // One grid cell, which is what an animated piece steps by. Every cell is the same weighted 1:1
+    // square, so the grid is measured once: an onGloballyPositioned on each of the 64 squares ran
+    // on every frame the 2D layout scrolled, and the castling rook needed a fallback size because
+    // its own start square might not have been measured.
+    var squareSizePx by remember { mutableStateOf(IntSize.Zero) }
     // A set, not the list: this is tested once per square, 64 times per recomposition.
     // Last tone wins on a collision, which only happens when a hint and a coach line name the same
     // square; the coach's verdict is the more specific statement, and it is appended second.
@@ -982,14 +988,17 @@ fun Board(
     val enemyPositions = if (playingWhite) gameState.positionsBlack else gameState.positionsWhite
     val enemyPieces = if (playingWhite) gameState.piecesBlack else gameState.piecesWhite
 
-    if (gameState.selectedSquare != INVALID_POSITION) {
-        val pieceIndex = ownPositions.indexOf(gameState.selectedSquare)
-        if (pieceIndex != -1) {
-            selectedPossibleMoves.value = getLegalMovesForPiece(
-                pieceIndex, enemyPositions, enemyPieces, ownPositions, ownPieces,
-                gameState.castlingRights, gameState.enPassantTarget,
-            )
-        }
+    // Legal destinations of the selected piece; empty when nothing (or a stuck piece) is selected.
+    // Derived from the state rather than written into a MutableState during composition: the
+    // write only ever happened while a piece was selected, so a selection cleared anywhere but the
+    // board's own click handler (Reset, for one) left the old piece's move dots on the board.
+    // BoardSelectionUiTest pins it.
+    val targets = remember(gameState, playingWhite) {
+        val pieceIndex = if (gameState.selectedSquare == INVALID_POSITION) -1 else ownPositions.indexOf(gameState.selectedSquare)
+        if (pieceIndex == -1) emptyList() else getLegalMovesForPiece(
+            pieceIndex, enemyPositions, enemyPieces, ownPositions, ownPieces,
+            gameState.castlingRights, gameState.enPassantTarget,
+        )
     }
 
     val boxModifier = Modifier
@@ -1006,7 +1015,11 @@ fun Board(
     Box(
         modifier = boxModifier
     ) {
-        Column(modifier = Modifier.testTag("chess_board")) {
+        Column(
+            modifier = Modifier
+                .testTag("chess_board")
+                .onSizeChanged { squareSizePx = IntSize(it.width / BOARD_SIZE, it.height / BOARD_SIZE) }
+        ) {
             for (row in 0 until BOARD_SIZE) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                     for (column in 0 until BOARD_SIZE) {
@@ -1016,7 +1029,6 @@ fun Board(
                         // light/dark pattern comes out right without a second case.
                         val currentSquare = viewToBoard(row, column, playingWhite)
 
-                        val targets = selectedPossibleMoves.value
                         val squareType = if (currentSquare == gameState.selectedSquare) {
                             // The selected square says whether the piece on it can go anywhere.
                             if (targets.isEmpty()) SquareType.CannotMove else SquareType.CanMove
@@ -1039,10 +1051,7 @@ fun Board(
                             isOwnPiece
 
                         Square(
-                            modifier = Modifier.onGloballyPositioned { coords ->
-                                if (squareAvgSizePx.value == IntSize.Zero) squareAvgSizePx.value = coords.size
-                                if (currentSquare == animState.animatePositionStart) squareSizePx.value = coords.size
-                            },
+                            modifier = Modifier,
                             isDarkSquare = (currentSquare.first + currentSquare.second) % 2 == 1,
                             squareType = squareType,
                             clickable = clickable,
@@ -1061,7 +1070,6 @@ fun Board(
                                     SquareType.PossibleMove, SquareType.PossibleCapture -> {
                                         // Resolve the mover before the selection is cleared.
                                         val idx = ownPositions.indexOf(gameState.selectedSquare)
-                                        selectedPossibleMoves.value = emptyList()
                                         updateSelected(INVALID_POSITION)
                                         if (idx != -1) {
                                             playerMove(idx, currentSquare)
@@ -1111,17 +1119,16 @@ fun Board(
                 // sent every piece to the mirrored square and back.
                 AnimatedChessPiece(
                     piece = primaryPiece,
-                    squareSizePx = squareSizePx.value,
+                    squareSizePx = squareSizePx,
                     from = boardToView(animState.animatePositionStart, playingWhite),
                     to = boardToView(animState.animatePositionEnd, playingWhite),
                     animationEnd = animationEnd
                 )
                 val secondaryPiece = animState.secondaryPiece
                 if (secondaryPiece != null) {
-                    val fallbackSize = if (squareSizePx.value == IntSize.Zero) squareAvgSizePx.value else squareSizePx.value
                     AnimatedChessPiece(
                         piece = secondaryPiece,
-                        squareSizePx = fallbackSize,
+                        squareSizePx = squareSizePx,
                         from = boardToView(animState.secondaryStart, playingWhite),
                         to = boardToView(animState.secondaryEnd, playingWhite),
                         animationEnd = {}
@@ -1157,13 +1164,17 @@ fun AnimatedChessPiece(piece: Piece, squareSizePx: IntSize, from: Pair<Int, Int>
         DpSize(width = squareSizePx.width.toDp(), height = squareSizePx.height.toDp())
     }
 
+    // The glide outlives the composition that launched it, so it reads the latest callback rather
+    // than the one captured at launch.
+    val currentTo by rememberUpdatedState(to)
+    val currentAnimationEnd by rememberUpdatedState(animationEnd)
     LaunchedEffect(from) {
         val glide = tween<Float>(500)
         joinAll(
-            launch { row.animateTo(to.first.toFloat(), glide) },
-            launch { col.animateTo(to.second.toFloat(), glide) },
+            launch { row.animateTo(currentTo.first.toFloat(), glide) },
+            launch { col.animateTo(currentTo.second.toFloat(), glide) },
         )
-        animationEnd()
+        currentAnimationEnd()
     }
 
     Box(
