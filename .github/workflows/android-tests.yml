@@ -122,7 +122,12 @@ jobs:
           # requires (UTP's emulator-control plugin used to mint it), and rotation failed with
           # "UNAUTHENTICATED: Missing the 'authorization' header". The emulator is local to the runner.
           emulator-options: -no-snapshot-save -noaudio -no-boot-anim -gpu swiftshader_indirect -camera-back none -no-window -grpc 8554 -memory 2048 -cores 2
+          # Awake and unlocked for the whole run: ActivityLeakTest finds the UI through UiAutomator,
+          # which only sees what is on screen, and the default 60 s screen timeout locked the
+          # emulator before :androidApp's tests began. (Compose UI tests read semantics instead,
+          # so :app's suite never noticed.)
           script: |
+            adb shell svc power stayon true && adb shell input keyevent KEYCODE_WAKEUP && adb shell wm dismiss-keyguard
             ./gradlew :app:connectedAndroidDeviceTest
             ./gradlew :androidApp:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notAnnotation=com.example.myapplication.Filament3D
             grep -rqsE 'tests="[1-9]' app/build/outputs/androidTest-results/connected && grep -rqsE 'tests="[1-9]' androidApp/build/outputs/androidTest-results/connected || (echo "::error::A device-test task ran zero tests; AGP 9.5 reports success when the test APK fails to install" && exit 1)
