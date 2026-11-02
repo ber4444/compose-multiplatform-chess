@@ -28,7 +28,7 @@ val uploadKeyProperties = Properties().apply {
 
 android {
     namespace = "com.example.myapplication.app"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "io.github.ber4444.chess"

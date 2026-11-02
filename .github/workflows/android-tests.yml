@@ -53,7 +53,8 @@ jobs:
         run: |
           sdkmanager --install "cmdline-tools;latest"
           yes | sdkmanager --update
-          sdkmanager "emulator" "system-images;android-${{ matrix.api-level }};${{ matrix.target }};x86_64"
+          # compileSdk 37: sceneview 4.65 and the Compose 1.12 it brings require it.
+          sdkmanager "emulator" "platforms;android-37.0" "system-images;android-${{ matrix.api-level }};${{ matrix.target }};x86_64"
 
       - name: Let the runner user open /dev/kvm
         # Hardware acceleration for the emulator; the udev rule is the one android-emulator-runner documents.

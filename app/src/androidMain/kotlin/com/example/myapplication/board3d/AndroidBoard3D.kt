@@ -4,21 +4,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.google.android.filament.Camera
 import dev.romainguy.kotlin.math.Float3
 import game.app.generated.resources.Res
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeoutOrNull
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.atan
 import kotlin.math.tan
+import io.github.sceneview.FrameRatePolicy
 import io.github.sceneview.SceneView
 import io.github.sceneview.SurfaceType
 import io.github.sceneview.rememberCameraNode
@@ -27,6 +25,7 @@ import io.github.sceneview.rememberEnvironmentLoader
 import io.github.sceneview.rememberFillLightNode
 import io.github.sceneview.rememberMainLightNode
 import io.github.sceneview.rememberModelLoader
+import io.github.sceneview.rememberRenderInvalidator
 import io.github.sceneview.node.CameraNode
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 
@@ -55,15 +54,6 @@ private val PIECE_SCALE = ChessSetConventions.PIECE_SCALE
 /** Lifts the highlight quad off the tile just enough to beat z-fighting. */
 private const val HIGHLIGHT_LIFT_Y = 0.005f
 
-/** How often to re-read `ModelLoader.progress` while holding the render loop open for it. */
-private const val MODEL_LOAD_POLL_MS = 16L
-
-/**
- * Upper bound on that hold. chess.glb finishes in well under a second on every device this has run
- * on; this only exists so a texture that never decodes cannot pin the render loop on forever.
- */
-private const val MODEL_LOAD_HOLD_TIMEOUT_MS = 10_000L
-
 internal fun selectPieceMaterialName(materialNames: List<String>, color: PieceColor): String? {
     val expected = ChessSetMeshNames.getMaterialName(color)
     return materialNames.firstOrNull { it == expected }
@@ -80,19 +70,46 @@ internal fun selectPieceMaterialName(materialNames: List<String>, color: PieceCo
  * horizontal FOV shrinks too far for the board, so widen the vertical FOV to hold a fixed ~60°
  * horizontal FOV. The picker uses the identical formula to stay in sync.
  */
-private fun applyCamera(cameraNode: CameraNode, cameraParams: CameraParams) {
-    val pos    = cameraParams.position
-    val tgt    = cameraParams.target
-    val up     = cameraParams.up
+private fun fovYDegrees(cameraParams: CameraParams): Float {
     val aspect = cameraParams.aspect
-
-    val fovY = if (aspect < 1f) {
+    return if (aspect < 1f) {
         val minFovXRad  = 60.0 * PI / 180.0
         val tanHalfFovX = tan(minFovXRad / 2.0)
         (2.0 * atan(tanHalfFovX / aspect.toDouble()) * 180.0 / PI).toFloat()
     } else {
         cameraParams.fovYDegrees
     }
+}
+
+/**
+ * Writes the camera only when it differs from what [CameraParams] asks for. Under
+ * `FrameRatePolicy.OnDemand` every CameraNode write requests a frame (`onComponentChanged`), so the
+ * per-frame re-apply in `onFrame` must be a no-op on a settled camera: unconditional, it requested
+ * the next frame from inside each frame and the idle board never parked (measured on sceneview
+ * 4.65: 50–60 fps, untouched, for as long as it was on screen).
+ *
+ * "Differs" includes SceneView rebuilding its default 28mm lens (on `setView` and on every resize),
+ * which leaves our [CameraParams] unchanged but the camera's vertical FOV at 46.4°.
+ */
+private class CameraApplier(private val cameraNode: CameraNode) {
+    private var applied: CameraParams? = null
+
+    fun apply(cameraParams: CameraParams) {
+        val fovY = fovYDegrees(cameraParams)
+        val shown = cameraNode.camera.getFieldOfViewInDegrees(Camera.Fov.VERTICAL)
+        if (cameraParams == applied && abs(shown - fovY) < FOV_MATCH_DEGREES) return
+        applyCamera(cameraNode, cameraParams, fovY)
+        applied = cameraParams
+    }
+}
+
+private const val FOV_MATCH_DEGREES = 0.01
+
+private fun applyCamera(cameraNode: CameraNode, cameraParams: CameraParams, fovY: Float) {
+    val pos    = cameraParams.position
+    val tgt    = cameraParams.target
+    val up     = cameraParams.up
+    val aspect = cameraParams.aspect
 
     cameraNode.position = Float3(pos.x, pos.y, pos.z)
     cameraNode.lookAt(
@@ -156,53 +173,33 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
         }
     }
 
-    // SceneView finalises a model's *asynchronous* texture uploads from inside its frame loop
-    // (`modelLoader.updateLoad()` in the `renderFrame` body), and `createInstancedModel` above only
-    // kicks that off — `ResourceLoader.asyncBeginLoad`. So the `isRendering = false` gate below must
-    // not engage until the loader is done, or a board that goes idle mid-upload renders untextured
-    // (silvery pieces on flat tiles) until something unrelated asks for another frame.
-    //
-    // Polling is sound here precisely because this flag is what holds the loop open: progress only
-    // advances while frames run, and frames run while this is false. The timeout is a backstop —
-    // a texture that never finishes decoding must not pin the render loop on for the session.
-    var modelResourcesLoaded by remember(modelLoader, modelInstances) { mutableStateOf(false) }
-    LaunchedEffect(modelLoader, modelInstances) {
-        withTimeoutOrNull(MODEL_LOAD_HOLD_TIMEOUT_MS) {
-            while (modelLoader.progress < 1f) delay(MODEL_LOAD_POLL_MS)
-        }
-        modelResourcesLoaded = true
-    }
-
     val cameraNode  = rememberCameraNode(engine)
     val cameraParams = svRenderer.cameraParams
 
-    SideEffect { applyCamera(cameraNode, cameraParams) }
+    // For the writes below that SceneView's on-demand loop cannot see: renderable visibility and
+    // material bindings on the pooled nodes. Everything it owns (nodes moving, the camera node, an
+    // unfinished async load, a resize) already wakes it.
+    val renderInvalidator = rememberRenderInvalidator()
+
+    // A camera write requests its own frame, so a changed camera needs no invalidation here, and
+    // an unchanged one writes nothing (see CameraApplier).
+    val cameraApplier = remember(cameraNode) { CameraApplier(cameraNode) }
+    SideEffect { cameraApplier.apply(cameraParams) }
 
     // ...and again immediately before every drawn frame, because a SideEffect is NOT the last word
-    // on the projection.
+    // on the projection. SceneView calls `cameraNode.setView(view)`, and CameraNode.setView()
+    // calls updateProjection(), which recomputes the projection from its 28mm lens default —
+    // vertical FOV 46.4° — discarding the FOV set above. Up to sceneview 4.37 that ran in an
+    // unkeyed SideEffect on every recomposition of SceneView's body, i.e. every wake of a parked
+    // board, and a one-shot publish (a Hint's highlight squares) drew at 46.4° and parked there —
+    // the board abruptly zoomed in. Since 4.38 it is a LaunchedEffect keyed on (view, camera), so
+    // it runs once, but still *after* our first SideEffect.
     //
-    // SceneView's own body carries an unkeyed `SideEffect { … cameraNode.setView(view) … }`, and
-    // CameraNode.setView() calls updateProjection(), which recomputes the projection from its 28mm
-    // lens default — vertical FOV 46.4°, discarding the FOV set above. Ours is *recorded* first
-    // (a parent composes before its child), and side effects run in record order, so whenever
-    // SceneView's body recomposes its reset runs last and wins.
-    //
-    // That is not most frames: a published scene only invalidates the content lambda, so
-    // SceneView's body is skipped and the SideEffect above stands. It is exactly the frames where
-    // the `isRendering` argument flips — i.e. every wake of a parked board. A move survives it
-    // (its animation publishes ~60 more frames, each re-running the SideEffect above), but a
-    // one-shot publish onto an idle board — a Hint's highlight squares, a coach highlight — draws
-    // its entire dirty window at 46.4° and then parks there. On a portrait phone the boosted FOV
-    // is ~104°, so that reads as the board abruptly zooming in and staying there until the next
-    // move.
-    //
-    // `onFrame` runs inside SceneRenderer.renderFrame's `onBeforeRender`, i.e. after every side
-    // effect and immediately before `beginFrame`, which makes it ordering-proof. It is remembered,
-    // and reads `cameraParams` at frame time instead of capturing it, so the lambda identity stays
-    // stable — a fresh lambda per recomposition would itself recompose SceneView's body (and
-    // re-trigger the very reset this works around) on every published frame.
-    val applyCameraOnFrame = remember(svRenderer, cameraNode) {
-        { _: Long -> applyCamera(cameraNode, svRenderer.cameraParams) }
+    // `onFrame` runs inside SceneRenderer.renderFrame's `onBeforeRender`, immediately before
+    // `beginFrame`, which makes it ordering-proof either way. It is remembered and reads
+    // `cameraParams` at frame time, so the lambda identity stays stable and recomposes nothing.
+    val applyCameraOnFrame = remember(svRenderer, cameraApplier) {
+        { _: Long -> cameraApplier.apply(svRenderer.cameraParams) }
     }
 
     val boardScene    = svRenderer.boardScene
@@ -231,24 +228,14 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
             // content auto-center.
             cameraManipulator = null,
             autoCenterContent = false,
-            // Stop drawing a board nobody is changing. SceneView's loop otherwise awaits
-            // `withFrameNanos` unconditionally, so an untouched 3D board redraws at the panel
-            // refresh rate for as long as it is on screen — 120 fps on a Fold3, 60 fps and ~1.76
-            // cores on a Pixel 7a, with the GPU rail alone at 10.36 J per 10 s. Requires
-            // sceneview >= 4.30.0 (see gradle/libs.versions.toml).
-            //
-            // The signal is "was a frame published recently", NOT "is an animation running" — the
-            // driver publishes scenes with its loop parked on mount, on a new game, on a coach
-            // highlight landing on an idle board, and after async init, and gating on the narrower
-            // signal strands every one of those undrawn. See AndroidSceneViewChessRenderer's
-            // `needsRender` and Board3DAnimationDriverTest, which pins those four paths.
-            //
-            // Both operands are Compose state, which is what makes the park wake up again:
-            // `needsRender` is written back to false by the driver's settle coroutine, and
-            // `modelResourcesLoaded` by the effect above. A deadline compared against a clock
-            // would latch true and never invalidate anything, and this parameter would silently
-            // do nothing.
-            isRendering = svRenderer.needsRender || !modelResourcesLoaded,
+            // Draw only when something changed, then park. A continuous loop redraws an untouched
+            // board at the panel refresh rate forever — 120 fps on a Fold3, 60 fps and ~1.76 cores
+            // on a Pixel 7a, the GPU rail alone at 10.36 J per 10 s. OnDemand is SceneView's default
+            // since 4.38; it is spelled out because the board depends on it, and because it replaced
+            // the hand-kept `isRendering` dirty signal this file used to compute. It also holds the
+            // loop open for chess.glb's async texture uploads, which finish inside the frame loop.
+            frameRatePolicy = FrameRatePolicy.OnDemand(),
+            renderInvalidator = renderInvalidator,
             // Re-applies our camera after SceneView's own projection reset; see applyCameraOnFrame.
             onFrame = applyCameraOnFrame,
         ) {
@@ -322,6 +309,8 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                                 rn.setMaterialInstances(selectedMaterial)
                             }
                         }
+                        // A mesh or colour swap in place moves nothing, so the loop cannot see it.
+                        renderInvalidator.requestRender()
                     }
                 }
             }
@@ -381,6 +370,8 @@ fun AndroidBoard3DSurface(renderer: Chess3DBoardRenderer, modifier: Modifier) {
                                 rn.isShadowReceiver = false
                             }
                         }
+                        // A tone change on a quad that stays put moves nothing either.
+                        renderInvalidator.requestRender()
                     }
                 }
             }

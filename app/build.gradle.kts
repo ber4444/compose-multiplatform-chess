@@ -38,7 +38,7 @@ kotlin {
 
     android {
         namespace = "com.example.myapplication"
-        compileSdk = 36
+        compileSdk = 37
         minSdk = 26
 
         compilerOptions {
@@ -53,6 +53,11 @@ kotlin {
 
         withDeviceTestBuilder {}.configure {
             instrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+            // Pinned rather than following compileSdk (37): an APK targeting 37 needs
+            // ACCESS_LOCAL_NETWORK to reach 10.0.2.2, so on an Android 17 device espresso-device
+            // could not reach the emulator's gRPC and rotation tests timed out. Matches
+            // :androidApp's targetSdk.
+            targetSdk { version = release(36) }
             emulatorControl {
                 enable = true
             }
