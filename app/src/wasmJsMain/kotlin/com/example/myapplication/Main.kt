@@ -13,13 +13,11 @@ import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.persistence.asSnapshotSink
 import com.example.myapplication.persistence.createSettings
 import com.example.myapplication.share.wasmPgnSharer
-import com.example.myapplication.movecoach.GameSummaryManager
 import com.example.myapplication.movecoach.MoveCoachManager
 import com.example.myapplication.movecoach.MoveCoachUiState
 import com.example.ondeviceai.AiContextSnapshot
 import com.example.ondeviceai.AiUserSetting
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
-import com.example.ondeviceai.DefaultGameSummaryOrchestrator
 import com.example.ondeviceai.VendorRouteExecutor
 import com.example.ondeviceai.AiRoute
 import co.touchlab.kermit.Logger
@@ -72,16 +70,14 @@ fun main() {
         val moveCoachManager = remember {
             MoveCoachManager(viewModel, appSettings.engineDifficulty.value.name)
         }
-        val gameSummaryManager = remember { GameSummaryManager() }
         LaunchedEffect(Unit) {
             if (!isCoachEnabled()) return@LaunchedEffect
-            attachMoveCoach(moveCoachManager, gameSummaryManager)
+            attachMoveCoach(moveCoachManager)
         }
         DisposableEffect(Unit) {
             onDispose {
                 backfiller?.stop()
                 moveCoachManager.close()
-                gameSummaryManager.close()
                 viewModel.close()
             }
         }
@@ -93,7 +89,6 @@ fun main() {
             gameHistory = gameHistory,
             pgnSharer = pgnSharer,
             moveCoachManager = moveCoachManager,
-            gameSummaryManager = gameSummaryManager,
         )
     }
 }
@@ -103,20 +98,17 @@ private fun isCoachEnabled(): Boolean =
     js("(new URLSearchParams(self.location.search)).get('coach') === '1'")
 
 /**
- * Attach the on-device Move Coach + Game Summary orchestrators backed by LiteRT-LM
+ * Attach the on-device Move Coach orchestrator backed by LiteRT-LM
  * for Web. Mirrors `MainActivity.attachMoveCoach` (Android) and the desktop
  * `attachMoveCoach`: builds the default factory, warms it up (which probes WebGPU
  * and, if available, lazily loads the model + CDN module inside the worker), then
- * attaches the orchestrators over the shared factory.
+ * attaches the Move Coach orchestrator.
  *
  * On browsers without WebGPU the warmup surfaces an `AiAvailability.Unavailable`
- * status and the orchestrators route every request to the deterministic
+ * status and the orchestrator routes every request to the deterministic
  * `MoveCoachFallback` — the panel still renders, just with the rule-based text.
  */
-private suspend fun attachMoveCoach(
-    moveCoachManager: MoveCoachManager,
-    gameSummaryManager: GameSummaryManager,
-) {
+private suspend fun attachMoveCoach(moveCoachManager: MoveCoachManager) {
     moveCoachManager.setCoachModelState(
         MoveCoachUiState.LoadingModel(
             message = "Loading LiteRT-LM (WebGPU required, model ~2 GB)…"
@@ -149,12 +141,6 @@ private suspend fun attachMoveCoach(
 
     moveCoachManager.attachCoachOrchestrator(
         DefaultAiCoachOrchestrator(
-            executor = executor,
-            contextProvider = contextProvider,
-        )
-    )
-    gameSummaryManager.attachOrchestrator(
-        DefaultGameSummaryOrchestrator(
             executor = executor,
             contextProvider = contextProvider,
         )

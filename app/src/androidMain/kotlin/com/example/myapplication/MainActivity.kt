@@ -23,7 +23,6 @@ import com.example.myapplication.persistence.createSettings
 import com.example.myapplication.share.androidPgnSharer
 import android.content.pm.ApplicationInfo
 import com.example.myapplication.movecoach.MoveCoachManager
-import com.example.myapplication.movecoach.GameSummaryManager
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
 import com.example.myapplication.bench.runAndroidBench
@@ -113,7 +112,6 @@ class MainActivity : ComponentActivity() {
                 gameHistory = holder.gameHistory,
                 pgnSharer = pgnSharer,
                 moveCoachManager = holder.moveCoachManager,
-                gameSummaryManager = holder.gameSummaryManager,
                 isDebug = isDebug,
             )
             }
@@ -121,7 +119,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Wires ML Kit / AICore into the two on-device surfaces, or leaves them deterministic.
+     * Wires ML Kit / AICore into the Move Coach when enabled.
      *
      * **This is the integration the Android seam was missing.** `probeAvailableLocalVendors()` had
      * no caller outside `bench/`, so the app's AICore path could only be exercised by running the
@@ -144,25 +142,15 @@ class MainActivity : ComponentActivity() {
      *    `checkStatus()` round trip on every coached move; thermal and quota conditions, which do
      *    change per request, are the decider's own inputs and are unaffected.
      *
-     * Both flags are off today, for different reasons — see the constants and
-     * `docs/benchmarks/on-device-ai/game-summary-2026-08.md`.
+     * The flag is off today. See the rationale on ATTACH_MOVE_COACH below.
      */
     private fun attachOnDeviceAi() {
-        // Unconditional, and *before* the probe. Not "no model, no summary": the composed turning
-        // points are a complete answer, and doing this first means the button is live from the first
-        // frame instead of after a probe that may await an AICore feature download. When a model is
-        // attached below it takes over; `deterministicEnabled` only applies while the orchestrator
-        // is null, so the two cannot fight.
-        holder.gameSummaryManager.enableDeterministic()
-
-        if (!ATTACH_GAME_SUMMARY && !ATTACH_MOVE_COACH) return
+        if (!ATTACH_MOVE_COACH) return
 
         CoroutineScope(Dispatchers.IO).launch {
             val vendors = com.example.ondeviceai.probeAvailableLocalVendors()
             Logger.i("MainActivity") { "on-device vendors: $vendors" }
-            // Every emulator, and every device without an AICore feature for this model. The
-            // deterministic summary above already stands, and the coach renders DeterministicCoach
-            // with no orchestrator, so there is nothing further to do.
+            // Without AICore, the Move Coach uses DeterministicCoach.
             if (vendors.isEmpty()) return@launch
 
             val executor = com.example.ondeviceai.VendorRouteExecutor()
@@ -174,22 +162,12 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            if (ATTACH_GAME_SUMMARY) {
-                holder.gameSummaryManager.attachOrchestrator(
-                    com.example.ondeviceai.DefaultGameSummaryOrchestrator(
-                        executor = executor,
-                        contextProvider = contextProvider,
-                    ),
-                )
-            }
-            if (ATTACH_MOVE_COACH) {
-                holder.moveCoachManager.attachCoachOrchestrator(
-                    com.example.ondeviceai.DefaultAiCoachOrchestrator(
-                        executor = executor,
-                        contextProvider = contextProvider,
-                    ),
-                )
-            }
+            holder.moveCoachManager.attachCoachOrchestrator(
+                com.example.ondeviceai.DefaultAiCoachOrchestrator(
+                    executor = executor,
+                    contextProvider = contextProvider,
+                ),
+            )
         }
     }
 
@@ -267,24 +245,6 @@ class MainActivity : ComponentActivity() {
          * `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md`.
          */
         private const val ATTACH_MOVE_COACH = false
-
-        /**
-         * Whether ML Kit / AICore writes the Game Summary. **Off, and open** — a different question
-         * from [ATTACH_MOVE_COACH], which is why these are two constants and not one.
-         *
-         * With the prompt's raw PGN removed and `noRepeatNgramSize` widened, AICore went from 7/12
-         * to **12/12** on the 2026-08 fixtures at ~12 s, citing exactly the code-chosen turning
-         * points in 11 of 12 and inventing nothing — the best on-device output measured on this
-         * project. What holds it back is not quality: this surface has **no response validator at
-         * all**, so residual decoration ("a blunder that weakened your pawn structure", about a
-         * knight move) reaches the user unchallenged, and 12 games is a small sample for a surface
-         * where one bad summary is the entire answer.
-         *
-         * Flip it after the validator lands and a larger fixture set agrees — see
-         * `docs/plans/on-device-ai-next-steps.md`. The floor does not move when you do: a rejected
-         * summary falls back to `GameSummaryGrounding`, which is exactly what ships today.
-         */
-        private const val ATTACH_GAME_SUMMARY = false
     }
 }
 
@@ -319,7 +279,6 @@ class AndroidGameViewModel : ViewModel() {
         engineDifficultyName = appSettings.engineDifficulty.value.name
     )
 
-    val gameSummaryManager = GameSummaryManager()
 
     // Phase 3: saved-games history lives on the same Settings backing store, owned by the holder so
     // it survives config changes (and is observed by the History screen across recompositions).
@@ -365,7 +324,6 @@ class AndroidGameViewModel : ViewModel() {
         super.onCleared()
         cleared = true
         moveCoachManager.close()
-        gameSummaryManager.close()
         gameViewModel.close()
         backfiller?.stop()
     }

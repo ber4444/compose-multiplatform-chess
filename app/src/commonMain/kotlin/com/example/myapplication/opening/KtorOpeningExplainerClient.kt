@@ -10,6 +10,8 @@ import com.example.ondeviceai.OpeningExplainerClient
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.HttpTimeoutConfig
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -52,9 +54,8 @@ internal expect fun openingExplainerHttpClientEngine(): HttpClientEngine
 
 /**
  * Whether this build has a cloud coach base URL at all (`CHESS_COACH_BASE_URL` env →
- * `coach.baseUrl` in `local.properties` → empty). Both cloud surfaces — Opening Explainer and
- * Position Chat — degrade to a fixed offline sentence without it, so an unconfigured build hides
- * the Opening Explainer panel and tells the Chat screen's visitor why it is unavailable.
+ * `coach.baseUrl` in `local.properties` → deployed coach). An unconfigured build hides the Opening
+ * Explainer panel and tells the Chat screen's visitor why it is unavailable.
  */
 val cloudCoachConfigured: Boolean get() = OPENING_EXPLAINER_BASE_URL.isNotBlank()
 
@@ -65,6 +66,10 @@ fun createOpeningExplainer(): OpeningExplainer {
             httpClient = HttpClient(openingExplainerHttpClientEngine()) {
                 install(ContentNegotiation) {
                     json(Json { ignoreUnknownKeys = true })
+                }
+                install(HttpTimeout) {
+                    // The route policy owns the deadline, including on CIO with its shorter default.
+                    requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS
                 }
             },
             baseUrl = it,

@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
@@ -24,10 +23,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,6 +42,7 @@ import com.example.myapplication.share.PgnSharer
  * Reached from [AppRoot] via `Screen.HISTORY`. The detail view is a local `selectedGame` state
  * rather than a new [Screen] value to keep history navigation shallow.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun GameHistoryScreen(
     gameHistory: GameHistoryRepository,
@@ -52,7 +53,12 @@ fun GameHistoryScreen(
     var selectedGame by remember { mutableStateOf<SavedGame?>(null) }
 
     val current = selectedGame
-    SubScreenScaffold(title = "Game History", onBack = onBack, scrollable = current != null) {
+    BackHandler(enabled = current != null) { selectedGame = null }
+    SubScreenScaffold(
+        title = "Game History",
+        onBack = { if (current == null) onBack() else selectedGame = null },
+        scrollable = current != null,
+    ) {
         if (current == null) {
             GameHistoryList(
                 games = games,
@@ -64,7 +70,6 @@ fun GameHistoryScreen(
             GameHistoryDetail(
                 game = current,
                 pgnSharer = pgnSharer,
-                onBack = { selectedGame = null },
             )
         }
     }
@@ -156,20 +161,12 @@ private fun GameHistoryRow(
 private fun GameHistoryDetail(
     game: SavedGame,
     pgnSharer: PgnSharer?,
-    onBack: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Button(onClick = onBack) { Text("Back") }
-            Text(
-                "${game.white} vs ${game.black}  •  ${game.result}",
-                style = MaterialTheme.typography.titleMedium,
-            )
-        }
+        Text(
+            "${game.white} vs ${game.black}  •  ${game.result}",
+            style = MaterialTheme.typography.titleMedium,
+        )
         Spacer(modifier = Modifier.padding(6.dp))
         // The PGN text. heightIn(min) keeps it scrollable/visible on small screens; the surfaceVariant
         // card makes the selectable text block visually distinct.

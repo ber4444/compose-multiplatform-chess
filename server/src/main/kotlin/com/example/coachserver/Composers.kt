@@ -482,9 +482,7 @@ class OpenAiCompatibleLlmClient(
     /**
      * Default only — production wires `PROVIDER_TIMEOUT_MS` (20 s, `COACH_LLM_TIMEOUT_MS`-overridable)
      * from `Application.selectComposer`, so raising this alone changes nothing that is deployed.
-     * Kept aligned with that constant rather than higher: `AiRoutePolicies.openingExplainer`'s
-     * `completeMs` is 8 s, so the app has already abandoned the request long before a longer ceiling
-     * would pay off, and the only thing a bigger number buys is a request nobody is still waiting for.
+     * The app's 25 s opening budget leaves time to return the template if this deadline expires.
      */
     private val requestTimeout: java.time.Duration = java.time.Duration.ofSeconds(20),
     private val transport: LlmHttpTransport? = null,

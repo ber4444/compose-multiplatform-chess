@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 sealed interface OpeningExplainerUiState {
     data object Hidden : OpeningExplainerUiState
     data object Loading : OpeningExplainerUiState
+    data class Failed(val message: String) : OpeningExplainerUiState
 
     data class Ready(
         val text: String,
@@ -46,7 +47,7 @@ class OpeningExplainerStateHolder(
         )
         mutableState.value = when (result) {
             is OpeningExplainerResult.Success -> result.response.toUiState(route = result.route)
-            is OpeningExplainerResult.Fallback -> result.response.toUiState(route = result.route)
+            is OpeningExplainerResult.Fallback -> OpeningExplainerUiState.Failed(result.response.text)
         }
     }
 

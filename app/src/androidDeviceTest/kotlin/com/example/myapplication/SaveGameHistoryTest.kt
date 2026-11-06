@@ -1,5 +1,6 @@
 package com.example.myapplication
 
+import android.view.KeyEvent
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -7,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.example.myapplication.persistence.GameActions
 import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.share.PgnSharer
@@ -77,6 +79,13 @@ class SaveGameHistoryTest {
 
         // The saved row is present.
         composeTestRule.onNodeWithText("Result: 1-0", substring = true).assertIsDisplayed()
+        composeTestRule.onNodeWithText("Back").assertDoesNotExist()
+
+        composeTestRule.onNodeWithTag("history_view_${saved.id}").performClick()
+        composeTestRule.onNodeWithTag("history_detail_pgn").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Back").assertDoesNotExist()
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        composeTestRule.onNodeWithTag("history_view_${saved.id}").assertIsDisplayed()
 
         // Delete it.
         composeTestRule.onNodeWithTag("history_delete_${saved.id}").performClick()

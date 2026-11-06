@@ -65,7 +65,7 @@ fun LicensesScreen(onBack: () -> Unit) {
     val uriHandler = LocalUriHandler.current
     var showFullText by rememberSaveable { mutableStateOf(false) }
 
-    SubScreenScaffold(title = "Open-source licences", onBack = onBack, showBackButton = !isAndroidPlatform) {
+    SubScreenScaffold(title = "Open-source licences", onBack = onBack) {
         Column(Modifier.padding(horizontal = 16.dp)) {
             Text("This app is free software", style = MaterialTheme.typography.titleMedium)
             Text(
