@@ -53,6 +53,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -82,19 +83,14 @@ import com.example.myapplication.ui.theme.CaptureMarker
 import com.example.myapplication.ui.theme.MoveMarker
 import com.example.myapplication.ui.theme.SelectionBlockedRing
 import com.example.myapplication.ui.theme.SelectionRing
-import com.example.myapplication.movecoach.FallbackPresentation
 import com.example.myapplication.movecoach.MoveCoachManager
 import com.example.myapplication.movecoach.MoveCoachPanel
 import com.example.myapplication.movecoach.SquareInsight
 import com.example.myapplication.movecoach.MoveCoachUiState
 import com.example.myapplication.movecoach.narratedText
 import com.example.myapplication.movecoach.highlightTone
-import com.example.myapplication.movecoach.GameSummaryUiState
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.material3.CircularProgressIndicator
 import com.example.myapplication.opening.OpeningExplainerPanel
 import com.example.myapplication.opening.cloudCoachConfigured
-import com.example.myapplication.opening.OpeningExplainerUiState
 import game.app.generated.resources.Res
 import game.app.generated.resources.cancel_button
 import game.app.generated.resources.game_end_message_no_winner
@@ -240,9 +236,8 @@ fun GameScreen(
             coachHighlights
         }
     }
-    val openingExplainerStateHolder = LocalOpeningExplainerStateHolder.current
-    val openingExplainerState = openingExplainerStateHolder?.state?.collectAsState()?.value
-        ?: OpeningExplainerUiState.Hidden
+    val openingExplainerStateHolder = LocalOpeningExplainerStateHolder.current.takeIf { cloudCoachConfigured }
+    var openingRetry by remember(gameState.winState, gameState.fullmoveNumber) { mutableIntStateOf(0) }
     val scrollState = rememberScrollState()
     // The 3D toggle now lives in SettingsScreen and writes to AppSettings.board3DEnabled. Observe it
     // here (when a settings instance is provided via LocalAppSettings — production always provides
@@ -272,8 +267,12 @@ fun GameScreen(
     var showResetConfirmation by remember { mutableStateOf(false) }
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
-    LaunchedEffect(gameState.winState, gameState.fullmoveNumber, openingExplainerStateHolder) {
-        openingExplainerStateHolder?.explain(gameState)
+    LaunchedEffect(
+        gameState.winState, gameState.fullmoveNumber, viewState.hideWindow,
+        openingExplainerStateHolder, openingRetry,
+    ) {
+        if (viewState.hideWindow) openingExplainerStateHolder?.reset()
+        else openingExplainerStateHolder?.explain(gameState)
     }
 
     // Bridge the persisted setting → the VM's runtime show3D flag, preserving the exact frame
@@ -373,115 +372,14 @@ fun GameScreen(
                         }
                     }
                 }
-                // Coach Summary (issue #39 Phase 4 / issue #33)
-                val gameSummaryManager = LocalGameSummaryManager.current
-                if (gameSummaryManager != null) {
-                    val summaryState by gameSummaryManager.uiState.collectAsState()
-                    // Unavailable (no orchestrator attached — release Android, coach-disabled
-                    // desktop/web, or Foundation Models unavailable on iOS) renders nothing: the
-                    // trigger button would otherwise be visible but do nothing when pressed, since
-                    // GameSummaryManager.triggerSummary no-ops without an orchestrator.
-                    if (summaryState !is GameSummaryUiState.Unavailable) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-
-                    if (summaryState !is GameSummaryUiState.Unavailable) {
-                    when (summaryState) {
-                        GameSummaryUiState.Unavailable -> Unit
-                        is GameSummaryUiState.Hidden -> {
-                            Button(
-                                onClick = {
-                                    val pgn = GameActions.toPgn(gameState, viewModel.engineAttached)
-                                    val engineDiff = appSettings?.engineDifficulty?.value?.name ?: "MEDIUM"
-                                    gameSummaryManager.triggerSummary(
-                                        pgn = pgn,
-                                        moveHistory = gameState.moveHistory,
-                                        playerSide = viewModel.playerSide,
-                                        engineDifficultyName = engineDiff
-                                    )
-                                }
-                            ) {
-                                Text("Get Coach Summary")
-                            }
-                        }
-                        is GameSummaryUiState.Loading -> {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Crunching data...", style = MaterialTheme.typography.bodyMedium)
-                            }
-                        }
-                        is GameSummaryUiState.Streaming -> {
-                            val text = (summaryState as GameSummaryUiState.Streaming).text
-                            Text(
-                                text = text,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(8.dp)
-                            )
-                        }
-                        is GameSummaryUiState.Ready -> {
-                            val state = summaryState as GameSummaryUiState.Ready
-                            val exp = state.explanation
-                            Column(modifier = Modifier.padding(8.dp)) {
-                                Text("Coach Summary", fontWeight = FontWeight.Bold)
-                                Text(exp.explanation, style = MaterialTheme.typography.bodyMedium)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                com.example.myapplication.ui.ProvenanceBadge(
-                                    route = exp.route,
-                                    modifier = Modifier.testTag("game_summary_provenance")
-                                )
-                            }
-                        }
-                        is GameSummaryUiState.Fallback -> {
-                            val fallback = (summaryState as GameSummaryUiState.Fallback)
-                            // B17: same three designed states as the coach panel. A silent
-                            // substitution reads as an ordinary summary — no label, no retry.
-                            val presentation = FallbackPresentation.of(fallback.reason)
-                            Column(modifier = Modifier.padding(8.dp)) {
-                                Text("Coach Summary", fontWeight = FontWeight.Bold)
-                                when (presentation) {
-                                    is FallbackPresentation.Labeled -> Text(
-                                        presentation.label,
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
-                                    is FallbackPresentation.Retryable -> Text(
-                                        presentation.label,
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
-                                    FallbackPresentation.Silent -> Unit
-                                }
-                                Text(fallback.text, style = MaterialTheme.typography.bodyMedium)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                // Fallback text is engine-derived by construction, so the reason
-                                // that produced it is also its provenance (B11).
-                                com.example.myapplication.ui.ProvenanceBadge(
-                                    route = com.example.ondeviceai.AiRoute.Fallback(fallback.reason),
-                                    modifier = Modifier.testTag("game_summary_provenance")
-                                )
-                                if (presentation is FallbackPresentation.Retryable) {
-                                    TextButton(onClick = { gameSummaryManager.retry() }) {
-                                        Text("Retry")
-                                    }
-                                }
-                            }
-                        }
-                        is GameSummaryUiState.Error -> {
-                            Text(
-                                "Error: ${(summaryState as GameSummaryUiState.Error).message}",
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                    }
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                // No base URL → the panel could only ever show its offline sentence, so hide it.
-                if (cloudCoachConfigured) {
-                OpeningExplainerPanel(
-                    state = openingExplainerState,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                )
+                if (openingExplainerStateHolder != null) {
+                    val openingExplainerState by openingExplainerStateHolder.state.collectAsState()
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OpeningExplainerPanel(
+                        state = openingExplainerState,
+                        onRetry = { openingRetry++ },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    )
                 }
             }
         }

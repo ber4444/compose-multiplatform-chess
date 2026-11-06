@@ -18,14 +18,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.example.myapplication.board3d.desktopBoard3DSupport
 import com.example.myapplication.share.desktopPgnSharer
-import com.example.myapplication.movecoach.GameSummaryManager
 import com.example.myapplication.movecoach.MoveCoachManager
 import com.example.myapplication.movecoach.MoveCoachUiState
 import com.example.ondeviceai.AiAvailability
 import com.example.ondeviceai.AiContextSnapshot
 import com.example.ondeviceai.AiUserSetting
 import com.example.ondeviceai.DefaultAiCoachOrchestrator
-import com.example.ondeviceai.DefaultGameSummaryOrchestrator
 import com.example.ondeviceai.AiRoute
 import com.example.ondeviceai.VendorRouteExecutor
 
@@ -61,7 +59,6 @@ fun main() = application {
     val moveCoachManager = remember {
         MoveCoachManager(viewModel, appSettings.engineDifficulty.value.name)
     }
-    val gameSummaryManager = remember { GameSummaryManager() }
 
     DisposableEffect(Unit) {
         val engine = DesktopStockfishEngine()
@@ -80,13 +77,12 @@ fun main() = application {
             }
         }
         if (System.getenv("CHESS_ENABLE_COACH") == "1") {
-            attachMoveCoach(moveCoachManager, gameSummaryManager)
+            attachMoveCoach(moveCoachManager)
         }
         onDispose {
             engine.close()
             backfiller?.stop()
             moveCoachManager.close()
-            gameSummaryManager.close()
             viewModel.close()
         }
     }
@@ -103,24 +99,23 @@ fun main() = application {
             gameHistory = gameHistory,
             pgnSharer = pgnSharer,
             moveCoachManager = moveCoachManager,
-            gameSummaryManager = gameSummaryManager,
         )
     }
 }
 
 /**
- * Attach the on-device Move Coach + Game Summary orchestrators backed by LiteRT-LM
+ * Attach the on-device Move Coach orchestrator backed by LiteRT-LM
  * (`litertlm-jvm`). Mirrors `MainActivity.attachMoveCoach` on Android: builds the
  * default factory, warms it up (which downloads + loads the model on first launch),
- * then attaches [DefaultAiCoachOrchestrator] / [DefaultGameSummaryOrchestrator] over
- * the same shared factory. The orchestrators are reused unchanged — only the
+ * then attaches [DefaultAiCoachOrchestrator] over
+ * the same shared factory. The orchestrator is reused unchanged — only the
  * platform generator differs (see `:onDeviceAi` desktopMain).
  *
  * Failures (no native lib on Intel Mac, download error, model corruption, or the
  * litertlm-jvm 0.14.0 coroutines-bridge mismatch) are captured inside the
  * generator's `ensureInitialized` and surfaced via `status()`. Without the
  * `status()` check below, an init failure left the panel pinned on
- * `LoadingModel("Starting LiteRT-LM engine…")` forever — the orchestrators still
+ * `LoadingModel("Starting LiteRT-LM engine…")` forever — the orchestrator still
  * attached and would fall back to [com.example.ondeviceai.MoveCoachFallback] on the
  * first coached move, but the user saw an infinite spinner until then.
  *
@@ -128,10 +123,7 @@ fun main() = application {
  * after load instead of hiding it; by default a successful load collapses the
  * panel back to Hidden so it doesn't sit empty until the first coached move.
  */
-private fun attachMoveCoach(
-    moveCoachManager: MoveCoachManager,
-    gameSummaryManager: GameSummaryManager,
-) {
+private fun attachMoveCoach(moveCoachManager: MoveCoachManager) {
     val debug = System.getenv("CHESS_COACH_DEBUG") == "1"
 
     moveCoachManager.setCoachModelState(
@@ -194,12 +186,6 @@ private fun attachMoveCoach(
 
         moveCoachManager.attachCoachOrchestrator(
             DefaultAiCoachOrchestrator(
-                executor = executor,
-                contextProvider = contextProvider,
-            )
-        )
-        gameSummaryManager.attachOrchestrator(
-            DefaultGameSummaryOrchestrator(
                 executor = executor,
                 contextProvider = contextProvider,
             )

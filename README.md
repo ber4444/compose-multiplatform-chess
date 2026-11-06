@@ -136,8 +136,8 @@ graph TD
 - **Per-move assessment:** Every ply carries a `MoveAssessment` (`cpBefore`, `cpPlayed`, `cpBest`,
   `cpLoss`, a `MoveClass` from BEST/EXCELLENT/GOOD/INACCURACY/MISTAKE/BLUNDER, and detected
   `motifs`), computed by `MoveAssessor` + `MotifDetector` in `:chess-core` and persisted on
-  `MoveRecord`. This is what grounds the coach and the game summary: **code detects, the model only
-  narrates.** `GameHistoryBackfiller` fills assessments in for games saved before the feature
+  `MoveRecord`. The Move Coach uses those facts to explain each move. `GameHistoryBackfiller`
+  fills assessments in for games saved before the feature
   existed. Two caveats worth knowing: the classification thresholds (10 / 30 / 60 / 100 / 300
   centipawns) are calibrated to *Stockfish's* evaluation scale, so swapping engines invalidates
   stored assessments; and the whole record depends on the engine, so assessments are absent when no
@@ -168,26 +168,25 @@ graph TD
 
 ## AI features
 
-Five AI surfaces share one seam — `:onDeviceAi` owns the route policies, prompt builders, validators
+Four AI features in the app share one seam — `:onDeviceAi` owns the route policies, prompt builders, validators
 and deterministic fallbacks; `:app` owns the UI and injects the platform runtime. They differ in
 where inference runs and what leaves the device:
 
 | Feature | Where it appears | Route & policy |
 |---|---|---|
 | **Move Coach** | Panel below the board, after your move is answered — the deterministic explanation of that ply's `MoveAssessment`, phrased by a model only where one is attached | On-device; `AiRoutePolicies.moveCoachOffline` — `LOCAL_ONLY`, 0¢ |
-| **Game Summary** | *Get Coach Summary* in the game-over popup | On-device; reuses `moveCoachOffline` |
 | **Rules Q&A** | **Rules** screen | On-device retrieval **and** generation; `AiRoutePolicies.rulesQaOffline` — `LOCAL_ONLY`, 0¢ |
-| **Opening Explainer** | Post-game panel, once per finished game | Cloud; `AiRoutePolicies.openingExplainer` — `PUBLIC_OR_SYNTHETIC`; server cost cap defaults to 1.5¢ |
+| **Opening Explainer** | Game-over popup | Cloud; `AiRoutePolicies.openingExplainer` — `PUBLIC_OR_SYNTHETIC`; server cost cap defaults to 1.5¢ |
 | **Position Chat** | **Chat** screen, any number of turns mid-game | Cloud SSE; `AiRoutePolicies.positionChat` — `PUBLIC_OR_SYNTHETIC`; server cost cap defaults to 1.5¢ |
 
 Everything is free — there are no purchases, subscriptions or paywall. The AI features are
 experimental, and charging for them was not justified at their current quality. Where a build cannot
 run a surface at all — no coach orchestrator, no `coach.baseUrl`, no rules answerer — the surface is
-hidden (Game Summary, Opening Explainer) or says why it is unavailable (Rules, Chat) rather than
+hidden (Opening Explainer) or says why it is unavailable (Rules, Chat) rather than
 showing a control that does nothing.
 
 Only the two cloud policies set `allowCloud = true`, and they carry public chess data only (FEN, SAN
-move list, bounded conversation history — no user identifiers, no free-form PII). The three
+move list, bounded conversation history — no user identifiers, no free-form PII). The two
 on-device policies are `LOCAL_ONLY` with a 0¢ budget, so `AiRoutePolicyDecider` can never hand them a
 cloud route.
 
@@ -196,21 +195,20 @@ no single switch that turns "AI" on or off everywhere:
 
 | Feature | Android | iOS | Desktop | Web |
 |---|---|---|---|---|
-| **Move Coach**, **Game Summary** | All builds — **deterministic: no model, no download, answers instantly.** Every on-device model available to Android was benchmarked and lost to the templates (see [No first-run model download](#no-first-run-model-download)) | iOS 26.0+, a Foundation-Models-eligible device, and Apple Intelligence on in Settings (`SystemLanguageModel.default.availability`), probed at launch on every build | `CHESS_ENABLE_COACH=1 ./gradlew :app:run` | `?coach=1` on the page URL; Chrome/Edge only, since it needs WebGPU |
-| **Rules Q&A** | All builds — the answerer is unconditionally available and falls back to corpus retrieval if the model has not initialized yet | Same iOS 26+ / Apple Intelligence gate as the coach | Unavailable: `defaultRulesQaAnswerer` returns `null`, and the **Rules** screen reports itself unavailable rather than rendering a dead input box | Unavailable, same as desktop |
+| **Move Coach** | Deterministic on all builds | Deterministic on all builds | Deterministic by default. Set `CHESS_ENABLE_COACH=1` to enable LiteRT-LM | Deterministic by default. Add `?coach=1` in a browser with WebGPU to enable LiteRT-LM |
+| **Rules Q&A** | All builds — the answerer is unconditionally available and falls back to corpus retrieval if the model has not initialized yet | Foundation Models on eligible iOS 26+ devices, with Apple Intelligence enabled | Unavailable: `defaultRulesQaAnswerer` returns `null`, and the **Rules** screen reports itself unavailable rather than rendering a dead input box | Unavailable, same as desktop |
 | **Opening Explainer**, **Position Chat** | A `coach.baseUrl` / `CHESS_COACH_BASE_URL` baked in at build time — identical precedence on all four targets (see [App-side wiring](#opening-explainer-service)) | ↑ | ↑ | ↑ |
 
 On top of its platform gate, **Move Coach** also honours the persisted **Enable AI Move Coach**
 switch in Settings (`AppSettings.aiCoachEnabled`, default on). It guards only the automatic per-move
-trigger, so Game Summary — attached in the same call at every entry point — still works when it is
-off. Neither Rules Q&A nor the two cloud surfaces has a Settings switch.
+trigger. Neither Rules Q&A nor the two cloud surfaces has a Settings switch.
 
 **On-device runtimes**, injected at the entry points through the `OnDeviceTextGenerator` /
 `VendorRouteExecutor` seam:
 
 | Target | Runtime | Model |
 |---|---|---|
-| Android | none — deterministic | No model ships and none is downloaded: every model in the Cactus catalog was benchmarked on hardware and all lost to the deterministic text on latency, truth, or both. `MoveCoachManager` renders `DeterministicCoach`; `GameSummaryManager` composes the turning points. ML Kit/AICore stays wired but dormant (`Unavailable` on every device tested). See `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md` |
+| Android | none — deterministic | No model ships and none is downloaded: every model in the Cactus catalog was benchmarked on hardware and all lost to the deterministic text on latency, truth, or both. `MoveCoachManager` renders `DeterministicCoach`. ML Kit/AICore stays wired but dormant (`Unavailable` on every device tested). See `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md` |
 | iOS | Foundation Models, via `FoundationMoveCoachBridge` registered into `FoundationModelsBridgeRegistry` from `iOSApp.swift` | The system model. Every Foundation Models call is individually `@available(iOS 26.0, *)`-gated; the app's own deployment target is 16.0, set by ChessKitEngine |
 | Desktop | LiteRT-LM (`com.google.ai.edge.litertlm:litertlm-jvm`), native libs bundled inside the jar: linux-x86_64/aarch64, darwin-aarch64, win-x86_64 — **no Intel Mac**, which falls back | Qwen3-0.6B-int4, ~347 MB `.litertlm`, downloaded on first launch and cached under `~/.chess-coach-models/`. See `docs/benchmarks/on-device-ai/desktop-wasm-litert-lm.md` |
 | Web (Wasm) | `@litert-lm/core` loaded from the jsdelivr CDN at runtime, running in a module Web Worker so inference stays off the main thread | `gemma-4-E2B-it-web.litertlm`, ~2 GB — the only model `@litert-lm/core` documents for web. Without WebGPU the generator reports unavailable and the orchestrator falls back to `MoveCoachFallback` |
@@ -245,16 +243,6 @@ off-device at all."
   blocks the move. The response validator enforces a 300-char bound, forbidden phrases and grounding,
   and a rejection emits the deterministic line immediately — there is no retry. See
   [On-Device AI Architecture](docs/on-device-ai-architecture.md) for the prompt and routing internals.
-- **Game Summary** — feeds the finished game's PGN to the same generator (`DefaultGameSummaryOrchestrator`,
-  45 s ceiling for the whole PGN-sized prompt) and reuses the *same* `VendorRouteExecutor` the coach
-  warmed up, so there is no second model download. Turning points are ranked by `cpLoss`/`MoveClass`
-  and cited as `[move-N]`, which `:app` renders rather than strips: `CitationSanitizer` removes
-  internal corpus ids like `[lichess-…]` from every display path but deliberately preserves
-  `[move-N]`, since those are meant to become tappable board jumps. Two deliberate differences from
-  the coach — **no grounding validator** (any non-blank output is accepted; there is no per-move tag
-  list to check it against) and it is **pull-based**. The button renders only once an orchestrator is
-  attached, so it can never be pressed for nothing; a failed generation shows a fixed "review the
-  PGN" line.
 - **Rules Q&A** — retrieval and generation both stay on-device. The corpus is a bundled 30-passage
   FIDE/Wikibooks adaptation (`onDeviceAi/src/commonMain/resources/rulesCorpus/passages.tsv`) looked
   up with BM25 (`BundledRuleLookupTool`); see
@@ -265,10 +253,10 @@ off-device at all."
   `{"tool":"lookup_rule","query":"…"}` envelope, Kotlin performs the real lookup, and a second
   generation turn cites the passage. An answer that fails validation falls back to composing the
   retrieved passage directly.
-- **Opening Explainer** — `OpeningExplainerPanel` posts the FEN plus the first 20 SAN plies to
-  `:server`, which retrieves grounded passages and composes a 2–3 sentence explanation. An unset base
-  URL, a dead network, or a non-2xx response all surface as a deterministic offline message rather
-  than an error state. See [Opening explainer service](#opening-explainer-service).
+- **Opening Explainer** — the app posts the FEN plus the first 20 SAN plies to
+  `:server`, which retrieves grounded passages and composes a 2–3 sentence explanation. The app
+  gives the request up to 25 seconds and offers Retry if it times out or fails.
+  See [Opening explainer service](#opening-explainer-service).
 - **Position Chat** — cloud-only by design: there is no on-device chat generator, and an on-device
   route decision is treated as "no route". `KtorStreamingChatClient` uses `preparePost{}.execute{}` +
   `bodyAsChannel()`, so cancelling the collecting job closes the TCP connection immediately and
@@ -286,11 +274,9 @@ off-device at all."
 Android ships no on-device model and downloads none. Every model in the Cactus catalog was
 benchmarked on a Galaxy Z Fold 3, and all of them lost to the deterministic text on latency, on
 truth, or both — up to 36 s to answer, and in one case a fluent claim that a knight on h3 "controls
-the center". On Game Summary, which has no response validator, one model invented a bishop sacrifice
-on move 1 and another answered in German; both were accepted.
+the center".
 
-So the Move Coach answers instantly from `DeterministicCoach`, and Game Summary composes the same
-turning points a model was given and could not use. ML Kit/AICore remains wired but dormant: it costs
+The Move Coach answers instantly from `DeterministicCoach`. ML Kit/AICore remains wired but dormant: it costs
 no download, reports `Unavailable` on every device tested, and lights up by itself if a device ever
 provisions the feature.
 
@@ -306,7 +292,7 @@ and `movecoach/FallbackPresentation` maps it to exactly three designed outcomes:
 |---|---|---|
 | `Silent` | no local model, offline, no route, backgrounded, validator veto, **CRITICAL thermal** | Ordinary coach text, no error chrome — the deterministic line is the product, not a failure message |
 | `Labeled` | quota exhausted | A one-line note, because waiting changes the outcome |
-| `Retryable` | timeout | The note plus a **Retry** button (`MoveCoachManager.retry()` / `GameSummaryManager.retry()` replay the last request) |
+| `Retryable` | timeout | The note plus a **Retry** button (`MoveCoachManager.retry()` replays the last request) |
 
 The CRITICAL-thermal row is the guarantee worth naming: an overheating device degrades to the
 deterministic coach and **never renders a dead panel**. That holds only because the orchestrator's

@@ -3,12 +3,12 @@ package com.example.myapplication
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -39,7 +39,6 @@ import com.example.myapplication.persistence.LocalAppSettings
 import com.example.myapplication.share.PgnSharer
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.example.myapplication.movecoach.MoveCoachManager
-import com.example.myapplication.movecoach.GameSummaryManager
 import com.example.myapplication.opening.OpeningExplainerStateHolder
 import com.example.myapplication.opening.createOpeningExplainer
 import com.example.myapplication.opening.cloudCoachConfigured
@@ -64,7 +63,6 @@ import com.example.ondeviceai.defaultRulesQaAnswerer
 enum class Screen { GAME, HISTORY, SETTINGS, RULES, CHAT, LICENSES }
 
 val LocalMoveCoachManager = staticCompositionLocalOf<MoveCoachManager?> { null }
-val LocalGameSummaryManager = staticCompositionLocalOf<GameSummaryManager?> { null }
 val LocalOpeningExplainerStateHolder = staticCompositionLocalOf<OpeningExplainerStateHolder?> { null }
 val LocalIsDebug = staticCompositionLocalOf { false }
 
@@ -77,7 +75,6 @@ fun AppRoot(
     gameHistory: GameHistoryRepository? = null,
     pgnSharer: PgnSharer? = null,
     moveCoachManager: MoveCoachManager? = null,
-    gameSummaryManager: GameSummaryManager? = null,
     switchTopPadding: Dp = 8.dp,
     isDebug: Boolean = false,
 ) {
@@ -112,7 +109,6 @@ fun AppRoot(
     CompositionLocalProvider(
         LocalAppSettings provides settings,
         LocalMoveCoachManager provides moveCoachManager,
-        LocalGameSummaryManager provides gameSummaryManager,
         LocalOpeningExplainerStateHolder provides openingExplainerStateHolder,
         LocalIsDebug provides isDebug,
     ) {
@@ -186,7 +182,7 @@ fun AppRoot(
                         onBack = { screen = Screen.GAME },
                     )
                 } else {
-                    SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }, showBackButton = !isAndroidPlatform) {
+                    SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }) {
                         Text(
                             "Position Chat needs a coach server, and this build has none configured.",
                             modifier = Modifier.padding(16.dp),
@@ -205,7 +201,7 @@ internal fun SubScreenScaffold(
     title: String,
     onBack: () -> Unit,
     scrollable: Boolean = true,
-    showBackButton: Boolean = true,
+    showBackButton: Boolean = !isAndroidPlatform,
     content: @Composable () -> Unit,
 ) {
     Scaffold(
@@ -227,6 +223,7 @@ internal fun SubScreenScaffold(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .consumeWindowInsets(padding)
                 .then(if (scrollable) Modifier.verticalScroll(scrollState) else Modifier),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.Start,
