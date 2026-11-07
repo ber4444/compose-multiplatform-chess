@@ -3,6 +3,7 @@ package com.example.myapplication.bench
 import android.content.Context
 import com.example.ondeviceai.DefaultGameSummaryOrchestrator
 import com.example.ondeviceai.GameSummaryResult
+import com.example.ondeviceai.GameSummaryValidationSample
 import com.example.ondeviceai.VendorRouteExecutor
 import java.io.File
 
@@ -12,8 +13,7 @@ import java.io.File
  * A wait that disqualifies the coach may be perfectly acceptable here, so it gets measured on its
  * own terms rather than inheriting the coach's verdict.
  *
- * The bar is set in the plan before the numbers are seen: ~15 s, and **truth** — this surface has no
- * response validator at all, so an invented claim reaches the user unchallenged.
+ * Records the model text even when the response validator replaces it with the fallback.
  */
 suspend fun runAndroidSummaryBench(context: Context, iterations: Int) {
     val resultsFile = File(context.filesDir, "bench/summary.jsonl")
@@ -61,7 +61,8 @@ suspend fun runAndroidSummaryBench(context: Context, iterations: Int) {
 
     for (fixture in (0 until iterations).flatMap { fixtures }) {
         val start = System.currentTimeMillis()
-        val result = orchestrator.summarizeGame(fixture.request)
+        var validation: GameSummaryValidationSample? = null
+        val result = orchestrator.summarizeGame(fixture.request) { validation = it }
         val elapsed = System.currentTimeMillis() - start
 
         val text = when (result) {
@@ -79,6 +80,7 @@ suspend fun runAndroidSummaryBench(context: Context, iterations: Int) {
                 elapsedMs = elapsed,
                 text = text,
                 fallbackReason = (result as? GameSummaryResult.FellBack)?.reason?.description,
+                validation = validation,
             ) + "\n",
         )
     }

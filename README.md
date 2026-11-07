@@ -196,7 +196,7 @@ no single switch that turns "AI" on or off everywhere:
 | Feature | Android | iOS | Desktop | Web |
 |---|---|---|---|---|
 | **Move Coach** | Deterministic on all builds | Deterministic on all builds | Deterministic by default. Set `CHESS_ENABLE_COACH=1` to enable LiteRT-LM | Deterministic by default. Add `?coach=1` in a browser with WebGPU to enable LiteRT-LM |
-| **Rules Q&A** | All builds — the answerer is unconditionally available and falls back to corpus retrieval if the model has not initialized yet | Foundation Models on eligible iOS 26+ devices, with Apple Intelligence enabled | Unavailable: `defaultRulesQaAnswerer` returns `null`, and the **Rules** screen reports itself unavailable rather than rendering a dead input box | Unavailable, same as desktop |
+| **Rules Q&A** | Corpus retrieval on all builds, with ML Kit generation when the availability probe finds an eligible AICore model | Foundation Models on eligible iOS 26+ devices, with Apple Intelligence enabled | Unavailable: `defaultRulesQaAnswerer` returns `null`, and the **Rules** screen reports itself unavailable rather than rendering a dead input box | Unavailable, same as desktop |
 | **Opening Explainer**, **Position Chat** | A `coach.baseUrl` / `CHESS_COACH_BASE_URL` baked in at build time — identical precedence on all four targets (see [App-side wiring](#opening-explainer-service)) | ↑ | ↑ | ↑ |
 
 On top of its platform gate, **Move Coach** also honours the persisted **Enable AI Move Coach**
@@ -208,7 +208,7 @@ trigger. Neither Rules Q&A nor the two cloud surfaces has a Settings switch.
 
 | Target | Runtime | Model |
 |---|---|---|
-| Android | none — deterministic | No model ships and none is downloaded: every model in the Cactus catalog was benchmarked on hardware and all lost to the deterministic text on latency, truth, or both. `MoveCoachManager` renders `DeterministicCoach`. ML Kit/AICore stays wired but dormant (`Unavailable` on every device tested). See `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md` |
+| Android | ML Kit/AICore for Rules Q&A | The availability probe checks FAST and FULL. The Move Coach uses `DeterministicCoach`. See `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md` |
 | iOS | Foundation Models, via `FoundationMoveCoachBridge` registered into `FoundationModelsBridgeRegistry` from `iOSApp.swift` | The system model. Every Foundation Models call is individually `@available(iOS 26.0, *)`-gated; the app's own deployment target is 16.0, set by ChessKitEngine |
 | Desktop | LiteRT-LM (`com.google.ai.edge.litertlm:litertlm-jvm`), native libs bundled inside the jar: linux-x86_64/aarch64, darwin-aarch64, win-x86_64 — **no Intel Mac**, which falls back | Qwen3-0.6B-int4, ~347 MB `.litertlm`, downloaded on first launch and cached under `~/.chess-coach-models/`. See `docs/benchmarks/on-device-ai/desktop-wasm-litert-lm.md` |
 | Web (Wasm) | `@litert-lm/core` loaded from the jsdelivr CDN at runtime, running in a module Web Worker so inference stays off the main thread | `gemma-4-E2B-it-web.litertlm`, ~2 GB — the only model `@litert-lm/core` documents for web. Without WebGPU the generator reports unavailable and the orchestrator falls back to `MoveCoachFallback` |
@@ -248,20 +248,17 @@ off-device at all."
   up with BM25 (`BundledRuleLookupTool`); see
   `docs/benchmarks/on-device-ai/rules-qa-retrieval-decision.md` for why BM25 rather than a bundled
   embedding model. iOS uses a native Foundation Models `Tool` conformance with `NLEmbedding`
-  query-time ranking; Android has no model, so BM25 retrieval answers on its own through the
-  grounding floor. Where a model is present it emits a
-  `{"tool":"lookup_rule","query":"…"}` envelope, Kotlin performs the real lookup, and a second
-  generation turn cites the passage. An answer that fails validation falls back to composing the
-  retrieved passage directly.
+  query-time ranking. Android starts with BM25, then lets an available ML Kit model refine
+  the lookup and phrase an answer. The retrieved passage supplies the answer when model output
+  is unavailable or fails validation.
 - **Opening Explainer** — the app posts the FEN plus the first 20 SAN plies to
   `:server`, which retrieves grounded passages and composes a 2–3 sentence explanation. The app
   gives the request up to 25 seconds and offers Retry if it times out or fails.
   See [Opening explainer service](#opening-explainer-service).
 - **Position Chat** — cloud-only by design: there is no on-device chat generator, and an on-device
   route decision is treated as "no route". `KtorStreamingChatClient` uses `preparePost{}.execute{}` +
-  `bodyAsChannel()`, so cancelling the collecting job closes the TCP connection immediately and
-  leaves no orphaned server-side stream; **Stop** cancels an in-flight request (mid-token when the
-  provider delivers incrementally) and **Retry** re-sends the turn,
+  `bodyAsChannel()`. **Stop** cancels the in-flight request, including between chunks when the
+  provider delivers incrementally. **Retry** re-sends the turn,
   with `ChatViewModel` holding a single `streamJob` so at most one stream is live. It sends the last
   6 turns (`MAX_HISTORY_TURNS`) plus at most 20 SAN plies; the server caps history independently and
   re-pins retrieval every turn, so trimming old turns cannot let the grounding drift. A slow first
@@ -705,22 +702,17 @@ git push origin on-device-ai-v0.1.0
 
 ## Plan inventory
 
-*Active and proposed plans under `docs/plans/`.*
-
-| Doc | Phases | Role |
-|---|---|---|
-| [`docs/plans/hybrid-inference-vendor-adoption-plan.md`](docs/plans/hybrid-inference-vendor-adoption-plan.md) | VA-1 … VA-8 | Vendor/runtime breadth: more platforms, more SDKs, telemetry, UI. |
-| [`docs/plans/on-device-coach-rag-unification.md`](docs/plans/on-device-coach-rag-unification.md) | RAG-1 … RAG-6 | Coaching *quality*: `MoveAssessment`, evaluative summary, chat re-scope, habits. |
-| [`docs/plans/on-device-ai-next-steps.md`](docs/plans/on-device-ai-next-steps.md) | — | **New in #138.** The three-step follow-on, written to be picked up cold: the Game Summary validator (done), turning AICore on for that surface (gated on a repeat run — zero invented tags is a hard gate, not a percentage), and the **Rules Q&A benchmark**, which is the one surface with a model live in production on both phones and the only one never measured. |
+| Plan | Status |
+|---|---|
+| [Hybrid inference vendor adoption](docs/plans/hybrid-inference-vendor-adoption-plan.md) | Platform runtimes and route badges are in place. VA-8 article updates follow device measurements. |
+| [Coaching grounded in verified game facts](docs/plans/on-device-coach-rag-unification.md) | RAG-1–3 landed. RAG-4 has a local Hint button, with assessment-backed chat and counterfactuals still open. Habit aggregation is in [PR #136](https://github.com/ber4444/compose-multiplatform-chess/pull/136). RAG-6 offline chat is optional. |
+| [On-device AI next steps](docs/plans/on-device-ai-next-steps.md) | The summary validator, device scorer, and Rules Q&A benchmark harness are available. Physical-device model runs are pending. |
 
 ## TODO
 
-| # | Work | Owner doc | Gate / blocker |
-|---|---|---|---|
-| **Before the store release** | | | |
-| 5 | **Hand-verification backlog** — Stop mid-stream | §0.2a item C | Backs a claim already published. |
-| **After Sep 30** | | | |
-| 7 | **Task 2 — AICore on for Game Summary** | `on-device-ai-next-steps.md` | Repeat the 50-game run with the validator in place. **Zero invented `[move-N]` is a hard gate, not a percentage.** The iOS voice problem is a prompt fix, not a validator fix |
-| 8 | **Task 3 — benchmark Rules Q&A** | same, §3a–3e | The only surface with a model live in production on both phones and never measured. Decides whether the model turn earns its place at all. Includes 3e, the missing Android availability probe |
-| 9 | **Bench schema → `DeviceRunScorer` summary mode** | same, Leftovers | Blocked on the summary row carrying the assessed move history. #139 fixed the failure mode only |
-
+| # | Work | Status / next step |
+|---|---|---|
+| 5 | Position Chat Stop mid-stream | Verified on the Android emulator with a controlled SSE server on November 6, 2026. Stop removed the partial reply and closed the connection before the next chunk. Retry completed the same turn once. |
+| 7 | [Repeat the 50-game Summary run](docs/plans/on-device-ai-next-steps.md#task-2--measure-game-summary-with-the-validator) | Requires an AICore phone and an Apple Intelligence iPhone. Any future rollout also depends on bringing Game Summary back as an app surface. Gates are zero invented tags, at least 90% validator acceptance, and p95 under 45 s. |
+| 8 | [Benchmark Rules Q&A](docs/plans/on-device-ai-next-steps.md#task-3--benchmark-rules-qa) | The emulator matched the designated BM25 passage on 22/34 in-corpus cases and returned a passage for 1/3 out-of-corpus cases. Model quality and latency still need physical-device runs. |
+| 9 | [Score Game Summary device runs](docs/plans/on-device-ai-next-steps.md#score-game-summary-runs) | Both runners write assessed plies and the original model output. `:evals:scoreDeviceRun -Psurface=summary` replays the validator and checks the device verdict. Verified the JSONL round trip on all 50 emulator fixtures. |
