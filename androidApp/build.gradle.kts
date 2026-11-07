@@ -125,6 +125,7 @@ baselineProfile {
 // it is a 36 KB test fixture, not app content.
 val stageGoldenBenchAssets by tasks.registering(Sync::class) {
     from(rootProject.layout.projectDirectory.file("evals/golden/candidates.json"))
+    from(rootProject.layout.projectDirectory.file("tools/rules_qa_fixtures.json"))
     into(layout.buildDirectory.dir("generated/benchAssets/golden"))
 }
 

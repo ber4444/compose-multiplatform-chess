@@ -3,28 +3,13 @@
 Written for a fresh agent. Follows `docs/benchmarks/on-device-ai/game-summary-2026-08.md` — read that
 first, it explains why the numbers in the earlier version of this story were wrong.
 
-**Merged as #138.** This file was written on the unmerged `game-summary-on-device-measurement`
-branch; that branch has landed, so Task 1 below is shipped code rather than a proposal, and the
-"where things stand" table describes `main`.
-
 ## Where things stand
 
-| Surface | Android | iOS | Attached in the app? |
-|---|---|---|---|
-| Move Coach | ML Kit / AICore (`nano-v3`) available | Foundation Models available | **No**, both — decided by measurement |
-| Game Summary | AICore 12/12 on the 2026-08 fixtures | Foundation Models 12/12 | Android **no** (`ATTACH_GAME_SUMMARY = false`); **iOS yes, in production** |
-| Rules Q&A | AICore, returned unconditionally | Foundation Models native `Tool` | **Both yes, in production** |
-
-Two facts drive everything here:
-
-1. **Game Summary now has a response validator** (`GameSummaryResponseValidator`, #138) — it did not
-   when this file was written, and every rule below was designed against that gap. Any non-blank text
-   used to be accepted and shown. A rejection now routes to `GameSummaryGrounding`.
-2. **iOS already ships a model on both Game Summary and Rules Q&A**, so the validator was not only
-   about turning Android on — it retroactively protects what users get today, and on the 50-game
-   corpus it rejects 42 of 50 Foundation Models summaries.
-
----
+- **Game Summary** retains its validated on-device implementation and debug benchmarks. Commit
+  `07159d04` removed the in-app summary and put the Opening Explainer in the game-over popup.
+- **Rules Q&A** uses the app's availability probe before choosing a model route. Both mobile
+  benchmarks are wired, and the emulator run established the current BM25 baseline.
+- **Move Coach** uses the deterministic explanation on both phones.
 
 ## Task 1 — Write `GameSummaryResponseValidator` — **DONE**
 
@@ -147,7 +132,7 @@ measures the rule against itself.
 
 ---
 
-## Task 2 — Turn AICore on for Game Summary
+## Task 2 — Measure Game Summary with the validator
 
 **Gate: Task 1 has landed, and the 50-game run repeats with the validator in place.**
 
@@ -165,7 +150,7 @@ The 50-game run has already been done *without* a validator (2026-08-15,
 | Truncated | 0 | 0 |
 | Latency median / p95 | 11.4 s / 13.2 s | 1.4 s / 2.2 s |
 
-Acceptance for flipping the flag:
+Acceptance gates for a future rollout:
 
 - **0 invented `[move-N]`.** Not a percentage — a wrong tag is a wrong board jump, and this is the
   one failure the user cannot detect. Android is already at 0/43; iOS is at 2/50, which is on its
@@ -181,9 +166,9 @@ blocks**: 7 contiguous rows were lost to one here even with `keepBenchInForegrou
 USB/system dialog stealing focus mid-run. A contiguous block of sub-second fallbacks is always the
 harness; scattered failures are worth investigating.
 
-If it passes, set `ATTACH_GAME_SUMMARY = true` in `MainActivity`. **Leave `ATTACH_MOVE_COACH`
-alone** — that decision is settled the other way and the constants were split precisely so this
-change cannot drag it along.
+The Android attach flag was removed with the Game Summary UI. Keep the rerun as benchmark evidence
+for any future decision to restore the surface. Both runners now emit the assessed history and
+the validator sample needed by the [summary scorer](#score-game-summary-runs).
 
 ### The iOS half is a prompt problem, not a validator problem
 
@@ -198,20 +183,16 @@ result in the benchmark doc shows how much leverage prompt shape has on this run
 
 ## Task 3 — Benchmark Rules Q&A
 
-**The only surface with a model live in production on both phones, and the only one never measured.**
-
-There is no bench for it: `AndroidBenchRunner` covers the coach, `AndroidSummaryBench` the summary,
-and nothing covers this. Build the third in the same shape as the other two — that shape is the
-point, because it is what keeps one scorer over both columns.
+The Android and iOS runners share the fixture loader and JSONL schema. Run the same fixtures on
+physical devices with the model available, then compare the raw wording with the cited BM25 floor.
 
 ### 3a. Fixtures
 
-`app/src/commonMain/.../bench/RulesQaFixtures.kt`, mirroring `SummaryFixtures`: a `load(text)` that
-parses a JSON fixture file and a `jsonLine(...)` that both platforms call, so neither runner invents
-its own schema.
+`app/src/commonMain/.../bench/RulesQaFixtures.kt` loads fixtures, measures each turn, and emits the
+same JSONL schema for both runners.
 
-Cases, hand-written into `tools/rules_qa_fixtures.json` (no generator — the corpus is 30 passages, so
-the set is small and should be authored deliberately):
+The 37 cases in `tools/rules_qa_fixtures.json` cover 30 passages, four confusable paraphrases,
+and three out-of-corpus questions.
 
 - **One per passage, phrased as a player would ask it** — not as the passage is worded. Copying the
   passage's own wording measures nothing: BM25 will always find it, and the model will always echo.
@@ -232,7 +213,8 @@ One JSONL row per case, carrying **all three** texts so nothing has to be re-der
 | `retrievedPassageId`, `retrievalScore` | did BM25 find the right passage — the step below the model |
 | `groundedAnswer` | `RulesQaGrounding`'s cited-passage answer: **the floor to beat** |
 | `modelAnswer`, `kind`, `fallbackReason` | what the model said, and why not if it didn't |
-| `citedPassageIds` | every `[id]` the model emitted |
+| `modelPassageIds`, `citedPassageIds` | passages supplied to the model and tags the model actually emitted |
+| `answer` | final text after validation and fallback |
 | `elapsedMs`, `modelIdentifier`, `deviceModel`, `osVersion` | same as the other two benches |
 
 `fallbackReason` is not optional — see the `SummaryFixtures.jsonLine` comment for why a bare `kind`
@@ -251,42 +233,67 @@ is unreadable.
   pass; the out-of-corpus cases are where this will show.
 - **Rescue rate** — how often `RulesQaGrounding` has to replace the model's wording. A high rate is
   not a failure, it is the floor doing its job, but it bounds what the model turn is worth.
-- **Latency**, against the `rulesQaOffline` 20 s `completeMs` budget. Two model turns on Android
-  (tool call, then phrasing) and no timeout of its own on iOS.
+- **Latency**, against the `rulesQaOffline` 20 s `completeMs` budget. Android measures both model turns and
+  iOS measures the native tool and model response within the same orchestrator budget.
 
 ### 3d. The decision this run makes
 
-**Does the model turn earn its place at all?** The retrieval floor already produces a correct, cited
-answer without it. If the model mostly rephrases what `RulesQaGrounding` would have said, the surface
-should follow the Move Coach and go deterministic — which would also settle the second open question
-in CLAUDE.md's Rules Q&A note (whether to prefer ML Kit now that Cactus is gone). If it reliably turns
-a passage into a better-targeted answer, it stays, and the numbers say so.
+When BM25 finds the right passage, `RulesQaGrounding` can already supply a cited answer. Compare
+whether model-assisted lookup recovers misses and whether the model phrases correct answers more
+directly. Check those gains against invented citations, unfaithful answers, and time spent before
+falling back.
 
-### 3e. Fix the integration asymmetry while here
+### 3e. Availability probe
 
-`defaultRulesQaAnswerer` returns an answerer on Android *unconditionally, with no availability probe*,
-while the coach and summary now go through `probeAvailableLocalVendors()` in
-`MainActivity.attachOnDeviceAi()`. On a device with no AICore feature the answerer is constructed
-anyway and fails at generation, where `DefaultRulesQaOrchestrator.groundedOrFallback` catches it. It
-works, but it is the only surface that decides availability by failing, and it means the Rules screen
-is the one place a user can reach a model this app has not established is there.
+`AppRoot` supplies `probeAvailableLocalVendors()` to the Rules Q&A route decision. Android's
+answerer is constructed on all devices so the corpus path can still answer when the probe
+returns no vendors.
 
----
+### Run the Rules Q&A benchmark
+
+Install a debug build on an unlocked AICore phone. The default fixture set is staged into the APK.
+
+```bash
+mkdir -p build/bench
+adb shell am start -S -W -n io.github.ber4444.chess/com.example.myapplication.MainActivity --ei bench_rules_qa_iterations 1
+# Wait for the activity to finish before pulling the rows.
+adb exec-out run-as io.github.ber4444.chess cat files/bench/rules_qa.jsonl > build/bench/rules-android.jsonl
+./gradlew :evals:scoreDeviceRun -Psurface=rules-qa -Pfile=../build/bench/rules-android.jsonl
+```
+
+On an Apple Intelligence iPhone with a debug build, place `tools/rules_qa_fixtures.json` in the app
+container at `Documents/golden/rules_qa_fixtures.json`. Launch it with the benchmark environment,
+keep the app in the foreground, then copy `Documents/rules_qa_results.jsonl` to
+`build/bench/rules-ios.jsonl`.
+
+```bash
+xcrun devicectl device process launch --device "$CHESS_BENCH_IPHONE" --terminate-existing \
+  --environment-variables '{"BENCHMARK_MODE":"1","BENCHMARK_SUITE":"rules-qa"}' io.github.ber4444.chess
+./gradlew :evals:scoreDeviceRun -Psurface=rules-qa -Pfile=../build/bench/rules-ios.jsonl
+```
+
+Compare the BM25 top hit with the fixture label separately from model citation fidelity. Review
+the raw model answers against their supplied passages, especially when the fixture label is null.
+On November 6, 2026, the Android emulator matched **22/34** in-corpus labels and returned an
+unrelated passage for **1/3** out-of-corpus questions. Its 37 rows contain no model output.
+
+## Score Game Summary runs
+
+Both runners record the PGN, side, difficulty, and assessed move history. They also retain the raw
+completed model output, the text sent to the validator, and the device verdict. The scorer uses
+the shipped validator and checks raw citations separately so a tag in a discarded tail still
+counts toward the zero-invention gate.
+
+```bash
+./gradlew :evals:scoreDeviceRun -Psurface=summary -Pfile=../build/bench/summary-android.jsonl
+```
+
+Older rows need a rerun with the updated harness. See [Game Summary benchmark](../benchmarks/on-device-ai/game-summary-2026-08.md#reproducing)
+for fixture generation and output paths. The November 6 emulator run scored all 50 deterministic
+summaries and recorded zero completed model outputs.
 
 ## Leftovers worth doing at some point
 
-- **`DeviceRunScorer` has no Game Summary support, and it now has a stated prerequisite.**
-  `./gradlew :evals:scoreDeviceRun` ingests the coach's `results.jsonl` only, so summary runs are
-  still scored ad hoc — the exact "second scorer written next to the data" problem the `:evals` KDoc
-  exists to prevent. #139 fixed only the *failure mode*: pointing the scorer at a summary JSONL used
-  to die with `MissingFieldException` and a stack trace ending in the deserializer, and it now
-  refuses by name and says why. **The mode itself is still open**, and the blocker is a bench-schema
-  change, not a scorer change: `GameSummaryResponseValidator.validate` derives its turning points
-  from `request.moveHistory`, and a summary row records `pgn`/`plies`/`playerBlunders` and no
-  per-ply assessments, so the request the device validated against cannot be rebuilt. Add the
-  assessed move history to the row in `AndroidSummaryBench`/`IosSummaryBench` first; the scorer half
-  is small once the data is there. **Do not "fix" this by scoring the two rules that survive the
-  gap** — a partial number under a heading that looks like the coach column is worse than no column.
 - ~~**`evals/scorecard.md`'s `aicore-nano-fast` row is stale**~~ — **done in #139.** Replaced,
   together with the n=1 `foundation-models-ios` row, by the three columns of the 2026-08-15
   hundred-case run (`mlkit-aicore-full`, `foundation-models-ios`, `deterministic-coach`). The
