@@ -132,8 +132,10 @@ allprojects {
                 // api, context and common ship as a set from the same release; the group-wide
                 // rewrite is what keeps them aligned (a BOM can't be injected into a KGP-internal
                 // configuration). Matches the opentelemetry-bom the buildscripts import.
-                "io.opentelemetry" -> {
-                    useVersion("1.67.0")
+                // Firestore still requests the legacy incubator artifact, whose coordinate was
+                // retired before 1.67. Keep its declared version and pin the stable API separately.
+                "io.opentelemetry" -> if (requested.name != "opentelemetry-extension-incubator") {
+                    useVersion(if (requested.version?.endsWith("-alpha") == true) "1.67.0-alpha" else "1.67.0")
                     because("GHSA-ccrj-gw8r-854m, quadratic CPU in W3C tracestate parsing (fixed in 1.67.0)")
                 }
             }

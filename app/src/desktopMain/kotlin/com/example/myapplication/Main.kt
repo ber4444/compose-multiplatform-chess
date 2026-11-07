@@ -66,7 +66,7 @@ fun main() = application {
         CoroutineScope(Dispatchers.IO).launch {
             if (engine.start()) {
                 viewModel.attachEngine(engine)
-                backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine)
+                backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine, viewModel.soloPaused)
                 backfiller?.start()
             } else {
                 Logger.w("Main") { "Failed to start stockfish." }

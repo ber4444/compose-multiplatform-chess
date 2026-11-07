@@ -46,6 +46,7 @@ fun SettingsScreen(
     board3D: Board3DSupport? = null,
     /** Opens the open-source licences screen. Null hides the row (previews, Compose UI tests). */
     onOpenLicenses: (() -> Unit)? = null,
+    extraSettings: (@Composable () -> Unit)? = null,
 ) {
     val settings = LocalAppSettings.current
         ?: error("SettingsScreen requires AppSettings. Render it under AppRoot.")
@@ -54,6 +55,7 @@ fun SettingsScreen(
     val aiCoachEnabled by settings.aiCoachEnabled.collectAsState()
 
     SubScreenScaffold(title = "Settings", onBack = onBack, showBackButton = false) {
+        extraSettings?.invoke()
         Text(
             text = "Engine difficulty",
             style = MaterialTheme.typography.titleMedium,

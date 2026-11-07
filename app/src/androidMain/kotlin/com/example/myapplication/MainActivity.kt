@@ -315,7 +315,7 @@ class AndroidGameViewModel : ViewModel() {
         gameViewModel.attachEngine(engine)
         backfiller?.stop()
         if (engine != null) {
-            backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine)
+            backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine, gameViewModel.soloPaused)
             backfiller?.start()
         }
     }

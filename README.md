@@ -152,6 +152,12 @@ graph TD
 - **Engine Difficulty:** A persisted Easy / Medium / Hard / Max setting (in **Settings**) weakens or strengthens Stockfish play via the UCI `Skill Level` option and a per-move think-time budget. Applies to the Stockfish engine on every platform.
 - **Settings & Navigation:** A minimal multiplatform navigation host (`AppRoot`) switches between the game, **History**, **Settings**, **Rules** and **Chat** screens, plus **Open-source licences** under Settings. Settings holds four persisted controls: the 3D-board toggle (default on), the engine-difficulty selector, the AI Move Coach toggle (default on), and the **player side** selector — you can play as Black, in which case the engine opens.
 
+### Online play and cloud saves pilot
+
+Build with `CHESS_ENABLE_MULTIPLAYER=1` to show **Play Online**. The app connects directly to Lichess for casual standard 15+10 challenges and the signed-in account’s game archive. AI, hints and engine analysis are reserved for solo play and solo game review. The player can export multiplayer PGN or keep an offline copy.
+
+The independent solo sync pilot uses Firebase Authentication and Firestore behind the existing Fly.io service. See the [staging setup and feature switches](server/firebase/README.md) and [release gates](docs/superpowers/plans/2026-11-06-lichess-multiplayer.md).
+
 ### Board rendering, engines & verification
 
 - **3D Board View:** The app features a playable 3D board with shared camera, tap-to-move, ray picking, and move animation logic. Desktop, iOS, and web share `FilamentEncodedChessRenderer` for FEN-to-scene, camera, selection, and transition state; their platform peers only own the Filament surface. Android uses Filament through SceneView (the visual reference); iOS uses **Metal-native Filament** through a Swift/Obj-C++ `CAMetalLayer` bridge; desktop uses **native C++ Filament** with a headless swap chain and RGBA readback into Compose; web uses **Filament (Wasm)** loading the same `chess.glb` Android uses. See `docs/plans/web-graphics-spike-result.md` and `docs/plans/ios-filament-spike-result.md` for the spike verdicts.

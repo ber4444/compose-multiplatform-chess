@@ -5,7 +5,13 @@ import com.example.coachapi.ChatStreamEvent
 import com.example.coachapi.CorpusDiagnostics
 import com.example.coachapi.OpeningExplainRequest
 import com.example.coachapi.PositionChatRequest
+import com.example.coachserver.saves.CloudSaveDependencies
+import com.example.coachserver.saves.IDEMPOTENCY_KEY_HEADER
+import com.example.coachserver.saves.cloudSaveRoutes
+import com.example.coachserver.saves.configuredCloudSaves
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -52,6 +58,13 @@ fun main() {
     println("Provider spend cap: ${spendLedger.maxUsdCentsPerWindow}c per day")
     val dependencies = defaultDependencies(environment, retrieval, spendLedger)
     val chatService = runCatching { defaultChatDependencies(environment, retrieval, spendLedger) }.getOrNull()
+    val cloudSaves = try {
+        configuredCloudSaves(environment)
+    } catch (error: Exception) {
+        // Startup errors may contain service credential details. The coach can still serve.
+        println("Cloud saves disabled: configuration failed (${error.javaClass.simpleName})")
+        null
+    }
     embeddedServer(
         factory = Netty,
         configure = {
@@ -79,6 +92,7 @@ fun main() {
             chatService = chatService,
             allowedOrigins = allowedOrigins,
             trustFlyClientIp = environment["FLY_APP_NAME"] != null,
+            cloudSaves = cloudSaves,
         )
     }.start(wait = true)
 }
@@ -91,6 +105,7 @@ fun Application.openingCoachModule(
     trustFlyClientIp: Boolean = false,
     releaseVersion: String = dependencies.releaseVersion,
     corpusStatusReader: CorpusStatusReader = dependencies.corpusStatusReader,
+    cloudSaves: CloudSaveDependencies? = null,
 ) {
     val logger = environment.log
     install(ContentNegotiation) {
@@ -110,14 +125,23 @@ fun Application.openingCoachModule(
     }
     if (allowedOrigins.isNotEmpty()) {
         install(CORS) {
-            allowMethod(io.ktor.http.HttpMethod.Post)
-            allowHeader(io.ktor.http.HttpHeaders.ContentType)
+            allowMethod(HttpMethod.Post)
+            allowHeader(HttpHeaders.ContentType)
+            if (cloudSaves != null) {
+                allowMethod(HttpMethod.Put)
+                allowMethod(HttpMethod.Delete)
+                allowHeader(HttpHeaders.Authorization)
+                allowHeader(HttpHeaders.IfMatch)
+                allowHeader(IDEMPOTENCY_KEY_HEADER)
+                exposeHeader(HttpHeaders.ETag)
+            }
             allowedOrigins.forEach { host -> allowHost(host, schemes = listOf("http", "https")) }
         }
     }
 
     val service = OpeningService(dependencies)
     routing {
+        if (cloudSaves != null) cloudSaveRoutes(cloudSaves)
         get("/health") {
             call.respond(HealthReport("ok", releaseVersion, corpusStatusReader.readOrUnavailable()))
         }

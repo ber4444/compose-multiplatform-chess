@@ -75,7 +75,7 @@ fun MainViewController(
         
         var backfiller: com.example.myapplication.persistence.GameHistoryBackfiller? = null
         if (engine != null) {
-            backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine)
+            backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine, viewModel.soloPaused)
             backfiller.start()
         }
         
