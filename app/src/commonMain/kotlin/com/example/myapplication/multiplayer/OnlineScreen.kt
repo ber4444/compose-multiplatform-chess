@@ -141,9 +141,9 @@ private fun OnlineMatch(
     history: GameHistoryRepository?,
     sharer: PgnSharer?,
 ) {
-    val moveCount = game.board.moveHistory.size
-    var selected by remember(game.id, moveCount, game.canMove) { mutableStateOf(INVALID_POSITION) }
-    var promotionTo by remember(game.id, moveCount, game.canMove) { mutableStateOf<Pair<Int, Int>?>(null) }
+    val moves = game.board.moveHistory
+    var selected by remember(game.id, moves, game.canMove) { mutableStateOf(INVALID_POSITION) }
+    var promotionTo by remember(game.id, moves, game.canMove) { mutableStateOf<Pair<Int, Int>?>(null) }
     var failed3D by remember(game.id) { mutableStateOf(false) }
     val camera = remember(game.playerSide) {
         Board3DSessionState(initialYawDegrees = if (game.playerSide == Side.BLACK) OrbitCameraController.BLACK_YAW_DEG else 0f)

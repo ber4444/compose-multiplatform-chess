@@ -19,7 +19,15 @@ CHESS_ENABLE_SOLO_HISTORY_SYNC=1 \
 ./gradlew :app:run
 ```
 
-Add `CHESS_ENABLE_SOLO_RESUME_SYNC=1` to build the resume pilot. The Lichess pilot is independent and uses `CHESS_ENABLE_MULTIPLAYER=1`. Keep both auth sessions in memory. After relaunch, sign into the same account to access its queued cloud changes. Local play and local PGN copies remain available.
+Add `CHESS_ENABLE_SOLO_RESUME_SYNC=1` to build the resume pilot. The Lichess pilot is independent and uses `CHESS_ENABLE_MULTIPLAYER=1`. Keep both auth sessions in memory. After relaunch, sign into the same account to access its queued cloud changes. Local play and local PGN copies remain available. Confirm which game to keep when connecting an existing device snapshot. A solo game already linked to one account stays local when another account signs in. Finish or reset that local game before resuming under the other account.
+
+Run the Firestore repository integration test against a local emulator from the repository root.
+
+```bash
+npx --yes firebase-tools emulators:exec --only firestore --project demo-chess-saves \
+  --config server/firebase/firebase.json \
+  './gradlew :server:test --tests "*FirestoreCloudSaveRepositoryTest" --tests "*CloudSaveRoutesTest"'
+```
 
 Use two test accounts and two devices to verify isolation, lost acknowledgements, an offline reset, deletion, and recovery from conflicting solo positions. Verify the app can resume a Lichess match and load its archive with the Fly save routes disabled. Review Fly memory and latency before enabling the pilot against the 512 MB coach deployment. Disable the server and app switches to roll back. Retain Firestore and local journals for retry.
 

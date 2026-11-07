@@ -24,6 +24,7 @@ internal data class LichessProfile(val id: String, val username: String)
 internal class LichessSession(val profile: LichessProfile, internal val token: String)
 
 internal interface LichessAuthorization {
+    fun prepareBrowser() = Unit
     suspend fun authorize(): LichessSession
     suspend fun revoke(session: LichessSession)
 }
@@ -35,6 +36,8 @@ internal class LichessAuth(
     private val gate: LichessRequestGate = LichessRequestGate(),
 ) : LichessAuthorization {
     private val mutex = Mutex()
+
+    override fun prepareBrowser() = platform.prepareBrowser()
 
     override suspend fun authorize(): LichessSession = mutex.withLock {
         val verifier = base64Url(platform.randomBytes(32))

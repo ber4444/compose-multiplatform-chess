@@ -217,17 +217,18 @@ fun AppRoot(
                     chatViewModel.stop()
                 }
             }
-            val restoreSolo: (CloudResumeGame?) -> Unit = { remote ->
+            val restoreSolo: (CloudResumeGame?) -> Boolean = restore@{ remote ->
                 val side = remote?.playerSide ?: viewModel.playerSide
                 try {
                     viewModel.restoreSoloSnapshot(remote?.snapshot, side)
-                    settings.setPlayerSide(side.name)
-                    cloudSync?.seedLocalSnapshot(remote?.snapshot, side)
-                    screen = Screen.GAME
                 } catch (_: Exception) {
                     cloudSync?.reportRestoreFailure()
                     screen = Screen.SETTINGS
+                    return@restore false
                 }
+                runCatching { settings.setPlayerSide(side.name) }
+                screen = Screen.GAME
+                true
             }
             if (cloudSync != null && resumeConflict != null && displayedScreen != Screen.ONLINE) {
                 AlertDialog(

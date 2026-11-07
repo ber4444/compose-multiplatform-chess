@@ -271,6 +271,7 @@ class AndroidGameViewModel : ViewModel() {
             initialEngineDifficulty = appSettings.engineDifficulty.value,
         ).apply {
             aiCoachEnabled = appSettings.aiCoachEnabled.value
+            playerSide = if (appSettings.playerSide.value == "BLACK") Set.BLACK else Set.WHITE
         }
     }
 

@@ -43,7 +43,9 @@ fun main() {
                 snapshotSink = currentGameStore.asSnapshotSink(),
                 initialShow3D = appSettings.board3DEnabled.value,
                 initialEngineDifficulty = appSettings.engineDifficulty.value,
-            )
+            ).apply {
+                playerSide = if (appSettings.playerSide.value == "BLACK") Set.BLACK else Set.WHITE
+            }
         }
         var backfiller: com.example.myapplication.persistence.GameHistoryBackfiller? = null
         LaunchedEffect(Unit) {

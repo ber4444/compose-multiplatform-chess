@@ -28,7 +28,7 @@ import com.example.saveapi.CloudResumeGame
 internal fun CloudSaveSettings(
     sync: CloudSaveSync,
     localGames: List<SavedGame>,
-    onRestore: (CloudResumeGame?) -> Unit,
+    onRestore: (CloudResumeGame?) -> Boolean,
 ) {
     val state by sync.state.collectAsState()
     var email by remember { mutableStateOf("") }

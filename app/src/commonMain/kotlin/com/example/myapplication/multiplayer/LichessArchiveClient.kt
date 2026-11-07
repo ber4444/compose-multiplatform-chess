@@ -25,7 +25,7 @@ internal class LichessArchiveClient(
         require(lichessUsername.matches(username))
         return http.stream("/api/games/user/$username?max=50&ongoing=false&finished=true") { payload ->
             val id = payload.string("id")?.takeIf(lichessGameId::matches) ?: return@stream null
-            val status = payload.string("status")?.takeIf { it in terminalStatuses && it !in abortedStatuses }
+            val status = payload.string("status")?.takeIf { it in terminalStatuses && it !in abortedStatuses && it != "unknownFinish" }
                 ?: return@stream null
             val players = payload.obj("players") ?: return@stream null
             fun player(side: String): LichessPlayer {

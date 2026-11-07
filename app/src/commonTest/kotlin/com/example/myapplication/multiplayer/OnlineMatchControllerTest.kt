@@ -26,6 +26,7 @@ class OnlineMatchControllerTest {
         controller.challenge("Black")
         assertTrue(controller.state.value.assistanceBlocked)
         runCurrent()
+        assertEquals(OnlineMatchReference(ID, "white"), references.last())
         board.games.send(LichessGameEvent.Full(game("started")))
         runCurrent()
         assertEquals(Side.WHITE, controller.state.value.game?.playerSide)
@@ -52,6 +53,26 @@ class OnlineMatchControllerTest {
     }
 
     @Test
+    fun acceptedChallengeStillOpensWhenCancelRacesWithGameStart() = runTest {
+        val board = FakeBoard(immediateAccept = false)
+        val controller = OnlineMatchController(backgroundScope, FakeAuth, { board })
+        controller.signIn()
+        runCurrent()
+        controller.challenge("Black")
+        runCurrent()
+        controller.cancelChallenge()
+        board.events.send(LichessAccountEvent.GameStarted(
+            LichessOngoingGame(ID, "white", LichessPlayer(id = "black"), LichessVariant("standard"), "rapid"),
+        ))
+        runCurrent()
+        assertTrue(controller.state.value.assistanceBlocked)
+        board.games.send(LichessGameEvent.Full(game("started")))
+        runCurrent()
+        assertEquals(ID, controller.state.value.game?.id)
+        controller.close()
+    }
+
+    @Test
     fun persistedMatchKeepsGateThroughWrongAccountAndTakebackReplays() = runTest {
         val board = FakeBoard()
         val controller = OnlineMatchController(
@@ -72,7 +93,7 @@ class OnlineMatchControllerTest {
         controller.close()
     }
 
-    private class FakeBoard : LichessBoardApi {
+    private class FakeBoard(private val immediateAccept: Boolean = true) : LichessBoardApi {
         val games = Channel<LichessGameEvent>(Channel.UNLIMITED)
         val events = Channel<LichessAccountEvent>(Channel.UNLIMITED)
         val moves = mutableListOf<String>()
@@ -84,6 +105,10 @@ class OnlineMatchControllerTest {
         override fun gameEvents(gameId: String): Flow<LichessGameEvent> = games.receiveAsFlow()
         override suspend fun ongoingGames() = emptyList<LichessOngoingGame>()
         override fun challenge(username: String): Flow<ChallengeEvent> = flow {
+            if (!immediateAccept) {
+                emit(ChallengeEvent(id = ID))
+                kotlinx.coroutines.awaitCancellation()
+            }
             events.send(LichessAccountEvent.GameStarted(
                 LichessOngoingGame(ID, "white", LichessPlayer(id = "black"), LichessVariant("standard"), "rapid"),
             ))

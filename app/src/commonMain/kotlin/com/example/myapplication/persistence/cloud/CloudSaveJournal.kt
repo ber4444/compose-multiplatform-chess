@@ -44,6 +44,12 @@ internal fun List<ResumeWrite>.enqueue(write: ResumeWrite): List<ResumeWrite> {
 internal class CloudSaveJournal(private val settings: Settings) {
     private val json = Json { ignoreUnknownKeys = true }
 
+    fun resumeOwner(): String? = settings.getStringOrNull(RESUME_OWNER_KEY)
+
+    fun setResumeOwner(owner: String?) {
+        if (owner == null) settings.remove(RESUME_OWNER_KEY) else settings.putString(RESUME_OWNER_KEY, owner)
+    }
+
     fun read(uid: String): CloudJournal {
         val key = key(uid)
         val generation = settings.getStringOrNull(key) ?: return CloudJournal()
@@ -84,6 +90,7 @@ internal class CloudSaveJournal(private val settings: Settings) {
     private fun key(uid: String): String = "cs1_${sha1(uid.encodeToByteArray()).toHexString()}"
 
     private companion object {
+        const val RESUME_OWNER_KEY = "cloud_saves.resume_owner.v1"
         const val CHUNK_CHARS = 2_000
         const val MAX_CHUNKS = 480
     }

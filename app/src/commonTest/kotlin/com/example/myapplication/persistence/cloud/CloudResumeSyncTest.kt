@@ -31,7 +31,7 @@ class CloudResumeSyncTest {
         assertEquals(cloud, transport.remote.game)
 
         var restored: CloudResumeGame? = null
-        sync.resolveResume(useCloud = true) { restored = it }
+        sync.resolveResume(useCloud = true) { restored = it; true }
         runCurrent()
         assertEquals(Set.BLACK, restored?.playerSide)
         assertEquals("device", sync.state.value.recovery?.snapshot?.fen)
@@ -67,6 +67,8 @@ class CloudResumeSyncTest {
         sync.seedLocalSnapshot(GameSnapshot("start"), Set.WHITE)
         sync.signIn("alice", "password")
         runCurrent()
+        sync.resolveResume(false) { true }
+        runCurrent()
         val previous = assertNotNull(transport.remote.game)
         transport.offline = true
         sync.recordSnapshot(null, Set.WHITE)
@@ -81,6 +83,60 @@ class CloudResumeSyncTest {
         sync.close()
     }
 
-    private fun TestScope.sync(transport: TestCloudTransport) =
-        CloudSaveSync(TestCloudIdentity, transport, CloudSaveJournal(MapSettings()), false, true, StandardTestDispatcher(testScheduler))
+    @Test
+    fun restoredGameCannotUploadIntoAnotherAccountAfterRestart() = runTest {
+        val store = MapSettings()
+        val remote = CloudResumeGame("alice-game", Set.BLACK, GameSnapshot("private position"))
+        val transport = TestCloudTransport().apply { this.remote = RemoteResume(remote, 3) }
+        val alice = sync(transport, store)
+        alice.signIn("alice", "password")
+        runCurrent()
+        alice.resolveResume(true) { true }
+        runCurrent()
+        alice.close()
+
+        transport.remote = RemoteResume(null, 0)
+        val bob = sync(transport, store)
+        bob.seedLocalSnapshot(remote.snapshot, remote.playerSide)
+        bob.signIn("bob", "password")
+        runCurrent()
+        bob.recordSnapshot(GameSnapshot("private position after another move"), Set.BLACK)
+        runCurrent()
+        assertEquals(RemoteResume(null, 0), transport.remote)
+        bob.close()
+    }
+
+    @Test
+    fun failedLocalRestoreKeepsConflictAndCloudRevision() = runTest {
+        val remote = CloudResumeGame("remote", Set.BLACK, GameSnapshot("remote"))
+        val transport = TestCloudTransport().apply { this.remote = RemoteResume(remote, 5) }
+        val sync = sync(transport)
+        sync.seedLocalSnapshot(GameSnapshot("local"), Set.WHITE)
+        sync.signIn("alice", "password")
+        runCurrent()
+        sync.resolveResume(true) { false }
+        runCurrent()
+        assertNotNull(sync.state.value.resumeConflict)
+        assertEquals(RemoteResume(remote, 5), transport.remote)
+        sync.close()
+    }
+
+    @Test
+    fun signingInWithResumeDisabledKeepsItsQueuedChanges() = runTest {
+        val store = MapSettings()
+        val journal = CloudSaveJournal(store)
+        val game = CloudResumeGame("queued", Set.WHITE, GameSnapshot("queued"))
+        val queued = ResumeWrite("operation", game)
+        journal.write("alice", CloudJournal(resumeWrites = listOf(queued)))
+        val sync = CloudSaveSync(
+            TestCloudIdentity, TestCloudTransport(), journal, true, false, StandardTestDispatcher(testScheduler),
+        )
+        sync.signIn("alice", "password")
+        runCurrent()
+        assertEquals(listOf(queued), journal.read("alice").resumeWrites)
+        sync.close()
+    }
+
+    private fun TestScope.sync(transport: TestCloudTransport, store: MapSettings = MapSettings()) =
+        CloudSaveSync(TestCloudIdentity, transport, CloudSaveJournal(store), false, true, StandardTestDispatcher(testScheduler))
 }

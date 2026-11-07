@@ -72,6 +72,7 @@ class CloudSaveSync internal constructor(
     private var openJob: Job? = null
     private var journal = CloudJournal()
     private var local: CloudResumeGame? = null
+    private var localOwner = storage.resumeOwner()
     private var resumeInitialized = false
     private var historyRefresh = false
     private var resumeRefresh = false
@@ -88,12 +89,14 @@ class CloudSaveSync internal constructor(
         signOut()
         accountAction {
             val signedIn = auth.signIn(email.trim(), password)
+            currentCoroutineContext().ensureActive()
             if (!signedIn.verified) {
                 unverified = signedIn
                 _state.value = _state.value.copy(verificationRequired = true, message = "Verify your email, then sign in again.")
                 return@accountAction
             }
             if (api.account(signedIn.idToken).uid != signedIn.uid) throw CloudSaveException(401)
+            currentCoroutineContext().ensureActive()
             val persisted = storage.read(signedIn.uid)
             session = signedIn
             journal = persisted
@@ -243,8 +246,10 @@ class CloudSaveSync internal constructor(
         if (resumeEnabled) snapshots.trySend(SnapshotEvent(snapshot, playerSide, upload = true))
     }
 
-    fun resolveResume(useCloud: Boolean, onRestore: (CloudResumeGame?) -> Unit) {
+    fun resolveResume(useCloud: Boolean, onRestore: (CloudResumeGame?) -> Boolean) {
+        val owner = session?.uid ?: return
         val conflict = state.value.resumeConflict ?: return
+        if (!canSyncLocal(owner)) return
         val chosen = if (useCloud) conflict.remote.game else conflict.local
         val other = if (useCloud) conflict.local else conflict.remote.game
         val queue = if (useCloud || chosen.samePosition(conflict.remote.game)) emptyList() else listOf(resumeWrite(chosen))
@@ -254,27 +259,44 @@ class CloudSaveSync internal constructor(
             resumeWrites = queue,
             recovery = other ?: journal.recovery,
         )
+        if (useCloud && !installLocalSnapshot(owner, chosen, onRestore)) return
+        if (!useCloud && !setLocalOwner(owner.takeIf { chosen != null })) return
         if (!persist(updated)) return
         local = chosen
         _state.value = _state.value.copy(resumeConflict = null)
         publish()
-        if (useCloud) onRestore(chosen)
         scheduleSync()
     }
 
-    fun recoverSnapshot(onRestore: (CloudResumeGame?) -> Unit) {
+    fun recoverSnapshot(onRestore: (CloudResumeGame?) -> Boolean) {
+        val owner = session?.uid ?: return
         val recovery = journal.recovery ?: return
-        if (state.value.resumeConflict != null) return
+        if (state.value.resumeConflict != null || !canSyncLocal(owner)) return
         val updated = journal.copy(
             localResume = recovery,
             resumeWrites = journal.resumeWrites.enqueue(resumeWrite(recovery)),
             recovery = local,
         )
-        if (!persist(updated)) return
+        if (!installLocalSnapshot(owner, recovery, onRestore) || !persist(updated)) return
         local = recovery
         publish()
-        onRestore(recovery)
         scheduleSync()
+    }
+
+    private fun installLocalSnapshot(
+        owner: String,
+        game: CloudResumeGame?,
+        onRestore: (CloudResumeGame?) -> Boolean,
+    ): Boolean {
+        val previousOwner = localOwner
+        // A process death between replacing the snapshot and binding it to an account must never
+        // make a cloud copy eligible for automatic sync under a different account.
+        if (!setLocalOwner(RESTORING_OWNER)) return false
+        if (!onRestore(game)) {
+            setLocalOwner(previousOwner)
+            return false
+        }
+        return setLocalOwner(owner.takeIf { game != null })
     }
 
     internal fun reportRestoreFailure() {
@@ -294,13 +316,38 @@ class CloudSaveSync internal constructor(
         }
         val changed = !next.samePosition(local)
         local = next
-        if (session == null || !event.upload || !changed) return
+        val owner = session?.uid
+        if (next == null && (owner == null || !canSyncLocal(owner))) {
+            if (setLocalOwner(null) && owner != null) {
+                resumeRefresh = true
+                scheduleSync()
+            }
+            return
+        }
+        if (owner == null || !event.upload || !changed || !canSyncLocal(owner)) return
         val conflict = state.value.resumeConflict
         if (conflict != null) {
             _state.value = _state.value.copy(resumeConflict = conflict.copy(local = local))
             return
         }
-        change { it.copy(localResume = next, resumeWrites = it.resumeWrites.enqueue(resumeWrite(next))) }
+        if (next != null && !setLocalOwner(owner)) return
+        if (change { it.copy(localResume = next, resumeWrites = it.resumeWrites.enqueue(resumeWrite(next))) } && next == null) {
+            setLocalOwner(null)
+        }
+    }
+
+    private fun canSyncLocal(owner: String): Boolean = localOwner == null || localOwner == owner
+
+    private fun setLocalOwner(owner: String?): Boolean {
+        if (localOwner == owner) return true
+        return try {
+            storage.setResumeOwner(owner)
+            localOwner = owner
+            true
+        } catch (_: Exception) {
+            message("Could not save the local game’s account. Free some space and retry.")
+            false
+        }
     }
 
     private fun change(update: (CloudJournal) -> CloudJournal): Boolean {
@@ -362,37 +409,44 @@ class CloudSaveSync internal constructor(
     }
 
     private suspend fun synchronize(version: Int) {
-        if (resumeEnabled && (!resumeInitialized || resumeRefresh)) {
-            val remote = api.current(token(version))
-            checkSession(version)
-            resumeRefresh = false
-            if (!reconcile(remote)) return
-        }
-        if (historyEnabled && !drainHistory(version)) return
-        if (resumeEnabled && state.value.resumeConflict == null && !drainResume(version)) return
-        if (historyEnabled && historyRefresh) {
-            val newItems = mutableListOf<CloudHistoryItem>()
-            var cursor: String? = null
-            for (pageNumber in 0 until historyPages) {
-                val page = api.history(token(version), cursor)
+        do {
+            if (resumeEnabled && (!resumeInitialized || resumeRefresh)) {
+                val remote = api.current(token(version))
                 checkSession(version)
-                newItems += page.items
-                cursor = page.nextCursor
-                if (cursor == null) break
+                resumeRefresh = false
+                if (!reconcile(remote)) return
             }
-            if (!persist(journal.copy(historyCache = newItems.distinctBy(CloudHistoryItem::id)))) return
-            historyRefresh = false
-            hasMore = cursor != null && historyPages < MAX_HISTORY_PAGES
-            publish()
-        }
-        if (journal.history.isNotEmpty() || (state.value.resumeConflict == null && journal.resumeWrites.isNotEmpty())) {
-            // A move or save can arrive while the listing is in flight.
-            synchronize(version)
-        }
+            if (historyEnabled && !drainHistory(version)) return
+            if (resumeEnabled && state.value.resumeConflict == null && !drainResume(version)) return
+            if (historyEnabled && historyRefresh) {
+                val newItems = mutableListOf<CloudHistoryItem>()
+                var cursor: String? = null
+                for (pageNumber in 0 until historyPages) {
+                    val page = api.history(token(version), cursor)
+                    checkSession(version)
+                    newItems += page.items
+                    cursor = page.nextCursor
+                    if (cursor == null) break
+                }
+                if (!persist(journal.copy(historyCache = newItems.distinctBy(CloudHistoryItem::id)))) return
+                historyRefresh = false
+                hasMore = cursor != null && historyPages < MAX_HISTORY_PAGES
+                publish()
+            }
+        } while (
+            (historyEnabled && journal.history.isNotEmpty()) ||
+            (resumeEnabled && state.value.resumeConflict == null && journal.resumeWrites.isNotEmpty())
+        )
     }
 
     private fun reconcile(remote: RemoteResume): Boolean {
+        val owner = session?.uid ?: return false
         resumeInitialized = true
+        if (!canSyncLocal(owner)) {
+            _state.value = _state.value.copy(resumeConflict = null)
+            message("This device’s solo game belongs to another account. Finish or reset it to resume games from this account.")
+            return true
+        }
         val queued = journal.resumeWrites
         val base = journal.resumeRevision
         if (queued.isNotEmpty() && journal.localResume.samePosition(local) && base != null) {
@@ -403,10 +457,11 @@ class CloudSaveSync internal constructor(
         }
         val updated = when {
             local.samePosition(remote.game) -> {
+                if (!setLocalOwner(owner.takeIf { remote.game != null })) return false
                 local = remote.game
                 journal.copy(localResume = local, resumeRevision = remote.revision, resumeWrites = emptyList())
             }
-            remote.game == null && (base == null || base == remote.revision) -> journal.copy(
+            remote.game == null && localOwner == owner && (base == null || base == remote.revision) -> journal.copy(
                 localResume = local,
                 resumeRevision = remote.revision,
                 resumeWrites = listOf(resumeWrite(local)),
@@ -460,7 +515,12 @@ class CloudSaveSync internal constructor(
                 if (failure.status != 412) throw failure
                 val remote = api.current(token(version))
                 checkSession(version)
-                _state.value = _state.value.copy(resumeConflict = CloudResumeConflict(local, remote))
+                if (session?.uid?.let(::canSyncLocal) == true) {
+                    _state.value = _state.value.copy(resumeConflict = CloudResumeConflict(local, remote))
+                } else {
+                    message("Resolve the solo game on its original account before syncing a new one.")
+                    return false
+                }
                 publish()
                 return true
             }
@@ -507,6 +567,7 @@ class CloudSaveSync internal constructor(
 
     companion object {
         private const val MAX_HISTORY_PAGES = 10
+        private const val RESTORING_OWNER = "!"
 
         fun create(
             settings: Settings,
@@ -518,6 +579,7 @@ class CloudSaveSync internal constructor(
             require(baseUrl.startsWith("https://")) { "Cloud saves require an HTTPS endpoint" }
             require(firebaseApiKey.isNotBlank()) { "A Firebase client API key is required" }
             val http = HttpClient(openingExplainerHttpClientEngine()) {
+                followRedirects = false
                 install(HttpTimeout) { requestTimeoutMillis = 15_000 }
             }
             return CloudSaveSync(

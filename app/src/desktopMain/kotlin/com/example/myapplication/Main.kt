@@ -48,7 +48,9 @@ fun main() = application {
             snapshotSink = currentGameStore.asSnapshotSink(),
             initialShow3D = appSettings.board3DEnabled.value,
             initialEngineDifficulty = appSettings.engineDifficulty.value,
-        )
+        ).apply {
+            playerSide = if (appSettings.playerSide.value == "BLACK") Set.BLACK else Set.WHITE
+        }
     }
     val board3D = remember { desktopBoard3DSupport() }
 

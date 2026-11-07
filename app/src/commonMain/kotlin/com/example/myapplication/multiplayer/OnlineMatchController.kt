@@ -75,6 +75,9 @@ internal class OnlineMatchController(
     private var authJob: Job? = null
     private var eventsJob: Job? = null
     private var challengeJob: Job? = null
+    private var challengeId: String? = null
+    private var canceledChallengeId: String? = null
+    private var challengeGeneration = 0
     private var gameJob: Job? = null
     private var moveJob: Job? = null
     private var actionJob: Job? = null
@@ -84,6 +87,7 @@ internal class OnlineMatchController(
 
     fun signIn() {
         if (authJob?.isActive == true || session != null) return
+        auth.prepareBrowser()
         update { copy(busy = true, error = null) }
         authJob = scope.launch {
             try {
@@ -135,14 +139,18 @@ internal class OnlineMatchController(
             return
         }
         if (state.value.assistanceBlocked || state.value.busy || loadingOngoing) return
+        challengeId = null
+        val generation = ++challengeGeneration
         update { copy(outgoing = true, error = null) }
         challengeJob = scope.launch {
             try {
                 check(withTimeoutOrNull(15_000) { eventsConnected.first { it } } == true)
                 withTimeoutOrNull(120_000) {
                     client.challenge(opponent).collect { event ->
+                        if (generation != challengeGeneration) return@collect
+                        if (event.id != null) challengeId = event.id
                         when (event.done) {
-                            "accepted" -> event.id?.let(::beginGame)
+                            "accepted" -> challengeId?.let(::beginGame)
                             "declined" -> update { copy(error = "Challenge declined.") }
                         }
                     }
@@ -152,12 +160,14 @@ internal class OnlineMatchController(
             } catch (failure: Exception) {
                 update { copy(error = failure.onlineMessage("Could not send the Lichess challenge.")) }
             } finally {
-                update { copy(outgoing = false) }
+                if (generation == challengeGeneration) update { copy(outgoing = false) }
             }
         }
     }
 
     fun cancelChallenge() {
+        canceledChallengeId = challengeId
+        challengeGeneration++
         challengeJob?.cancel()
         update { copy(outgoing = false) }
     }
@@ -230,6 +240,9 @@ internal class OnlineMatchController(
         session = null
         activeGameId = null
         eventsConnected.value = false
+        challengeId = null
+        canceledChallengeId = null
+        challengeGeneration++
     }
 
     private fun gameAction(action: suspend LichessBoardApi.(String) -> Unit) {
@@ -280,7 +293,10 @@ internal class OnlineMatchController(
                 val game = event.game
                 if (!game.supported) return
                 update { copy(ongoing = (ongoing + game).distinctBy { it.gameId }) }
-                if (state.value.outgoing || state.value.connectingGame || state.value.reference?.gameId == game.gameId) {
+                if (state.value.outgoing || state.value.connectingGame ||
+                    state.value.reference?.gameId == game.gameId || canceledChallengeId == game.gameId
+                ) {
+                    if (canceledChallengeId == game.gameId) canceledChallengeId = null
                     beginGame(game.gameId)
                 }
             }
@@ -313,12 +329,18 @@ internal class OnlineMatchController(
 
     private fun beginGame(id: String) {
         val client = api ?: return
+        val accountId = session?.profile?.id ?: return
         if (!lichessGameId.matches(id) || activeGameId == id && gameJob?.isActive == true) return
         if (activeGameId != null && activeGameId != id && state.value.assistanceBlocked) return
+        val reference = OnlineMatchReference(id, accountId)
+        if (state.value.reference != reference) persistMatch(reference)
         activeGameId = id
         gameJob?.cancel()
         update {
-            copy(connectingGame = true, outgoing = false, error = null, game = game?.takeIf { it.id == id }?.copy(connected = false))
+            copy(
+                reference = reference, connectingGame = true, outgoing = false, error = null,
+                game = game?.takeIf { it.id == id }?.copy(connected = false),
+            )
         }
         gameJob = scope.launch {
             var backoff = 1_000L
@@ -340,7 +362,8 @@ internal class OnlineMatchController(
                     throw cancelled
                 } catch (_: UnsupportedMatch) {
                     activeGameId = null
-                    update { copy(connectingGame = false, game = null, error = "Open this match on Lichess.") }
+                    persistMatch(null)
+                    update { copy(reference = null, connectingGame = false, game = null, error = "Open this match on Lichess.") }
                     return@launch
                 } catch (failure: Exception) {
                     if (failure is LichessException && failure.status in setOf(401, 403)) {

@@ -72,12 +72,18 @@ class GameViewModel(
     /** Installs an explicitly selected cloud snapshot without queuing it as a new local move. */
     fun restoreSoloSnapshot(snapshot: GameSnapshot?, side: Set) {
         val restored = snapshot?.let(GameSnapshotMapper::toState) ?: GameUiState()
+        val initialState = applyDrawConditions(applyWinConditions(restored))
         cancelSoloWork()
-        if (snapshot == null) snapshotSink?.clear() else snapshotSink?.save(snapshot)
+        try {
+            if (snapshot == null) snapshotSink?.clear() else snapshotSink?.save(snapshot)
+        } catch (failure: Exception) {
+            maybeResumeEngine()
+            throw failure
+        }
         _playerSide.value = side
         _animState.value = PieceAnimationState()
         _viewState.value = ViewState(show3D = _viewState.value.show3D)
-        _gameState.value = applyDrawConditions(applyWinConditions(restored))
+        _gameState.value = initialState
         maybeResumeEngine()
     }
 

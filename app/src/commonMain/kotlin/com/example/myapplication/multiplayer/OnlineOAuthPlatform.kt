@@ -3,6 +3,7 @@ package com.example.myapplication.multiplayer
 import io.ktor.http.parseQueryString
 
 internal interface OnlineOAuthPlatform {
+    fun prepareBrowser() = Unit
     fun randomBytes(size: Int): ByteArray
     suspend fun sha256(bytes: ByteArray): ByteArray
     suspend fun authorize(buildUrl: (redirectUri: String) -> String): OnlineOAuthCallback
