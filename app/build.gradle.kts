@@ -172,6 +172,7 @@ kotlin {
         }
 
         val androidDeviceTest by getting {
+            kotlin.srcDir("src/mobileUiTest/kotlin")
             dependencies {
                 implementation(libs.androidx.test.ext.junit)
                 implementation(libs.androidx.espresso.device)
@@ -210,6 +211,7 @@ kotlin {
         val iosSimulatorArm64Main by getting { dependsOn(iosMain) }
 
         val iosSimulatorArm64Test by getting {
+            kotlin.srcDir("src/mobileUiTest/kotlin")
             dependencies {
                 @OptIn(ExperimentalComposeLibrary::class)
                 implementation(compose.uiTest)
