@@ -14,9 +14,6 @@ import platform.Foundation.NSString
 import platform.Foundation.NSURL
 import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.stringWithContentsOfFile
-import platform.posix.fopen
-import platform.posix.fputs
-import platform.posix.fclose
 import kotlinx.cinterop.ExperimentalForeignApi
 import com.example.myapplication.persistence.nowEpochMillis
 
@@ -159,22 +156,4 @@ suspend fun runIosBench(engine: ChessEngine?, iterations: Int) {
 private fun getMemoryBytes(): Long {
     // Memory is tracked via XCTMemoryMetric in XCTest, or we return 0
     return 0L
-}
-
-@OptIn(ExperimentalForeignApi::class)
-private fun appendToFile(path: String, text: String) {
-    val file = fopen(path, "a")
-    if (file != null) {
-        fputs(text, file)
-        fclose(file)
-    }
-}
-
-@OptIn(ExperimentalForeignApi::class)
-private fun writeFile(path: String, text: String) {
-    val file = fopen(path, "w")
-    if (file != null) {
-        fputs(text, file)
-        fclose(file)
-    }
 }

@@ -291,11 +291,13 @@ fences unprompted.
 > Here it has no choice to make, and every extra string in context is one more thing a 270M model can
 > copy. See `docs/benchmarks/on-device-ai/move-coach-benchmark-schema.md`.
 
-**RAG-4 — Chat re-scope.** Assessment-record retrieval for game questions; counterfactual support
-via Stockfish; Hint button split out; deterministic-feature query construction.
+**RAG-4 — Chat re-scope.** The local Hint button shipped in #116. Assessment retrieval for game
+questions and Stockfish counterfactuals remain open. The cloud route already retrieves opening
+theory from the book position and SAN prefix.
 
-**RAG-5 — Habits + practice.** Aggregate assessments across games; backfill from stored PGNs;
-narrate aggregates; suggest practice positions.
+**RAG-5 — Habits + practice.** Habit aggregation, PGN backfill, and the player profile are in
+[open PR #136](https://github.com/ber4444/compose-multiplatform-chess/pull/136). Practice-position
+retrieval remains proposed.
 
 **RAG-6 (optional) — Offline chat.** Swap in a bundled BM25 retriever so chat works offline.
 `DefaultPositionChat` currently emits `FALLBACK_NO_CHAT_MODEL` for on-device routes, but that is a

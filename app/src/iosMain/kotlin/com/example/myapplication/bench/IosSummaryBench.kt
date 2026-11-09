@@ -2,6 +2,7 @@ package com.example.myapplication.bench
 
 import com.example.ondeviceai.DefaultGameSummaryOrchestrator
 import com.example.ondeviceai.GameSummaryResult
+import com.example.ondeviceai.GameSummaryValidationSample
 import com.example.ondeviceai.VendorRouteExecutor
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSDocumentDirectory
@@ -11,20 +12,13 @@ import platform.Foundation.NSString
 import platform.Foundation.NSURL
 import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.stringWithContentsOfFile
-import platform.posix.fopen
-import platform.posix.fputs
-import platform.posix.fclose
 import com.example.myapplication.persistence.nowEpochMillis
 
 /**
  * The iOS half of the Game Summary benchmark — the counterpart to `runAndroidSummaryBench`, reading
  * the same fixtures through [SummaryFixtures] and emitting the same JSONL columns.
  *
- * It exists because Game Summary is the one surface where an on-device model is still attached on
- * this platform, and the one with **no response validator at all**: whatever the model writes is
- * shown. The Move Coach comparison that took the model off that surface does not transfer
- * automatically — a summary is a different task with a different budget — so it is measured rather
- * than assumed, in both directions.
+ * Records the model text even when the response validator replaces it with the fallback.
  */
 @OptIn(ExperimentalForeignApi::class)
 suspend fun runIosSummaryBench(iterations: Int) {
@@ -63,7 +57,8 @@ suspend fun runIosSummaryBench(iterations: Int) {
 
     for (fixture in (0 until iterations).flatMap { fixtures }) {
         val start = nowEpochMillis()
-        val result = orchestrator.summarizeGame(fixture.request)
+        var validation: GameSummaryValidationSample? = null
+        val result = orchestrator.summarizeGame(fixture.request) { validation = it }
         val elapsed = nowEpochMillis() - start
 
         val text = when (result) {
@@ -82,26 +77,9 @@ suspend fun runIosSummaryBench(iterations: Int) {
                 elapsedMs = elapsed,
                 text = text,
                 fallbackReason = (result as? GameSummaryResult.FellBack)?.reason?.description,
+                validation = validation,
             ) + "\n",
         )
     }
     println("IosSummaryBench: wrote ${fixtures.size * iterations} rows to $resultsFile")
-}
-
-@OptIn(ExperimentalForeignApi::class)
-private fun appendToFile(path: String, text: String) {
-    val file = fopen(path, "a")
-    if (file != null) {
-        fputs(text, file)
-        fclose(file)
-    }
-}
-
-@OptIn(ExperimentalForeignApi::class)
-private fun writeFile(path: String, text: String) {
-    val file = fopen(path, "w")
-    if (file != null) {
-        fputs(text, file)
-        fclose(file)
-    }
 }

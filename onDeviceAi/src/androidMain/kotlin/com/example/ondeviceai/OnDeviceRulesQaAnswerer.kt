@@ -29,7 +29,20 @@ class OnDeviceRulesQaAnswerer(
 
     private val logger = Logger.withTag("RulesQa")
 
-    override suspend fun answer(question: String, route: VendorRoute): RulesQaModelOutput {
+    override suspend fun answer(question: String, route: VendorRoute): RulesQaModelOutput =
+        answer(question, route, null)
+
+    /** Reports the model turn before the passage can replace it. */
+    suspend fun answer(
+        question: String,
+        route: VendorRoute,
+        record: ((RulesQaModelOutput?, String?) -> Unit)?,
+    ): RulesQaModelOutput {
+        fun fallback(passages: List<RulePassage>, reason: String): RulesQaModelOutput {
+            record?.invoke(null, reason)
+            return grounded(passages)
+        }
+
         // Retrieval runs FIRST, on the user's own question, and is never gated on the model.
         //
         // It used to be: the model had to emit a parseable `lookup_rule` envelope before any lookup
@@ -39,9 +52,10 @@ class OnDeviceRulesQaAnswerer(
         // a single point of failure in front of a step that already worked without it.
         val fromQuestion = lookupTool.lookup(question)
 
-        val generator = executor.execute(route) ?: return grounded(fromQuestion)
+        val generator = executor.execute(route) ?: return fallback(fromQuestion, "no local model")
         return try {
-            if (generator.status() !is AiAvailability.Available) return grounded(fromQuestion)
+            val status = generator.status()
+            if (status !is AiAvailability.Available) return fallback(fromQuestion, "model availability: $status")
 
             // The structured-output turn is now a *refinement*: its query can surface passages the
             // raw question misses, and if it produces nothing usable we simply keep what retrieval
@@ -101,7 +115,7 @@ class OnDeviceRulesQaAnswerer(
             // device: three passages echoed back with their ids and nothing resembling an answer.
             // The top hit is the answer; the rest are context it does not need in order to phrase one.
             val passages = (fromQuestion + refined).distinctBy { it.id }.take(ANSWER_PASSAGES)
-            if (passages.isEmpty()) return ungrounded("")
+            if (passages.isEmpty()) return fallback(passages, "no passage was retrieved")
 
             val passageText = passages.joinToString("\n") { passage ->
                 "[${passage.id}] ${passage.title}: ${passage.text}"
@@ -130,23 +144,26 @@ class OnDeviceRulesQaAnswerer(
                         temperature = 0.2,
                     ),
                 )
-            } ?: return grounded(passages)
-            
-            RulesQaGrounding.rejectionReason(answer, passages)?.let { reason ->
+            } ?: return fallback(passages, "answer generation timed out")
+
+            val rejection = RulesQaGrounding.rejectionReason(answer, passages)
+            val ids = passages.map { it.id }
+            record?.invoke(RulesQaModelOutput(answer, ids, passages), rejection)
+            rejection?.let { reason ->
                 logger.i { "model wording refused ($reason); answering from the passage instead" }
             }
             RulesQaModelOutput(
                 // Uncited or over-long model prose falls back to the passage text, not to
                 // RulesQaFallback -- see RulesQaGrounding. Retrieval succeeded; the user gets the rule.
                 text = RulesQaGrounding.answerOrReference(answer, passages),
-                retrievedPassageIds = passages.map { it.id },
+                retrievedPassageIds = ids,
                 retrievedPassages = passages,
             )
         } catch (ce: CancellationException) {
             throw ce
-        } catch (_: Throwable) {
+        } catch (failure: Throwable) {
             // A native generation failure must not discard a retrieval that already succeeded.
-            grounded(fromQuestion)
+            fallback(fromQuestion, "generation error: ${failure.message}")
         } finally {
             try {
                 generator.release()
