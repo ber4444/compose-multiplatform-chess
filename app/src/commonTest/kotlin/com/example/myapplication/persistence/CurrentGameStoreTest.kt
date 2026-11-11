@@ -28,6 +28,28 @@ class CurrentGameStoreTest {
     }
 
     @Test
+    fun `large snapshots fit preference limits and interrupted writes keep the old value`() {
+        val backing = MapSettings()
+        var rejectPointer = false
+        val limited = object : com.russhwolf.settings.Settings by backing {
+            override fun putString(key: String, value: String) {
+                require(value.length <= 8192)
+                check(!rejectPointer || key != CurrentGameStore.KEY)
+                backing.putString(key, value)
+            }
+        }
+        val store = CurrentGameStore(limited)
+        val first = GameSnapshot(fen = FenConverter.STARTING_FEN, positionHistory = List(1000) { FenConverter.STARTING_FEN })
+        store.save(first)
+        assertEquals(first, CurrentGameStore(limited).load())
+        rejectPointer = true
+        kotlin.test.assertFails { store.save(first.copy(savedAtEpochMillis = 1)) }
+        assertEquals(first, CurrentGameStore(limited).load())
+        store.clear()
+        assertNull(store.load())
+    }
+
+    @Test
     fun `load returns null when nothing was saved`() {
         val store = CurrentGameStore(MapSettings())
         assertNull(store.load())

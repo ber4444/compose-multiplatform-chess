@@ -18,6 +18,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -28,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.backhandler.BackHandler
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -48,6 +50,7 @@ fun GameHistoryScreen(
     gameHistory: GameHistoryRepository,
     pgnSharer: PgnSharer? = null,
     onBack: () -> Unit,
+    extraHistory: (@Composable (List<SavedGame>, (SavedGame) -> Unit) -> Unit)? = null,
 ) {
     val games by gameHistory.games.collectAsState()
     var selectedGame by remember { mutableStateOf<SavedGame?>(null) }
@@ -65,6 +68,7 @@ fun GameHistoryScreen(
                 pgnSharer = pgnSharer,
                 onOpen = { selectedGame = it },
                 onDelete = { gameHistory.delete(it.id) },
+                header = extraHistory?.let { extra -> { extra(games) { selectedGame = it } } },
             )
         } else {
             GameHistoryDetail(
@@ -81,8 +85,9 @@ private fun GameHistoryList(
     pgnSharer: PgnSharer?,
     onOpen: (SavedGame) -> Unit,
     onDelete: (SavedGame) -> Unit,
+    header: (@Composable () -> Unit)? = null,
 ) {
-    if (games.isEmpty()) {
+    if (games.isEmpty() && header == null) {
         Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
             Text(
                 "No saved games yet. Finish a game and tap “Save game” to add one.",
@@ -95,6 +100,13 @@ private fun GameHistoryList(
 
     // Each row: date, result, players, move count. The whole card is selectable.
     LazyColumn(modifier = Modifier.fillMaxWidth()) {
+        if (header != null) {
+            item("history_sources") { header() }
+            item("local_history_heading") {
+                Text("On this device", modifier = Modifier.padding(8.dp), style = MaterialTheme.typography.titleMedium)
+                if (games.isEmpty()) Text("No local copies.", modifier = Modifier.padding(8.dp))
+            }
+        }
         items(games, key = { it.id }, contentType = { "saved_game" }) { game ->
             GameHistoryRow(
                 game = game,
@@ -132,7 +144,8 @@ private fun GameHistoryRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                "Result: ${game.result}  •  ${game.moveCount} moves",
+                "Result: ${game.result}  •  ${game.moveCount} moves" +
+                    if (game.lichessGameId != null) "  •  Lichess offline copy" else "",
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(
@@ -162,6 +175,7 @@ private fun GameHistoryDetail(
     game: SavedGame,
     pgnSharer: PgnSharer?,
 ) {
+    val uriHandler = LocalUriHandler.current
     Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
         Text(
             "${game.white} vs ${game.black}  •  ${game.result}",
@@ -190,6 +204,11 @@ private fun GameHistoryDetail(
                     onClick = { pgnSharer.share(game.pgn, "game-${game.result}.pgn") },
                     modifier = Modifier.testTag("history_detail_share"),
                 ) { Text("Share PGN") }
+            }
+            game.lichessGameId?.let { id ->
+                TextButton(onClick = { uriHandler.openUri("https://lichess.org/$id") }) {
+                    Text("Replay on Lichess")
+                }
             }
         }
     }

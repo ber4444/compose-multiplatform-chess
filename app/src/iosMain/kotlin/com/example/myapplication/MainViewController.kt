@@ -49,7 +49,9 @@ fun MainViewController(
             snapshotSink = currentGameStore.asSnapshotSink(),
             initialShow3D = appSettings.board3DEnabled.value,
             initialEngineDifficulty = appSettings.engineDifficulty.value,
-        )
+        ).apply {
+            playerSide = if (appSettings.playerSide.value == "BLACK") Set.BLACK else Set.WHITE
+        }
     }
     val moveCoachManager = remember {
         com.example.myapplication.movecoach.MoveCoachManager(
@@ -75,7 +77,7 @@ fun MainViewController(
         
         var backfiller: com.example.myapplication.persistence.GameHistoryBackfiller? = null
         if (engine != null) {
-            backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine)
+            backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine, viewModel.soloPaused)
             backfiller.start()
         }
         

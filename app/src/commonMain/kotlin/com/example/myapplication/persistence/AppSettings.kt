@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
  * Surface: the 3D-board toggle, engine difficulty, the AI Move Coach toggle and the player side —
  * all observable. Theme is not persisted: it always follows the system dark-mode setting.
  */
-class AppSettings(private val settings: Settings) {
+class AppSettings(internal val settings: Settings) {
 
     /**
      * Whether the 3D board is shown (vs the 2D board). Defaults to `true` on first install. Read by

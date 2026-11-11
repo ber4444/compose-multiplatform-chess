@@ -48,7 +48,9 @@ fun main() = application {
             snapshotSink = currentGameStore.asSnapshotSink(),
             initialShow3D = appSettings.board3DEnabled.value,
             initialEngineDifficulty = appSettings.engineDifficulty.value,
-        )
+        ).apply {
+            playerSide = if (appSettings.playerSide.value == "BLACK") Set.BLACK else Set.WHITE
+        }
     }
     val board3D = remember { desktopBoard3DSupport() }
 
@@ -66,7 +68,7 @@ fun main() = application {
         CoroutineScope(Dispatchers.IO).launch {
             if (engine.start()) {
                 viewModel.attachEngine(engine)
-                backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine)
+                backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine, viewModel.soloPaused)
                 backfiller?.start()
             } else {
                 Logger.w("Main") { "Failed to start stockfish." }

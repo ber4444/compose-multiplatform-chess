@@ -8,6 +8,8 @@ val ktorVersion = "3.4.3"
 
 dependencies {
     implementation(project(":coachapi"))
+    implementation(project(":saveapi"))
+    implementation("com.google.firebase:firebase-admin:9.11.0")
     implementation("io.ktor:ktor-server-core-jvm:$ktorVersion")
     implementation("io.ktor:ktor-server-netty-jvm:$ktorVersion")
     implementation("io.ktor:ktor-server-content-negotiation-jvm:$ktorVersion")

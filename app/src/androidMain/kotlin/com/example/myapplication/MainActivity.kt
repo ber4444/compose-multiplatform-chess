@@ -285,6 +285,7 @@ class AndroidGameViewModel : ViewModel() {
             initialEngineDifficulty = appSettings.engineDifficulty.value,
         ).apply {
             aiCoachEnabled = appSettings.aiCoachEnabled.value
+            playerSide = if (appSettings.playerSide.value == "BLACK") Set.BLACK else Set.WHITE
         }
     }
 
@@ -329,7 +330,7 @@ class AndroidGameViewModel : ViewModel() {
         gameViewModel.attachEngine(engine)
         backfiller?.stop()
         if (engine != null) {
-            backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine)
+            backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine, gameViewModel.soloPaused)
             backfiller?.start()
         }
     }

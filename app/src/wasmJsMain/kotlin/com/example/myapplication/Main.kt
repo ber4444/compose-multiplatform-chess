@@ -43,14 +43,16 @@ fun main() {
                 snapshotSink = currentGameStore.asSnapshotSink(),
                 initialShow3D = appSettings.board3DEnabled.value,
                 initialEngineDifficulty = appSettings.engineDifficulty.value,
-            )
+            ).apply {
+                playerSide = if (appSettings.playerSide.value == "BLACK") Set.BLACK else Set.WHITE
+            }
         }
         var backfiller: com.example.myapplication.persistence.GameHistoryBackfiller? = null
         LaunchedEffect(Unit) {
             val engine = WasmStockfishEngine()
             if (engine.start()) {
                 viewModel.attachEngine(engine)   // viewModel now owns engine.close()
-                backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine)
+                backfiller = com.example.myapplication.persistence.GameHistoryBackfiller(gameHistory, engine, viewModel.soloPaused)
                 backfiller?.start()
             } else {
                 Logger.w("Main") { "Stockfish wasm worker failed to start; using CPU fallback" }
