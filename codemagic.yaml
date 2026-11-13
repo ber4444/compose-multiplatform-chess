@@ -7,7 +7,7 @@ workflows:
     environment:
       java: 21
       android_signing:
-        - chess-upload
+        - ics
       groups:
         - google_play
       vars:
@@ -24,7 +24,7 @@ workflows:
       - name: Build and sign the next Android App Bundle
         script: |
           set -euo pipefail
-          : "${CM_KEYSTORE_PATH:?Missing chess-upload keystore}"
+          : "${CM_KEYSTORE_PATH:?Missing ics keystore}"
           test -r "$CM_KEYSTORE_PATH"
           : "${CM_KEYSTORE_PASSWORD:?Missing keystore password}" "${CM_KEY_ALIAS:?Missing key alias}" "${CM_KEY_PASSWORD:?Missing key password}"
           latest=$(google-play get-latest-build-number --package-name "$PACKAGE_NAME")

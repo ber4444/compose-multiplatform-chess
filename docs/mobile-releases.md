@@ -19,10 +19,11 @@ store and add one. Bump the public version separately in `androidApp/build.gradl
    had an upload, [upload its first signed AAB manually](https://docs.codemagic.io/yaml-publishing/google-play/#preparing-your-first-release).
    For that first upload, build with `./gradlew :androidApp:bundleRelease` using the real upload key
    via `~/key.properties`. Play must already accept that key before you schedule releases.
-2. In Codemagic **Settings → Code signing identities → Android keystores**, add the chess Play
-   upload keystore under the reference `chess-upload`. In the chess app's **Environment variables**,
-   add the Play service account JSON as a secret named `GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS`
-   in the `google_play` group. Give that account access to release to testing tracks for chess.
+2. The Android workflow uses the existing `ics` keystore from Codemagic **Settings → Code signing
+   identities → Android keystores**. The chess workflow also needs access to the existing Play
+   service account JSON as `GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS` in the `google_play` group.
+   If the secret is scoped to kmp-videos, add it to the chess app's **Environment variables** as
+   well. Verify the service account can release to testing tracks for chess in Play Console.
 3. In **App Store Connect**, verify the chess app record and an internal TestFlight group named
    `Internal Testing`. The workflow uses the existing `Apollo Videos` Apple integration; the key
    must also have access to chess. In Codemagic **Code signing identities**, make an Apple
