@@ -16,14 +16,25 @@ val sharedComposeAssetsDir = project(":app").layout.buildDirectory
 
 val goldenBenchAssetsDir = layout.buildDirectory.dir("generated/benchAssets").get().asFile
 
-// The Play upload key lives outside the repo; `~/key.properties` points at the
-// keystore so release builds carry the certificate Play expects. When it's absent
-// (fresh clone, CI) release falls back to the debug key — fine for local installs,
-// and Play rejects the upload rather than accepting a wrongly signed build.
-// Same convention as the sibling ics-compose project.
+// Codemagic injects the Play upload key. Local release builds can use
+// ~/key.properties or fall back to the debug key for local installs.
 val uploadKeyProperties = Properties().apply {
     val f = File(System.getProperty("user.home"), "key.properties")
-    if (f.exists()) f.inputStream().use { load(it) }
+    val signingVariables = mapOf(
+        "storeFile" to "CM_KEYSTORE_PATH",
+        "storePassword" to "CM_KEYSTORE_PASSWORD",
+        "keyAlias" to "CM_KEY_ALIAS",
+        "keyPassword" to "CM_KEY_PASSWORD",
+    )
+    if (signingVariables.values.any { providers.environmentVariable(it).isPresent }) {
+        signingVariables.forEach { (property, variable) ->
+            val value = providers.environmentVariable(variable).orNull
+            require(!value.isNullOrBlank()) { "$variable is required for Codemagic signing" }
+            setProperty(property, value)
+        }
+    } else if (f.exists()) {
+        f.inputStream().use { load(it) }
+    }
 }
 
 android {
@@ -35,7 +46,7 @@ android {
         minSdk = 26
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 1
+        versionCode = providers.gradleProperty("versionCode").map { it.toInt() }.getOrElse(1)
         versionName = "1.0"
     }
 
