@@ -33,6 +33,9 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
+        # HTTPS through the system TLS stack only, which is export-exempt. Without this key every
+        # TestFlight upload sits in "Missing Compliance" until someone answers the prompt in ASC.
+        ITSAppUsesNonExemptEncryption: false
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
