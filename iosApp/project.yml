@@ -21,7 +21,7 @@ targets:
       - path: iosApp
         # Filament/filament/** is the fetched Filament release (headers + xcframeworks); it is linked
         # via filament.xcconfig, not compiled as target sources, so keep xcodegen from globbing it.
-        excludes: ["Resources/**", "Filament/filament/**"]
+        excludes: ["Resources/**", "Filament/filament/**", "build/**"]
       - path: iosApp/Resources
         buildPhase: resources          # .nnue + glb + KTX assets must land in the app bundle
         excludes: ["papermill_*.hdr"]
@@ -30,13 +30,28 @@ targets:
     info:
       path: iosApp/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         # Allow Pro Motion (120 Hz) on iPhone — without this, UIKit caps frame rate at 60 and the
         # 3D board's orbit feels noticeably choppier than the desktop target. xcodegen drops
         # unknown keys from a hand-edited Info.plist on regen, so the key has to live here.
         CADisableMinimumFrameDurationOnPhone: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.github.ber4444.chess
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.ber4444.chess.ios
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Only ChessApp is linked directly; OnDeviceAi is exported into ChessApp
         # via `export(project(":onDeviceAi"))` in app/build.gradle.kts to avoid
         # KT-42254 (duplicate Kotlin/Native runtime injection).
@@ -65,7 +80,7 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: "YES"
-        PRODUCT_BUNDLE_IDENTIFIER: io.github.ber4444.chess.tests
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.ber4444.chess.ios.tests
         FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/iosApp.app/iosApp"
         BUNDLE_LOADER: "$(TEST_HOST)"
@@ -78,7 +93,7 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: "YES"
-        PRODUCT_BUNDLE_IDENTIFIER: io.github.ber4444.chess.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.ber4444.chess.ios.uitests
         TEST_TARGET_NAME: iosApp
 schemes:
   iosApp:

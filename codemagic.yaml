@@ -1,0 +1,88 @@
+# Schedule both workflows on main in Codemagic's Scheduled builds tab.
+workflows:
+  android-release:
+    name: Android Release → Google Play Internal Testing
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      java: 21
+      android_signing:
+        - ics
+      groups:
+        - google_play
+      vars:
+        PACKAGE_NAME: io.github.ber4444.chess
+    scripts:
+      - name: Install the Android SDK
+        script: |
+          set -euo pipefail
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:?Android SDK path not set}}"
+          sdkmanager="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
+          (set +o pipefail; yes | "$sdkmanager" --sdk_root="$sdk_root" --licenses >/dev/null)
+          "$sdkmanager" --sdk_root="$sdk_root" "platforms;android-37.0" "build-tools;36.0.0"
+          printf 'sdk.dir=%s\n' "$sdk_root" > local.properties
+      - name: Build and sign the next Android App Bundle
+        script: |
+          set -euo pipefail
+          : "${CM_KEYSTORE_PATH:?Missing ics keystore}"
+          test -r "$CM_KEYSTORE_PATH"
+          : "${CM_KEYSTORE_PASSWORD:?Missing keystore password}" "${CM_KEY_ALIAS:?Missing key alias}" "${CM_KEY_PASSWORD:?Missing key password}"
+          latest=$(google-play get-latest-build-number --package-name "$PACKAGE_NAME")
+          [[ "$latest" =~ ^[0-9]+$ ]] || { echo 'No Play build number found; check the first manual upload.' >&2; exit 1; }
+          ./gradlew --no-daemon :androidApp:bundleRelease -PversionCode="$((10#$latest + 1))"
+    artifacts:
+      - androidApp/build/outputs/bundle/release/*.aab
+      - androidApp/build/outputs/mapping/release/mapping.txt
+    publishing:
+      google_play:
+        credentials: $GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+        submit_as_draft: false
+
+  ios-release:
+    name: iOS Release → TestFlight Internal Testing
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    integrations:
+      app_store_connect: Apollo Videos
+    environment:
+      java: 21
+      xcode: latest
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: io.github.ber4444.chess.ios
+      vars:
+        BUNDLE_ID: io.github.ber4444.chess.ios
+    scripts:
+      - name: Prepare the Xcode project
+        script: |
+          set -euo pipefail
+          command -v xcodegen >/dev/null || brew install xcodegen
+          tools/fetch_filament_ios.sh
+          (cd iosApp && xcodegen generate)
+      - name: Apply the App Store signing profile
+        script: xcode-project use-profiles --project iosApp/iosApp.xcodeproj
+      - name: Archive and export the next TestFlight build
+        script: |
+          set -euo pipefail
+          app_id=$(app-store-connect apps list --bundle-id-identifier "$BUNDLE_ID" --strict-match-identifier --json | jq -er '.[0].id')
+          latest=$(app-store-connect get-latest-build-number "$app_id" --platform IOS --all-versions)
+          latest=${latest:-0}
+          [[ "$latest" =~ ^[0-9]+$ ]] || { echo 'Expected an integer TestFlight build number.' >&2; exit 1; }
+          xcode-project build-ipa \
+            --project iosApp/iosApp.xcodeproj \
+            --scheme iosApp \
+            --config Release \
+            --archive-directory build/ios \
+            --ipa-directory build/ios/ipa \
+            --archive-xcargs "CURRENT_PROJECT_VERSION=$((10#$latest + 1)) COMPILER_INDEX_STORE_ENABLE=NO"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - build/ios/iosApp.xcarchive/dSYMs/*.dSYM
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        beta_groups:
+          - Internal Testing
+        submit_to_app_store: false

@@ -35,6 +35,11 @@ macOS, Xcode 16+, and a working project JDK are required.
 The Stockfish engine is bundled automatically. The Filament iOS xcframeworks are fetched separately
 because they are large generated dependencies and are intentionally gitignored.
 
+### Mobile test releases
+
+See [weekly mobile test builds](docs/mobile-releases.md) for the Codemagic workflows, signing setup,
+and schedule for Google Play Internal testing and TestFlight.
+
 ## Architecture & Features
 
 ### Modules
