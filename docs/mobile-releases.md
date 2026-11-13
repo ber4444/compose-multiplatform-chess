@@ -9,9 +9,10 @@
 | `android-release` | Google Play **Internal testing** | `main`, Monday at 06:00 UTC |
 | `ios-release` | TestFlight **Internal Testing** | `main`, Monday at 06:00 UTC |
 
-Both use `io.github.ber4444.chess`. The workflows take the highest build number reported by the
-store and add one. Bump the public version separately in `androidApp/build.gradle.kts`
-(`versionName`) and `iosApp/project.yml` (`MARKETING_VERSION`; regenerate with XcodeGen).
+Android uses `io.github.ber4444.chess`; iOS uses `io.github.ber4444.chess.ios`. The workflows take
+the highest build number reported by the store and add one. Bump the public version separately in
+`androidApp/build.gradle.kts` (`versionName`) and `iosApp/project.yml` (`MARKETING_VERSION`;
+regenerate with XcodeGen).
 
 ## One-time setup
 
@@ -22,10 +23,11 @@ store and add one. Bump the public version separately in `androidApp/build.gradl
 2. The Android workflow uses the existing `ics` keystore from Codemagic **Settings → Code signing
    identities → Android keystores**. The chess workflow also needs access to the existing Play
    service account JSON as `GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS` in the `google_play` group.
-   If the secret is scoped to kmp-videos, add it to the chess app's **Environment variables** as
-   well. Verify the service account can release to testing tracks for chess in Play Console.
-3. In **App Store Connect**, verify the chess app record and an internal TestFlight group named
-   `Internal Testing`. The workflow uses the existing `Apollo Videos` Apple integration; the key
+   The kmp-videos secret is app-scoped; add the JSON to the chess app's **Environment variables**.
+   Verify the service account can release to testing tracks for chess in Play Console.
+3. [AI Chess Coach 3D in App Store Connect](https://appstoreconnect.apple.com/apps/6834273668/distribution/ios/version/inflight)
+   has an internal TestFlight group named `Internal Testing`. Add the internal testers who should
+   receive the builds. The workflow uses the existing `Apollo Videos` Apple integration; the key
    must also have access to chess. In Codemagic **Code signing identities**, make an Apple
    Distribution certificate and its matching App Store provisioning profile for the chess bundle
    ID available. If the chess app is on a different Apple team, select that team's integration in

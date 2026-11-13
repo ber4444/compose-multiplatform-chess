@@ -50,9 +50,9 @@ workflows:
       xcode: latest
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: io.github.ber4444.chess
+        bundle_identifier: io.github.ber4444.chess.ios
       vars:
-        BUNDLE_ID: io.github.ber4444.chess
+        BUNDLE_ID: io.github.ber4444.chess.ios
     scripts:
       - name: Prepare the Xcode project
         script: |

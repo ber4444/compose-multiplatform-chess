@@ -429,7 +429,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess.ios.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/iosApp.app/iosApp";
@@ -447,7 +447,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess.ios.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/iosApp.app/iosApp";
@@ -464,7 +464,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess.ios.uitests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = iosApp;
@@ -545,7 +545,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess.ios.uitests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = iosApp;
@@ -568,7 +568,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = "$(inherited) -framework ChessApp";
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess.ios;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -590,7 +590,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = "$(inherited) -framework ChessApp";
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess.ios;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
