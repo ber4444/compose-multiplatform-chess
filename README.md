@@ -1,12 +1,9 @@
-# game
+# Compose Multiplatform chess app with a 3D view mode and AI coaching 
 
-Compose Multiplatform chess app with full support for all standard chess rules, a 3D view mode, and
-five [AI coaching surfaces](#ai-features) (three on-device, two cloud), targeting:
+Live on [Google Play](https://play.google.com/store/apps/details?id=io.github.ber4444.chess)
+and [Apple TestFlight](https://testflight.apple.com/join/sXp1vXd5)
 
-- Android (minSdk 26)
-- Desktop (JVM): Linux and macOS
-- Web (Wasm)
-- iOS
+Build from source for Desktop (JVM) or Web (Wasm).
 
 ## Setup
 
