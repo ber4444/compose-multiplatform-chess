@@ -1,14 +1,14 @@
 package com.example.myapplication
 
-import android.view.KeyEvent
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import com.example.myapplication.persistence.GameActions
 import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.share.PgnSharer
@@ -26,12 +26,20 @@ import org.junit.runner.RunWith
  * Split into two tests because a Compose `createComposeRule` binds one `setContent` to its host
  * Activity for the test's lifetime — calling `setContent` twice ("Activity has already set content")
  * is illegal. Each test renders exactly one screen.
+ *
+ * Back navigation is driven through the host Activity's `OnBackPressedDispatcher` (hence the
+ * [createAndroidComposeRule] over a [ComponentActivity]) rather than by injecting `KEYCODE_BACK`
+ * through the system input pipeline. An injected key goes to whichever window holds focus, and the
+ * freshly launched test Activity does not always hold it yet on a loaded CI emulator — the key was
+ * then swallowed, the detail view stayed up, and `history_view_<id>` asserted "not displayed"
+ * (observed on three unchanged nightly runs). The dispatcher is what Compose's `BackHandler`
+ * registers with, so this exercises the same path minus the race.
  */
 @RunWith(AndroidJUnit4::class)
 class SaveGameHistoryTest {
 
     @get:Rule
-    val composeTestRule = createComposeRule()
+    val composeTestRule = createAndroidComposeRule<ComponentActivity>()
 
     private val fakeSharer = PgnSharer { _, _ -> /* no-op for tests */ }
 
@@ -84,7 +92,10 @@ class SaveGameHistoryTest {
         composeTestRule.onNodeWithTag("history_view_${saved.id}").performClick()
         composeTestRule.onNodeWithTag("history_detail_pgn").assertIsDisplayed()
         composeTestRule.onNodeWithText("Back").assertDoesNotExist()
-        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        composeTestRule.runOnUiThread { composeTestRule.activity.onBackPressedDispatcher.onBackPressed() }
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule.onAllNodesWithTag("history_view_${saved.id}").fetchSemanticsNodes().size == 1
+        }
         composeTestRule.onNodeWithTag("history_view_${saved.id}").assertIsDisplayed()
 
         // Delete it.
