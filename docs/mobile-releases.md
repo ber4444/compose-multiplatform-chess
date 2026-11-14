@@ -7,9 +7,17 @@
 | Workflow | Destination | Branch and schedule |
 | --- | --- | --- |
 | `android-release` | Google Play **Internal testing** | `main`, Monday at 06:00 UTC |
-| `ios-release` | TestFlight **Internal Testing** | `main`, Monday at 06:00 UTC |
+| `ios-release` | TestFlight **Internal Testing** + external **Public** (Beta App Review) | `main`, Monday at 06:00 UTC |
 
-Android uses `io.github.ber4444.chess`; iOS uses `io.github.ber4444.chess.ios`. The workflows take
+Android uses `io.github.ber4444.chess`; iOS uses `io.github.ber4444.chess.ios`. Store listing text and the
+Data safety / App Privacy answers are kept in [`docs/store/`](store/) — update those files when the
+consoles change. `ITSAppUsesNonExemptEncryption=false` is set in `iosApp/project.yml` so TestFlight
+uploads need no export-compliance answer. Adding the external `Public` group to `beta_groups`
+makes Codemagic submit every weekly build to Beta App Review; the group must exist in App Store
+Connect under that exact name. External testers join through the public link configured for
+the group in App Store Connect.
+
+The workflows take
 the highest build number reported by the store and add one. Bump the public version separately in
 `androidApp/build.gradle.kts` (`versionName`) and `iosApp/project.yml` (`MARKETING_VERSION`;
 regenerate with XcodeGen).

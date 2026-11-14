@@ -85,4 +85,5 @@ workflows:
         submit_to_testflight: true
         beta_groups:
           - Internal Testing
+          - Public   # external group: Codemagic submits the build to Beta App Review
         submit_to_app_store: false
