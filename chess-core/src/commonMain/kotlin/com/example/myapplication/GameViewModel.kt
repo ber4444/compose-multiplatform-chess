@@ -94,6 +94,7 @@ class GameViewModel(
         drawJob?.cancel()
         clearHint()
     }
+    private var hintUsedOnCurrentTurn: Boolean = false
 
     /**
      * Guards the engine's *global* skill level, which is process-wide state on a single UCI
@@ -111,6 +112,10 @@ class GameViewModel(
      */
     fun requestHint() {
         if (_soloPaused.value) return
+        val current = _gameState.value
+        if (current.turn == playerSide && current.winState == WinState.NONE) {
+            hintUsedOnCurrentTurn = true
+        }
         hintJob?.cancel()
         hintJob = scope.launch { computeHintDirectly() }
     }
@@ -119,6 +124,7 @@ class GameViewModel(
         if (_soloPaused.value) return
         val current = _gameState.value
         if (current.turn != playerSide || current.winState != WinState.NONE) return
+        hintUsedOnCurrentTurn = true
         val engine = chessEngine ?: return
 
         val allyPositions = if (current.turn == Set.WHITE) current.positionsWhite else current.positionsBlack
@@ -400,17 +406,36 @@ class GameViewModel(
     }
 
     private suspend fun moveEngine() {
+        val chooser = opponentChooser
         moveCPU { enemyPositions, enemyPieces, allyPositions, allyPieces ->
-            pickMoveStockfish(
-                chessEngine,
-                _gameState.value,
-                enemyPositions,
-                enemyPieces,
-                allyPositions,
-                allyPieces
-            )
+            val state = _gameState.value
+            chooser?.let { pickMoveFromChooser(it, state, enemyPositions, enemyPieces, allyPositions, allyPieces) }
+                ?: pickMoveStockfish(
+                    chessEngine,
+                    state,
+                    enemyPositions,
+                    enemyPieces,
+                    allyPositions,
+                    allyPieces
+                )
         }
     }
+
+    @kotlin.concurrent.Volatile
+    private var opponentChooser: OpponentMoveChooser? = null
+
+    /**
+     * Lets [chooser] pick the engine side's moves from the next engine turn on; `null` restores the
+     * engine. The attached engine still serves hints, assessments and draw offers. A move the
+     * chooser declines or gets wrong is played by the engine instead, so the game never stalls.
+     */
+    fun setOpponentMoveChooser(chooser: OpponentMoveChooser?) {
+        opponentChooser = chooser
+    }
+
+    /** Who plays the engine side, for PGN tags: the chooser's name, else "Stockfish" or "CPU". */
+    val opponentName: String
+        get() = opponentChooser?.name ?: if (engineAttached) "Stockfish" else "CPU"
 
     fun requestDrawOffer() {
         if (_soloPaused.value || drawJob?.isActive == true) return
@@ -502,6 +527,8 @@ class GameViewModel(
 
     fun resetGame(show3D: Boolean = viewState.value.show3D) {
         logger.i { "Game reset" }
+        hintUsedOnCurrentTurn = false
+        clearHint()
         _gameState.value = GameUiState()
         _viewState.value = ViewState(show3D = show3D)
         _animState.value = PieceAnimationState()
@@ -625,6 +652,12 @@ class GameViewModel(
             (movingPiece is Pawn && fromPosition.second != newPosition.second && newPosition == preMove.enPassantTarget)
         val castleRook = castlingRookMove(movingPiece, fromPosition, newPosition)
 
+        val isPlayerMove = preMove.turn == playerSide
+        val hintUsed = isPlayerMove && hintUsedOnCurrentTurn
+        if (isPlayerMove) {
+            hintUsedOnCurrentTurn = false
+        }
+
         val record = MoveRecord(
             uci = UciMoveConverter.appMoveToUci(fromPosition, newPosition) +
                 (promotion?.uciChar?.toString() ?: ""),
@@ -640,6 +673,7 @@ class GameViewModel(
                 checkSuffix = checkSuffix,
             ),
             fenAfter = FenConverter.gameStateToFen(finalState),
+            hintUsed = hintUsed,
         )
         return finalState.copy(moveHistory = preMove.moveHistory + record)
     }

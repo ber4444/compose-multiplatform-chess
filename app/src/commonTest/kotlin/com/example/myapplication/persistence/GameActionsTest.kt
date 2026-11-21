@@ -1,6 +1,7 @@
 package com.example.myapplication.persistence
 
 import com.example.myapplication.GameUiState
+import com.example.myapplication.Set
 import com.example.myapplication.WinState
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -17,6 +18,28 @@ class GameActionsTest {
 
         val withCpu = GameActions.pgnTags(state, engineAttached = false, date = "2026.07.02")
         assertEquals("CPU", withCpu.black)
+    }
+
+    @Test
+    fun `pgnTags puts Player on Black's side when playerSide is BLACK`() {
+        val state = GameUiState(winState = WinState.BLACK)
+        val tags = GameActions.pgnTags(state, engineAttached = true, date = "2026.07.02", playerSide = Set.BLACK)
+        assertEquals("Stockfish", tags.white)
+        assertEquals("Player", tags.black)
+    }
+
+    @Test
+    fun `toSavedGame records playerSide and labels colours accordingly`() {
+        val state = GameUiState(winState = WinState.BLACK)
+        val saved = GameActions.toSavedGame(
+            state,
+            engineAttached = false,
+            savedAtEpochMillis = 1_700_000_000_000L,
+            playerSide = Set.BLACK,
+        )
+        assertEquals("BLACK", saved.playerSide)
+        assertEquals("CPU", saved.white)
+        assertEquals("Player", saved.black)
     }
 
     @Test
@@ -68,5 +91,14 @@ class GameActionsTest {
         assertEquals("Stockfish", saved.black)
         assertEquals(1, saved.moveCount)
         assertTrue("e4" in saved.pgn)
+    }
+
+    @Test
+    fun `the opponent name overrides the engine default in tags and saved game`() {
+        val state = GameUiState(winState = WinState.BLACK)
+        assertEquals("Maia-3 (1400–1599)", GameActions.pgnTags(state, engineAttached = true, opponent = "Maia-3 (1400–1599)").black)
+        val saved = GameActions.toSavedGame(state, engineAttached = true, savedAtEpochMillis = 1, opponent = "Maia-3 (1400–1599)")
+        assertEquals("Maia-3 (1400–1599)", saved.black)
+        kotlin.test.assertTrue("[Black \"Maia-3 (1400–1599)\"]" in saved.pgn)
     }
 }

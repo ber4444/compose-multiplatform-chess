@@ -36,6 +36,12 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.board3d.Board3DSupport
+import com.example.myapplication.explorer.HumanMoveExplorer
+import com.example.myapplication.explorer.MaiaHumanMovePredictor
+import com.example.myapplication.explorer.MaiaOpponent
+import com.example.myapplication.explorer.RatingBand
+import com.example.myapplication.explorer.forReview
+import com.example.myapplication.explorer.maiaRuntimeFactory
 import com.example.myapplication.multiplayer.LichessArchiveClient
 import com.example.myapplication.multiplayer.LichessAuth
 import com.example.myapplication.multiplayer.LichessBoardClient
@@ -64,6 +70,7 @@ import com.example.myapplication.chat.createPositionChat
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.persistence.LocalAppSettings
+import com.example.myapplication.persistence.Opponent
 import com.example.myapplication.share.PgnSharer
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.example.myapplication.movecoach.MoveCoachManager
@@ -74,9 +81,11 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import kotlinx.coroutines.launch
 import com.example.myapplication.rules.RulesQaScreen
 import com.example.myapplication.rules.RulesQaStateHolder
+import com.example.myapplication.habits.HabitsManager
 import com.example.ondeviceai.AiContextSnapshot
 import com.example.ondeviceai.AiUserSetting
 import com.example.ondeviceai.DefaultRulesQaOrchestrator
+import com.example.ondeviceai.RetrievalOnlyRulesQaAnswerer
 import com.example.ondeviceai.createBundledRuleLookupTool
 import com.example.ondeviceai.defaultRulesQaAnswerer
 
@@ -106,11 +115,27 @@ fun AppRoot(
     moveCoachManager: MoveCoachManager? = null,
     switchTopPadding: Dp = 8.dp,
     isDebug: Boolean = false,
+    /**
+     * False on the web build, which hides the paid AI assistant surfaces: Position Chat and the
+     * Opening Explainer, which are cloud-routed and billed per request (a Gemini call) against the
+     * coach server. Free surfaces stay. The Move Coach runs deterministically. Rules Q&A answers from
+     * the bundled rulebook (`RetrievalOnlyRulesQaAnswerer` on wasm), so its button follows whether an
+     * answerer exists, not this flag.
+     */
+    aiAssistantsEnabled: Boolean = true,
+    /** Drawn under the board and its controls on the game screen. The web build passes its store links. */
+    belowBoard: (@Composable () -> Unit)? = null,
 ) {
-    val openingExplainerStateHolder = remember { OpeningExplainerStateHolder(createOpeningExplainer()) }
-    val chatViewModel = remember { ChatViewModel(createPositionChat()) }
+    // Not constructed at all when the assistants are off, so the web page builds no cloud client.
+    val openingExplainerStateHolder = remember(aiAssistantsEnabled) {
+        if (aiAssistantsEnabled) OpeningExplainerStateHolder(createOpeningExplainer()) else null
+    }
+    val chatViewModel = remember(aiAssistantsEnabled) {
+        if (aiAssistantsEnabled) ChatViewModel(createPositionChat()) else null
+    }
     // Hoisted out of the RulesQaStateHolder construction below because a null answerer also means
-    // "this build cannot answer rules questions" — desktop, wasm and JS return null unconditionally.
+    // "this build cannot answer rules questions": desktop and JS return null. Wasm answers from the
+    // bundled rulebook alone.
     val ruleLookupTool = remember { createBundledRuleLookupTool() }
     val rulesQaAnswerer = remember { defaultRulesQaAnswerer(ruleLookupTool) }
     val rulesQaStateHolder = remember {
@@ -121,7 +146,14 @@ fun AppRoot(
                     lookupTool = ruleLookupTool,
                 ) {
                     AiContextSnapshot(
-                        availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
+                        // A retrieval-only answerer has no model behind it, whatever the platform
+                        // probe reports (wasm offers LiteRT-LM unconditionally). Offering a vendor
+                        // here would route on-device and badge rulebook text "Written by a model".
+                        availableLocalVendors = if (it is RetrievalOnlyRulesQaAnswerer) {
+                            emptyList()
+                        } else {
+                            com.example.ondeviceai.probeAvailableLocalVendors()
+                        },
                         isAppForegrounded = true,
                         userSetting = AiUserSetting.OFFLINE_ONLY,
                     )
@@ -151,8 +183,8 @@ fun AppRoot(
                     if (blocked) {
                         viewModel.setSoloPaused(true)
                         moveCoachManager?.hideWindow()
-                        openingExplainerStateHolder.reset()
-                        chatViewModel.stop()
+                        openingExplainerStateHolder?.reset()
+                        chatViewModel?.stop()
                     }
                 },
             )
@@ -189,11 +221,35 @@ fun AppRoot(
             cloudSync?.close()
         }
     }
+    // Unlike the AI managers below, this needs no platform runtime — it's a pure aggregation over
+    // gameHistory — so AppRoot can own it directly instead of entry points threading it through.
+    // Null exactly when gameHistory is null, mirroring how the Save/Share buttons already gate.
+    // Its habits render at the top of the History screen; there is no separate Habits screen.
+    val habitsManager = remember(gameHistory) { gameHistory?.let { HabitsManager(it) } }
+    // One Maia predictor, so one model load, shared by the History explorer and the Maia opponent.
+    // Null where the platform has no Maia runtime. Nothing loads until the first prediction.
+    val maiaPredictor = remember { maiaRuntimeFactory()?.let { MaiaHumanMovePredictor(it) } }
+    DisposableEffect(maiaPredictor) { onDispose { maiaPredictor?.close() } }
+    val humanMoveExplorer = remember(maiaPredictor) { HumanMoveExplorer(maia = maiaPredictor) }
+    // Settings → Opponent. Only the move choice moves to Maia; Stockfish stays attached for hints,
+    // coach assessments and draw offers.
+    val opponent by settings.opponent.collectAsState()
+    // The same Easy/Medium/Hard/Max setting sets Maia's strength, mapped to a rating band.
+    val opponentDifficulty by settings.engineDifficulty.collectAsState()
+    DisposableEffect(viewModel, maiaPredictor, opponent, opponentDifficulty) {
+        val chooser = maiaPredictor?.takeIf { opponent == Opponent.MAIA }
+            ?.let { MaiaOpponent(it, RatingBand.forDifficulty(opponentDifficulty)) }
+        viewModel.setOpponentMoveChooser(chooser)
+        onDispose { viewModel.setOpponentMoveChooser(null) }
+    }
     DisposableEffect(openingExplainerStateHolder) {
-        onDispose { openingExplainerStateHolder.close() }
+        onDispose { openingExplainerStateHolder?.close() }
     }
     DisposableEffect(chatViewModel) {
-        onDispose { chatViewModel.close() }
+        onDispose { chatViewModel?.close() }
+    }
+    DisposableEffect(habitsManager) {
+        onDispose { habitsManager?.close() }
     }
     CompositionLocalProvider(
         LocalAppSettings provides settings,
@@ -213,8 +269,8 @@ fun AppRoot(
             LaunchedEffect(displayedScreen) {
                 if (displayedScreen == Screen.ONLINE) {
                     moveCoachManager?.hideWindow()
-                    openingExplainerStateHolder.reset()
-                    chatViewModel.stop()
+                    openingExplainerStateHolder?.reset()
+                    chatViewModel?.stop()
                 }
             }
             val restoreSolo: (CloudResumeGame?) -> Boolean = restore@{ remote ->
@@ -286,8 +342,9 @@ fun AppRoot(
                     switchTopPadding = switchTopPadding,
                     onOpenHistory = { screen = Screen.HISTORY },
                     onOpenSettings = { screen = Screen.SETTINGS },
-                    onOpenRules = { screen = Screen.RULES },
-                    onOpenChat = { screen = Screen.CHAT },
+                    // Rules costs nothing anywhere, so on the web it is hidden only when nothing can answer.
+                    onOpenRules = if (aiAssistantsEnabled || rulesQaAnswerer != null) { { screen = Screen.RULES } } else null,
+                    onOpenChat = if (aiAssistantsEnabled) { { screen = Screen.CHAT } } else null,
                     onOpenOnline = online?.let {
                         {
                             viewModel.setSoloPaused(true)
@@ -297,11 +354,13 @@ fun AppRoot(
                     onSaveFinished = cloudSync?.let { sync ->
                         { game -> if (!sync.saveFinished(game)) gameHistory?.add(game) }
                     },
+                    belowBoard = belowBoard,
                 )
                 Screen.HISTORY -> if (gameHistory != null) {
                     GameHistoryScreen(
                         gameHistory = gameHistory,
                         pgnSharer = pgnSharer,
+                        habitsManager = habitsManager,
                         onBack = { screen = Screen.GAME },
                         extraHistory = if (archive != null || cloudSync != null) {
                             { games, onOpen ->
@@ -312,6 +371,8 @@ fun AppRoot(
                                 if (cloudSync != null) CloudSaveHistory(cloudSync, onOpen)
                             }
                         } else null,
+                        humanMoves = humanMoveExplorer.forReview(),
+                        humanMovesBand = RatingBand.forDifficulty(opponentDifficulty),
                     )
                 } else {
                     SubScreenScaffold(title = "Game History", onBack = { screen = Screen.GAME }) {
@@ -321,6 +382,7 @@ fun AppRoot(
                 Screen.SETTINGS -> SettingsScreen(
                     onBack = { screen = Screen.GAME },
                     board3D = board3D,
+                    maiaAvailable = maiaPredictor != null,
                     onOpenLicenses = { screen = Screen.LICENSES },
                     extraSettings = cloudSync?.let { sync ->
                         {
@@ -346,7 +408,7 @@ fun AppRoot(
                 )
                 // Chat is cloud-only, so without a base URL it could only ever emit its fixed offline
                 // sentence. Say that instead of pretending the input box works.
-                Screen.CHAT -> if (cloudCoachConfigured) {
+                Screen.CHAT -> if (cloudCoachConfigured && chatViewModel != null) {
                     // Collected here, not at the top of AppRoot: only Chat reads the position, and a
                     // top-level collector re-ran this whole host on every move and selection tap.
                     val gameState by viewModel.gameState.collectAsState()

@@ -1,7 +1,8 @@
 # Compose Multiplatform chess app with a 3D view mode and AI coaching 
 
 Live on [Google Play](https://play.google.com/store/apps/details?id=io.github.ber4444.chess)
-and [Apple TestFlight](https://testflight.apple.com/join/sXp1vXd5)
+and [Apple TestFlight](https://testflight.apple.com/join/sXp1vXd5), or play chess in your browser at
+[compose-chess-web.fly.dev](https://compose-chess-web.fly.dev) (the AI coaching is in the mobile apps only).
 
 Build from source for Desktop (JVM) or Web (Wasm).
 
@@ -151,8 +152,15 @@ graph TD
   `EngineDifficulty.HARD` regardless of the opponent's difficulty setting, so a hint on Easy doesn't
   teach a deliberately weakened move. It is disabled on the opponent's turn and during animation,
   and clears on the next move.
+- **Cross-Game Habits (B6 / RAG-5):** Aggregates the player's assessed mistakes and blunders
+  across recent saved games in `GameHistoryRepository`, grouping by recurring costly tactical motifs
+  (`hangs-piece`) with a general lost-winning-chances rate fallback when no single motif recurs
+  enough (requiring repetition across multiple games, not multiple blunders in a single bad game).
+  Re-projects existing `MoveAssessment` records into practice positions (`fenBefore` plus the
+  engine's `bestMoveSan` alternative) with deterministic narration (`HabitNarrator`). Requires no
+  model or network calls on any platform. Shown at the top of the **History** screen.
 - **Engine Difficulty:** A persisted Easy / Medium / Hard / Max setting (in **Settings**) weakens or strengthens Stockfish play via the UCI `Skill Level` option and a per-move think-time budget. Applies to the Stockfish engine on every platform.
-- **Settings & Navigation:** A minimal multiplatform navigation host (`AppRoot`) switches between the game, **History**, **Settings**, **Rules** and **Chat** screens, plus **Open-source licences** under Settings. Settings holds four persisted controls: the 3D-board toggle (default on), the engine-difficulty selector, the AI Move Coach toggle (default on), and the **player side** selector — you can play as Black, in which case the engine opens.
+- **Settings & Navigation:** A minimal multiplatform navigation host (`AppRoot`) switches between the game, **History** (saved games, with cross-game habits on top), **Settings**, **Rules** and **Chat** screens, plus **Open-source licences** under Settings. Settings holds four persisted controls: the 3D-board toggle (default on), the engine-difficulty selector, the AI Move Coach toggle (default on), and the **player side** selector — you can play as Black, in which case the engine opens.
 
 ### Online play and cloud saves pilot
 
@@ -706,7 +714,9 @@ git tag -a on-device-ai-v0.1.0 -m "Publish io.github.ber4444:onDeviceAi:0.1.0 + 
 git push origin on-device-ai-v0.1.0
 ```
 
-[Article with screenshots](https://medium.com/p/f6a983db0e45)
+- articles on the app: https://medium.com/@gabor.berenyi.california
+- app on google play: https://play.google.com/store/apps/details?id=io.github.ber4444.chess
+- [RevenueCat Shipaton 2026 entry](https://devpost.com/software/ai-chess-coach-3d)
 
 ## Plan inventory
 

@@ -1,0 +1,22 @@
+# Static host for the Compose Multiplatform wasm build (app/build/dist/wasmJs/productionExecutable).
+# Staged next to the dist by tools/deploy_web.sh; see web/fly.toml.
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	root * /srv
+	# skiko.wasm is ~8 MB and the app module ~4 MB; both compress well.
+	encode zstd gzip
+	file_server
+
+	# Webpack content-hashes the .wasm names, so they never change in place.
+	@hashed path_regexp hashed ^/[0-9a-f]{20}\.wasm$
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+	# Everything else keeps a stable name across releases (index.html, app.js, chess.glb, the KTX
+	# environment maps, composeResources, the Stockfish worker), so it must be revalidated.
+	@stable not path_regexp ^/[0-9a-f]{20}\.wasm$
+	header @stable Cache-Control "no-cache"
+}

@@ -17,6 +17,34 @@ fun interface RulesQaAnswerer {
 expect fun defaultRulesQaAnswerer(lookupTool: RuleLookupTool): RulesQaAnswerer?
 
 /**
+ * Rules Q&A with no model at all: the answer is the bundled rulebook's best BM25 match, cited, exactly
+ * what [RulesQaGrounding] already shows whenever a model's wording fails.
+ *
+ * For platforms that have the corpus but no model to phrase it, which is the web build. **The caller
+ * must offer no local vendor in the orchestrator's context when it uses this answerer** (`AppRoot`
+ * does). The orchestrator then never routes on-device, its retrieval floor answers, and the result
+ * carries an honest `AiRoute.Fallback` provenance. If a vendor were offered (the wasm probe reports
+ * LiteRT-LM unconditionally), this answerer would be called on an on-device route and the reference
+ * text would be labelled "Written by a model on your device".
+ *
+ * This answerer exists so the orchestrator is built at all (a `null` answerer means "Rules Q&A is
+ * unavailable"), and it returns the same reference text if a route ever reaches it, so no path on
+ * such a platform invents wording.
+ *
+ * Costs nothing: no network, no model, microseconds of BM25.
+ */
+class RetrievalOnlyRulesQaAnswerer(private val lookupTool: RuleLookupTool) : RulesQaAnswerer {
+    override suspend fun answer(question: String, route: VendorRoute): RulesQaModelOutput {
+        val passages = lookupTool.lookup(question)
+        return RulesQaModelOutput(
+            text = RulesQaGrounding.composeFromPassages(passages),
+            retrievedPassageIds = passages.map { it.id },
+            retrievedPassages = passages,
+        )
+    }
+}
+
+/**
  * A corpus passage an answer cites, in the two forms the product needs: the [id] the validator and
  * the benchmarks key on, and the [title] a person can read.
  *

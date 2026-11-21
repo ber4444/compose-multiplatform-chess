@@ -33,6 +33,12 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.myapplication.explorer.HumanMoveExplorer
+import com.example.myapplication.explorer.HumanMovesPanel
+import com.example.myapplication.explorer.RatingBand
+import com.example.myapplication.habits.HabitSummary
+import com.example.myapplication.habits.HabitsManager
+import com.example.myapplication.habits.habitsSection
 import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.persistence.SavedGame
 import com.example.myapplication.share.PgnSharer
@@ -40,6 +46,9 @@ import com.example.myapplication.share.PgnSharer
 /**
  * Lists saved games (newest first) from [gameHistory]. Tapping a row opens an inline detail view
  * with the full PGN (selectable) and **Share** / **Delete** actions. Empty state when no games.
+ *
+ * When [habitsManager] is given and there is at least one saved game, the list opens with a
+ * **Habits** section (cross-game patterns, B6/RAG-5) above the games it was computed from.
  *
  * Reached from [AppRoot] via `Screen.HISTORY`. The detail view is a local `selectedGame` state
  * rather than a new [Screen] value to keep history navigation shallow.
@@ -49,10 +58,14 @@ import com.example.myapplication.share.PgnSharer
 fun GameHistoryScreen(
     gameHistory: GameHistoryRepository,
     pgnSharer: PgnSharer? = null,
+    habitsManager: HabitsManager? = null,
     onBack: () -> Unit,
     extraHistory: (@Composable (List<SavedGame>, (SavedGame) -> Unit) -> Unit)? = null,
+    humanMoves: HumanMoveExplorer? = null,
+    humanMovesBand: RatingBand = RatingBand.R1400,
 ) {
     val games by gameHistory.games.collectAsState()
+    val habits = habitsManager?.summaries?.collectAsState()?.value
     var selectedGame by remember { mutableStateOf<SavedGame?>(null) }
 
     val current = selectedGame
@@ -65,6 +78,7 @@ fun GameHistoryScreen(
         if (current == null) {
             GameHistoryList(
                 games = games,
+                habits = habits,
                 pgnSharer = pgnSharer,
                 onOpen = { selectedGame = it },
                 onDelete = { gameHistory.delete(it.id) },
@@ -74,6 +88,8 @@ fun GameHistoryScreen(
             GameHistoryDetail(
                 game = current,
                 pgnSharer = pgnSharer,
+                humanMoves = humanMoves,
+                humanMovesBand = humanMovesBand,
             )
         }
     }
@@ -82,6 +98,7 @@ fun GameHistoryScreen(
 @Composable
 private fun GameHistoryList(
     games: List<SavedGame>,
+    habits: List<HabitSummary>?,
     pgnSharer: PgnSharer?,
     onOpen: (SavedGame) -> Unit,
     onDelete: (SavedGame) -> Unit,
@@ -99,7 +116,9 @@ private fun GameHistoryList(
     }
 
     // Each row: date, result, players, move count. The whole card is selectable.
-    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+    LazyColumn(modifier = Modifier.fillMaxWidth().testTag("history_list")) {
+        // Null when this build has no habits manager; then the list is games only, as before.
+        if (habits != null) habitsSection(habits)
         if (header != null) {
             item("history_sources") { header() }
             item("local_history_heading") {
@@ -174,6 +193,8 @@ private fun GameHistoryRow(
 private fun GameHistoryDetail(
     game: SavedGame,
     pgnSharer: PgnSharer?,
+    humanMoves: HumanMoveExplorer?,
+    humanMovesBand: RatingBand,
 ) {
     val uriHandler = LocalUriHandler.current
     Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
@@ -181,6 +202,12 @@ private fun GameHistoryDetail(
             "${game.white} vs ${game.black}  •  ${game.result}",
             style = MaterialTheme.typography.titleMedium,
         )
+        // Null unless some source can answer (AppRoot decides), and a game saved without
+        // move records, so neither case renders a panel that could only say "unavailable".
+        if (humanMoves != null && game.moveRecords.isNotEmpty()) {
+            Spacer(modifier = Modifier.padding(6.dp))
+            HumanMovesPanel(game.moveRecords, humanMoves, humanMovesBand)
+        }
         Spacer(modifier = Modifier.padding(6.dp))
         // The PGN text. heightIn(min) keeps it scrollable/visible on small screens; the surfaceVariant
         // card makes the selectable text block visually distinct.

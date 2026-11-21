@@ -560,14 +560,16 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
+				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME) $(SRCROOT)/../app/build/litert-ios/TensorFlowLiteC.xcframework/$(LITERT_SLICE)";
 				INFOPLIST_FILE = iosApp/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				"LITERT_SLICE[sdk=iphoneos*]" = "ios-arm64";
+				"LITERT_SLICE[sdk=iphonesimulator*]" = "ios-arm64_x86_64-simulator";
 				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = "$(inherited) -framework ChessApp";
+				OTHER_LDFLAGS = "$(inherited) -framework ChessApp -framework TensorFlowLiteC -lc++";
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess.ios;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -582,14 +584,16 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
+				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME) $(SRCROOT)/../app/build/litert-ios/TensorFlowLiteC.xcframework/$(LITERT_SLICE)";
 				INFOPLIST_FILE = iosApp/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				"LITERT_SLICE[sdk=iphoneos*]" = "ios-arm64";
+				"LITERT_SLICE[sdk=iphonesimulator*]" = "ios-arm64_x86_64-simulator";
 				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = "$(inherited) -framework ChessApp";
+				OTHER_LDFLAGS = "$(inherited) -framework ChessApp -framework TensorFlowLiteC -lc++";
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.ber4444.chess.ios;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
