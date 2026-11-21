@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
  * Surface: the 3D-board toggle, engine difficulty, the AI Move Coach toggle and the player side —
  * all observable. Theme is not persisted: it always follows the system dark-mode setting.
  */
-class AppSettings(private val settings: Settings) {
+class AppSettings(internal val settings: Settings) {
 
     /**
      * Whether the 3D board is shown (vs the 2D board). Defaults to `true` on first install. Read by
@@ -74,7 +74,27 @@ class AppSettings(private val settings: Settings) {
 
     private fun readPlayerSide(): String = settings.getString(KEY_PLAYER_SIDE, "WHITE")
 
+    /**
+     * Who plays the engine side. **Maia-3 by default**, and Stockfish only once the user picks it:
+     * nothing is written until they choose, so an untouched install follows the default. Where the
+     * build cannot run Maia, `AppRoot` ignores [Opponent.MAIA] and Stockfish plays, and
+     * Settings shows no choice. Strength is [engineDifficulty] for either opponent;
+     * `RatingBand.forDifficulty` maps it to Maia's rating.
+     */
+    private val _opponent: MutableStateFlow<Opponent> = MutableStateFlow(readOpponent())
+    val opponent: StateFlow<Opponent> get() = _opponent
+
+    fun setOpponent(opponent: Opponent) {
+        settings.putString(KEY_OPPONENT, opponent.name)
+        _opponent.value = opponent
+    }
+
+    private fun readOpponent(): Opponent =
+        settings.getStringOrNull(KEY_OPPONENT)?.let { runCatching { Opponent.valueOf(it) }.getOrNull() }
+            ?: Opponent.MAIA
+
     companion object {
+        const val KEY_OPPONENT = "settings.opponent"
         const val KEY_BOARD_3D = "settings.board_3d_enabled"
         const val KEY_ENGINE_DIFFICULTY = "settings.engine_difficulty"
         const val KEY_AI_COACH = "settings.ai_coach_enabled"
@@ -82,3 +102,6 @@ class AppSettings(private val settings: Settings) {
     }
 }
 
+
+/** Who plays against you in solo games. */
+enum class Opponent { STOCKFISH, MAIA }

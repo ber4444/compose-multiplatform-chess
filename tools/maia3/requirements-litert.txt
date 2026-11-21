@@ -1,0 +1,11 @@
+# Pinned environment that produced the bundled maia3-5m.tflite byte for byte (Python 3.12.14).
+# jax is pinned because litert-torch leaves it open and jax 0.12 emits StableHLO the
+# litert-converter 0.5 plugin rejects ("failed to convert VHLO to v1.19.0").
+litert-torch==0.10.0
+litert-converter==0.5.0
+ai-edge-litert==2.3.0
+torch==2.14.1
+jax==0.11.2
+jaxlib==0.11.2
+numpy==2.5.5
+chess==1.11.2

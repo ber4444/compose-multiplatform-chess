@@ -82,6 +82,38 @@ internal suspend fun pickMoveStockfish(
 }
 
 /**
+ * The engine side's move from [chooser], validated like [pickMoveStockfish]'s, or `null` when the
+ * chooser declines, fails, or names a move that is not legal here. The caller then falls back to the
+ * engine.
+ */
+internal suspend fun pickMoveFromChooser(
+    chooser: OpponentMoveChooser,
+    gameState: GameUiState,
+    enemyPositions: List<Pair<Int, Int>>, enemyPieces: List<Piece>,
+    allyPositions: List<Pair<Int, Int>>, allyPieces: List<Piece>,
+): SelectedMove? {
+    val current = FenConverter.gameStateToFen(gameState)
+    val earlier = gameState.moveHistory.dropLast(1).takeLast(OPPONENT_HISTORY_POSITIONS - 1).map { it.fenAfter }
+    val uci = try {
+        chooser.chooseMove(earlier + current)
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        logger.w { "${chooser.name} failed to choose a move (${failure.message}), falling back" }
+        null
+    } ?: return null
+    val appMove = runCatching { UciMoveConverter.uciMoveToAppMove(uci, allyPositions) }.getOrNull()
+    val legal = appMove != null &&
+        getAllLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces, gameState.castlingRights, gameState.enPassantTarget)
+            .any { it.first == appMove.position && it.second == appMove.pieceIndex }
+    if (!legal) {
+        logger.w { "${chooser.name} chose $uci, which is not legal here, falling back" }
+        return null
+    }
+    return appMove
+}
+
+/**
  * The engine-less opponent: a random capture when one exists (en passant included), otherwise a
  * random legal move. Returns `SelectedMove(INVALID_POSITION, -1)` when the side has no legal move.
  */

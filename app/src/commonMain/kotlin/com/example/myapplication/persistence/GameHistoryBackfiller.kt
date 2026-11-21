@@ -8,10 +8,14 @@ import com.example.myapplication.MotifDetector
 import com.example.myapplication.MoveAssessor
 import com.example.myapplication.SanConverter
 import com.example.myapplication.UciMoveConverter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import com.example.myapplication.Set
@@ -28,7 +32,8 @@ import com.example.myapplication.MoveRecord
  */
 class GameHistoryBackfiller(
     private val repository: GameHistoryRepository,
-    private val engine: ChessEngine
+    private val engine: ChessEngine,
+    private val soloPaused: StateFlow<Boolean> = MutableStateFlow(false),
 ) {
     private val logger = Logger.withTag("GameHistoryBackfiller")
     private val scope = CoroutineScope(Dispatchers.Default)
@@ -37,13 +42,18 @@ class GameHistoryBackfiller(
     fun start() {
         if (job != null) return
         job = scope.launch {
-            while (isActive) {
-                try {
-                    backfillNext()
-                } catch (e: Exception) {
-                    logger.w(e) { "Backfill iteration failed" }
+            soloPaused.collectLatest { paused ->
+                if (paused) return@collectLatest
+                while (isActive) {
+                    try {
+                        backfillNext()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (e: Exception) {
+                        logger.w(e) { "Backfill iteration failed" }
+                    }
+                    delay(2000)
                 }
-                delay(2000) // Poll gently
             }
         }
     }
@@ -57,6 +67,7 @@ class GameHistoryBackfiller(
     internal suspend fun backfillNext() {
         val games = repository.games.value
         for (game in games) {
+            if (game.lichessGameId != null) continue
             val playerIsWhite = game.playerSide != "BLACK"
             val unassessedIndex = game.moveRecords.indexOfFirst { record ->
                 // The player's moves only, and only those lacking an assessment.

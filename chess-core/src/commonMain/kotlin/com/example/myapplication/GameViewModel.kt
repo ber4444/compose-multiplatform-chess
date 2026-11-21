@@ -8,6 +8,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,6 +48,52 @@ class GameViewModel(
     private val _hintSquares = MutableStateFlow<List<Pair<Int, Int>>>(emptyList())
     val hintSquares: StateFlow<List<Pair<Int, Int>>> = _hintSquares
     private var hintJob: Job? = null
+    private var drawJob: Job? = null
+    private val _soloPaused = MutableStateFlow(false)
+    val soloPaused: StateFlow<Boolean> = _soloPaused.asStateFlow()
+    private val snapshotObserver = MutableStateFlow<((GameSnapshot?, Set) -> Unit)?>(null)
+
+    fun setSnapshotObserver(observer: ((GameSnapshot?, Set) -> Unit)?) {
+        snapshotObserver.value = observer
+    }
+
+    /** Parks the solo board while a separate online session is active. */
+    fun setSoloPaused(paused: Boolean) {
+        if (!_soloPaused.compareAndSet(!paused, paused)) return
+        if (paused) {
+            cancelSoloWork()
+            clearAnimation()
+            unlockMoveButton()
+        } else {
+            maybeResumeEngine()
+        }
+    }
+
+    /** Installs an explicitly selected cloud snapshot without queuing it as a new local move. */
+    fun restoreSoloSnapshot(snapshot: GameSnapshot?, side: Set) {
+        val restored = snapshot?.let(GameSnapshotMapper::toState) ?: GameUiState()
+        val initialState = applyDrawConditions(applyWinConditions(restored))
+        cancelSoloWork()
+        try {
+            if (snapshot == null) snapshotSink?.clear() else snapshotSink?.save(snapshot)
+        } catch (failure: Exception) {
+            maybeResumeEngine()
+            throw failure
+        }
+        _playerSide.value = side
+        _animState.value = PieceAnimationState()
+        _viewState.value = ViewState(show3D = _viewState.value.show3D)
+        _gameState.value = initialState
+        maybeResumeEngine()
+    }
+
+    private fun cancelSoloWork() {
+        gameMoves?.cancel()
+        analysisJob?.cancel()
+        hintJob?.cancel()
+        drawJob?.cancel()
+        clearHint()
+    }
     private var hintUsedOnCurrentTurn: Boolean = false
 
     /**
@@ -63,6 +111,7 @@ class GameViewModel(
      * Requires an attached engine, guards turn state, and cancels previous hint requests.
      */
     fun requestHint() {
+        if (_soloPaused.value) return
         val current = _gameState.value
         if (current.turn == playerSide && current.winState == WinState.NONE) {
             hintUsedOnCurrentTurn = true
@@ -72,6 +121,7 @@ class GameViewModel(
     }
 
     suspend fun computeHintDirectly() {
+        if (_soloPaused.value) return
         val current = _gameState.value
         if (current.turn != playerSide || current.winState != WinState.NONE) return
         hintUsedOnCurrentTurn = true
@@ -83,9 +133,12 @@ class GameViewModel(
         val enemyPieces = if (current.turn == Set.WHITE) current.piecesBlack else current.piecesWhite
 
         engineStrengthMutex.withLock {
+            if (_soloPaused.value) return
             try {
                 engine.configure(EngineDifficulty.HARD)
                 val move = pickMoveStockfish(engine, current, enemyPositions, enemyPieces, allyPositions, allyPieces)
+                currentCoroutineContext().ensureActive()
+                if (_soloPaused.value) return
                 if (move.position != INVALID_POSITION && move.pieceIndex != -1) {
                     val from = allyPositions[move.pieceIndex]
                     _hintSquares.value = listOf(from, move.position)
@@ -197,7 +250,8 @@ class GameViewModel(
     val engineSide: Set get() = if (playerSide == Set.WHITE) Set.BLACK else Set.WHITE
 
     private fun maybeResumeEngine() {
-        if (!engineAttachSettled) return
+        if (_soloPaused.value || !engineAttachSettled) return
+        if (_gameState.value.drawOffer != null) return
         if (_gameState.value.turn != engineSide) return
         if (_gameState.value.winState != WinState.NONE) return
         if (_animState.value.pieceToAnimate != null) return  // don't race an in-flight animation
@@ -229,15 +283,14 @@ class GameViewModel(
     /** Records the tapped square; [INVALID_POSITION] clears the selection. */
     fun updateSelected(position: Pair<Int, Int>) = _gameState.update { it.copy(selectedSquare = position) }
 
-    fun playerMoveCheck(): Boolean {
-        return true
-    }
+    fun playerMoveCheck(): Boolean = !_soloPaused.value
 
     /** Plays the player's piece at [selectedPieceIndex] to [newPosition], if that is legal now. */
     fun playerMove(
         selectedPieceIndex: Int,
         newPosition: Pair<Int, Int>,
     ) {
+        if (_soloPaused.value) return
         if (
             gameState.value.turn == playerSide &&
             _gameState.value.winState == WinState.NONE &&
@@ -303,6 +356,7 @@ class GameViewModel(
     }
 
     fun promotePawn(promotion: PromotionType) {
+        if (_soloPaused.value) return
         val pending = _gameState.value.pendingPromotion ?: return
         if (_gameState.value.turn != playerSide || _gameState.value.winState != WinState.NONE) return
         val pawn = if (playerSide == Set.WHITE) _gameState.value.piecesWhite[pending.pieceIndex] else _gameState.value.piecesBlack[pending.pieceIndex]
@@ -335,7 +389,7 @@ class GameViewModel(
     private fun unlockMoveButton() = _viewState.update { it.copy(moveButtonLock = false) }
 
     fun animationEnd() {
-        if (!clearAnimation()) return
+        if (!clearAnimation() || _soloPaused.value) return
 
         if (_gameState.value.turn == engineSide) {
             gameMoves?.cancel()
@@ -352,30 +406,60 @@ class GameViewModel(
     }
 
     private suspend fun moveEngine() {
+        val chooser = opponentChooser
         moveCPU { enemyPositions, enemyPieces, allyPositions, allyPieces ->
-            pickMoveStockfish(
-                chessEngine,
-                _gameState.value,
-                enemyPositions,
-                enemyPieces,
-                allyPositions,
-                allyPieces
-            )
+            val state = _gameState.value
+            chooser?.let { pickMoveFromChooser(it, state, enemyPositions, enemyPieces, allyPositions, allyPieces) }
+                ?: pickMoveStockfish(
+                    chessEngine,
+                    state,
+                    enemyPositions,
+                    enemyPieces,
+                    allyPositions,
+                    allyPieces
+                )
         }
     }
 
+    @kotlin.concurrent.Volatile
+    private var opponentChooser: OpponentMoveChooser? = null
+
+    /**
+     * Lets [chooser] pick the engine side's moves from the next engine turn on; `null` restores the
+     * engine. The attached engine still serves hints, assessments and draw offers. A move the
+     * chooser declines or gets wrong is played by the engine instead, so the game never stalls.
+     */
+    fun setOpponentMoveChooser(chooser: OpponentMoveChooser?) {
+        opponentChooser = chooser
+    }
+
+    /** Who plays the engine side, for PGN tags: the chooser's name, else "Stockfish" or "CPU". */
+    val opponentName: String
+        get() = opponentChooser?.name ?: if (engineAttached) "Stockfish" else "CPU"
+
     fun requestDrawOffer() {
-        scope.launch { offerDraw() }
+        if (_soloPaused.value || drawJob?.isActive == true) return
+        drawJob = scope.launch { offerDraw() }
     }
 
     suspend fun offerDraw() {
-        if (!canOfferDraw(_gameState.value, playerSide)) return
+        if (_soloPaused.value || !canOfferDraw(_gameState.value, playerSide)) return
         _gameState.value = _gameState.value.copy(
             drawOffer = playerSide,
             lastDrawOfferFullmove = _gameState.value.fullmoveNumber
         )
         val offeredState = _gameState.value
-        val eval = evaluatePositionCp(chessEngine, offeredState)
+        val eval = try {
+            evaluatePositionCp(chessEngine, offeredState)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            _gameState.compareAndSet(offeredState, offeredState.copy(drawOffer = null))
+            throw cancelled
+        }
+        currentCoroutineContext().ensureActive()
+        if (_soloPaused.value) {
+            _gameState.compareAndSet(offeredState, offeredState.copy(drawOffer = null))
+            return
+        }
         // Flip the eval logic depending on the engine's side
         val shouldEngineAccept = if (engineSide == Set.BLACK) shouldBlackAcceptDraw(eval, offeredState) else shouldWhiteAcceptDraw(eval, offeredState)
         if (shouldEngineAccept) {
@@ -399,11 +483,14 @@ class GameViewModel(
     }
 
     suspend fun tryEngineDrawOffer(): Boolean {
+        if (_soloPaused.value) return false
         val state = _gameState.value
         if (state.turn != engineSide) return false
         val preconditions = if (engineSide == Set.BLACK) blackDrawOfferPreconditions(state) else whiteDrawOfferPreconditions(state)
         if (!preconditions) return false
         val eval = evaluatePositionCp(chessEngine, state)
+        currentCoroutineContext().ensureActive()
+        if (_soloPaused.value) return false
         val shouldOffer = if (engineSide == Set.BLACK) shouldBlackOfferDraw(eval) else shouldWhiteOfferDraw(eval)
         if (shouldOffer) {
             _gameState.value = state.copy(
@@ -416,6 +503,7 @@ class GameViewModel(
     }
 
     fun acceptDrawOffer() {
+        if (_soloPaused.value) return
         val state = _gameState.value
         if (state.drawOffer == engineSide && state.winState == WinState.NONE) {
             _gameState.value = state.copy(drawOffer = null, winState = WinState.DRAW)
@@ -424,6 +512,7 @@ class GameViewModel(
     }
 
     fun declineDrawOffer() {
+        if (_soloPaused.value) return
         if (_gameState.value.drawOffer == engineSide) {
             _gameState.value = _gameState.value.copy(drawOffer = null)
             gameMoves?.cancel()
@@ -446,6 +535,7 @@ class GameViewModel(
         // The fresh empty game replaces the autosaved one; drop the stale snapshot so a relaunch
         // doesn't restore into a board the user already abandoned.
         snapshotSink?.clear()
+        snapshotObserver.value?.invoke(null, playerSide)
         // A new game always starts on White, so when the player is Black the opponent moves first.
         // No animation ends here, so this is the only thing that can start them.
         maybeResumeEngine()
@@ -458,11 +548,14 @@ class GameViewModel(
      * the very first save of a brand-new game (before any move) is skipped.
      */
     private fun autosave() {
-        val sink = snapshotSink ?: return
+        val observer = snapshotObserver.value
+        if (snapshotSink == null && observer == null) return
         val state = _gameState.value
         if (state.positionsWhite.isEmpty() && state.positionsBlack.isEmpty()) return
         runCatching {
-            sink.save(GameSnapshotMapper.fromState(state))
+            val snapshot = GameSnapshotMapper.fromState(state)
+            snapshotSink?.save(snapshot)
+            observer?.invoke(snapshot, playerSide)
         }.onFailure { logger.w(it) { "Autosave failed" } }
     }
 
@@ -473,6 +566,7 @@ class GameViewModel(
             allyPositions: List<Pair<Int, Int>>, allyPieces: List<Piece>,
         ) -> SelectedMove,
     ) {
+        if (_soloPaused.value) return
         _gameState.update { it.copy(turn = turn, selectedSquare = INVALID_POSITION) }
         logger.d { "MOVEBUTTONLOCK=TRUE" }; _viewState.value = _viewState.value.copy(moveButtonLock = true)
 
@@ -488,6 +582,8 @@ class GameViewModel(
         val stateBefore = _gameState.value
 
         val selectedMove = pickMove(enemyPositions, enemyPieces, allyPositions, allyPieces)
+        currentCoroutineContext().ensureActive()
+        if (_soloPaused.value) return
         val newPosition = selectedMove.position
         val movingPiece = allyPieces[selectedMove.pieceIndex]
         val preMovePosition = allyPositions[selectedMove.pieceIndex]
@@ -590,6 +686,7 @@ class GameViewModel(
     private var analysisJob: Job? = null
 
     private suspend fun runIdleAnalysis() {
+        if (_soloPaused.value) return
         val engine = chessEngine ?: return
         val state = _gameState.value
         val history = state.moveHistory
@@ -699,6 +796,9 @@ class GameViewModel(
         } else {
             baseAssessment
         }
+
+        currentCoroutineContext().ensureActive()
+        if (_soloPaused.value) return
 
         // Update history safely
         val currentHistory = _gameState.value.moveHistory.toMutableList()

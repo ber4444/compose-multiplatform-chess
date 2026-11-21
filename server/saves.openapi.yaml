@@ -1,0 +1,190 @@
+openapi: 3.1.0
+info:
+  title: Chess solo saves
+  version: "1.0"
+security:
+  - firebaseIdToken: []
+paths:
+  /v1/saves/account:
+    get:
+      summary: Get the verified account
+      responses:
+        "200":
+          description: Current account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Delete the signed-in account and its solo data
+      responses:
+        "204": { description: Account and game data deleted }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/saves/history:
+    get:
+      summary: List up to 50 games in descending save date and ID order
+      parameters:
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: History page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    maxItems: 50
+                    items: { $ref: "#/components/schemas/HistoryItem" }
+                  nextCursor: { type: [string, "null"] }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+  /v1/saves/history/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      summary: Read an owned saved game
+      responses:
+        "200":
+          description: Saved game
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SavedGame" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Create a saved game or acknowledge an identical retry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SavedGame" }
+      responses:
+        "204": { description: Saved }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Remove the game and retain a tombstone to reject stale uploads
+      responses:
+        "204": { description: Deleted }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/saves/current:
+    get:
+      summary: Read the current solo resume slot
+      responses:
+        "200":
+          description: Resume slot and its revision, including when empty
+          headers:
+            ETag: { $ref: "#/components/headers/Revision" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  game:
+                    anyOf:
+                      - { $ref: "#/components/schemas/ResumeGame" }
+                      - { type: "null" }
+    put:
+      summary: Conditionally write the current solo resume slot
+      parameters:
+        - { $ref: "#/components/parameters/IfMatch" }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResumeGame" }
+      responses:
+        "204": { $ref: "#/components/responses/ResumeAcknowledged" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "412": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "428": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Conditionally clear the current solo resume slot
+      parameters:
+        - { $ref: "#/components/parameters/IfMatch" }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      responses:
+        "204": { $ref: "#/components/responses/ResumeAcknowledged" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "412": { $ref: "#/components/responses/Error" }
+        "428": { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    firebaseIdToken: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema: { type: string }
+      example: '"0"'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+  headers:
+    Revision:
+      schema: { type: string }
+      example: '"1"'
+  responses:
+    Error:
+      description: Request failed
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error: { type: string }
+    ResumeAcknowledged:
+      description: Revision assigned to this operation
+      headers:
+        ETag: { $ref: "#/components/headers/Revision" }
+  schemas:
+    Account:
+      type: object
+      required: [uid]
+      properties:
+        uid: { type: string }
+    HistoryItem:
+      type: object
+      required: [id, savedAtEpochMillis, result, white, black, moveCount]
+      properties:
+        id: { type: string }
+        savedAtEpochMillis: { type: integer, minimum: 0 }
+        result: { type: string, enum: ["1-0", "0-1", "1/2-1/2"] }
+        white: { type: string }
+        black: { type: string }
+        moveCount: { type: integer, minimum: 0 }
+    SavedGame:
+      allOf:
+        - { $ref: "#/components/schemas/HistoryItem" }
+        - type: object
+          required: [pgn]
+          properties:
+            pgn: { type: string }
+            moveRecords: { type: array, items: { type: object } }
+            schemaVersion: { type: integer, const: 1, default: 1 }
+    ResumeGame:
+      type: object
+      required: [gameId, playerSide, snapshot]
+      properties:
+        gameId: { type: string }
+        playerSide: { type: string, enum: [WHITE, BLACK] }
+        snapshot:
+          type: object
+          required: [fen]
+          properties:
+            fen: { type: string }
+        schemaVersion: { type: integer, const: 1, default: 1 }

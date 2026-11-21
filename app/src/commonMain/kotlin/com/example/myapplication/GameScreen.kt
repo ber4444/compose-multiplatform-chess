@@ -9,6 +9,7 @@ import com.example.myapplication.board3d.Board3DSessionState
 import com.example.myapplication.board3d.OrbitCameraController
 import com.example.myapplication.persistence.GameActions
 import com.example.myapplication.persistence.GameHistoryRepository
+import com.example.myapplication.persistence.SavedGame
 import com.example.myapplication.persistence.LocalAppSettings
 import com.example.myapplication.share.PgnSharer
 import androidx.compose.animation.core.Animatable
@@ -185,9 +186,11 @@ fun GameScreen(
     switchTopPadding: Dp = 8.dp,
     onOpenHistory: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
-    // Null hides the entry point (the web build has no Chat or Rules).
+    // Null hides the entry point (the web build has no Chat; Rules shows when an answerer exists).
     onOpenRules: (() -> Unit)? = {},
     onOpenChat: (() -> Unit)? = {},
+    onOpenOnline: (() -> Unit)? = null,
+    onSaveFinished: ((SavedGame) -> Unit)? = null,
     belowBoard: (@Composable () -> Unit)? = null,
 ) {
     val gameState by viewModel.gameState.collectAsState()
@@ -341,22 +344,26 @@ fun GameScreen(
                 // Save / Share PGN (issue #39 Phase 3). Save writes to GameHistory; Share routes
                 // through the platform PgnSharer. Both hidden when there's no gameHistory (Save) /
                 // no pgnSharer (Share) — mirroring the board3D-null gating.
-                if (gameHistory != null || pgnSharer != null) {
+                if (gameHistory != null || onSaveFinished != null || pgnSharer != null) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (gameHistory != null) {
+                        if (gameHistory != null || onSaveFinished != null) {
+                            var saveFailed by remember { mutableStateOf(false) }
                             Button(
                                 modifier = Modifier
                                     .padding(5.dp)
                                     .testTag("save_game_button"),
                                 enabled = !gameSaved,
                                 onClick = {
-                                    val saved = GameActions.toSavedGame(gameState, viewModel.engineAttached, playerSide = viewModel.playerSide)
-                                    gameHistory.add(saved)
-                                    gameSaved = true
+                                    val saved = GameActions.toSavedGame(gameState, viewModel.engineAttached, playerSide = viewModel.playerSide, opponent = viewModel.opponentName)
+                                    gameSaved = runCatching {
+                                        if (onSaveFinished != null) onSaveFinished(saved)
+                                        else gameHistory?.add(saved)
+                                    }.isSuccess
+                                    saveFailed = !gameSaved
                                 }
                             ) {
-                                Text(if (gameSaved) "Saved" else "Save game")
+                                Text(if (gameSaved) "Saved" else if (saveFailed) "Retry save" else "Save game")
                             }
                         }
                         if (pgnSharer != null) {
@@ -365,7 +372,7 @@ fun GameScreen(
                                     .padding(5.dp)
                                     .testTag("share_pgn_button"),
                                 onClick = {
-                                    val pgn = GameActions.toPgn(gameState, viewModel.engineAttached, playerSide = viewModel.playerSide)
+                                    val pgn = GameActions.toPgn(gameState, viewModel.engineAttached, playerSide = viewModel.playerSide, opponent = viewModel.opponentName)
                                     pgnSharer.share(pgn, "game-${PgnSerializer.resultToken(gameState.winState)}.pgn")
                                 }
                             ) {
@@ -633,8 +640,8 @@ fun GameScreen(
             }
         }
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            horizontalAlignment = Alignment.End,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .zIndex(1f)
@@ -642,53 +649,60 @@ fun GameScreen(
                 .offset(y = switchTopPadding)
                 .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
         ) {
-            if (onOpenChat != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onOpenChat != null) {
+                    TextButton(
+                        onClick = onOpenChat,
+                        modifier = Modifier.testTag("open_chat_button")
+                    ) {
+                        Text(
+                            text = "Chat",
+                            color = THREE_D_CONTROL_ACCENT_COLOR,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+                if (onOpenRules != null) {
+                    TextButton(
+                        onClick = onOpenRules,
+                        modifier = Modifier.testTag("open_rules_button")
+                    ) {
+                        Text(
+                            text = "Rules",
+                            color = THREE_D_CONTROL_ACCENT_COLOR,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+                // Settings + History entry points (issue #39). The 3D toggle moved to SettingsScreen.
                 TextButton(
-                    onClick = onOpenChat,
-                    modifier = Modifier.testTag("open_chat_button")
+                    onClick = onOpenSettings,
+                    modifier = Modifier.testTag("open_settings_button")
                 ) {
                     Text(
-                        text = "Chat",
+                        text = "Settings",
                         color = THREE_D_CONTROL_ACCENT_COLOR,
                         style = MaterialTheme.typography.labelLarge
                     )
                 }
                 Spacer(modifier = Modifier.width(4.dp))
-            }
-            if (onOpenRules != null) {
                 TextButton(
-                    onClick = onOpenRules,
-                    modifier = Modifier.testTag("open_rules_button")
+                    onClick = onOpenHistory,
+                    modifier = Modifier.testTag("open_history_button")
                 ) {
                     Text(
-                        text = "Rules",
+                        text = "History",
                         color = THREE_D_CONTROL_ACCENT_COLOR,
                         style = MaterialTheme.typography.labelLarge
                     )
                 }
-                Spacer(modifier = Modifier.width(4.dp))
             }
-            // Settings + History entry points (issue #39). The 3D toggle moved to SettingsScreen.
-            TextButton(
-                onClick = onOpenSettings,
-                modifier = Modifier.testTag("open_settings_button")
-            ) {
-                Text(
-                    text = "Settings",
-                    color = THREE_D_CONTROL_ACCENT_COLOR,
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-            Spacer(modifier = Modifier.width(4.dp))
-            TextButton(
-                onClick = onOpenHistory,
-                modifier = Modifier.testTag("open_history_button")
-            ) {
-                Text(
-                    text = "History",
-                    color = THREE_D_CONTROL_ACCENT_COLOR,
-                    style = MaterialTheme.typography.labelLarge
-                )
+            if (onOpenOnline != null) {
+                TextButton(onClick = onOpenOnline, modifier = Modifier.testTag("open_online_button")) {
+                    Text("Play Online", color = THREE_D_CONTROL_ACCENT_COLOR)
+                }
             }
         }
     }

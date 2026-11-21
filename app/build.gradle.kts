@@ -7,6 +7,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.compose.ExperimentalComposeLibrary
 import org.jetbrains.kotlin.gradle.tasks.Kotlin2JsCompile
 import java.io.File
+import java.net.URI
+import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
@@ -33,6 +35,55 @@ configurations.all {
     }
 }
 
+
+// One ONNX Runtime version for every JVM consumer (:server pins the same release).
+val onnxRuntimeVersion = "1.22.0"
+
+// LiteRT for Maia-3 on iOS: the TFLite C framework from the last stable iOS release (2.17.0, the
+// CocoaPods `TensorFlowLiteC` artifact). Static, so the K/N test binary links it directly and the
+// Xcode app links it next to the static ChessApp framework (iosApp/project.yml). The archive is
+// 80 MB, so it is cached in the Gradle home and survives `clean`; only the xcframework is extracted.
+val liteRtIosVersion = "2.17.0"
+val liteRtIosUrl = "https://dl.google.com/tflite-release/ios/prod/tensorflow/lite/release/ios/release/32/" +
+    "20240729-115310/TensorFlowLiteC/2.17.0/0c10b3543e01f547/TensorFlowLiteC-2.17.0.tar.gz"
+val liteRtIosSha256 = "9667b476015f136e5b332ce040e12822c4ac6d5c58947882ddc809cdff0fb99e"
+val liteRtIosDir = layout.buildDirectory.dir("litert-ios")
+val fetchLiteRtIos by tasks.registering {
+    description = "Downloads and SHA-256-checks the TensorFlowLiteC xcframework for Maia-3 on iOS."
+    val cache = File(gradle.gradleUserHomeDir, "caches/litert-ios/TensorFlowLiteC-$liteRtIosVersion.tar.gz")
+    inputs.property("sha256", liteRtIosSha256)
+    outputs.dir(liteRtIosDir)
+    doLast {
+        fun sha256(file: File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().buffered().use { input ->
+                val buffer = ByteArray(1 shl 20)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
+        if (!cache.isFile || sha256(cache) != liteRtIosSha256) {
+            cache.parentFile.mkdirs()
+            val partial = File(cache.path + ".part")
+            URI(liteRtIosUrl).toURL().openStream().use { input -> partial.outputStream().use { output -> input.copyTo(output) } }
+            check(sha256(partial) == liteRtIosSha256) { "TensorFlowLiteC $liteRtIosVersion download failed its SHA-256 check" }
+            check(partial.renameTo(cache) || (cache.delete() && partial.renameTo(cache))) { "Could not move $partial into place" }
+        }
+        val out = liteRtIosDir.get().asFile
+        out.deleteRecursively()
+        copy {
+            from(tarTree(resources.gzip(cache)))
+            include("TensorFlowLiteC-$liteRtIosVersion/Frameworks/TensorFlowLiteC.xcframework/**")
+            eachFile { path = path.substringAfter("Frameworks/") }
+            includeEmptyDirs = false
+            into(out)
+        }
+    }
+}
 
 kotlin {
 
@@ -81,6 +132,12 @@ kotlin {
     }
 
     iosArm64 {
+        val liteRtSlice = liteRtIosDir.get().dir("TensorFlowLiteC.xcframework/ios-arm64").asFile
+        compilations.getByName("main").cinterops.create("tflite") {
+            definitionFile.set(project.file("src/nativeInterop/cinterop/tflite.def"))
+            compilerOpts("-F$liteRtSlice")
+        }
+        binaries.all { linkerOpts("-F$liteRtSlice", "-framework", "TensorFlowLiteC", "-lc++") }
         binaries.framework {
             baseName = "ChessApp"
             isStatic = true
@@ -100,6 +157,12 @@ kotlin {
         }
     }
     iosSimulatorArm64 {
+        val liteRtSlice = liteRtIosDir.get().dir("TensorFlowLiteC.xcframework/ios-arm64_x86_64-simulator").asFile
+        compilations.getByName("main").cinterops.create("tflite") {
+            definitionFile.set(project.file("src/nativeInterop/cinterop/tflite.def"))
+            compilerOpts("-F$liteRtSlice")
+        }
+        binaries.all { linkerOpts("-F$liteRtSlice", "-framework", "TensorFlowLiteC", "-lc++") }
         binaries.framework {
             baseName = "ChessApp"
             isStatic = true
@@ -146,6 +209,7 @@ kotlin {
             implementation(libs.compose.ui.backhandler)
             implementation(libs.kermit)
             api(project(":ondeviceai"))
+            implementation(project(":saveapi"))
             implementation(libs.multiplatform.settings)
             implementation(libs.multiplatform.settings.coroutines)
             implementation(libs.kotlinx.serialization.json)
@@ -173,6 +237,9 @@ kotlin {
             implementation(libs.androidx.core.ktx)
             implementation(libs.androidx.lifecycle.runtime.compose)
             implementation(libs.sceneview)
+            // Maia-3 on Android (explorer/LiteRtMaiaRuntime.android.kt). 5.9 MB uncompressed on arm64,
+            // against ONNX Runtime's 18.2 MB; the AAR carries its own R8 rules.
+            implementation("com.google.ai.edge.litert:litert:2.4.0")
         }
 
         jvmCommonMain.dependencies {
@@ -198,6 +265,10 @@ kotlin {
             dependsOn(jvmCommonMain)
             dependencies {
                 implementation(compose.desktop.currentOs)
+                // Maia-3 on desktop (explorer/OrtMaiaRuntime.kt): LiteRT has no desktop JVM runtime.
+                // The jar is ~139 MB because it carries every OS's native library, the same trade
+                // the desktop build already makes for litertlm-jvm.
+                implementation("com.microsoft.onnxruntime:onnxruntime:$onnxRuntimeVersion")
             }
         }
 
@@ -241,9 +312,19 @@ val openingExplainerBaseUrl = providers.provider {
         } else null
     } ?: "https://compose-chess-opening-coach.fly.dev"
 }
+val gameServiceConfig = mapOf(
+    "LICHESS_MULTIPLAYER_ENABLED" to providers.environmentVariable("CHESS_ENABLE_MULTIPLAYER").map { it == "1" }.orElse(false),
+    "SOLO_HISTORY_SYNC_ENABLED" to providers.environmentVariable("CHESS_ENABLE_SOLO_HISTORY_SYNC").map { it == "1" }.orElse(false),
+    "SOLO_RESUME_SYNC_ENABLED" to providers.environmentVariable("CHESS_ENABLE_SOLO_RESUME_SYNC").map { it == "1" }.orElse(false),
+)
+val firebaseWebApiKey = providers.environmentVariable("CHESS_FIREBASE_WEB_API_KEY").orElse("")
+val savesBaseUrl = providers.environmentVariable("CHESS_SAVES_BASE_URL").orElse("")
 val openingExplainerConfigDir = layout.buildDirectory.dir("generated/openingExplainer/commonMain/kotlin")
 val generateOpeningExplainerConfig by tasks.registering {
     inputs.property("baseUrl", openingExplainerBaseUrl)
+    gameServiceConfig.forEach { (name, value) -> inputs.property(name, value) }
+    inputs.property("firebaseWebApiKey", firebaseWebApiKey)
+    inputs.property("savesBaseUrl", savesBaseUrl)
     outputs.dir(openingExplainerConfigDir)
     doLast {
         val packageDir = openingExplainerConfigDir.get().dir("com/example/myapplication/opening").asFile
@@ -254,6 +335,18 @@ val generateOpeningExplainerConfig by tasks.registering {
             .replace("\$", "\\\$")
             .replace("\r", "\\r")
             .replace("\n", "\\n")
+        val key = firebaseWebApiKey.get()
+        val savesUrl = savesBaseUrl.get()
+        require(key.matches(Regex("[A-Za-z0-9_-]*"))) { "Invalid Firebase Web API key format" }
+        require(savesUrl.matches(Regex("(?:https?://[A-Za-z0-9.:/-]+)?"))) { "Invalid saves base URL" }
+        val features = gameServiceConfig.entries.joinToString("\n") { (name, value) ->
+            "internal const val $name: Boolean = ${value.get()}"
+        }
+        packageDir.resolve("GameServiceBuildConfig.kt").writeText(
+            "package com.example.myapplication.opening\n\n" + features +
+                "\ninternal const val FIREBASE_WEB_API_KEY: String = \"$key\"\n" +
+                "internal const val SOLO_SAVES_BASE_URL: String = \"$savesUrl\"\n",
+        )
         packageDir.resolve("OpeningExplainerBuildConfig.kt").writeText(
             """
             package com.example.myapplication.opening
@@ -429,6 +522,7 @@ compose.desktop {
             packageVersion = "1.0.0"
             appResourcesRootDir.set(desktopFilamentPackageResources)
             targetFormats(TargetFormat.Deb, TargetFormat.Dmg)
+            modules("jdk.httpserver")
         }
     }
 }
@@ -457,3 +551,7 @@ tasks.configureEach {
         }
     }
 }
+
+// The cinterop step reads the TFLite C headers, and every iOS link needs the framework.
+tasks.matching { it.name.startsWith("cinteropTflite") || (it.name.startsWith("link") && it.name.contains("Ios")) }
+    .configureEach { dependsOn(fetchLiteRtIos) }
