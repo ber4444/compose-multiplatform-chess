@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 
 import com.example.myapplication.board3d.Board3DSupport
 import com.example.myapplication.persistence.GameHistoryRepository
+import com.example.myapplication.persistence.SavedGame
 import com.example.myapplication.share.PgnSharer
 
 @Composable
@@ -26,6 +27,8 @@ fun ChessApp(
     onOpenSettings: () -> Unit = {},
     onOpenRules: () -> Unit = {},
     onOpenChat: () -> Unit = {},
+    onOpenOnline: (() -> Unit)? = null,
+    onSaveFinished: ((SavedGame) -> Unit)? = null,
 ) {
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -48,6 +51,8 @@ fun ChessApp(
                 onOpenSettings = onOpenSettings,
                 onOpenRules = onOpenRules,
                 onOpenChat = onOpenChat,
+                onOpenOnline = onOpenOnline,
+                onSaveFinished = onSaveFinished,
             )
         }
     }

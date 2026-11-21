@@ -1,0 +1,18 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "history",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "deleted", "order": "ASCENDING" },
+        { "fieldPath": "savedAtEpochMillis", "order": "DESCENDING" },
+        { "fieldPath": "id", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    { "collectionGroup": "history", "fieldPath": "payload", "indexes": [] },
+    { "collectionGroup": "state", "fieldPath": "payload", "indexes": [] },
+    { "collectionGroup": "state", "fieldPath": "receipts", "indexes": [] }
+  ]
+}

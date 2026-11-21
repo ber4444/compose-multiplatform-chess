@@ -27,6 +27,7 @@ data class SavedGame(
     val moveCount: Int,
     val pgn: String,
     val moveRecords: List<MoveRecord> = emptyList(),
+    val lichessGameId: String? = null,
 )
 
 /**
@@ -46,7 +47,9 @@ class GameHistoryRepository(
 
     /** Prepends [game], persists, and updates the flow. Drops the oldest entry past the cap. */
     fun add(game: SavedGame) {
-        val updated = (listOf(game) + _games.value).take(MAX_GAMES)
+        val previous = _games.value
+        val games = game.lichessGameId?.let { id -> previous.filterNot { it.lichessGameId == id } } ?: previous
+        val updated = (listOf(game) + games).take(MAX_GAMES)
         persist(updated)
     }
 

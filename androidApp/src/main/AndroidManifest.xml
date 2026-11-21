@@ -22,6 +22,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name="com.example.myapplication.multiplayer.LichessOAuthCallbackActivity"
+            android:exported="true"
+            android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="io.github.ber4444.chess"
+                    android:host="oauth"
+                    android:path="/lichess" />
+            </intent-filter>
+        </activity>
     </application>
 
 </manifest>

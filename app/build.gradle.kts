@@ -137,6 +137,7 @@ kotlin {
             implementation(libs.compose.ui.backhandler)
             implementation(libs.kermit)
             api(project(":ondeviceai"))
+            implementation(project(":saveapi"))
             implementation(libs.multiplatform.settings)
             implementation(libs.multiplatform.settings.coroutines)
             implementation(libs.kotlinx.serialization.json)
@@ -171,6 +172,7 @@ kotlin {
         }
 
         val androidDeviceTest by getting {
+            kotlin.srcDir("src/mobileUiTest/kotlin")
             dependencies {
                 implementation(libs.androidx.test.ext.junit)
                 implementation(libs.androidx.espresso.device)
@@ -209,6 +211,7 @@ kotlin {
         val iosSimulatorArm64Main by getting { dependsOn(iosMain) }
 
         val iosSimulatorArm64Test by getting {
+            kotlin.srcDir("src/mobileUiTest/kotlin")
             dependencies {
                 @OptIn(ExperimentalComposeLibrary::class)
                 implementation(compose.uiTest)
@@ -230,9 +233,19 @@ val openingExplainerBaseUrl = providers.provider {
         } else null
     } ?: "https://compose-chess-opening-coach.fly.dev"
 }
+val gameServiceConfig = mapOf(
+    "LICHESS_MULTIPLAYER_ENABLED" to providers.environmentVariable("CHESS_ENABLE_MULTIPLAYER").map { it == "1" }.orElse(false),
+    "SOLO_HISTORY_SYNC_ENABLED" to providers.environmentVariable("CHESS_ENABLE_SOLO_HISTORY_SYNC").map { it == "1" }.orElse(false),
+    "SOLO_RESUME_SYNC_ENABLED" to providers.environmentVariable("CHESS_ENABLE_SOLO_RESUME_SYNC").map { it == "1" }.orElse(false),
+)
+val firebaseWebApiKey = providers.environmentVariable("CHESS_FIREBASE_WEB_API_KEY").orElse("")
+val savesBaseUrl = providers.environmentVariable("CHESS_SAVES_BASE_URL").orElse("")
 val openingExplainerConfigDir = layout.buildDirectory.dir("generated/openingExplainer/commonMain/kotlin")
 val generateOpeningExplainerConfig by tasks.registering {
     inputs.property("baseUrl", openingExplainerBaseUrl)
+    gameServiceConfig.forEach { (name, value) -> inputs.property(name, value) }
+    inputs.property("firebaseWebApiKey", firebaseWebApiKey)
+    inputs.property("savesBaseUrl", savesBaseUrl)
     outputs.dir(openingExplainerConfigDir)
     doLast {
         val packageDir = openingExplainerConfigDir.get().dir("com/example/myapplication/opening").asFile
@@ -243,6 +256,18 @@ val generateOpeningExplainerConfig by tasks.registering {
             .replace("\$", "\\\$")
             .replace("\r", "\\r")
             .replace("\n", "\\n")
+        val key = firebaseWebApiKey.get()
+        val savesUrl = savesBaseUrl.get()
+        require(key.matches(Regex("[A-Za-z0-9_-]*"))) { "Invalid Firebase Web API key format" }
+        require(savesUrl.matches(Regex("(?:https?://[A-Za-z0-9.:/-]+)?"))) { "Invalid saves base URL" }
+        val features = gameServiceConfig.entries.joinToString("\n") { (name, value) ->
+            "internal const val $name: Boolean = ${value.get()}"
+        }
+        packageDir.resolve("GameServiceBuildConfig.kt").writeText(
+            "package com.example.myapplication.opening\n\n" + features +
+                "\ninternal const val FIREBASE_WEB_API_KEY: String = \"$key\"\n" +
+                "internal const val SOLO_SAVES_BASE_URL: String = \"$savesUrl\"\n",
+        )
         packageDir.resolve("OpeningExplainerBuildConfig.kt").writeText(
             """
             package com.example.myapplication.opening
@@ -418,6 +443,7 @@ compose.desktop {
             packageVersion = "1.0.0"
             appResourcesRootDir.set(desktopFilamentPackageResources)
             targetFormats(TargetFormat.Deb, TargetFormat.Dmg)
+            modules("jdk.httpserver")
         }
     }
 }
