@@ -66,3 +66,25 @@ class LichessAuthTest {
         }
     }
 }
+
+class LichessProfileRatingTest {
+    private fun profile(json: String) = lichessJson.decodeFromString<LichessProfile>(json)
+
+    @Test
+    fun explorerRatingPrefersEstablishedRatingWithMostGames() {
+        val p = profile(
+            """{"id":"a","username":"A","perfs":{
+                "bullet":{"rating":2400,"games":900},
+                "blitz":{"rating":1500,"games":300},
+                "rapid":{"rating":1700,"games":40},
+                "classical":{"rating":1900,"games":2000,"prov":true}}}""",
+        )
+        assertEquals(1500, p.explorerRating)
+    }
+
+    @Test
+    fun newAccountHasNoExplorerRating() {
+        assertEquals(null, profile("""{"id":"a","username":"A"}""").explorerRating)
+        assertEquals(null, profile("""{"id":"a","username":"A","perfs":{"blitz":{"rating":1500,"games":0}}}""").explorerRating)
+    }
+}

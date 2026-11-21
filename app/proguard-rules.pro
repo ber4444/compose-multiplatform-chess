@@ -19,3 +19,9 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# ONNX Runtime (Maia-3 human-move predictions). Its JNI layer resolves these classes and members by
+# their original names, and the AAR ships no consumer rules: renaming them aborts in
+# GetMethodID/FindClass the first time the History explorer runs Maia.
+-keep class ai.onnxruntime.** { *; }
+-keep interface ai.onnxruntime.** { *; }
+-keep enum ai.onnxruntime.** { *; }

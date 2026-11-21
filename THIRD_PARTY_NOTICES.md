@@ -79,6 +79,33 @@ fetches Filament xcframeworks with `tools/fetch_filament_ios.sh`. Android uses F
 
 - https://github.com/google/filament
 
+## ONNX Runtime
+
+The Android and desktop builds run the Maia-3 model through ONNX Runtime
+(`com.microsoft.onnxruntime:onnxruntime-android` and `com.microsoft.onnxruntime:onnxruntime`),
+licensed under MIT.
+
+- https://github.com/microsoft/onnxruntime
+
+## Maia-3
+
+- Project: <https://github.com/CSSLab/maia3>
+- Model: <https://huggingface.co/UofTCSSLab/Maia3-5M>
+- Copyright: University of Toronto CSSLab contributors
+- Licence: GNU Affero General Public License v3.0
+
+`app/src/jvmCommonMain/resources/maia/maia3-5m.onnx` is a converted form of the released Maia-3 5M
+checkpoint. It adds no training data and does not change the learned weights. It is bundled into
+the Android and desktop builds. Exact revisions, checkpoint and conversion hashes, and reproduction
+instructions are in [docs/maia3-model-provenance.md](docs/maia3-model-provenance.md). The
+conversion tool is `tools/maia3/export_onnx.py`.
+
+`app/src/commonMain/kotlin/com/example/myapplication/explorer/MaiaEncoder.kt` adapts Maia-3's input
+and output encoding (`maia3/dataset.py`, `maia3/utils.py`) to Kotlin. `MaiaGolden.kt` holds
+reference outputs that `tools/maia3/make_golden.py` generates from the checkpoint. Both remain under
+the AGPL-3.0, combined with this GPL-3.0-or-later app as section 13 of both licences permits; see
+COPYING.md.
+
 ## Lichess Chess Openings
 
 The opening explainer corpus includes the checked-in `a.tsv` through `e.tsv` files from

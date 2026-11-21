@@ -69,4 +69,13 @@ class GameActionsTest {
         assertEquals(1, saved.moveCount)
         assertTrue("e4" in saved.pgn)
     }
+
+    @Test
+    fun `the opponent name overrides the engine default in tags and saved game`() {
+        val state = GameUiState(winState = WinState.BLACK)
+        assertEquals("Maia-3 (1400–1599)", GameActions.pgnTags(state, engineAttached = true, opponent = "Maia-3 (1400–1599)").black)
+        val saved = GameActions.toSavedGame(state, engineAttached = true, savedAtEpochMillis = 1, opponent = "Maia-3 (1400–1599)")
+        assertEquals("Maia-3 (1400–1599)", saved.black)
+        kotlin.test.assertTrue("[Black \"Maia-3 (1400–1599)\"]" in saved.pgn)
+    }
 }

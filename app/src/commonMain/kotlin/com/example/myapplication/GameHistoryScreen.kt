@@ -33,6 +33,9 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.myapplication.explorer.HumanMoveExplorer
+import com.example.myapplication.explorer.HumanMovesPanel
+import com.example.myapplication.explorer.RatingBand
 import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.persistence.SavedGame
 import com.example.myapplication.share.PgnSharer
@@ -51,6 +54,8 @@ fun GameHistoryScreen(
     pgnSharer: PgnSharer? = null,
     onBack: () -> Unit,
     extraHistory: (@Composable (List<SavedGame>, (SavedGame) -> Unit) -> Unit)? = null,
+    humanMoves: HumanMoveExplorer? = null,
+    humanMovesBand: RatingBand = RatingBand.R1400,
 ) {
     val games by gameHistory.games.collectAsState()
     var selectedGame by remember { mutableStateOf<SavedGame?>(null) }
@@ -74,6 +79,8 @@ fun GameHistoryScreen(
             GameHistoryDetail(
                 game = current,
                 pgnSharer = pgnSharer,
+                humanMoves = humanMoves,
+                humanMovesBand = humanMovesBand,
             )
         }
     }
@@ -174,6 +181,8 @@ private fun GameHistoryRow(
 private fun GameHistoryDetail(
     game: SavedGame,
     pgnSharer: PgnSharer?,
+    humanMoves: HumanMoveExplorer?,
+    humanMovesBand: RatingBand,
 ) {
     val uriHandler = LocalUriHandler.current
     Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
@@ -181,6 +190,12 @@ private fun GameHistoryDetail(
             "${game.white} vs ${game.black}  •  ${game.result}",
             style = MaterialTheme.typography.titleMedium,
         )
+        // Null unless some source can answer (AppRoot decides), and a Lichess archive copy has no
+        // move records, so neither case renders a panel that could only say "unavailable".
+        if (humanMoves != null && game.moveRecords.isNotEmpty()) {
+            Spacer(modifier = Modifier.padding(6.dp))
+            HumanMovesPanel(game.moveRecords, humanMoves, humanMovesBand)
+        }
         Spacer(modifier = Modifier.padding(6.dp))
         // The PGN text. heightIn(min) keeps it scrollable/visible on small screens; the surfaceVariant
         // card makes the selectable text block visually distinct.

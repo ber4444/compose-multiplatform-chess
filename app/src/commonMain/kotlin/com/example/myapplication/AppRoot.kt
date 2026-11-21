@@ -36,6 +36,13 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.board3d.Board3DSupport
+import com.example.myapplication.explorer.HumanMoveExplorer
+import com.example.myapplication.explorer.KtorLichessOpeningExplorer
+import com.example.myapplication.explorer.MaiaHumanMovePredictor
+import com.example.myapplication.explorer.MaiaOpponent
+import com.example.myapplication.explorer.RatingBand
+import com.example.myapplication.explorer.maiaRuntimeFactory
+import com.example.myapplication.explorer.forReview
 import com.example.myapplication.multiplayer.LichessArchiveClient
 import com.example.myapplication.multiplayer.LichessAuth
 import com.example.myapplication.multiplayer.LichessBoardClient
@@ -64,6 +71,7 @@ import com.example.myapplication.chat.createPositionChat
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.persistence.LocalAppSettings
+import com.example.myapplication.persistence.Opponent
 import com.example.myapplication.share.PgnSharer
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.example.myapplication.movecoach.MoveCoachManager
@@ -161,6 +169,29 @@ fun AppRoot(
     val onlineState = online?.state?.collectAsState()?.value
     val assistanceBlocked = onlineState?.assistanceBlocked == true
     val archive = remember(onlineHttp) { onlineHttp?.let { LichessArchiveClient(it, lichessGate) } }
+    // One Maia predictor, so one model load, shared by the History explorer and the Maia opponent.
+    // Null where the platform has no runtime (iOS, web). Nothing loads until the first prediction.
+    val maiaPredictor = remember { maiaRuntimeFactory()?.let { MaiaHumanMovePredictor(it) } }
+    DisposableEffect(maiaPredictor) { onDispose { maiaPredictor?.close() } }
+    // Lichess explorer first (needs the signed-in token), Maia-3 where this platform has a runtime.
+    val humanMoveExplorer = remember(onlineHttp, online, maiaPredictor) {
+        HumanMoveExplorer(
+            lichess = onlineHttp?.let { KtorLichessOpeningExplorer(it) },
+            maia = maiaPredictor,
+            lichessToken = { online?.explorerToken() },
+        )
+    }
+    // Settings → Opponent. Only the move choice moves to Maia; Stockfish stays attached for hints,
+    // coach assessments and draw offers. Online games are unaffected: their opponent is a person.
+    val opponent by settings.opponent.collectAsState()
+    // The same Easy/Medium/Hard/Max setting sets Maia's strength, mapped to a rating band.
+    val opponentDifficulty by settings.engineDifficulty.collectAsState()
+    DisposableEffect(viewModel, maiaPredictor, opponent, opponentDifficulty) {
+        val chooser = maiaPredictor?.takeIf { opponent == Opponent.MAIA }
+            ?.let { MaiaOpponent(it, RatingBand.forDifficulty(opponentDifficulty)) }
+        viewModel.setOpponentMoveChooser(chooser)
+        onDispose { viewModel.setOpponentMoveChooser(null) }
+    }
     val archiveCache = remember { LichessHistoryCache() }
     val cloudSync = remember(settings) {
         if ((SOLO_HISTORY_SYNC_ENABLED || SOLO_RESUME_SYNC_ENABLED) &&
@@ -299,6 +330,7 @@ fun AppRoot(
                     },
                 )
                 Screen.HISTORY -> if (gameHistory != null) {
+                    val difficulty by settings.engineDifficulty.collectAsState()
                     GameHistoryScreen(
                         gameHistory = gameHistory,
                         pgnSharer = pgnSharer,
@@ -312,6 +344,10 @@ fun AppRoot(
                                 if (cloudSync != null) CloudSaveHistory(cloudSync, onOpen)
                             }
                         } else null,
+                        // Read here, in composition, so signing in or out re-decides availability.
+                        humanMoves = humanMoveExplorer.forReview(assistanceBlocked),
+                        humanMovesBand = onlineState?.profile?.explorerRating?.let(RatingBand::forRating)
+                            ?: RatingBand.forDifficulty(difficulty),
                     )
                 } else {
                     SubScreenScaffold(title = "Game History", onBack = { screen = Screen.GAME }) {
@@ -321,6 +357,7 @@ fun AppRoot(
                 Screen.SETTINGS -> SettingsScreen(
                     onBack = { screen = Screen.GAME },
                     board3D = board3D,
+                    maiaAvailable = maiaPredictor != null,
                     onOpenLicenses = { screen = Screen.LICENSES },
                     extraSettings = cloudSync?.let { sync ->
                         {
