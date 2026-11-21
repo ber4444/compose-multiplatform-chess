@@ -1,5 +1,7 @@
 package com.example.myapplication
 
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlin.test.assertTrue
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -336,13 +338,15 @@ class GameViewModelTest {
      */
     @Test
     fun `hint restores the configured difficulty even when the hint job is cancelled`() = kotlinx.coroutines.test.runTest {
-        val configured = mutableListOf<EngineDifficulty>()
+        // A StateFlow, not a list: the attach-time configure below runs on the view model's own
+        // Dispatchers.Default scope, so it writes from another thread.
+        val configured = kotlinx.coroutines.flow.MutableStateFlow(emptyList<EngineDifficulty>())
         val engine = object : ChessEngine {
             // A real UCI configure suspends (process write plus an `isready` round trip), which is
             // exactly what let a cancelled coroutine abandon the restore.
             override suspend fun configure(difficulty: EngineDifficulty) {
                 kotlinx.coroutines.delay(10)
-                configured += difficulty
+                configured.update { it + difficulty }
             }
 
             override suspend fun getBestMove(fen: String, thinkTimeMs: Long?): BestMoveResult? {
@@ -354,22 +358,28 @@ class GameViewModelTest {
         }
         val vm = GameViewModel(initialEngineDifficulty = EngineDifficulty.EASY)
         vm.attachEngine(engine)
-        testScheduler.advanceUntilIdle()
-        configured.clear()
+        // attachEngine applies the starting difficulty on the view model's own scope, which this
+        // test's scheduler does not drive, so advanceUntilIdle() cannot wait for it. Wait for it
+        // in real time instead. Without this, on a slow CI runner the EASY landed after the clear
+        // and the next assertion read [EASY, HARD].
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            kotlinx.coroutines.withTimeout(5_000) { configured.first { EngineDifficulty.EASY in it } }
+        }
+        configured.value = emptyList()
 
         val hint = backgroundScope.launch { vm.computeHintDirectly() }
         // Far enough in to have raised the engine to HARD, still inside the long search.
         testScheduler.advanceTimeBy(50)
-        assertEquals(listOf(EngineDifficulty.HARD), configured, "Hint should have raised the engine")
+        assertEquals(listOf(EngineDifficulty.HARD), configured.value, "Hint should have raised the engine")
 
         // The impatient player taps Hint again (or leaves the screen), cancelling this job.
         hint.cancelAndJoin()
 
         assertEquals(
             EngineDifficulty.EASY,
-            configured.lastOrNull(),
-            "Engine was left at ${configured.lastOrNull()} after a cancelled hint; expected the " +
-                "player's EASY setting to be restored. Sequence: $configured",
+            configured.value.lastOrNull(),
+            "Engine was left at ${configured.value.lastOrNull()} after a cancelled hint; expected the " +
+                "player's EASY setting to be restored. Sequence: ${configured.value}",
         )
     }
 
