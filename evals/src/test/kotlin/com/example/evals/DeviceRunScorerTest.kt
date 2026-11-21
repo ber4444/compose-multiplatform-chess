@@ -131,4 +131,32 @@ class DeviceRunScorerTest {
     fun `a coach run is not mistaken for a summary run`() {
         assertEquals(2, report(fixture.readLines()).scored)
     }
+
+    @Test
+    fun `summary scoring replays rejected text with the assessed black plies`() {
+        val history = """[
+            {"uci":"e2e4","san":"e4","fenAfter":""},
+            {"uci":"e7e5","san":"e5","fenAfter":"","assessment":{
+                "cpBefore":0,"cpPlayed":200,"cpBest":0,"cpLoss":200,
+                "moveClass":"MISTAKE","motifs":[],"bestMoveSan":"e6"}}
+        ]"""
+        val row = """{"gameId":"game-001","playerSide":"BLACK","engineDifficultyName":"HARD",
+            "pgn":"1. e4 e5","moveHistory":$history,"plies":2,"elapsedMs":10500,"kind":"FellBack",
+            "deterministicSummary":"One moment decided this game. [move-2]: You played e5.",
+            "modelSummary":"One moment decided this game. [move-2]: You played e5.",
+            "validation":{"rawText":"You played e5 at [move-2]. Then [move-9]",
+            "validatorInput":"You played e5 at [move-2].","accepted":false}}
+        """.filterNot { it == '\n' }
+        val path = createTempFile(suffix = ".jsonl").also { it.writeText(row) }
+        try {
+            val report = scoreSummaryDeviceRun(path)
+            assertEquals(1, report.accepted)
+            assertEquals(1, report.baselineAccepted)
+            assertEquals(1, report.inventedCitationRows)
+            assertEquals(listOf("game-001"), report.disagreements)
+            assertEquals(10500L, report.p95Ms)
+        } finally {
+            java.nio.file.Files.delete(path)
+        }
+    }
 }

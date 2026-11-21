@@ -1,11 +1,11 @@
 package com.example.myapplication.bench
 
-import com.example.myapplication.MotifDetector
 import com.example.myapplication.MoveAssessor
 import com.example.myapplication.MoveRecord
 import com.example.myapplication.Set
 import com.example.ondeviceai.GameSummaryGrounding
 import com.example.ondeviceai.GameSummaryRequest
+import com.example.ondeviceai.GameSummaryValidationSample
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -123,15 +123,57 @@ object SummaryFixtures {
         // Never just the kind. "FellBack" conflates "no route", "the model errored" and "it wrote
         // something rejected", and on this surface the first is invisible without the reason.
         fallbackReason: String? = null,
-    ): String = """{"gameId":${quote(fixture.id)},"plies":${fixture.request.moveHistory.size},""" +
-        """"playerBlunders":${fixture.playerBlunders},"result":${quote(fixture.result)},""" +
-        """"modelIdentifier":${quote(modelIdentifier)},"deviceModel":${quote(deviceModel)},""" +
-        """"osVersion":${quote(osVersion)},"kind":${quote(kind)},"elapsedMs":$elapsedMs,""" +
-        """"fallbackReason":${fallbackReason?.let { quote(it) } ?: "null"},""" +
-        """"deterministicSummary":${quote(fixture.deterministicSummary)},""" +
-        """"pgn":${quote(fixture.request.pgn)},"modelSummary":${quote(text)}}"""
+        validation: GameSummaryValidationSample? = null,
+    ): String = json.encodeToString(
+        SummaryBenchRow(
+            gameId = fixture.id,
+            plies = fixture.request.moveHistory.size,
+            playerBlunders = fixture.playerBlunders,
+            result = fixture.result,
+            modelIdentifier = modelIdentifier,
+            deviceModel = deviceModel,
+            osVersion = osVersion,
+            kind = kind,
+            elapsedMs = elapsedMs,
+            fallbackReason = fallbackReason,
+            deterministicSummary = fixture.deterministicSummary,
+            pgn = fixture.request.pgn,
+            modelSummary = text,
+            moveHistory = fixture.request.moveHistory,
+            playerSide = fixture.request.playerSide.name,
+            engineDifficultyName = fixture.request.engineDifficultyName,
+            validation = validation?.let {
+                SummaryValidation(it.rawText, it.validatorInput, it.accepted, it.rejectionReason)
+            },
+        ),
+    )
 
-    private fun quote(s: String): String =
-        "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"")
-            .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t") + "\""
+    @Serializable
+    private data class SummaryBenchRow(
+        val gameId: String,
+        val plies: Int,
+        val playerBlunders: Int,
+        val result: String,
+        val modelIdentifier: String,
+        val deviceModel: String,
+        val osVersion: String,
+        val kind: String,
+        val elapsedMs: Long,
+        val fallbackReason: String?,
+        val deterministicSummary: String,
+        val pgn: String,
+        val modelSummary: String,
+        val moveHistory: List<MoveRecord>,
+        val playerSide: String,
+        val engineDifficultyName: String,
+        val validation: SummaryValidation?,
+    )
+
+    @Serializable
+    private data class SummaryValidation(
+        val rawText: String,
+        val validatorInput: String,
+        val accepted: Boolean,
+        val rejectionReason: String?,
+    )
 }

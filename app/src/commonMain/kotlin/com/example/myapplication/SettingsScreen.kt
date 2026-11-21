@@ -54,7 +54,7 @@ fun SettingsScreen(
     val engineDifficulty by settings.engineDifficulty.collectAsState()
     val aiCoachEnabled by settings.aiCoachEnabled.collectAsState()
 
-    SubScreenScaffold(title = "Settings", onBack = onBack, showBackButton = false) {
+    SubScreenScaffold(title = "Settings", onBack = onBack) {
         extraSettings?.invoke()
         Text(
             text = "Engine difficulty",

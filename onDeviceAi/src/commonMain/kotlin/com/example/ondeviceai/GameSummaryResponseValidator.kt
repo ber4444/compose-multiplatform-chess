@@ -94,13 +94,25 @@ object GameSummaryResponseValidator {
     internal fun validateCitationSet(
         text: String,
         turningPoints: List<GameSummaryPromptBuilder.TurningPoint>,
-    ): String? {
+    ): String? = inventedCitationTags(text, turningPoints).firstOrNull()?.let { "invented citation: $it" }
+
+    /** Checks every tag before cleanup can remove part of the model response. */
+    fun inventedCitations(rawText: String, request: GameSummaryRequest): List<String> =
+        inventedCitationTags(
+            rawText,
+            GameSummaryPromptBuilder.extractTurningPoints(
+                request.moveHistory, request.playerSide, request.engineDifficultyName,
+            ),
+        ).toList()
+
+    private fun inventedCitationTags(
+        text: String,
+        turningPoints: List<GameSummaryPromptBuilder.TurningPoint>,
+    ): Sequence<String> {
         val valid = turningPoints.map { it.ply }.toSet()
-        CITATION_REGEX.findAll(text)
-            .mapNotNull { it.groupValues[1].toIntOrNull() }
-            .firstOrNull { it !in valid }
-            ?.let { return "invented citation: [move-$it]" }
-        return null
+        return CITATION_REGEX.findAll(text)
+            .filter { it.groupValues[1].toIntOrNull() !in valid }
+            .map { it.value }
     }
 
     private val NUMBER_WORDS = mapOf("one" to 1, "two" to 2, "three" to 3, "four" to 4)

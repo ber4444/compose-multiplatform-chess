@@ -79,10 +79,16 @@ tasks.test {
  */
 tasks.register<JavaExec>("scoreDeviceRun") {
     group = "verification"
-    description = "Score an AndroidBenchRunner results.jsonl (-Pfile=...) with EvalScorer."
+    description = "Score a device JSONL run (-Pfile=..., -Psurface=coach|summary|rules-qa)."
     mainClass.set("com.example.evals.DeviceRunScorerKt")
     classpath = sourceSets["main"].runtimeClasspath
     argumentProviders.add {
-        listOf(providers.gradleProperty("file").orNull ?: "../build/bench/results.jsonl")
+        val file = providers.gradleProperty("file").orNull ?: "../build/bench/results.jsonl"
+        when (val surface = providers.gradleProperty("surface").getOrElse("coach")) {
+            "coach" -> listOf(file)
+            "summary" -> listOf(file, "--summary")
+            "rules-qa" -> listOf(file, "--rules-qa")
+            else -> error("Unknown device benchmark surface: $surface")
+        }
     }
 }

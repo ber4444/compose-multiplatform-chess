@@ -127,11 +127,23 @@ jobs:
           # which only sees what is on screen, and the default 60 s screen timeout locked the
           # emulator before :androidApp's tests began. (Compose UI tests read semantics instead,
           # so :app's suite never noticed.)
-          script: |
-            adb shell svc power stayon true && adb shell input keyevent KEYCODE_WAKEUP && adb shell wm dismiss-keyguard
-            ./gradlew :app:connectedAndroidDeviceTest
-            ./gradlew :androidApp:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notAnnotation=com.example.myapplication.Filament3D
-            grep -rqsE 'tests="[1-9]' app/build/outputs/androidTest-results/connected && grep -rqsE 'tests="[1-9]' androidApp/build/outputs/androidTest-results/connected || (echo "::error::A device-test task ran zero tests; AGP 9.5 reports success when the test APK fails to install" && exit 1)
+          #
+          # One shell for the whole run (folded scalar: the action runs each *line* in its own
+          # `sh -c`), so the EXIT trap fires whether the tests pass or fail. The action's own
+          # "Terminate Emulator" is a bare `adb emu kill`, which only asks; about one run in three
+          # the emulator never obliges, and the runner's cancel log then shows
+          # qemu-system-x86_64-headless and its crashpad_handler child still alive 17 minutes later.
+          # The action launched both with its stdout/stderr pipes attached, so its Node process
+          # cannot exit until they do, and the step sat at "Terminate Emulator" until the job's
+          # 30-minute limit cancelled a green run (upstream #373/#381/#385, unfixed). So: ask, give
+          # it 30 s, then SIGKILL whatever is left. The action's later `adb emu kill` finds no device,
+          # logs that, and returns. Process names, not `-f`: this shell's own argv contains them.
+          script: >-
+            trap 'adb emu kill || true; for i in $(seq 1 15); do pgrep qemu-system >/dev/null || break; sleep 2; done; pkill -9 qemu-system || true; pkill -9 crashpad_handle || true' EXIT;
+            adb shell svc power stayon true && adb shell input keyevent KEYCODE_WAKEUP && adb shell wm dismiss-keyguard &&
+            ./gradlew :app:connectedAndroidDeviceTest &&
+            ./gradlew :androidApp:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notAnnotation=com.example.myapplication.Filament3D &&
+            { grep -rqsE 'tests="[1-9]' app/build/outputs/androidTest-results/connected && grep -rqsE 'tests="[1-9]' androidApp/build/outputs/androidTest-results/connected || (echo "::error::A device-test task ran zero tests; AGP 9.5 reports success when the test APK fails to install" && exit 1); }
 
       - name: Upload test results
         # Always: the report is the only place a failure is named. AGP 9.5's connected-test task

@@ -78,26 +78,7 @@ object DeviceRunLoader {
     }
 }
 
-/**
- * Refuses a Game Summary bench file instead of dying inside the deserializer.
- *
- * `AndroidSummaryBench` writes a different row shape to the same `build/bench/` directory with a
- * similar name, so pointing `scoreDeviceRun` at one is a normal mistake. Before this guard it threw
- * `MissingFieldException: caseId` with a 40-line stack trace, which reads like a broken scorer
- * rather than the wrong input file.
- *
- * **It refuses rather than scores, and that is the point.** The summary validator derives its
- * turning points from `request.moveHistory` — the per-ply assessments — and the summary row records
- * `pgn`, `plies` and `playerBlunders` but no assessments, so there is no honest way to rebuild the
- * request it validated against. The two things this scorer exists to guarantee (score with the
- * validator that shipped, cross-check against the device's own verdict) are both unavailable. A
- * partial score with most rules silently skipped is precisely the "second scorer written next to the
- * data" this file was written to prevent — it would report a number that looks like the coach's and
- * means something else.
- *
- * Fixing this is a bench-schema change, not a scorer change: see
- * `docs/plans/on-device-ai-next-steps.md`.
- */
+/** Directs summary rows to the scorer that can reconstruct their requests. */
 internal object SummaryRunGuard {
     /** Fields unique to a summary row; `caseId` is unique to a coach row. */
     private val SUMMARY_MARKERS = listOf("\"gameId\"", "\"modelSummary\"", "\"deterministicSummary\"")
@@ -109,16 +90,8 @@ internal object SummaryRunGuard {
             """
             $path looks like a Game Summary bench run, not a Move Coach one.
 
-            This scorer cannot score it, and will not pretend to. GameSummaryResponseValidator
-            derives its turning points from the per-ply assessments in the request; a summary row
-            records pgn / plies / playerBlunders and no assessments, so the request it validated
-            against cannot be rebuilt. Scoring the rules that happen to survive that gap would
-            publish a number that looks like the coach column and is not one.
-
-            To score summary runs, the bench row has to carry the assessed move history — a change
-            in AndroidSummaryBench/IosSummaryBench, tracked in docs/plans/on-device-ai-next-steps.md.
-            Until then, summary output is scored by GameSummaryResponseValidator on the device that
-            produced it, and reported in docs/benchmarks/on-device-ai/game-summary-2026-08.md.
+            Pass -Psurface=summary to score current Game Summary rows. Older runs lack
+            per-ply assessments and the original validator input and need to be repeated.
             """.trimIndent(),
         )
     }
@@ -275,8 +248,18 @@ fun scoreDeviceRun(rows: List<DeviceBenchRow>, cases: List<GoldenCase>): DeviceR
  */
 fun main(args: Array<String>) {
     val file = args.firstOrNull() ?: error(
-        "usage: scoreDeviceRun <results.jsonl> [golden/candidates.json]",
+        "usage: scoreDeviceRun <results.jsonl> [golden/candidates.json | --summary | --rules-qa]",
     )
+    when (args.getOrNull(1)) {
+        "--summary" -> {
+            print(scoreSummaryDeviceRun(Path.of(file)).render(file))
+            return
+        }
+        "--rules-qa" -> {
+            print(scoreRulesQaDeviceRun(Path.of(file)).render(file))
+            return
+        }
+    }
     val goldenPath = Path.of(args.getOrNull(1) ?: "golden/candidates.json")
     val rows = DeviceRunLoader.load(Path.of(file))
     val report = scoreDeviceRun(rows, GoldenCaseLoader.load(goldenPath)).copy(file = file)

@@ -45,7 +45,11 @@ class BundledRuleLookupTool(
         require(maxResults > 0) { "maxResults must be positive" }
     }
 
-    override suspend fun lookup(query: String): List<RulePassage> {
+    override suspend fun lookup(query: String): List<RulePassage> =
+        rankedLookup(query).map { it.first }
+
+    /** The same ranking as [lookup], with scores for retrieval measurements. */
+    fun rankedLookup(query: String): List<Pair<RulePassage, Double>> {
         val queryTerms = tokenize(query)
         if (queryTerms.isEmpty()) return emptyList()
 
@@ -79,7 +83,6 @@ class BundledRuleLookupTool(
             .filter { (_, score) -> score > 0.0 }
             .sortedWith(compareByDescending<Pair<RulePassage, Double>> { it.second }.thenBy { it.first.id })
             .take(maxResults)
-            .map { it.first }
     }
 
     private fun tokenize(value: String): List<String> = WORD.findAll(value.lowercase())

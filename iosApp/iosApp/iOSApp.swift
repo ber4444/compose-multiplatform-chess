@@ -63,9 +63,12 @@ struct BenchmarkView: View {
                 // BENCHMARK_SUITE=summary measures Game Summary instead of the Move Coach. They are
                 // different surfaces with different budgets — a wait that disqualifies the coach
                 // may be fine behind a button at game end — so they are never averaged together.
-                if ProcessInfo.processInfo.environment["BENCHMARK_SUITE"] == "summary" {
+                switch ProcessInfo.processInfo.environment["BENCHMARK_SUITE"] {
+                case "summary":
                     try await IosSummaryBenchKt.runIosSummaryBench(iterations: 1)
-                } else {
+                case "rules-qa":
+                    try await IosRulesQaBenchKt.runIosRulesQaBench(iterations: 1)
+                default:
                     // The same engine the app plays with, so the bench can assess each golden
                     // position and hand the model real facts — without it every row is
                     // `factsPopulated:false` and measures the harness rather than Foundation Models.

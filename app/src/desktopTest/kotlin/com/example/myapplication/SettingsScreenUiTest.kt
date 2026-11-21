@@ -2,7 +2,9 @@ package com.example.myapplication
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.LocalAppSettings
@@ -14,19 +16,16 @@ import kotlin.test.assertTrue
 class SettingsScreenUiTest {
 
     @Test
-    fun settingsScreenDoesNotShowAVisibleBackButton() = runComposeUiTest {
+    fun settingsBackButtonInvokesOnBack() = runComposeUiTest {
         val appSettings = AppSettings(MapSettings())
+        var backPressed = false
 
         setContent {
             CompositionLocalProvider(LocalAppSettings provides appSettings) {
-                SettingsScreen(onBack = {})
+                SettingsScreen(onBack = { backPressed = true })
             }
         }
-        waitForIdle()
-
-        assertTrue(
-            onAllNodesWithText("Back").fetchSemanticsNodes().isEmpty(),
-            "Settings is dismissed by system back/swipe, so it should not render its own Back button"
-        )
+        onNodeWithText("Back").assertIsDisplayed().performClick()
+        runOnIdle { assertTrue(backPressed) }
     }
 }

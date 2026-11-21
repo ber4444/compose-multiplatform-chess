@@ -26,6 +26,7 @@ import com.example.myapplication.movecoach.MoveCoachManager
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
 import com.example.myapplication.bench.runAndroidBench
+import com.example.myapplication.bench.runAndroidRulesQaBench
 import com.example.myapplication.performance.chessStartupTrace
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +43,19 @@ class MainActivity : ComponentActivity() {
         val isDebug = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         if (!isDebug) {
             Logger.setMinSeverity(Severity.Assert)
+        }
+
+        if (isDebug && intent.hasExtra("bench_rules_qa_iterations")) {
+            val iterations = intent.getIntExtra("bench_rules_qa_iterations", 1)
+            val benchContext = applicationContext
+            keepBenchInForeground()
+            lifecycleScope.launch {
+                withContext(Dispatchers.IO) {
+                    runAndroidRulesQaBench(benchContext, iterations)
+                }
+                finish()
+            }
+            return
         }
 
         if (isDebug && intent.hasExtra("bench_summary_iterations")) {
@@ -182,7 +196,7 @@ class MainActivity : ComponentActivity() {
      * `svc power stayon usb` does not prevent it because the keyguard, not the screen timeout, is
      * what stops the activity being resumed.
      *
-     * Bench-only, so this never touches a shipped launch: both callers sit behind `isDebug` plus a
+     * Bench-only, so this never touches a shipped launch: callers sit behind `isDebug` plus a
      * bench intent extra.
      */
     private fun keepBenchInForeground() {
