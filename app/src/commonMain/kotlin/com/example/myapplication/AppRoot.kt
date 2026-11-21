@@ -49,6 +49,7 @@ import com.example.myapplication.rules.RulesQaStateHolder
 import com.example.ondeviceai.AiContextSnapshot
 import com.example.ondeviceai.AiUserSetting
 import com.example.ondeviceai.DefaultRulesQaOrchestrator
+import com.example.ondeviceai.RetrievalOnlyRulesQaAnswerer
 import com.example.ondeviceai.createBundledRuleLookupTool
 import com.example.ondeviceai.defaultRulesQaAnswerer
 
@@ -78,10 +79,11 @@ fun AppRoot(
     switchTopPadding: Dp = 8.dp,
     isDebug: Boolean = false,
     /**
-     * False on the web build, which hides the AI assistant surfaces: Position Chat and the Opening
-     * Explainer, which are cloud-routed and billed per request against the coach server, and Rules
-     * Q&A, which has no answerer on wasm anyway. The Move Coach is not one of them: it runs
-     * deterministically, offline and free, so it stays.
+     * False on the web build, which hides the paid AI assistant surfaces: Position Chat and the
+     * Opening Explainer, which are cloud-routed and billed per request (a Gemini call) against the
+     * coach server. Free surfaces stay. The Move Coach runs deterministically. Rules Q&A answers from
+     * the bundled rulebook (`RetrievalOnlyRulesQaAnswerer` on wasm), so its button follows whether an
+     * answerer exists, not this flag.
      */
     aiAssistantsEnabled: Boolean = true,
     /** Drawn under the board and its controls on the game screen. The web build passes its store links. */
@@ -95,7 +97,8 @@ fun AppRoot(
         if (aiAssistantsEnabled) ChatViewModel(createPositionChat()) else null
     }
     // Hoisted out of the RulesQaStateHolder construction below because a null answerer also means
-    // "this build cannot answer rules questions" — desktop, wasm and JS return null unconditionally.
+    // "this build cannot answer rules questions": desktop and JS return null. Wasm answers from the
+    // bundled rulebook alone.
     val ruleLookupTool = remember { createBundledRuleLookupTool() }
     val rulesQaAnswerer = remember { defaultRulesQaAnswerer(ruleLookupTool) }
     val rulesQaStateHolder = remember {
@@ -106,7 +109,14 @@ fun AppRoot(
                     lookupTool = ruleLookupTool,
                 ) {
                     AiContextSnapshot(
-                        availableLocalVendors = com.example.ondeviceai.probeAvailableLocalVendors(),
+                        // A retrieval-only answerer has no model behind it, whatever the platform
+                        // probe reports (wasm offers LiteRT-LM unconditionally). Offering a vendor
+                        // here would route on-device and badge rulebook text "Written by a model".
+                        availableLocalVendors = if (it is RetrievalOnlyRulesQaAnswerer) {
+                            emptyList()
+                        } else {
+                            com.example.ondeviceai.probeAvailableLocalVendors()
+                        },
                         isAppForegrounded = true,
                         userSetting = AiUserSetting.OFFLINE_ONLY,
                     )
@@ -158,7 +168,8 @@ fun AppRoot(
                     switchTopPadding = switchTopPadding,
                     onOpenHistory = { screen = Screen.HISTORY },
                     onOpenSettings = { screen = Screen.SETTINGS },
-                    onOpenRules = if (aiAssistantsEnabled) { { screen = Screen.RULES } } else null,
+                    // Rules costs nothing anywhere, so on the web it is hidden only when nothing can answer.
+                    onOpenRules = if (aiAssistantsEnabled || rulesQaAnswerer != null) { { screen = Screen.RULES } } else null,
                     onOpenChat = if (aiAssistantsEnabled) { { screen = Screen.CHAT } } else null,
                     belowBoard = belowBoard,
                 )
