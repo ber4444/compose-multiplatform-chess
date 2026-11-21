@@ -15,11 +15,11 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class HumanMovesInstrumentedTest {
     @Test
-    fun historyDetailShowsWhatMaiaPredictsPlayersPlay() = withSettings { exploreHumanMovesFromHistory(it) }
+    fun historyDetailExploresLichessThenFallsBackToMaia() = withSettings { exploreHumanMovesFromHistory(it) }
 
     @Test
-    fun historyDetailHidesHumanMovesWithoutASource() =
-        withSettings { hideHumanMovesWithoutASource(it) }
+    fun historyDetailHidesHumanMovesWithoutASourceOrDuringOnlinePlay() =
+        withSettings { hideHumanMovesWithoutASourceOrDuringOnlinePlay(it) }
 
     @Test
     fun settingsDefaultsToMaiaUntilStockfishIsChosen() = withSettings { maiaIsTheDefaultOpponentUntilStockfishIsChosen(it) }

@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.board3d.Board3DSupport
 import com.example.myapplication.explorer.HumanMoveExplorer
+import com.example.myapplication.explorer.KtorLichessOpeningExplorer
 import com.example.myapplication.explorer.MaiaHumanMovePredictor
 import com.example.myapplication.explorer.MaiaOpponent
 import com.example.myapplication.explorer.RatingBand
@@ -230,7 +231,14 @@ fun AppRoot(
     // Null where the platform has no Maia runtime. Nothing loads until the first prediction.
     val maiaPredictor = remember { maiaRuntimeFactory()?.let { MaiaHumanMovePredictor(it) } }
     DisposableEffect(maiaPredictor) { onDispose { maiaPredictor?.close() } }
-    val humanMoveExplorer = remember(maiaPredictor) { HumanMoveExplorer(maia = maiaPredictor) }
+    // Lichess explorer first (needs the signed-in token), Maia-3 where this platform has a runtime.
+    val humanMoveExplorer = remember(onlineHttp, online, maiaPredictor) {
+        HumanMoveExplorer(
+            lichess = onlineHttp?.let { KtorLichessOpeningExplorer(it) },
+            maia = maiaPredictor,
+            lichessToken = { online?.explorerToken() },
+        )
+    }
     // Settings → Opponent. Only the move choice moves to Maia; Stockfish stays attached for hints,
     // coach assessments and draw offers.
     val opponent by settings.opponent.collectAsState()
@@ -371,8 +379,10 @@ fun AppRoot(
                                 if (cloudSync != null) CloudSaveHistory(cloudSync, onOpen)
                             }
                         } else null,
-                        humanMoves = humanMoveExplorer.forReview(),
-                        humanMovesBand = RatingBand.forDifficulty(opponentDifficulty),
+                        // Read here, in composition, so signing in or out re-decides availability.
+                        humanMoves = humanMoveExplorer.forReview(assistanceBlocked),
+                        humanMovesBand = onlineState?.profile?.explorerRating?.let(RatingBand::forRating)
+                            ?: RatingBand.forDifficulty(opponentDifficulty),
                     )
                 } else {
                     SubScreenScaffold(title = "Game History", onBack = { screen = Screen.GAME }) {

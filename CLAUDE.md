@@ -428,11 +428,21 @@ the two cloud routes; `:evals` gates grounding regressions in CI (routing and fl
 
 ### Human-move explorer (History → game detail)
 
-"What players at this level play here?", one position at a time, in `explorer/` (`:app`): Maia-3's
-prediction for a rating band, through `HumanMoveExplorer` (cached per history and band). It is not
+"What players at this level play here?", one position at a time, in `explorer/` (`:app`). It is not
 one of the five text surfaces and does not go through `AiRoutePolicyDecider`, because its output is
 data (moves and shares), not prose. It lives in History only: what humans play is assistance while a
-game is still going. The same predictor plays the Maia opponent (see *Engine architecture*).
+game is still going. The same Maia predictor plays the Maia opponent (see *Engine architecture*).
+
+- **Lichess first, Maia-3 second, and the answer says which.** `HumanMoveExplorer` asks the Lichess
+  opening explorer (`explorer.lichess.org/lichess`). It falls back to Maia when the user is not
+  signed in, when the request fails, or when fewer than `MIN_LICHESS_GAMES` games in the band
+  reached the position, which is the normal case past the opening. `ExplorerAnswer.Moves.lichessMiss`
+  carries the reason, and the panel shows it. Transient misses are not cached.
+- **The explorer needs an OAuth token, of any scope.** An anonymous request returns 401. The token
+  is the online session's, through `OnlineMatchController.explorerToken()`, which returns `null`
+  whenever `assistanceBlocked`. Lichess's terms forbid database help during an ongoing game, so that
+  `null` and `forReview(assistanceBlocked)` both keep the panel out of online play. The starting band
+  is the signed-in user's rating (`LichessProfile.explorerRating`), else the difficulty setting.
 
 - **Maia has its own seam (`HumanMovePredictor` / `MaiaRuntime`), not `OnDeviceTextGenerator`.**
   `MaiaEncoder` is a port of `maia3/dataset.py`. Every history position is mirrored and
@@ -466,8 +476,9 @@ game is still going. The same predictor plays the Maia opponent (see *Engine arc
     `docs/maia3-model-provenance.md` and `MaiaGolden.kt` together. The platform tests fail on a hash
     drift.
   - **R8.** The LiteRT AAR ships its own consumer rules.
-- **Availability.** The panel renders only when `HumanMoveExplorer.canAnswer()`, meaning a Maia
-  runtime exists. A game saved without `moveRecords` shows no panel.
+- **Availability.** The panel renders only when `HumanMoveExplorer.canAnswer()`, meaning Maia
+  exists or Lichess is signed in. A game without `moveRecords` (a Lichess archive copy) shows no
+  panel.
 
 ### Fallback states (B17)
 

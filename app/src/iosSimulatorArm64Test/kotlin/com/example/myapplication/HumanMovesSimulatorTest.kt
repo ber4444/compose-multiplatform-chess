@@ -11,11 +11,11 @@ import kotlin.uuid.Uuid
 @OptIn(ExperimentalTestApi::class)
 class HumanMovesSimulatorTest {
     @Test
-    fun historyDetailShowsWhatMaiaPredictsPlayersPlay() = withSettings { exploreHumanMovesFromHistory(it) }
+    fun historyDetailExploresLichessThenFallsBackToMaia() = withSettings { exploreHumanMovesFromHistory(it) }
 
     @Test
-    fun historyDetailHidesHumanMovesWithoutASource() =
-        withSettings { hideHumanMovesWithoutASource(it) }
+    fun historyDetailHidesHumanMovesWithoutASourceOrDuringOnlinePlay() =
+        withSettings { hideHumanMovesWithoutASourceOrDuringOnlinePlay(it) }
 
     @Test
     fun settingsDefaultsToMaiaUntilStockfishIsChosen() = withSettings { maiaIsTheDefaultOpponentUntilStockfishIsChosen(it) }

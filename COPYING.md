@@ -79,6 +79,8 @@ The app talks to these services when the relevant feature is used:
   with `?coach=1`).
 * unpkg and jsDelivr, which serve `filament.js`, `@litert-lm/core` and `@litertjs/core` (LiteRT.js,
   for Maia) to the web build.
+* The Lichess opening explorer (`explorer.lichess.org`), for the human-move panel in History, when
+  the build enables Lichess and the user is signed in.
 * Hugging Face ([`ber4444/maia3-5m-litert`](https://huggingface.co/ber4444/maia3-5m-litert)), from which the web build downloads the Maia-3
   model (pinned commit, SHA-256-checked) the first time Maia is used.
 * Google's TensorFlow Lite release bucket (`dl.google.com/tflite-release`), from which the build

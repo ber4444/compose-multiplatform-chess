@@ -202,8 +202,9 @@ private fun GameHistoryDetail(
             "${game.white} vs ${game.black}  •  ${game.result}",
             style = MaterialTheme.typography.titleMedium,
         )
-        // Null unless some source can answer (AppRoot decides), and a game saved without
-        // move records, so neither case renders a panel that could only say "unavailable".
+        // Null unless some source can answer (AppRoot decides), and a game saved without move records
+        // (such as a Lichess archive copy) gets no panel, so neither case renders a panel that could
+        // only say "unavailable".
         if (humanMoves != null && game.moveRecords.isNotEmpty()) {
             Spacer(modifier = Modifier.padding(6.dp))
             HumanMovesPanel(game.moveRecords, humanMoves, humanMovesBand)

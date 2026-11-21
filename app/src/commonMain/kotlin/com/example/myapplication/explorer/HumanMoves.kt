@@ -5,20 +5,25 @@ import com.example.myapplication.FenConverter
 import com.example.myapplication.MoveRecord
 
 /** Where a [HumanMoveStats] came from. The UI names the source on every answer. */
-enum class HumanMoveSource { MAIA }
+enum class HumanMoveSource { LICHESS, MAIA }
 
-/** One move humans play in a position, with how likely it is ([share], 0..1). */
-data class HumanMove(val uci: String, val san: String, val share: Double)
+/**
+ * One move humans play in a position. [share] is the fraction of games (Lichess) or the model's
+ * probability (Maia), in 0..1. [games] is only known for Lichess.
+ */
+data class HumanMove(val uci: String, val san: String, val share: Double, val games: Long? = null)
 
 data class HumanMoveStats(
     val source: HumanMoveSource,
     val band: RatingBand,
     val moves: List<HumanMove>,
+    /** Games that reached the position in this band (Lichess only). */
+    val totalGames: Long? = null,
 )
 
 /**
  * A position to explore: its FEN plus the positions that led to it, oldest first, ending with
- * [fen]. Maia-3 conditions on up to eight positions of history.
+ * [fen]. Maia-3 conditions on up to eight positions of history; Lichess only needs [fen].
  */
 data class ExplorerPosition(val fen: String, val history: List<String> = listOf(fen)) {
     init {
@@ -40,10 +45,9 @@ data class ExplorerPosition(val fen: String, val history: List<String> = listOf(
 }
 
 /**
- * A rating band, using the Lichess opening explorer's rating groups so that game statistics for the
- * same band can sit next to Maia's prediction. Each group runs from [floor] to the next group's floor
- * minus one; the top group is open-ended. Maia is asked at [maiaRating], a representative rating
- * inside the group.
+ * A rating band, aligned to the Lichess opening explorer's rating groups so both sources answer the
+ * same question. Each group runs from [floor] to the next group's floor minus one; the top group is
+ * open-ended. Maia is asked at [maiaRating], a representative rating inside the group.
  */
 enum class RatingBand(val floor: Int, val maiaRating: Int) {
     UNDER_1000(0, 800),
@@ -69,8 +73,8 @@ enum class RatingBand(val floor: Int, val maiaRating: Int) {
         /**
          * The rating band a difficulty level means. It is the Maia opponent's strength, so one
          * Easy/Medium/Hard/Max setting serves both opponents. It is also the History explorer's
-         * starting band, since the difficulty a player picks is the best signal this app has of their
-         * level without asking. Easy and Max sit near the ends of
+         * starting band when no Lichess rating is known, since the difficulty a player picks is the
+         * best signal this app has of their level without asking. Easy and Max sit near the ends of
          * the club range, and Medium (the default) at 1400–1599, the most common Lichess rapid band.
          * Maia asks at each band's `maiaRating`: 1100, 1500, 1900, 2350.
          */

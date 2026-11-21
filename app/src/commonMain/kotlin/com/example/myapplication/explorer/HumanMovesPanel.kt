@@ -33,11 +33,12 @@ import kotlin.math.roundToInt
 /**
  * "What do players at this level play here?" for a finished game, one position at a time.
  *
- * Lives in the History detail only, a review context: what humans play is assistance while a game
- * is still going.
+ * Lives in the History detail only — a review context. It must never be reachable during a Lichess
+ * game: human move statistics mid-game are assistance. `AppRoot` already keeps History unreachable
+ * while assistance is blocked, and `OnlineMatchController.explorerToken()` returns `null` then too.
  *
  * The caller decides availability ([HumanMoveExplorer.canAnswer]); a game without move records
- * renders nothing.
+ * (a Lichess archive copy) renders nothing.
  */
 @Composable
 fun HumanMovesPanel(
@@ -94,8 +95,9 @@ fun HumanMovesPanel(
             }
             when (val current = answer) {
                 null -> CircularProgressIndicator(Modifier.size(24.dp).testTag("human_moves_loading"))
-                ExplorerAnswer.NoAnswer -> Text(
-                    "No data for this position.",
+                is ExplorerAnswer.NoAnswer -> Text(
+                    listOfNotNull("No data for this position.", current.lichessMiss?.let { missText(it, band) })
+                        .joinToString(" "),
                     modifier = Modifier.testTag("human_moves_empty"),
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -113,6 +115,13 @@ private fun MoveList(answer: ExplorerAnswer.Moves, playedUci: String) {
         modifier = Modifier.testTag("human_moves_source"),
         style = MaterialTheme.typography.labelMedium,
     )
+    answer.lichessMiss?.let {
+        Text(
+            missText(it, stats.band),
+            modifier = Modifier.testTag("human_moves_note"),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
     stats.moves.forEach { move ->
         val isPlayed = move.uci == playedUci
         Row(Modifier.fillMaxWidth().testTag("human_moves_row_${move.uci}")) {
@@ -134,5 +143,16 @@ private fun MoveList(answer: ExplorerAnswer.Moves, playedUci: String) {
 }
 
 internal fun sourceText(stats: HumanMoveStats): String = when (stats.source) {
+    HumanMoveSource.LICHESS ->
+        "Lichess games, ${stats.band.label} blitz/rapid/classical · ${stats.totalGames ?: 0} games"
     HumanMoveSource.MAIA -> "Maia-3 prediction for players rated about ${stats.band.maiaRating}"
+}
+
+internal fun missText(miss: LichessMiss, band: RatingBand): String = when (miss) {
+    LichessMiss.NOT_SIGNED_IN -> "Sign in to Lichess on the Online screen to see real games."
+    LichessMiss.OFFLINE -> "Lichess could not be reached."
+    LichessMiss.RATE_LIMITED -> "Lichess is limiting requests. Try again in a minute."
+    LichessMiss.UNAUTHORIZED -> "Lichess access expired. Sign in again to see real games."
+    LichessMiss.ERROR -> "Lichess returned an error."
+    LichessMiss.NO_DATA -> "Too few Lichess games at ${band.label} reach this position."
 }
