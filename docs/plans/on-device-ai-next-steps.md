@@ -277,6 +277,12 @@ the raw model answers against their supplied passages, especially when the fixtu
 On November 6, 2026, the Android emulator matched **22/34** in-corpus labels and returned an
 unrelated passage for **1/3** out-of-corpus questions. Its 37 rows contain no model output.
 
+**Physical-device results (November 21, 2026):** see
+[Rules Q&A on device](../benchmarks/on-device-ai/rules-qa-2026-11.md). On a Pixel 10 Pro XL, four
+validator-approved answers were factually wrong in every pass because the model's refinement query
+never reached the prompt (`take(2)` over the question's own BM25 hits). After the fix, 1 wrong answer
+remains (the second-queen question, which contradicts its own cited passage).
+
 ## Score Game Summary runs
 
 Both runners record the PGN, side, difficulty, and assessed move history. They also retain the raw

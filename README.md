@@ -718,7 +718,7 @@ git push origin on-device-ai-v0.1.0
 |---|---|
 | [Hybrid inference vendor adoption](docs/plans/hybrid-inference-vendor-adoption-plan.md) | Platform runtimes and route badges are in place. VA-8 article updates follow device measurements. |
 | [Coaching grounded in verified game facts](docs/plans/on-device-coach-rag-unification.md) | RAG-1–3 landed. RAG-4 has a local Hint button, with assessment-backed chat and counterfactuals still open. Habit aggregation is in [PR #136](https://github.com/ber4444/compose-multiplatform-chess/pull/136). RAG-6 offline chat is optional. |
-| [On-device AI next steps](docs/plans/on-device-ai-next-steps.md) | The summary validator, device scorer, and Rules Q&A benchmark harness are available. Physical-device model runs are pending. |
+| [On-device AI next steps](docs/plans/on-device-ai-next-steps.md) | The summary validator, device scorer, and Rules Q&A benchmark harness are available. Rules Q&A has been measured on a Pixel 10 Pro XL; Game Summary physical-device runs are pending. |
 
 ## TODO
 
@@ -726,5 +726,5 @@ git push origin on-device-ai-v0.1.0
 |---|---|---|
 | 5 | Position Chat Stop mid-stream | Verified on the Android emulator with a controlled SSE server on November 6, 2026. Stop removed the partial reply and closed the connection before the next chunk. Retry completed the same turn once. |
 | 7 | [Repeat the 50-game Summary run](docs/plans/on-device-ai-next-steps.md#task-2--measure-game-summary-with-the-validator) | Requires an AICore phone and an Apple Intelligence iPhone. Any future rollout also depends on bringing Game Summary back as an app surface. Gates are zero invented tags, at least 90% validator acceptance, and p95 under 45 s. |
-| 8 | [Benchmark Rules Q&A](docs/plans/on-device-ai-next-steps.md#task-3--benchmark-rules-qa) | The emulator matched the designated BM25 passage on 22/34 in-corpus cases and returned a passage for 1/3 out-of-corpus cases. Model quality and latency still need physical-device runs. |
+| 8 | [Benchmark Rules Q&A](docs/plans/on-device-ai-next-steps.md#task-3--benchmark-rules-qa) | Done on a Pixel 10 Pro XL ([results](docs/benchmarks/on-device-ai/rules-qa-2026-11.md)): correct rule cited 31/34, one factually wrong answer left (down from four), 4.2 s median. iOS measured on a simulator only. |
 | 9 | [Score Game Summary device runs](docs/plans/on-device-ai-next-steps.md#score-game-summary-runs) | Both runners write assessed plies and the original model output. `:evals:scoreDeviceRun -Psurface=summary` replays the validator and checks the device verdict. Verified the JSONL round trip on all 50 emulator fixtures. |

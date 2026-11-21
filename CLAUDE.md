@@ -488,6 +488,14 @@ The `allowLocal = false` flag on `openingExplainer` and `positionChat` policies 
 > draw when only kings remain?"*) — four commits were spent tuning a step that already worked.
 > Reproduce that probe first; the bug is almost always above retrieval.
 >
+> **The Android answer prompt sees four passages, interleaved from the question's BM25 hits and the
+> model's refined query (`selectAnswerPassages`), and its example answer is content-free.** It was
+> `(fromQuestion + refined).take(2)` — sized for the removed gemma3-270m — which meant the refined
+> query never reached the prompt, and a draw-specific "Yes — … drawn" example the model copied. On a
+> Pixel 10 Pro XL that produced four factually wrong, validator-approved answers in every pass; the
+> fix leaves one. The validator checks provenance, not truth, so this is not visible from its pass
+> rate. See `docs/benchmarks/on-device-ai/rules-qa-2026-11.md`.
+>
 > **Two questions are deliberately open here.** The answer turn still asks the model to
 > reproduce `[id]` in prose rather than emitting a structured answer envelope; and nothing yet
 > records whether Rules Q&A should prefer ML Kit now that Cactus is gone and retrieval answers on its own.
