@@ -206,6 +206,14 @@ unless `cloudCoachConfigured`; the Rules screen reports itself unavailable when
 `defaultRulesQaAnswerer` returns `null` (desktop/wasm/JS); the Chat screen says it has no coach
 server when `cloudCoachConfigured` is false. Keep those signals if you touch these call sites.
 
+The **web build** goes one step further and hides the AI assistants outright: `wasmJsMain`'s
+`Main.kt` passes `AppRoot(aiAssistantsEnabled = false)`, which removes the Chat and Rules buttons
+(null `onOpenChat`/`onOpenRules`) and builds no Opening Explainer or Chat holder. Chat and the
+explainer are billed per request on the coach server, and the public web page is the easiest place to
+run that up. In their place, `belowBoard = { MobileAppLinks() }` puts the Google Play and TestFlight
+links under the board. The deterministic Move Coach and Explain mode stay, since they cost nothing.
+`AiAssistantEntryPointsUiTest` pins both configurations.
+
 Also gone with RevenueCat: the iOS test binary's explicit `-L` to the host Swift toolchain, which
 existed only to resolve RevenueCat's prebuilt Swift objects. Reintroducing any SDK that ships
 prebuilt Swift will likely need it back (see git history for the `linkerOpts` block).
