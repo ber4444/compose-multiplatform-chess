@@ -1,7 +1,6 @@
 package com.example.myapplication.persistence
 
 import com.example.myapplication.EngineDifficulty
-import com.example.myapplication.explorer.RatingBand
 import com.russhwolf.settings.Settings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -76,8 +75,11 @@ class AppSettings(internal val settings: Settings) {
     private fun readPlayerSide(): String = settings.getString(KEY_PLAYER_SIDE, "WHITE")
 
     /**
-     * Who plays the engine side. [Opponent.MAIA] is honoured only where the build can run Maia
-     * (Android, desktop); elsewhere `AppRoot` leaves Stockfish playing, and Settings hides the choice.
+     * Who plays the engine side. **Maia-3 by default**, and Stockfish only once the user picks it:
+     * nothing is written until they choose, so an untouched install follows the default. Where the
+     * build cannot run Maia (iOS, web), `AppRoot` ignores [Opponent.MAIA] and Stockfish plays, and
+     * Settings shows no choice. Strength is [engineDifficulty] for either opponent;
+     * `RatingBand.forDifficulty` maps it to Maia's rating.
      */
     private val _opponent: MutableStateFlow<Opponent> = MutableStateFlow(readOpponent())
     val opponent: StateFlow<Opponent> get() = _opponent
@@ -89,24 +91,10 @@ class AppSettings(internal val settings: Settings) {
 
     private fun readOpponent(): Opponent =
         settings.getStringOrNull(KEY_OPPONENT)?.let { runCatching { Opponent.valueOf(it) }.getOrNull() }
-            ?: Opponent.STOCKFISH
-
-    /** The rating band Maia plays at when it is the opponent. Defaults to 1400–1599, like Medium. */
-    private val _maiaBand: MutableStateFlow<RatingBand> = MutableStateFlow(readMaiaBand())
-    val maiaBand: StateFlow<RatingBand> get() = _maiaBand
-
-    fun setMaiaBand(band: RatingBand) {
-        settings.putString(KEY_MAIA_BAND, band.name)
-        _maiaBand.value = band
-    }
-
-    private fun readMaiaBand(): RatingBand =
-        settings.getStringOrNull(KEY_MAIA_BAND)?.let { runCatching { RatingBand.valueOf(it) }.getOrNull() }
-            ?: RatingBand.R1400
+            ?: Opponent.MAIA
 
     companion object {
         const val KEY_OPPONENT = "settings.opponent"
-        const val KEY_MAIA_BAND = "settings.maia_band"
         const val KEY_BOARD_3D = "settings.board_3d_enabled"
         const val KEY_ENGINE_DIFFICULTY = "settings.engine_difficulty"
         const val KEY_AI_COACH = "settings.ai_coach_enabled"

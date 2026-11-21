@@ -71,9 +71,12 @@ enum class RatingBand(val floor: Int, val maiaRating: Int) {
         fun forRating(rating: Int): RatingBand = entries.last { rating >= it.floor }
 
         /**
-         * Used when no Lichess rating is known. The engine difficulty a player picks is the best
-         * signal this app has of their level without asking: Easy and Max sit near the ends of the
-         * club range, and Medium (the default) at 1400–1599, the most common Lichess rapid band.
+         * The rating band a difficulty level means. It is the Maia opponent's strength, so one
+         * Easy/Medium/Hard/Max setting serves both opponents. It is also the History explorer's
+         * starting band when no Lichess rating is known, since the difficulty a player picks is the
+         * best signal this app has of their level without asking. Easy and Max sit near the ends of
+         * the club range, and Medium (the default) at 1400–1599, the most common Lichess rapid band.
+         * Maia asks at each band's `maiaRating`: 1100, 1500, 1900, 2350.
          */
         fun forDifficulty(difficulty: EngineDifficulty): RatingBand = when (difficulty) {
             EngineDifficulty.EASY -> R1000

@@ -5,9 +5,9 @@ import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import com.example.myapplication.explorer.RatingBand
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.LocalAppSettings
 import com.example.myapplication.persistence.Opponent
@@ -15,11 +15,11 @@ import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.russhwolf.settings.Settings
 
 /**
- * Settings → Opponent. Choosing Maia-3 swaps Stockfish's difficulty list for Maia's rating bands,
- * and both choices persist. Switching back restores the difficulty list.
+ * Settings → Opponent. Maia-3 is the default with nothing persisted; the difficulty list stays and
+ * names the rating each level plays like. Picking Stockfish persists and drops those labels.
  */
 @OptIn(ExperimentalTestApi::class)
-internal fun ComposeUiTest.chooseMaiaAsTheOpponent(settings: Settings) {
+internal fun ComposeUiTest.maiaIsTheDefaultOpponentUntilStockfishIsChosen(settings: Settings) {
     val appSettings = AppSettings(settings)
     setContent {
         MyApplicationTheme {
@@ -29,29 +29,27 @@ internal fun ComposeUiTest.chooseMaiaAsTheOpponent(settings: Settings) {
         }
     }
 
-    onNodeWithTag("settings_opponent_stockfish").assertIsSelected()
-    onNodeWithTag("settings_difficulty_MEDIUM").assertExists()
-    onNodeWithTag("settings_maia_band_R1400").assertDoesNotExist()
-
-    onNodeWithTag("settings_opponent_maia").performClick()
-    onNodeWithTag("settings_difficulty_MEDIUM").assertDoesNotExist()
+    onNodeWithTag("settings_opponent_maia").assertIsSelected()
     onNodeWithTag("settings_maia_note").assertExists()
-    onNodeWithTag("settings_maia_band_R1400").assertIsSelected()
-    onNodeWithTag("settings_maia_band_R1800").performScrollTo().performClick()
-    runOnIdle {
-        check(appSettings.opponent.value == Opponent.MAIA) { "opponent not persisted" }
-        check(AppSettings(settings).maiaBand.value == RatingBand.R1800) { "band not persisted" }
-    }
+    onNodeWithTag("settings_difficulty_MEDIUM").assertIsSelected()
+    onNodeWithText("Medium (plays like 1400–1599)").assertExists()
+    onNodeWithTag("settings_difficulty_HARD").performScrollTo().performClick()
+    runOnIdle { check(appSettings.engineDifficulty.value == EngineDifficulty.HARD) { "difficulty not applied" } }
 
     onNodeWithTag("settings_opponent_stockfish").performScrollTo().performClick()
-    onNodeWithTag("settings_difficulty_MEDIUM").performScrollTo().assertExists()
-    onNodeWithTag("settings_maia_band_R1800").assertDoesNotExist()
+    onNodeWithTag("settings_opponent_stockfish").assertIsSelected()
+    onNodeWithTag("settings_maia_note").assertDoesNotExist()
+    onNodeWithText("Hard").assertExists()
+    onNodeWithText("Hard (plays like 1800–1999)").assertDoesNotExist()
+    runOnIdle {
+        check(AppSettings(settings).opponent.value == Opponent.STOCKFISH) { "Stockfish choice not persisted" }
+    }
 }
 
-/** A build without Maia shows no Opponent choice, even with Maia left in persisted settings. */
+/** A build without Maia shows no Opponent choice and plain level names, even with Maia as the default. */
 @OptIn(ExperimentalTestApi::class)
 internal fun ComposeUiTest.hideOpponentChoiceWithoutMaia(settings: Settings) {
-    val appSettings = AppSettings(settings).apply { setOpponent(Opponent.MAIA) }
+    val appSettings = AppSettings(settings)
     setContent {
         MyApplicationTheme {
             CompositionLocalProvider(LocalAppSettings provides appSettings) {
@@ -60,6 +58,6 @@ internal fun ComposeUiTest.hideOpponentChoiceWithoutMaia(settings: Settings) {
         }
     }
     onNodeWithTag("settings_opponent_maia").assertDoesNotExist()
-    onNodeWithTag("settings_maia_band_R1400").assertDoesNotExist()
-    onNodeWithTag("settings_difficulty_MEDIUM").assertExists()
+    onNodeWithTag("settings_maia_note").assertDoesNotExist()
+    onNodeWithText("Medium").assertExists()
 }

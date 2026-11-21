@@ -38,14 +38,14 @@ import org.jetbrains.compose.resources.stringResource
  * platforms without one never show a dead control. Toggling it writes to `AppSettings.board3DEnabled`,
  * which `GameScreen` observes and translates into the 3D surface mount/teardown choreography.
  *
- * Difficulty is visible whenever Stockfish is the opponent. It applies to the engine on every
+ * Difficulty is always visible. For Stockfish it applies to the engine on every
  * platform (the CPU fallback ignores it, but the setting persists for when an engine is attached).
  * `AppRoot` bridges the setting to the VM's `setEngineDifficulty`, which applies it to the attached
  * engine.
  *
- * Where the build runs Maia-3 (`maiaAvailable`), an Opponent choice appears. Picking Maia swaps the
- * difficulty list for Maia's rating bands, the only strength control that then means anything.
- * Elsewhere neither control is shown.
+ * Where the build runs Maia-3 (`maiaAvailable`), an Opponent choice appears, with Maia selected unless
+ * the user picked Stockfish. The same difficulty list sets Maia's strength; each level shows the
+ * rating band it plays like. Without Maia there is no Opponent choice.
  */
 @Composable
 fun SettingsScreen(
@@ -67,7 +67,6 @@ fun SettingsScreen(
     val aiCoachEnabled by settings.aiCoachEnabled.collectAsState()
 
     val opponent by settings.opponent.collectAsState()
-    val maiaBand by settings.maiaBand.collectAsState()
     val playsMaia = maiaAvailable && opponent == Opponent.MAIA
 
     SubScreenScaffold(title = "Settings", onBack = onBack) {
@@ -79,44 +78,35 @@ fun SettingsScreen(
                 modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
             )
             Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
-                ChoiceRow("Stockfish", opponent == Opponent.STOCKFISH, "settings_opponent_stockfish") {
-                    settings.setOpponent(Opponent.STOCKFISH)
-                }
-                ChoiceRow("Maia-3: plays like a person at a rating", playsMaia, "settings_opponent_maia") {
+                ChoiceRow("Maia-3: plays like a person at your level", playsMaia, "settings_opponent_maia") {
                     settings.setOpponent(Opponent.MAIA)
                 }
+                ChoiceRow("Stockfish", !playsMaia, "settings_opponent_stockfish") {
+                    settings.setOpponent(Opponent.STOCKFISH)
+                }
+            }
+            if (playsMaia) {
+                Text(
+                    "Hints and move coaching still come from Stockfish.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("settings_maia_note"),
+                )
             }
         }
-        if (playsMaia) {
-            Text(
-                text = "Maia rating",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
-            )
-            Text(
-                "Hints and move coaching still come from Stockfish.",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.testTag("settings_maia_note"),
-            )
-            Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
-                RatingBand.entries.forEach { band ->
-                    ChoiceRow(band.label, band == maiaBand, "settings_maia_band_${band.name}") { settings.setMaiaBand(band) }
-                }
-            }
-        } else {
-            Text(
-                text = "Engine difficulty",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = if (maiaAvailable) 16.dp else 8.dp, bottom = 4.dp)
-            )
-            Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
-                EngineDifficulty.entries.forEach { level ->
-                    ChoiceRow(
-                        label = level.name.lowercase().replaceFirstChar { it.titlecase() },
-                        selected = engineDifficulty == level,
-                        testTag = "settings_difficulty_${level.name}",
-                    ) { settings.setEngineDifficulty(level) }
-                }
+        Text(
+            text = "Engine difficulty",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = if (maiaAvailable) 16.dp else 8.dp, bottom = 4.dp)
+        )
+        Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
+            EngineDifficulty.entries.forEach { level ->
+                val name = level.name.lowercase().replaceFirstChar { it.titlecase() }
+                ChoiceRow(
+                    // With Maia, say what each level means: the rating band it plays like.
+                    label = if (playsMaia) "$name (plays like ${RatingBand.forDifficulty(level).label})" else name,
+                    selected = engineDifficulty == level,
+                    testTag = "settings_difficulty_${level.name}",
+                ) { settings.setEngineDifficulty(level) }
             }
         }
 

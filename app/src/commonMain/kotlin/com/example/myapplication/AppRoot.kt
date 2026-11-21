@@ -184,9 +184,11 @@ fun AppRoot(
     // Settings → Opponent. Only the move choice moves to Maia; Stockfish stays attached for hints,
     // coach assessments and draw offers. Online games are unaffected: their opponent is a person.
     val opponent by settings.opponent.collectAsState()
-    val maiaBand by settings.maiaBand.collectAsState()
-    DisposableEffect(viewModel, maiaPredictor, opponent, maiaBand) {
-        val chooser = maiaPredictor?.takeIf { opponent == Opponent.MAIA }?.let { MaiaOpponent(it, maiaBand) }
+    // The same Easy/Medium/Hard/Max setting sets Maia's strength, mapped to a rating band.
+    val opponentDifficulty by settings.engineDifficulty.collectAsState()
+    DisposableEffect(viewModel, maiaPredictor, opponent, opponentDifficulty) {
+        val chooser = maiaPredictor?.takeIf { opponent == Opponent.MAIA }
+            ?.let { MaiaOpponent(it, RatingBand.forDifficulty(opponentDifficulty)) }
         viewModel.setOpponentMoveChooser(chooser)
         onDispose { viewModel.setOpponentMoveChooser(null) }
     }

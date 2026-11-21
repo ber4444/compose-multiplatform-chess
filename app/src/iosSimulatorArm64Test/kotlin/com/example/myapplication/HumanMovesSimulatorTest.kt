@@ -18,7 +18,7 @@ class HumanMovesSimulatorTest {
         withSettings { hideHumanMovesWithoutASourceOrDuringOnlinePlay(it) }
 
     @Test
-    fun settingsSwapsDifficultyForMaiaRatingsWhenMaiaIsTheOpponent() = withSettings { chooseMaiaAsTheOpponent(it) }
+    fun settingsDefaultsToMaiaUntilStockfishIsChosen() = withSettings { maiaIsTheDefaultOpponentUntilStockfishIsChosen(it) }
 
     @Test
     fun settingsHidesTheOpponentChoiceWithoutMaia() = withSettings { hideOpponentChoiceWithoutMaia(it) }
