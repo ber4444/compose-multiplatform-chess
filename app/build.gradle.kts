@@ -34,6 +34,9 @@ configurations.all {
 }
 
 
+// One ONNX Runtime version for every JVM consumer (:server pins the same release).
+val onnxRuntimeVersion = "1.22.0"
+
 kotlin {
 
     android {
@@ -165,10 +168,16 @@ kotlin {
             implementation(libs.androidx.core.ktx)
             implementation(libs.androidx.lifecycle.runtime.compose)
             implementation(libs.sceneview)
+            // Maia-3 on Android (explorer/OrtMaiaRuntime.kt). Native libs for four ABIs, ~18 MB
+            // uncompressed on arm64; the AAR ships no consumer R8 rules, see proguard-rules.pro.
+            implementation("com.microsoft.onnxruntime:onnxruntime-android:$onnxRuntimeVersion")
         }
 
         jvmCommonMain.dependencies {
             implementation(libs.ktor.client.cio)
+            // OrtMaiaRuntime compiles here against the desktop jar; each target then brings its
+            // own artifact of the identical ai.onnxruntime API (desktopMain / androidMain below).
+            compileOnly("com.microsoft.onnxruntime:onnxruntime:$onnxRuntimeVersion")
         }
 
         val androidDeviceTest by getting {
@@ -190,10 +199,10 @@ kotlin {
             dependsOn(jvmCommonMain)
             dependencies {
                 implementation(compose.desktop.currentOs)
-                // Maia-3 human-move predictions (explorer/MaiaRuntime.desktop.kt). Same version as
-                // :server. The jar is ~139 MB because it carries every OS's native library — the
-                // same trade the desktop build already makes for litertlm-jvm.
-                implementation("com.microsoft.onnxruntime:onnxruntime:1.22.0")
+                // Maia-3 human-move predictions (explorer/OrtMaiaRuntime.kt). The jar is ~139 MB
+                // because it carries every OS's native library, the same trade the desktop build
+                // already makes for litertlm-jvm.
+                implementation("com.microsoft.onnxruntime:onnxruntime:$onnxRuntimeVersion")
             }
         }
 

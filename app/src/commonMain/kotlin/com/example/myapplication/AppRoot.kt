@@ -40,7 +40,7 @@ import com.example.myapplication.explorer.HumanMoveExplorer
 import com.example.myapplication.explorer.KtorLichessOpeningExplorer
 import com.example.myapplication.explorer.MaiaHumanMovePredictor
 import com.example.myapplication.explorer.RatingBand
-import com.example.myapplication.explorer.createMaiaRuntime
+import com.example.myapplication.explorer.maiaRuntimeFactory
 import com.example.myapplication.explorer.forReview
 import com.example.myapplication.multiplayer.LichessArchiveClient
 import com.example.myapplication.multiplayer.LichessAuth
@@ -171,7 +171,7 @@ fun AppRoot(
     val humanMoveExplorer = remember(onlineHttp, online) {
         HumanMoveExplorer(
             lichess = onlineHttp?.let { KtorLichessOpeningExplorer(it) },
-            maia = createMaiaRuntime()?.let { MaiaHumanMovePredictor(it) },
+            maia = maiaRuntimeFactory()?.let { MaiaHumanMovePredictor(it) },
             lichessToken = { online?.explorerToken() },
         )
     }

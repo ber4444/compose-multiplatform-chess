@@ -229,6 +229,11 @@ Three things to keep straight:
   Android as the official `sf_17` executables and on iOS via ChessKitEngine; App Store / TestFlight
   distribution relies on the same tolerance Lichess's mobile app does, plus the in-app licence
   text and source pointer the Stockfish README asks for.
+- **Maia-3 is AGPL-3.0, not GPL.** The bundled model, `MaiaEncoder.kt` and `MaiaGolden.kt` stay
+  under the AGPL. They are combined with the GPL app as section 13 of both licences allows, which is
+  why the licences screen carries the AGPL text too. The AGPL's network clause is why **Maia must
+  not move into `:server`** without offering its source to network users. See COPYING.md's Maia-3
+  section and `docs/maia3-model-provenance.md`.
 - **Keep `LicensesScreen.thirdPartyNotices`, COPYING.md's exceptions table and
   THIRD_PARTY_NOTICES.md in step.** Adding a vendored asset or engine means adding it to all three;
   the in-app list is what a store user actually sees.
@@ -412,8 +417,18 @@ data (moves and shares), not prose. Four fences:
 - **Maia has its own seam (`HumanMovePredictor` / `MaiaRuntime`), not `OnDeviceTextGenerator`.**
   `MaiaEncoder` is a port of `maia3/dataset.py`. Every history position is mirrored and
   colour-swapped when Black is to move, and a wrong mirror still returns a plausible distribution,
-  so `MaiaEncoderTest` pins it against Python-generated `MaiaGolden`. Only desktop has a runtime
-  (ONNX Runtime, `CHESS_MAIA_MODEL=/path/to/maia3-5m.onnx`); see `tools/maia3/README.md`.
+  so `MaiaEncoderTest` pins it against Python-generated `MaiaGolden`.
+  - **Platforms.** Android and desktop run the **bundled** `jvmCommonMain/resources/maia/maia3-5m.onnx`
+    (21 MB) through ONNX Runtime (`OrtMaiaRuntime`). iOS and web return `null` from
+    `maiaRuntimeFactory()`.
+  - **Loading is lazy on purpose.** The factory only checks that the resource exists, and the model
+    is read on the first prediction (~0.8 s on a Pixel 10 Pro XL, then ~35 ms per position).
+    Creating the runtime in composition would put that load in cold start.
+  - **Model changes.** Changing the model means re-exporting with `tools/maia3`, then updating the
+    hash in `BundledMaiaModel`, `docs/maia3-model-provenance.md` and `MaiaGolden.kt` together.
+    `OnnxMaiaRuntimeTest` fails on a hash drift.
+  - **R8.** `app/proguard-rules.pro` keeps `ai.onnxruntime.**`. The AAR ships no consumer rules, and
+    its JNI looks classes up by name.
 - **Availability.** The panel renders only when `HumanMoveExplorer.canAnswer()`, meaning Maia
   exists or Lichess is signed in. A game without `moveRecords` (a Lichess archive copy) shows no
   panel.

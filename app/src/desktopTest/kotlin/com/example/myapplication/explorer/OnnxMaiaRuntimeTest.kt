@@ -6,25 +6,30 @@ import com.example.myapplication.PromotionType
 import com.example.myapplication.Set
 import com.example.myapplication.UciMoveConverter
 import com.example.myapplication.applyMove
-import java.io.File
+import java.security.MessageDigest
 import kotlin.math.abs
 import kotlinx.coroutines.runBlocking
-import org.junit.Assume.assumeTrue
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * End-to-end parity: Kotlin encoder + ONNX Runtime against the reference PyTorch top moves in
- * `MaiaGolden`. Needs the exported model (`tools/maia3/README.md`) at `CHESS_MAIA_MODEL`, so it is
- * skipped — visibly, as an assumption failure — on CI, which has no model to load.
+ * End-to-end parity: the Kotlin encoder plus ONNX Runtime over the *bundled* model, against the
+ * reference PyTorch top moves in `MaiaGolden`. Runs everywhere desktop tests run.
  */
 class OnnxMaiaRuntimeTest {
     @Test
+    fun bundledModelIsWhatTheProvenanceDocumentPins() {
+        val bytes = BundledMaiaModel.readBytes()
+        val sha = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        assertEquals(BundledMaiaModel.SHA256, sha, "re-export with tools/maia3 and update docs/maia3-model-provenance.md")
+    }
+
+    @Test
     fun topMovesMatchReferencePyTorch() = runBlocking {
-        val path = System.getenv(MAIA_MODEL_ENV)
-        assumeTrue("$MAIA_MODEL_ENV not set; skipping ONNX parity", !path.isNullOrBlank() && File(path).isFile)
-        MaiaHumanMovePredictor(OnnxMaiaRuntime(File(path))).use { predictor ->
+        val open = assertNotNull(maiaRuntimeFactory(), "desktop must find the bundled model")
+        MaiaHumanMovePredictor(open).use { predictor ->
             for (case in MaiaGolden.cases) {
                 val position = ExplorerPosition(history(case).last(), history(case).takeLast(MAIA_HISTORY))
                 for ((rating, expected) in case.top) {

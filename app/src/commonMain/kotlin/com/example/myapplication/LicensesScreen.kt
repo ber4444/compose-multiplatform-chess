@@ -44,7 +44,13 @@ internal val thirdPartyNotices = listOf(
     ),
     ThirdPartyNotice("Filament", "3D rendering", "Apache-2.0", "https://github.com/google/filament"),
     ThirdPartyNotice("SceneView", "3D rendering on Android", "Apache-2.0", "https://github.com/SceneView/sceneview-android"),
-    ThirdPartyNotice("ONNX Runtime", "Maia-3 move predictions on desktop", "MIT", "https://github.com/microsoft/onnxruntime"),
+    ThirdPartyNotice(
+        "Maia-3 (University of Toronto CSSLab)",
+        "predictions of what players at a rating play, on Android and desktop; the bundled model is a " +
+            "converted copy of the Maia3-5M checkpoint, and its board encoding is adapted from maia3",
+        "GNU AGPL v3", "https://github.com/CSSLab/maia3",
+    ),
+    ThirdPartyNotice("ONNX Runtime", "running Maia-3 on Android and desktop", "MIT", "https://github.com/microsoft/onnxruntime"),
     ThirdPartyNotice("Material Icons", "interface icons", "Apache-2.0", "https://fonts.google.com/icons"),
     ThirdPartyNotice(
         "Lichess chess-openings", "opening names behind the opening explainer",
@@ -65,6 +71,7 @@ internal val thirdPartyNotices = listOf(
 fun LicensesScreen(onBack: () -> Unit) {
     val uriHandler = LocalUriHandler.current
     var showFullText by rememberSaveable { mutableStateOf(false) }
+    var showAgplText by rememberSaveable { mutableStateOf(false) }
 
     SubScreenScaffold(title = "Open-source licences", onBack = onBack) {
         Column(Modifier.padding(horizontal = 16.dp)) {
@@ -96,6 +103,15 @@ fun LicensesScreen(onBack: () -> Unit) {
                 // Loaded on demand: 35 KB of text nobody reads should not cost every visit.
                 val gplText by produceState("") { value = Res.readBytes("files/licenses/GPL-3.0.txt").decodeToString() }
                 Text(gplText, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("licenses_gpl_text"))
+            }
+            // Maia-3 is AGPL-3.0, combined with this GPL app as both licences' section 13 allows. Its
+            // licence has to travel with the binary too.
+            TextButton(onClick = { showAgplText = !showAgplText }, modifier = Modifier.testTag("licenses_toggle_agpl")) {
+                Text(if (showAgplText) "Hide the GNU AGPL v3 text (Maia-3)" else "Show the full GNU AGPL v3 text (Maia-3)")
+            }
+            if (showAgplText) {
+                val agplText by produceState("") { value = Res.readBytes("files/licenses/AGPL-3.0.txt").decodeToString() }
+                Text(agplText, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("licenses_agpl_text"))
             }
         }
     }
