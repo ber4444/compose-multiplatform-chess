@@ -57,4 +57,6 @@ The app talks to these services when the relevant feature is used:
   is configured at build time.
 * Hugging Face, to download on-device language models (desktop with `CHESS_ENABLE_COACH=1`, web
   with `?coach=1`).
+* The Lichess opening explorer (`explorer.lichess.org`), for the human-move panel in History, when
+  the build enables Lichess and the user is signed in.
 * unpkg and jsDelivr, which serve `filament.js` and `@litert-lm/core` to the web build.

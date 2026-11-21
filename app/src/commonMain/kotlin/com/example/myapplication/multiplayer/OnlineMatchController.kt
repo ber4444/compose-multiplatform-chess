@@ -85,6 +85,13 @@ internal class OnlineMatchController(
     private var pendingPly: Int? = null
     private var loadingOngoing = false
 
+    /**
+     * The signed-in session's token for read-only Lichess data (the human-move explorer). `null`
+     * while signed out *and* whenever assistance is blocked, so an explorer request can never be
+     * made on behalf of a live online game, whatever screen asks.
+     */
+    fun explorerToken(): String? = session?.token?.takeUnless { state.value.assistanceBlocked }
+
     fun signIn() {
         if (authJob?.isActive == true || session != null) return
         auth.prepareBrowser()

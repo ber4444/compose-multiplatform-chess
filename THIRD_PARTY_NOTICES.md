@@ -79,6 +79,25 @@ fetches Filament xcframeworks with `tools/fetch_filament_ios.sh`. Android uses F
 
 - https://github.com/google/filament
 
+## ONNX Runtime
+
+The desktop build runs the Maia-3 human-move model through ONNX Runtime
+(`com.microsoft.onnxruntime:onnxruntime`), licensed under MIT.
+
+- https://github.com/microsoft/onnxruntime
+
+## Maia-3
+
+`app/src/commonMain/kotlin/com/example/myapplication/explorer/MaiaEncoder.kt` implements Maia-3's
+input and output encoding as defined by CSSLab's `maia3` package (`dataset.py`, `utils.py`), and
+`MaiaGolden.kt` holds reference outputs generated from the published `Maia3-5M` checkpoint by
+`tools/maia3/make_golden.py`. The `maia3` code is licensed under AGPL-3.0; its model card points to
+the repository for the weights' licence. The app does not distribute the model: desktop loads a
+user-supplied export named by `CHESS_MAIA_MODEL`.
+
+- https://github.com/CSSLab/maia3
+- https://huggingface.co/UofTCSSLab/Maia3-5M
+
 ## Lichess Chess Openings
 
 The opening explainer corpus includes the checked-in `a.tsv` through `e.tsv` files from

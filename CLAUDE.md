@@ -394,6 +394,30 @@ the two cloud routes; `:evals` gates grounding regressions in CI (routing and fl
 >
 > One consequence is live and easy to miss: because the raw text goes to the validator unparsed, a model that *did* emit `{"headline": …, "explanation": …}` would have the whole blob accepted and rendered verbatim in the panel. `DefaultAiCoachOrchestratorTest`'s "success path" case currently pins exactly that — it feeds a JSON payload, asserts `Success`, and never asserts the resulting text.
 
+### Human-move explorer (History → game detail)
+
+"What players at this level play here?", one position at a time, in `explorer/` (`:app`). It is not
+one of the five text surfaces and does not go through `AiRoutePolicyDecider`, because its output is
+data (moves and shares), not prose. Four fences:
+
+- **Lichess first, Maia-3 second, and the answer says which.** `HumanMoveExplorer` asks the Lichess
+  opening explorer (`explorer.lichess.org/lichess`). It falls back to Maia when the user is not
+  signed in, when the request fails, or when fewer than `MIN_LICHESS_GAMES` games in the band
+  reached the position, which is the normal case past the opening. `ExplorerAnswer.Moves.lichessMiss`
+  carries the reason, and the panel shows it. Transient misses are not cached.
+- **The explorer needs an OAuth token.** An anonymous request returns 401 (checked 2026-11-21). The
+  token is #170's session token, through `OnlineMatchController.explorerToken()`, which returns
+  `null` whenever `assistanceBlocked`. Human move statistics during an online game are assistance,
+  so that `null` and `forReview(assistanceBlocked)` both keep the panel out of online play.
+- **Maia has its own seam (`HumanMovePredictor` / `MaiaRuntime`), not `OnDeviceTextGenerator`.**
+  `MaiaEncoder` is a port of `maia3/dataset.py`. Every history position is mirrored and
+  colour-swapped when Black is to move, and a wrong mirror still returns a plausible distribution,
+  so `MaiaEncoderTest` pins it against Python-generated `MaiaGolden`. Only desktop has a runtime
+  (ONNX Runtime, `CHESS_MAIA_MODEL=/path/to/maia3-5m.onnx`); see `tools/maia3/README.md`.
+- **Availability.** The panel renders only when `HumanMoveExplorer.canAnswer()`, meaning Maia
+  exists or Lichess is signed in. A game without `moveRecords` (a Lichess archive copy) shows no
+  panel.
+
 ### Fallback states (B17)
 
 `AiRoutePolicyDecider.FallbackReason` is a **sealed** class — the routing/validation/quota/timeout

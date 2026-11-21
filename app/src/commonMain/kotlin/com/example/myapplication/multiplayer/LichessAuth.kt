@@ -19,7 +19,24 @@ internal data class OnlineOAuthCallback(
 )
 
 @Serializable
-internal data class LichessProfile(val id: String, val username: String)
+internal data class LichessProfile(
+    val id: String,
+    val username: String,
+    val perfs: Map<String, LichessPerf> = emptyMap(),
+) {
+    /**
+     * The rating the human-move explorer starts from: the blitz/rapid/classical rating with the
+     * most games, preferring established ratings over provisional ones. `null` for a new account.
+     */
+    val explorerRating: Int?
+        get() = EXPLORER_PERFS.mapNotNull { perfs[it] }.filter { it.games > 0 }
+            .maxWithOrNull(compareBy<LichessPerf> { !it.prov }.thenBy { it.games })?.rating
+}
+
+@Serializable
+internal data class LichessPerf(val rating: Int, val games: Int = 0, val prov: Boolean = false)
+
+private val EXPLORER_PERFS = listOf("blitz", "rapid", "classical")
 
 internal class LichessSession(val profile: LichessProfile, internal val token: String)
 

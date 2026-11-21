@@ -36,6 +36,12 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.board3d.Board3DSupport
+import com.example.myapplication.explorer.HumanMoveExplorer
+import com.example.myapplication.explorer.KtorLichessOpeningExplorer
+import com.example.myapplication.explorer.MaiaHumanMovePredictor
+import com.example.myapplication.explorer.RatingBand
+import com.example.myapplication.explorer.createMaiaRuntime
+import com.example.myapplication.explorer.forReview
 import com.example.myapplication.multiplayer.LichessArchiveClient
 import com.example.myapplication.multiplayer.LichessAuth
 import com.example.myapplication.multiplayer.LichessBoardClient
@@ -161,6 +167,15 @@ fun AppRoot(
     val onlineState = online?.state?.collectAsState()?.value
     val assistanceBlocked = onlineState?.assistanceBlocked == true
     val archive = remember(onlineHttp) { onlineHttp?.let { LichessArchiveClient(it, lichessGate) } }
+    // Lichess explorer first (needs the signed-in token), Maia-3 where this platform has a runtime.
+    val humanMoveExplorer = remember(onlineHttp, online) {
+        HumanMoveExplorer(
+            lichess = onlineHttp?.let { KtorLichessOpeningExplorer(it) },
+            maia = createMaiaRuntime()?.let { MaiaHumanMovePredictor(it) },
+            lichessToken = { online?.explorerToken() },
+        )
+    }
+    DisposableEffect(humanMoveExplorer) { onDispose { humanMoveExplorer.close() } }
     val archiveCache = remember { LichessHistoryCache() }
     val cloudSync = remember(settings) {
         if ((SOLO_HISTORY_SYNC_ENABLED || SOLO_RESUME_SYNC_ENABLED) &&
@@ -299,6 +314,7 @@ fun AppRoot(
                     },
                 )
                 Screen.HISTORY -> if (gameHistory != null) {
+                    val difficulty by settings.engineDifficulty.collectAsState()
                     GameHistoryScreen(
                         gameHistory = gameHistory,
                         pgnSharer = pgnSharer,
@@ -312,6 +328,10 @@ fun AppRoot(
                                 if (cloudSync != null) CloudSaveHistory(cloudSync, onOpen)
                             }
                         } else null,
+                        // Read here, in composition, so signing in or out re-decides availability.
+                        humanMoves = humanMoveExplorer.forReview(assistanceBlocked),
+                        humanMovesBand = onlineState?.profile?.explorerRating?.let(RatingBand::forRating)
+                            ?: RatingBand.forDifficulty(difficulty),
                     )
                 } else {
                     SubScreenScaffold(title = "Game History", onBack = { screen = Screen.GAME }) {

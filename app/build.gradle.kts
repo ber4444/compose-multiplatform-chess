@@ -190,6 +190,10 @@ kotlin {
             dependsOn(jvmCommonMain)
             dependencies {
                 implementation(compose.desktop.currentOs)
+                // Maia-3 human-move predictions (explorer/MaiaRuntime.desktop.kt). Same version as
+                // :server. The jar is ~139 MB because it carries every OS's native library — the
+                // same trade the desktop build already makes for litertlm-jvm.
+                implementation("com.microsoft.onnxruntime:onnxruntime:1.22.0")
             }
         }
 

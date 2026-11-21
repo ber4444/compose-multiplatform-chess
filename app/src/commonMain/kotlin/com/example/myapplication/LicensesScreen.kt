@@ -44,6 +44,7 @@ internal val thirdPartyNotices = listOf(
     ),
     ThirdPartyNotice("Filament", "3D rendering", "Apache-2.0", "https://github.com/google/filament"),
     ThirdPartyNotice("SceneView", "3D rendering on Android", "Apache-2.0", "https://github.com/SceneView/sceneview-android"),
+    ThirdPartyNotice("ONNX Runtime", "Maia-3 move predictions on desktop", "MIT", "https://github.com/microsoft/onnxruntime"),
     ThirdPartyNotice("Material Icons", "interface icons", "Apache-2.0", "https://fonts.google.com/icons"),
     ThirdPartyNotice(
         "Lichess chess-openings", "opening names behind the opening explainer",

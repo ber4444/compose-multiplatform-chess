@@ -93,6 +93,21 @@ class OnlineMatchControllerTest {
         controller.close()
     }
 
+    @Test
+    fun explorerTokenIsWithheldWhileAssistanceIsBlocked() = runTest {
+        val board = FakeBoard(immediateAccept = false)
+        val controller = OnlineMatchController(backgroundScope, FakeAuth, { board })
+        assertEquals(null, controller.explorerToken())
+        controller.signIn()
+        runCurrent()
+        assertEquals(testSession.token, controller.explorerToken())
+        controller.challenge("Black")
+        runCurrent()
+        assertTrue(controller.state.value.assistanceBlocked)
+        assertEquals(null, controller.explorerToken())
+        controller.close()
+    }
+
     private class FakeBoard(private val immediateAccept: Boolean = true) : LichessBoardApi {
         val games = Channel<LichessGameEvent>(Channel.UNLIMITED)
         val events = Channel<LichessAccountEvent>(Channel.UNLIMITED)
