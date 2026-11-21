@@ -10,7 +10,7 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.waitUntilExactlyOneExists
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.GameHistoryRepository
@@ -22,14 +22,16 @@ import com.russhwolf.settings.Settings
  * tests and the iOS simulator tests (`src/mobileUiTest` is a shared source dir of both).
  *
  * They drive the real [AppRoot] over a real [GameHistoryRepository] persisted in platform
- * [Settings], so a pass covers what a unit test of `HabitAggregator` cannot: the Habits button is
- * reachable from the game screen, the saved `playerSide`/`hintUsed` fields survive a relaunch, the
- * screen recomposes when a game is saved, and the habit cards actually render. That last one is
- * not a formality — the screen used to nest a `verticalScroll` inside `SubScreenScaffold`'s own,
- * which throws at measure time, so it crashed whenever it had something to show.
+ * [Settings], so a pass covers what a unit test of `HabitAggregator` cannot: habits are reachable
+ * through the History screen (there is no Habits button of its own), the saved
+ * `playerSide`/`hintUsed` fields survive a relaunch, the list recomposes when a game is saved, the
+ * habit cards actually render, and the saved games are still listed beneath them. Rendering is not
+ * a formality — the original standalone Habits screen nested a `verticalScroll` inside
+ * `SubScreenScaffold`'s own, which throws at measure time, so it crashed whenever it had something
+ * to show.
  */
 
-/** Habits from games saved in an earlier session render on the Habits screen, and Back returns. */
+/** Habits from games saved in an earlier session render at the top of History, and Back returns. */
 @OptIn(ExperimentalTestApi::class)
 internal fun ComposeUiTest.showHabitsFromPreviousSession(
     settings: Settings,
@@ -43,8 +45,9 @@ internal fun ComposeUiTest.showHabitsFromPreviousSession(
     try {
         setContent { AppRoot(viewModel = viewModel, settings = appSettings, gameHistory = relaunched) }
 
-        onNodeWithTag("open_habits_button").assertIsDisplayed().performClick()
+        onNodeWithTag("open_history_button").assertIsDisplayed().performClick()
         waitUntilExactlyOneExists(hasTestTag("habit_card_0"), timeoutMillis = 5_000)
+        onNodeWithTag("habits_header").assertIsDisplayed()
 
         // Tactical: the Black-side game counts only because playerSide survived the round trip.
         onNodeWithText("You've hung a piece in 2 of your last 3 games.").assertIsDisplayed()
@@ -54,19 +57,24 @@ internal fun ComposeUiTest.showHabitsFromPreviousSession(
         onAllNodesWithText(HabitFixtures.BLACK_BLUNDER_FEN_BEFORE).onFirst().assertIsDisplayed()
 
         // Behavioral: only reachable if MoveRecord.hintUsed was persisted.
-        onNodeWithTag("habit_card_1").performScrollTo().assertIsDisplayed()
+        onNodeWithTag("history_list").performScrollToNode(hasTestTag("habit_card_1"))
         onNodeWithText("You relied on hints in 2 of your last 3 games.").assertIsDisplayed()
         onNodeWithText("BEHAVIORAL HABIT").assertIsDisplayed()
 
+        // The games the habits were read from are still listed below them.
+        onNodeWithTag("history_list").performScrollToNode(hasTestTag("saved_games_header"))
+        onNodeWithTag("saved_games_header").assertIsDisplayed()
+        onNodeWithTag("history_list").performScrollToNode(hasTestTag("history_row_${HabitFixtures.NEWEST_GAME_ID}"))
+
         navigateBack()
-        waitUntilExactlyOneExists(hasTestTag("open_habits_button"), timeoutMillis = 5_000)
+        waitUntilExactlyOneExists(hasTestTag("open_history_button"), timeoutMillis = 5_000)
         onNodeWithText("You've hung a piece in 2 of your last 3 games.").assertDoesNotExist()
     } finally {
         viewModel.close()
     }
 }
 
-/** Too few games shows the empty state; saving one more game updates the open screen in place. */
+/** Too few games shows the habits empty state; saving one more game updates History in place. */
 @OptIn(ExperimentalTestApi::class)
 internal fun ComposeUiTest.habitAppearsWhenAnotherGameIsSaved(settings: Settings) {
     val history = GameHistoryRepository(settings)
@@ -78,7 +86,7 @@ internal fun ComposeUiTest.habitAppearsWhenAnotherGameIsSaved(settings: Settings
     try {
         setContent { AppRoot(viewModel = viewModel, settings = appSettings, gameHistory = history) }
 
-        onNodeWithTag("open_habits_button").performClick()
+        onNodeWithTag("open_history_button").performClick()
         onNodeWithTag("habits_empty").assertIsDisplayed()
         onNodeWithTag("habit_card_0").assertDoesNotExist()
 
@@ -93,6 +101,9 @@ internal fun ComposeUiTest.habitAppearsWhenAnotherGameIsSaved(settings: Settings
 internal object HabitFixtures {
     /** Position before Black's blunder in the Black-side game (after 1.e4 e5 2.Nf3). */
     const val BLACK_BLUNDER_FEN_BEFORE = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
+
+    /** Id of the Black-side game, the newest of the three. */
+    const val NEWEST_GAME_ID = "3"
 
     /**
      * Three games, oldest first (the repository lists newest first):

@@ -31,6 +31,9 @@ import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.myapplication.habits.HabitSummary
+import com.example.myapplication.habits.HabitsManager
+import com.example.myapplication.habits.habitsSection
 import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.persistence.SavedGame
 import com.example.myapplication.share.PgnSharer
@@ -38,6 +41,9 @@ import com.example.myapplication.share.PgnSharer
 /**
  * Lists saved games (newest first) from [gameHistory]. Tapping a row opens an inline detail view
  * with the full PGN (selectable) and **Share** / **Delete** actions. Empty state when no games.
+ *
+ * When [habitsManager] is given and there is at least one saved game, the list opens with a
+ * **Habits** section (cross-game patterns, B6/RAG-5) above the games it was computed from.
  *
  * Reached from [AppRoot] via `Screen.HISTORY`. The detail view is a local `selectedGame` state
  * rather than a new [Screen] value to keep history navigation shallow.
@@ -47,9 +53,11 @@ import com.example.myapplication.share.PgnSharer
 fun GameHistoryScreen(
     gameHistory: GameHistoryRepository,
     pgnSharer: PgnSharer? = null,
+    habitsManager: HabitsManager? = null,
     onBack: () -> Unit,
 ) {
     val games by gameHistory.games.collectAsState()
+    val habits = habitsManager?.summaries?.collectAsState()?.value
     var selectedGame by remember { mutableStateOf<SavedGame?>(null) }
 
     val current = selectedGame
@@ -62,6 +70,7 @@ fun GameHistoryScreen(
         if (current == null) {
             GameHistoryList(
                 games = games,
+                habits = habits,
                 pgnSharer = pgnSharer,
                 onOpen = { selectedGame = it },
                 onDelete = { gameHistory.delete(it.id) },
@@ -78,6 +87,7 @@ fun GameHistoryScreen(
 @Composable
 private fun GameHistoryList(
     games: List<SavedGame>,
+    habits: List<HabitSummary>?,
     pgnSharer: PgnSharer?,
     onOpen: (SavedGame) -> Unit,
     onDelete: (SavedGame) -> Unit,
@@ -94,7 +104,9 @@ private fun GameHistoryList(
     }
 
     // Each row: date, result, players, move count. The whole card is selectable.
-    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+    LazyColumn(modifier = Modifier.fillMaxWidth().testTag("history_list")) {
+        // Null when this build has no habits manager; then the list is games only, as before.
+        if (habits != null) habitsSection(habits)
         items(games, key = { it.id }, contentType = { "saved_game" }) { game ->
             GameHistoryRow(
                 game = game,

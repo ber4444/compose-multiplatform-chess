@@ -1,49 +1,59 @@
 package com.example.myapplication.habits
 
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.example.myapplication.SubScreenScaffold
 
 /**
- * Cross-game habits (B6/RAG-5). Reached from [AppRoot][com.example.myapplication.AppRoot] via
- * `Screen.HABITS`. Supplies its own [SubScreenScaffold], which already scrolls vertically, so the
- * card list must not add a second `verticalScroll`: nested same-direction scrolling throws at
- * measure time, i.e. the screen would crash as soon as there was a habit to show.
+ * Cross-game habits (B6/RAG-5), rendered as the top section of the History screen's game list
+ * rather than as a screen of their own: habits are a reading of the saved games, so they live
+ * with them, and the game screen's menu row needs no extra button.
+ *
+ * Emitted into the History list's `LazyColumn`, never wrapped in a scrolling container of its own.
+ * Same-direction nested scrolling throws at measure time ("measured with an infinity maximum
+ * height"), which is the crash the original standalone Habits screen shipped with.
  */
-@Composable
-fun HabitsScreen(manager: HabitsManager, onBack: () -> Unit) {
-    val summaries by manager.summaries.collectAsState()
-    SubScreenScaffold(title = "Habits", onBack = onBack) {
-        if (summaries.isEmpty()) {
-            Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                Text(
-                    "Not enough finished games yet to spot a pattern. Play and save a few more — " +
-                        "habits need several assessed games before one repeats often enough to name.",
-                    modifier = Modifier.testTag("habits_empty"),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-        } else {
-            Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                summaries.forEachIndexed { index, summary ->
-                    HabitCard(summary, modifier = Modifier.testTag("habit_card_$index"))
-                }
-            }
+internal fun LazyListScope.habitsSection(summaries: List<HabitSummary>) {
+    item(key = "habits_header", contentType = "section_header") {
+        SectionHeader("Habits", Modifier.testTag("habits_header"))
+    }
+    if (summaries.isEmpty()) {
+        item(key = "habits_empty", contentType = "habits_empty") {
+            Text(
+                "No habit yet. A habit appears once the same pattern repeats across several " +
+                    "assessed games, so save a few more to see yours.",
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp).testTag("habits_empty"),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    } else {
+        itemsIndexed(summaries, key = { index, _ -> "habit_$index" }, contentType = { _, _ -> "habit" }) { index, summary ->
+            HabitCard(summary, modifier = Modifier.testTag("habit_card_$index"))
         }
     }
+    item(key = "games_header", contentType = "section_header") {
+        SectionHeader("Saved games", Modifier.testTag("saved_games_header"))
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String, modifier: Modifier = Modifier) {
+    Text(
+        title,
+        modifier = modifier.padding(start = 4.dp, top = 12.dp, bottom = 4.dp),
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.primary,
+    )
 }
 
 @Composable

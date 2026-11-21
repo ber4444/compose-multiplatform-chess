@@ -26,7 +26,6 @@ fun ChessApp(
     onOpenSettings: () -> Unit = {},
     onOpenRules: () -> Unit = {},
     onOpenChat: () -> Unit = {},
-    onOpenHabits: () -> Unit = {},
 ) {
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -49,7 +48,6 @@ fun ChessApp(
                 onOpenSettings = onOpenSettings,
                 onOpenRules = onOpenRules,
                 onOpenChat = onOpenChat,
-                onOpenHabits = onOpenHabits,
             )
         }
     }

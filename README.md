@@ -157,9 +157,9 @@ graph TD
   enough (requiring repetition across multiple games, not multiple blunders in a single bad game).
   Re-projects existing `MoveAssessment` records into practice positions (`fenBefore` plus the
   engine's `bestMoveSan` alternative) with deterministic narration (`HabitNarrator`). Requires no
-  model or network calls on any platform. Accessible via the **Habits** screen.
+  model or network calls on any platform. Shown at the top of the **History** screen.
 - **Engine Difficulty:** A persisted Easy / Medium / Hard / Max setting (in **Settings**) weakens or strengthens Stockfish play via the UCI `Skill Level` option and a per-move think-time budget. Applies to the Stockfish engine on every platform.
-- **Settings & Navigation:** A minimal multiplatform navigation host (`AppRoot`) switches between the game, **History**, **Habits**, **Settings**, **Rules** and **Chat** screens, plus **Open-source licences** under Settings. Settings holds four persisted controls: the 3D-board toggle (default on), the engine-difficulty selector, the AI Move Coach toggle (default on), and the **player side** selector — you can play as Black, in which case the engine opens.
+- **Settings & Navigation:** A minimal multiplatform navigation host (`AppRoot`) switches between the game, **History** (saved games, with cross-game habits on top), **Settings**, **Rules** and **Chat** screens, plus **Open-source licences** under Settings. Settings holds four persisted controls: the 3D-board toggle (default on), the engine-difficulty selector, the AI Move Coach toggle (default on), and the **player side** selector — you can play as Black, in which case the engine opens.
 
 ### Board rendering, engines & verification
 

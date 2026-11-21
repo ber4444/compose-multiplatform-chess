@@ -187,7 +187,6 @@ fun GameScreen(
     onOpenSettings: () -> Unit = {},
     onOpenRules: () -> Unit = {},
     onOpenChat: () -> Unit = {},
-    onOpenHabits: () -> Unit = {},
 ) {
     val gameState by viewModel.gameState.collectAsState()
     val animState by viewModel.animState.collectAsState()
@@ -679,17 +678,6 @@ fun GameScreen(
             ) {
                 Text(
                     text = "History",
-                    color = THREE_D_CONTROL_ACCENT_COLOR,
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-            Spacer(modifier = Modifier.width(4.dp))
-            TextButton(
-                onClick = onOpenHabits,
-                modifier = Modifier.testTag("open_habits_button")
-            ) {
-                Text(
-                    text = "Habits",
                     color = THREE_D_CONTROL_ACCENT_COLOR,
                     style = MaterialTheme.typography.labelLarge
                 )
