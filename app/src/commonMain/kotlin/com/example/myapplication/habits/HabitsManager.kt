@@ -11,15 +11,11 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 
 /**
- * Cross-game habit aggregation (B6/RAG-5) — the Pro story on *every* platform now that the Move
- * Coach is deterministic on all of them (`android-model-latency-2026-08.md`). Not an
- * Android-shaped patch: both phone runtimes were measured on the same 100 golden positions and
- * neither earned the panel, so "what Pro adds" had to stop meaning "a model phrases it" and start
- * meaning a surface the free tier genuinely doesn't have. Recomputes [summaries] from
- * [GameHistoryRepository.games] on every change.
+ * Cross-game habit aggregation (B6/RAG-5): the one coaching surface that reads *across* games
+ * rather than about a single move. Recomputes [summaries] from [GameHistoryRepository.games] on
+ * every change.
  *
- * Unlike [com.example.myapplication.movecoach.MoveCoachManager]/
- * [com.example.myapplication.movecoach.GameSummaryManager], this needs no platform runtime, model,
+ * Unlike [com.example.myapplication.movecoach.MoveCoachManager], this needs no platform runtime, model,
  * or engine — [HabitAggregator] is a pure function over data already persisted — so there is nothing
  * to attach and no `Unavailable` state: the manager is either constructed (there's a game history to
  * read) or not constructed at all, mirroring how [AppRoot][com.example.myapplication.AppRoot]

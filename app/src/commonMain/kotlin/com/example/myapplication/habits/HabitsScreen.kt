@@ -2,11 +2,8 @@ package com.example.myapplication.habits
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -22,15 +19,16 @@ import com.example.myapplication.SubScreenScaffold
 
 /**
  * Cross-game habits (B6/RAG-5). Reached from [AppRoot][com.example.myapplication.AppRoot] via
- * `Screen.HABITS`, Pro-gated the same way Rules Q&A is — this screen supplies its own
- * [SubScreenScaffold], so the gate branches in `AppRoot` rather than wrapping in `ProGate`.
+ * `Screen.HABITS`. Supplies its own [SubScreenScaffold], which already scrolls vertically, so the
+ * card list must not add a second `verticalScroll`: nested same-direction scrolling throws at
+ * measure time, i.e. the screen would crash as soon as there was a habit to show.
  */
 @Composable
 fun HabitsScreen(manager: HabitsManager, onBack: () -> Unit) {
     val summaries by manager.summaries.collectAsState()
     SubScreenScaffold(title = "Habits", onBack = onBack) {
         if (summaries.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                 Text(
                     "Not enough finished games yet to spot a pattern. Play and save a few more — " +
                         "habits need several assessed games before one repeats often enough to name.",
@@ -39,12 +37,7 @@ fun HabitsScreen(manager: HabitsManager, onBack: () -> Unit) {
                 )
             }
         } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp)
-            ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                 summaries.forEachIndexed { index, summary ->
                     HabitCard(summary, modifier = Modifier.testTag("habit_card_$index"))
                 }
