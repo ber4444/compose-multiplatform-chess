@@ -21,6 +21,12 @@ class HumanMovesInstrumentedTest {
     fun historyDetailHidesHumanMovesWithoutASourceOrDuringOnlinePlay() =
         withSettings { hideHumanMovesWithoutASourceOrDuringOnlinePlay(it) }
 
+    @Test
+    fun settingsSwapsDifficultyForMaiaRatingsWhenMaiaIsTheOpponent() = withSettings { chooseMaiaAsTheOpponent(it) }
+
+    @Test
+    fun settingsHidesTheOpponentChoiceWithoutMaia() = withSettings { hideOpponentChoiceWithoutMaia(it) }
+
     private fun withSettings(block: ComposeUiTest.(Settings) -> Unit) {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "human-moves-ui-test-${System.nanoTime()}"

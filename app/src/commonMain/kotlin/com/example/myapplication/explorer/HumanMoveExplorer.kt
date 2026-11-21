@@ -27,14 +27,15 @@ sealed interface ExplorerAnswer {
  * shown rather than nothing; an empty one is a [ExplorerAnswer.NoAnswer].
  *
  * [lichess] is `null` when the build has no Lichess integration at all; [lichessToken] returns the
- * signed-in session's token or `null`.
+ * signed-in session's token or `null`. [maia] is not owned here: `AppRoot` shares one predictor
+ * (one model load) with the Maia opponent and closes it.
  */
 class HumanMoveExplorer(
     private val lichess: LichessOpeningExplorer?,
     private val maia: HumanMovePredictor?,
     private val lichessToken: () -> String?,
     private val minLichessGames: Long = MIN_LICHESS_GAMES,
-) : AutoCloseable {
+) {
     private val mutex = Mutex()
     private val cache = LinkedHashMap<Pair<List<String>, RatingBand>, ExplorerAnswer>()
 
@@ -102,10 +103,6 @@ class HumanMoveExplorer(
             thin != null -> ExplorerAnswer.Moves(thin, null)
             else -> ExplorerAnswer.NoAnswer(miss)
         }
-    }
-
-    override fun close() {
-        maia?.close()
     }
 
     private fun LichessMiss?.isCacheable() = this == null || this == LichessMiss.NO_DATA || this == LichessMiss.NOT_SIGNED_IN

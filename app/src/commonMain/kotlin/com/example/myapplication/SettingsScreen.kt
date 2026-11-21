@@ -22,7 +22,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.board3d.Board3DSupport
+import com.example.myapplication.explorer.RatingBand
 import com.example.myapplication.persistence.LocalAppSettings
+import com.example.myapplication.persistence.Opponent
 import game.app.generated.resources.Res
 import game.app.generated.resources.board_3d_toggle_label
 import org.jetbrains.compose.resources.stringResource
@@ -36,9 +38,14 @@ import org.jetbrains.compose.resources.stringResource
  * platforms without one never show a dead control. Toggling it writes to `AppSettings.board3DEnabled`,
  * which `GameScreen` observes and translates into the 3D surface mount/teardown choreography.
  *
- * Difficulty is always visible — it applies to the engine on every platform (the CPU fallback ignores
- * it, but the setting persists for when an engine is attached). `AppRoot` bridges the setting to the
- * VM's `setEngineDifficulty`, which applies it to the attached engine.
+ * Difficulty is visible whenever Stockfish is the opponent. It applies to the engine on every
+ * platform (the CPU fallback ignores it, but the setting persists for when an engine is attached).
+ * `AppRoot` bridges the setting to the VM's `setEngineDifficulty`, which applies it to the attached
+ * engine.
+ *
+ * Where the build runs Maia-3 (`maiaAvailable`), an Opponent choice appears. Picking Maia swaps the
+ * difficulty list for Maia's rating bands, the only strength control that then means anything.
+ * Elsewhere neither control is shown.
  */
 @Composable
 fun SettingsScreen(
@@ -46,6 +53,11 @@ fun SettingsScreen(
     board3D: Board3DSupport? = null,
     /** Opens the open-source licences screen. Null hides the row (previews, Compose UI tests). */
     onOpenLicenses: (() -> Unit)? = null,
+    /**
+     * Whether this build can run Maia-3 (Android, desktop). Without it the Opponent choice is not
+     * shown at all, and Stockfish's difficulty is the only strength control.
+     */
+    maiaAvailable: Boolean = false,
     extraSettings: (@Composable () -> Unit)? = null,
 ) {
     val settings = LocalAppSettings.current
@@ -54,22 +66,57 @@ fun SettingsScreen(
     val engineDifficulty by settings.engineDifficulty.collectAsState()
     val aiCoachEnabled by settings.aiCoachEnabled.collectAsState()
 
+    val opponent by settings.opponent.collectAsState()
+    val maiaBand by settings.maiaBand.collectAsState()
+    val playsMaia = maiaAvailable && opponent == Opponent.MAIA
+
     SubScreenScaffold(title = "Settings", onBack = onBack) {
         extraSettings?.invoke()
-        Text(
-            text = "Engine difficulty",
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
-        )
-        Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
-            EngineDifficulty.entries.forEach { level ->
-                DifficultyOption(
-                    label = level.name.lowercase().replaceFirstChar { it.titlecase() },
-                    level = level,
-                    current = engineDifficulty,
-                    onSelect = settings::setEngineDifficulty,
-                    testTag = "settings_difficulty_${level.name}",
-                )
+        if (maiaAvailable) {
+            Text(
+                text = "Opponent",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+            )
+            Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
+                ChoiceRow("Stockfish", opponent == Opponent.STOCKFISH, "settings_opponent_stockfish") {
+                    settings.setOpponent(Opponent.STOCKFISH)
+                }
+                ChoiceRow("Maia-3: plays like a person at a rating", playsMaia, "settings_opponent_maia") {
+                    settings.setOpponent(Opponent.MAIA)
+                }
+            }
+        }
+        if (playsMaia) {
+            Text(
+                text = "Maia rating",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+            )
+            Text(
+                "Hints and move coaching still come from Stockfish.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.testTag("settings_maia_note"),
+            )
+            Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
+                RatingBand.entries.forEach { band ->
+                    ChoiceRow(band.label, band == maiaBand, "settings_maia_band_${band.name}") { settings.setMaiaBand(band) }
+                }
+            }
+        } else {
+            Text(
+                text = "Engine difficulty",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = if (maiaAvailable) 16.dp else 8.dp, bottom = 4.dp)
+            )
+            Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
+                EngineDifficulty.entries.forEach { level ->
+                    ChoiceRow(
+                        label = level.name.lowercase().replaceFirstChar { it.titlecase() },
+                        selected = engineDifficulty == level,
+                        testTag = "settings_difficulty_${level.name}",
+                    ) { settings.setEngineDifficulty(level) }
+                }
             }
         }
 
@@ -148,20 +195,19 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun DifficultyOption(
+private fun ChoiceRow(
     label: String,
-    level: EngineDifficulty,
-    current: EngineDifficulty,
-    onSelect: (EngineDifficulty) -> Unit,
+    selected: Boolean,
     testTag: String,
+    onSelect: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .selectable(
-                selected = current == level,
+                selected = selected,
                 role = Role.RadioButton,
-                onClick = { onSelect(level) },
+                onClick = onSelect,
             )
             .padding(vertical = 4.dp)
             .testTag(testTag),
@@ -169,7 +215,7 @@ private fun DifficultyOption(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         RadioButton(
-            selected = current == level,
+            selected = selected,
             onClick = null,
         )
         Text(label)

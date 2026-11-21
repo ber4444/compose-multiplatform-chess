@@ -17,6 +17,12 @@ class HumanMovesSimulatorTest {
     fun historyDetailHidesHumanMovesWithoutASourceOrDuringOnlinePlay() =
         withSettings { hideHumanMovesWithoutASourceOrDuringOnlinePlay(it) }
 
+    @Test
+    fun settingsSwapsDifficultyForMaiaRatingsWhenMaiaIsTheOpponent() = withSettings { chooseMaiaAsTheOpponent(it) }
+
+    @Test
+    fun settingsHidesTheOpponentChoiceWithoutMaia() = withSettings { hideOpponentChoiceWithoutMaia(it) }
+
     private fun withSettings(block: ComposeUiTest.(Settings) -> Unit) {
         val settings = createSettings("human-moves-ui-test-${Uuid.random()}")
         try {

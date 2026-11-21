@@ -72,4 +72,31 @@ class AppSettingsTest {
         settings.setEngineDifficulty(EngineDifficulty.MAX)
         assertEquals(EngineDifficulty.MAX, settings.engineDifficulty.value)
     }
+
+    // --- opponent (Stockfish or Maia-3) ---
+
+    @Test
+    fun `opponent defaults to Stockfish at the 1400 band and round-trips`() {
+        val backing = MapSettings()
+        val settings = AppSettings(backing)
+        assertEquals(Opponent.STOCKFISH, settings.opponent.value)
+        assertEquals(com.example.myapplication.explorer.RatingBand.R1400, settings.maiaBand.value)
+
+        settings.setOpponent(Opponent.MAIA)
+        settings.setMaiaBand(com.example.myapplication.explorer.RatingBand.R1800)
+
+        val reloaded = AppSettings(backing)
+        assertEquals(Opponent.MAIA, reloaded.opponent.value)
+        assertEquals(com.example.myapplication.explorer.RatingBand.R1800, reloaded.maiaBand.value)
+    }
+
+    @Test
+    fun `unknown persisted opponent values fall back to the defaults`() {
+        val backing = MapSettings()
+        backing.putString(AppSettings.KEY_OPPONENT, "LEELA")
+        backing.putString(AppSettings.KEY_MAIA_BAND, "R9000")
+        val settings = AppSettings(backing)
+        assertEquals(Opponent.STOCKFISH, settings.opponent.value)
+        assertEquals(com.example.myapplication.explorer.RatingBand.R1400, settings.maiaBand.value)
+    }
 }
