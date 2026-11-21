@@ -1,8 +1,8 @@
 # Compose Multiplatform chess app with a 3D view mode and AI coaching 
 
 Live on [Google Play](https://play.google.com/store/apps/details?id=io.github.ber4444.chess)
-and [Apple TestFlight](https://testflight.apple.com/join/sXp1vXd5), and playable on the web at
-<https://compose-chess-web.fly.dev> (no AI coaching there; that is in the mobile apps).
+and [Apple TestFlight](https://testflight.apple.com/join/sXp1vXd5), or play chess in your browser at
+[compose-chess-web.fly.dev](https://compose-chess-web.fly.dev) (the AI coaching is in the mobile apps only).
 
 Build from source for Desktop (JVM) or Web (Wasm).
 
