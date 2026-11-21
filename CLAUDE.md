@@ -167,7 +167,16 @@ The chess-AI path is the part that spans the most files:
 - `WasmStockfishEngine` (wasmJsMain) — uses `stockfish-18-lite-single.js` running in a Web Worker.
 - Swift `StockfishChessEngine` (iOS) — wrapping ChessKitEngine, async→sync semaphore bridge, NNUE via `setoption EvalFile`/`EvalFileSmall`, injected through `MainViewController(engine:filamentFactory:)` alongside the Swift Filament view factory.
 
-The engine's move (`engineSide` — Black unless the player switched sides) flows through `pickMoveStockfish` (Move.kt): game state → FEN (`FenConverter`) → engine → UCI move → app move (`UciMoveConverter`) → `SelectedMove` validated against `getAllLegalMoves`. On any failure (null engine, illegal/unconvertible move) it falls back to `pickMoveCPU` (capture-preferring random, defaults to Queen for promotions). Engines are injected at platform entry points (`MainActivity`, desktop/wasm `Main.kt`) via `viewModel.attachEngine(...)` after an async `start()`. On Android that start is `AndroidGameViewModel.startEngine`, which runs once per retained holder on `Dispatchers.IO`. It used to run inline in `onCreate`, where it was 344 ms of a 646 ms cold start (the main thread asleep on the UCI handshake), and every rotation started a fresh Stockfish. Because the engine now lands after the first frame, UI that depends on it must observe `GameViewModel.engineAttachedFlow` rather than read the plain `engineAttached` getter once.
+The engine's move (`engineSide` — Black unless the player switched sides) flows through `pickMoveStockfish` (Move.kt): game state → FEN (`FenConverter`) → engine → UCI move → app move (`UciMoveConverter`) → `SelectedMove` validated against `getAllLegalMoves`. On any failure (null engine, illegal/unconvertible move) it falls back to `pickMoveCPU` (capture-preferring random, defaults to Queen for promotions). **Maia-3 plays the engine side by default (Settings → Opponent) on every platform with a Maia runtime.**
+`GameViewModel.setOpponentMoveChooser(OpponentMoveChooser)` is a pure-Kotlin seam in `:chess-core`
+(no model there). `moveEngine` asks the chooser first, validates its UCI move like Stockfish's, and
+falls back to `pickMoveStockfish` when the chooser declines, throws or is illegal, so a game never
+stalls. Only the move choice moves: **the attached `ChessEngine` still serves hints, per-move
+assessments and draw offers**. `AppRoot` installs `MaiaOpponent` from `AppSettings.opponent` (**Maia by default** where it runs;
+Stockfish only once picked) at `RatingBand.forDifficulty(engineDifficulty)`, so one Easy/Medium/Hard/Max
+setting drives both opponents. `MaiaOpponent` samples from Maia's top moves rather than taking the argmax, because the
+argmax is a consensus move that plays above the band. `opponentName` names the PGN's Black player.
+Engines are injected at platform entry points (`MainActivity`, desktop/wasm `Main.kt`) via `viewModel.attachEngine(...)` after an async `start()`. On Android that start is `AndroidGameViewModel.startEngine`, which runs once per retained holder on `Dispatchers.IO`. It used to run inline in `onCreate`, where it was 344 ms of a 646 ms cold start (the main thread asleep on the UCI handshake), and every rotation started a fresh Stockfish. Because the engine now lands after the first frame, UI that depends on it must observe `GameViewModel.engineAttachedFlow` rather than read the plain `engineAttached` getter once.
 
 Stockfish binaries are vendored at `app/src/androidMain/jniLibs/{arm64-v8a,armeabi-v7a}/libstockfish.so` — official `sf_17` builds, pinned because `sf_18` exceeds GitHub's 100 MB file limit. See `docs/Stockfish.md` for packaging rationale (must be in jniLibs, not assets, because app storage isn't executable on modern Android).
 
@@ -246,6 +255,11 @@ Three things to keep straight:
   Android as the official `sf_17` executables and on iOS via ChessKitEngine; App Store / TestFlight
   distribution relies on the same tolerance Lichess's mobile app does, plus the in-app licence
   text and source pointer the Stockfish README asks for.
+- **Maia-3 is AGPL-3.0, not GPL.** The bundled model, `MaiaEncoder.kt` and `MaiaGolden.kt` stay
+  under the AGPL. They are combined with the GPL app as section 13 of both licences allows, which is
+  why the licences screen carries the AGPL text too. The AGPL's network clause is why **Maia must
+  not move into `:server`** without offering its source to network users. See COPYING.md's Maia-3
+  section and `docs/maia3-model-provenance.md`.
 - **Keep `LicensesScreen.thirdPartyNotices`, COPYING.md's exceptions table and
   THIRD_PARTY_NOTICES.md in step.** Adding a vendored asset or engine means adding it to all three;
   the in-app list is what a store user actually sees.
@@ -367,7 +381,7 @@ Three things to know before editing it:
   - **Autosave + resume-later** — the in-progress game is serialized as a `GameSnapshot` (FEN + DTOs) on every move and restored on next launch (`CurrentGameStore`/`CurrentGameStoreSupport`); a finished game clears the snapshot so the app starts fresh.
   - **Game history + save/share** — at game end the popup offers **Save game** (writes a `SavedGame` to `GameHistoryRepository`, double-save guarded) and **Share PGN** (platform `PgnSharer`); the **History** screen lists saved games with a detail view + delete. `SavedGame` records `playerSide` (`"WHITE"`/`"BLACK"`), passed from `viewModel.playerSide` via `GameActions.toSavedGame` and `GameActions.pgnTags`/`toPgn` so player colors and saved games match when playing as Black.
   - **Engine difficulty** — a persisted `EngineDifficulty` (Easy/Medium/Hard/Max) weakens/strengthens Stockfish via `setoption name Skill Level` + a per-move `movetime` budget, applied through the additive `ChessEngine.configure`. Selected in **Settings**.
-  - **Settings & navigation** — `AppRoot` hosts a `Screen` enum (GAME/HISTORY/SETTINGS/RULES/CHAT/LICENSES) + multiplatform `BackHandler`; `SettingsScreen` holds four persisted controls: the engine-difficulty selector, the 3D toggle (default on), the AI Move Coach toggle (default on), and the player-side selector (`AppSettings.playerSide` — picking Black makes the engine open). The persisted theme override was removed (theme follows system dark mode).
+  - **Settings & navigation** — `AppRoot` hosts a `Screen` enum (GAME/HISTORY/SETTINGS/RULES/CHAT/LICENSES) + multiplatform `BackHandler`; `SettingsScreen` holds four persisted controls (plus, where `maiaAvailable`, an Opponent choice — Maia by default — whose difficulty rows then show the rating band each level plays like): the engine-difficulty selector, the 3D toggle (default on), the AI Move Coach toggle (default on), and the player-side selector (`AppSettings.playerSide` — picking Black makes the engine open). The persisted theme override was removed (theme follows system dark mode).
 - **3D Board View:** The 3D toggle lives in **Settings** (`AppSettings.board3DEnabled`, default on); `GameScreen` observes it and re-runs its entry/teardown frame choreography when it flips. Exactly one board (2D `chess_board` or 3D `board_3d`) is visible at a time. The 3D view is defined by the `Chess3DBoardRenderer` interface in `commonMain`, injected mirroring `ChessEngine`. `Board3DSceneMapper.fromFen` turns a FEN into a renderer-agnostic `Board3DScene`. Interaction (camera drag, pinch zoom, ray-picked tap-to-move, and piece transitions) uses shared commonMain logic (`OrbitCameraController`, `CameraMath.rayFromScreen`, `BoardRayPicker`, `Board3DSceneDiffer`) so backend cameras stay in sync with the picker.
   - **Desktop backend:** **Native C++ Filament**. `DesktopFilamentChessRenderer` delegates shared FEN-to-scene, camera, selection, and transition logic to `FilamentEncodedChessRenderer`, then drives a JNI/CMake bridge (`desktop_filament_bridge`) that renders `chess.glb` with the same fixed Filament instance-pool convention as iOS/web. The native bridge uses a headless Filament swap chain, papermill IBL/blurred skybox KTX assets from common Compose resources, and `Renderer::readPixels` to hand RGBA frames to `ImageBitmapChess3DSurface`. Run `tools/fetch_filament_desktop.sh` after a clean checkout to fetch the gitignored Filament desktop release used by the bridge.
   - **Web backend:** **Filament (Wasm)**. `FilamentWasmChessRenderer` delegates lifecycle, camera, scene, selection, and animation state to `FilamentEncodedChessRenderer`, then its Wasm peer dynamically loads `filament.js` from `unpkg` and renders through WebGL into an absolutely positioned overlay `<canvas>`. The peer queues encoded scene/camera state until the JS renderer is ready. Filament replaced the previous three.js implementation for better rendering consistency across targets.
@@ -411,6 +425,49 @@ the two cloud routes; `:evals` gates grounding regressions in CI (routing and fl
 > **Structured output: there isn't any, on any surface.** KSP schema generation (`genai-schema-compiler`) was dropped deliberately, and the `Generable`/`Guide` expect/actual annotations that replaced it in `:onDeviceAi` have **zero annotation sites** — nothing in the repo is annotated with either. The move coach asks for prose and gets prose: `MoveCoachPromptBuilder` requests no schema, and `DefaultAiCoachOrchestrator.runGeneration` is `stripCodeFence(rawText).trim()` handed straight to `MoveCoachResponseValidator`. No JSON is decoded anywhere on that path — the `kotlinx.serialization.json.Json` and `decodeFromString` imports in that file are dead, and `stripCodeFence`'s own KDoc records the history ("named for JSON originally, and kept when the prompt stopped asking for JSON at all").
 >
 > One consequence is live and easy to miss: because the raw text goes to the validator unparsed, a model that *did* emit `{"headline": …, "explanation": …}` would have the whole blob accepted and rendered verbatim in the panel. `DefaultAiCoachOrchestratorTest`'s "success path" case currently pins exactly that — it feeds a JSON payload, asserts `Success`, and never asserts the resulting text.
+
+### Human-move explorer (History → game detail)
+
+"What players at this level play here?", one position at a time, in `explorer/` (`:app`): Maia-3's
+prediction for a rating band, through `HumanMoveExplorer` (cached per history and band). It is not
+one of the five text surfaces and does not go through `AiRoutePolicyDecider`, because its output is
+data (moves and shares), not prose. It lives in History only: what humans play is assistance while a
+game is still going. The same predictor plays the Maia opponent (see *Engine architecture*).
+
+- **Maia has its own seam (`HumanMovePredictor` / `MaiaRuntime`), not `OnDeviceTextGenerator`.**
+  `MaiaEncoder` is a port of `maia3/dataset.py`. Every history position is mirrored and
+  colour-swapped when Black is to move, and a wrong mirror still returns a plausible distribution,
+  so `MaiaEncoderTest` pins it against Python-generated `MaiaGolden`.
+  - **Platforms.**
+    - Android and iOS run the **bundled LiteRT** `maia3-5m.tflite`; web runs the same file downloaded
+      from Hugging Face (below):
+      - Android: `org.tensorflow.lite.Interpreter`.
+      - iOS: the TFLite C API through cinterop. `:app:fetchLiteRtIos` downloads TensorFlowLiteC
+        2.17.0, SHA-256-checks it and caches it in the Gradle home; `iosApp/project.yml` links it next
+        to the static `ChessApp` framework.
+      - Web: LiteRT.js from jsDelivr, on its WASM CPU backend.
+    - Desktop runs the ONNX export through ONNX Runtime, because LiteRT publishes no desktop JVM
+      runtime.
+    - `MaiaModelFiles` pins both files.
+  - **The runtime seam is `suspend`** (`MaiaRuntime.moveLogits`, `maiaRuntimeFactory`), because
+    LiteRT.js is asynchronous.
+  - **Web downloads the model; it does not bundle it.** The app's Fly.io host would otherwise pay
+    egress on 20 MB per visitor. `MaiaRuntime.wasm.kt` fetches
+    `https://huggingface.co/ber4444/maia3-5m-litert/resolve/<MODEL_REVISION>/maia3-5m.tflite`, pinned to a commit so the URL is immutable. It
+    hashes the bytes against `MaiaModelFiles.TFLITE_SHA256` before LiteRT.js compiles them. A new
+    model means a new upload and a new `MODEL_REVISION`.
+  - **The LiteRT.js `import()` needs `/* webpackIgnore: true */`**, or webpack turns it into a failing
+    bundled-module lookup.
+  - **Loading is lazy on purpose.** The factory only checks that the resource exists, and the model
+    is read on the first prediction. On a Pixel 10 Pro XL that takes ~170 ms, then ~30 ms per position.
+    Creating the runtime in composition would put that load in cold start.
+  - **Model changes.** Changing the model means re-exporting with `tools/maia3`, then updating every
+    bundled copy, the Hugging Face upload and `MODEL_REVISION`, `MaiaModelFiles`,
+    `docs/maia3-model-provenance.md` and `MaiaGolden.kt` together. The platform tests fail on a hash
+    drift.
+  - **R8.** The LiteRT AAR ships its own consumer rules.
+- **Availability.** The panel renders only when `HumanMoveExplorer.canAnswer()`, meaning a Maia
+  runtime exists. A game saved without `moveRecords` shows no panel.
 
 ### Fallback states (B17)
 

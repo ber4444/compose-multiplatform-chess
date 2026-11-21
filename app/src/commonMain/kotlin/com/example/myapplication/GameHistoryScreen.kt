@@ -31,6 +31,9 @@ import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.myapplication.explorer.HumanMoveExplorer
+import com.example.myapplication.explorer.HumanMovesPanel
+import com.example.myapplication.explorer.RatingBand
 import com.example.myapplication.habits.HabitSummary
 import com.example.myapplication.habits.HabitsManager
 import com.example.myapplication.habits.habitsSection
@@ -55,6 +58,8 @@ fun GameHistoryScreen(
     pgnSharer: PgnSharer? = null,
     habitsManager: HabitsManager? = null,
     onBack: () -> Unit,
+    humanMoves: HumanMoveExplorer? = null,
+    humanMovesBand: RatingBand = RatingBand.R1400,
 ) {
     val games by gameHistory.games.collectAsState()
     val habits = habitsManager?.summaries?.collectAsState()?.value
@@ -79,6 +84,8 @@ fun GameHistoryScreen(
             GameHistoryDetail(
                 game = current,
                 pgnSharer = pgnSharer,
+                humanMoves = humanMoves,
+                humanMovesBand = humanMovesBand,
             )
         }
     }
@@ -173,12 +180,20 @@ private fun GameHistoryRow(
 private fun GameHistoryDetail(
     game: SavedGame,
     pgnSharer: PgnSharer?,
+    humanMoves: HumanMoveExplorer?,
+    humanMovesBand: RatingBand,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
         Text(
             "${game.white} vs ${game.black}  •  ${game.result}",
             style = MaterialTheme.typography.titleMedium,
         )
+        // Null unless some source can answer (AppRoot decides), and a game saved without
+        // move records, so neither case renders a panel that could only say "unavailable".
+        if (humanMoves != null && game.moveRecords.isNotEmpty()) {
+            Spacer(modifier = Modifier.padding(6.dp))
+            HumanMovesPanel(game.moveRecords, humanMoves, humanMovesBand)
+        }
         Spacer(modifier = Modifier.padding(6.dp))
         // The PGN text. heightIn(min) keeps it scrollable/visible on small screens; the surfaceVariant
         // card makes the selectable text block visually distinct.

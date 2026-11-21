@@ -58,8 +58,13 @@ targets:
         # Only ChessApp is linked directly; OnDeviceAi is exported into ChessApp
         # via `export(project(":onDeviceAi"))` in app/build.gradle.kts to avoid
         # KT-42254 (duplicate Kotlin/Native runtime injection).
-        FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
-        OTHER_LDFLAGS: "$(inherited) -framework ChessApp"
+        # TensorFlowLiteC (LiteRT, for Maia-3) is static and referenced from the static ChessApp
+        # framework, so the app has to link it. `:app:fetchLiteRtIos` puts it in app/build before
+        # the "Compile Kotlin Framework" phase below finishes.
+        LITERT_SLICE[sdk=iphoneos*]: ios-arm64
+        LITERT_SLICE[sdk=iphonesimulator*]: ios-arm64_x86_64-simulator
+        FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../app/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME) $(SRCROOT)/../app/build/litert-ios/TensorFlowLiteC.xcframework/$(LITERT_SLICE)"
+        OTHER_LDFLAGS: "$(inherited) -framework ChessApp -framework TensorFlowLiteC -lc++"
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
     # Filament header/library search paths, static-lib link flags, and the Swift bridging header live

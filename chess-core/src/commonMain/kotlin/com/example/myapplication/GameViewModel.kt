@@ -352,17 +352,36 @@ class GameViewModel(
     }
 
     private suspend fun moveEngine() {
+        val chooser = opponentChooser
         moveCPU { enemyPositions, enemyPieces, allyPositions, allyPieces ->
-            pickMoveStockfish(
-                chessEngine,
-                _gameState.value,
-                enemyPositions,
-                enemyPieces,
-                allyPositions,
-                allyPieces
-            )
+            val state = _gameState.value
+            chooser?.let { pickMoveFromChooser(it, state, enemyPositions, enemyPieces, allyPositions, allyPieces) }
+                ?: pickMoveStockfish(
+                    chessEngine,
+                    state,
+                    enemyPositions,
+                    enemyPieces,
+                    allyPositions,
+                    allyPieces
+                )
         }
     }
+
+    @kotlin.concurrent.Volatile
+    private var opponentChooser: OpponentMoveChooser? = null
+
+    /**
+     * Lets [chooser] pick the engine side's moves from the next engine turn on; `null` restores the
+     * engine. The attached engine still serves hints, assessments and draw offers. A move the
+     * chooser declines or gets wrong is played by the engine instead, so the game never stalls.
+     */
+    fun setOpponentMoveChooser(chooser: OpponentMoveChooser?) {
+        opponentChooser = chooser
+    }
+
+    /** Who plays the engine side, for PGN tags: the chooser's name, else "Stockfish" or "CPU". */
+    val opponentName: String
+        get() = opponentChooser?.name ?: if (engineAttached) "Stockfish" else "CPU"
 
     fun requestDrawOffer() {
         scope.launch { offerDraw() }

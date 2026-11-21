@@ -1,0 +1,7 @@
+# Pinned environment that produced the bundled maia3-5m.onnx byte for byte (Python 3.14.6).
+torch==2.15.0
+onnx==1.23.2
+onnxscript==0.7.2
+onnxruntime==1.32.0
+numpy==2.5.5
+chess==1.11.2
