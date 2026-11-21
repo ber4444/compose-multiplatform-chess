@@ -46,6 +46,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import kotlinx.coroutines.launch
 import com.example.myapplication.rules.RulesQaScreen
 import com.example.myapplication.rules.RulesQaStateHolder
+import com.example.myapplication.habits.HabitsManager
+import com.example.myapplication.habits.HabitsScreen
 import com.example.ondeviceai.AiContextSnapshot
 import com.example.ondeviceai.AiUserSetting
 import com.example.ondeviceai.DefaultRulesQaOrchestrator
@@ -60,10 +62,11 @@ import com.example.ondeviceai.defaultRulesQaAnswerer
  * Replaces the per-platform `MyApplicationTheme { ChessApp(...) }` duplication. New screens
  * (History, Settings) are added here as the lifecycle/persistence work lands.
  */
-enum class Screen { GAME, HISTORY, SETTINGS, RULES, CHAT, LICENSES }
+enum class Screen { GAME, HISTORY, SETTINGS, RULES, CHAT, LICENSES, HABITS }
 
 val LocalMoveCoachManager = staticCompositionLocalOf<MoveCoachManager?> { null }
 val LocalOpeningExplainerStateHolder = staticCompositionLocalOf<OpeningExplainerStateHolder?> { null }
+
 val LocalIsDebug = staticCompositionLocalOf { false }
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -100,11 +103,18 @@ fun AppRoot(
             },
         )
     }
+    // Unlike the AI managers below, this needs no platform runtime — it's a pure aggregation over
+    // gameHistory — so AppRoot can own it directly instead of entry points threading it through.
+    // Null exactly when gameHistory is null, mirroring how the Save/Share buttons already gate.
+    val habitsManager = remember(gameHistory) { gameHistory?.let { HabitsManager(it) } }
     DisposableEffect(openingExplainerStateHolder) {
         onDispose { openingExplainerStateHolder.close() }
     }
     DisposableEffect(chatViewModel) {
         onDispose { chatViewModel.close() }
+    }
+    DisposableEffect(habitsManager) {
+        onDispose { habitsManager?.close() }
     }
     CompositionLocalProvider(
         LocalAppSettings provides settings,
@@ -146,6 +156,7 @@ fun AppRoot(
                     onOpenSettings = { screen = Screen.SETTINGS },
                     onOpenRules = { screen = Screen.RULES },
                     onOpenChat = { screen = Screen.CHAT },
+                    onOpenHabits = { screen = Screen.HABITS },
                 )
                 Screen.HISTORY -> if (gameHistory != null) {
                     GameHistoryScreen(
@@ -170,6 +181,19 @@ fun AppRoot(
                     stateHolder = rulesQaStateHolder,
                     onBack = { screen = Screen.GAME },
                 )
+                // HabitsScreen supplies its own SubScreenScaffold. `habitsManager` is null exactly when
+                // this entry point has no gameHistory, so there is nothing to aggregate; say so rather
+                // than render an empty profile.
+                Screen.HABITS -> if (habitsManager != null) {
+                    HabitsScreen(manager = habitsManager, onBack = { screen = Screen.GAME })
+                } else {
+                    SubScreenScaffold(title = "Habits", onBack = { screen = Screen.GAME }) {
+                        Text(
+                            "Habits needs game history, which isn't available on this build.",
+                            modifier = Modifier.padding(16.dp),
+                        )
+                    }
+                }
                 // Chat is cloud-only, so without a base URL it could only ever emit its fixed offline
                 // sentence. Say that instead of pretending the input box works.
                 Screen.CHAT -> if (cloudCoachConfigured) {

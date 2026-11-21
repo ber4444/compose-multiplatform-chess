@@ -19,4 +19,5 @@ data class MoveRecord(
     val fenAfter: String,
     val cpAfter: Int? = null,
     val assessment: MoveAssessment? = null,
+    val hintUsed: Boolean = false,
 )

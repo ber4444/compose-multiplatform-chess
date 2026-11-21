@@ -16,6 +16,14 @@ import kotlinx.serialization.json.Json
  *   and a monotonic-ish timestamp id is all that's needed to key a LazyColumn.
  * - [pgn] is the full PGN string (tags + movetext + result); that's what "Share" ships and what the
  *   detail view shows verbatim.
+ * - [playerSide] is `"WHITE"` or `"BLACK"` — a plain string, mirroring `AppSettings.playerSide`,
+ *   rather than the `Set` enum (which is not `@Serializable`). Additive with a default, so blobs
+ *   saved before the player-side setting shipped still deserialize; `"WHITE"` matches the only side
+ *   selectable at that time, so the default is also correct for that old data, not just safe.
+ *   Consumed by [GameHistoryBackfiller][com.example.myapplication.persistence.GameHistoryBackfiller]
+ *   and habit aggregation (`:app`'s `habits` package) to know which colour's moves in [moveRecords]
+ *   belong to the human — even-index plies are White's, and White is only the player when this says
+ *   so.
  */
 @Serializable
 data class SavedGame(
@@ -27,6 +35,7 @@ data class SavedGame(
     val moveCount: Int,
     val pgn: String,
     val moveRecords: List<MoveRecord> = emptyList(),
+    val playerSide: String = "WHITE",
 )
 
 /**
