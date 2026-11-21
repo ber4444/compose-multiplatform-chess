@@ -22,6 +22,7 @@ CHESS_ENABLE_COACH=1 ./gradlew :app:run         # desktop app WITH the on-device
 ./gradlew :app:run                              # launch desktop app (needs system stockfish installed)
 ./gradlew :app:wasmJsBrowserDevelopmentRun      # run web target
 ./gradlew :app:wasmJsBrowserDevelopmentWebpack  # build web dev bundle without dev server
+tools/deploy_web.sh                             # build the production web bundle and deploy it to Fly.io (app compose-chess-web, web/fly.toml)
 ./gradlew :app:connectedAndroidDeviceTest       # Android UI tests (needs device/emulator)
 ./gradlew :app:iosSimulatorArm64Test            # iOS Compose UI tests
 xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug -destination "platform=iOS Simulator,name=iPhone 17" CODE_SIGNING_ALLOWED=NO test # iOS Swift tests
