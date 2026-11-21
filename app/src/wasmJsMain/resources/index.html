@@ -3,7 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <title>Chess</title>
-    <script type="application/javascript" src="app.js" defer></script>
+    <!--
+      Must be a module script. The bundle keeps a bare `import.meta` (kotlinx-io's Node shim,
+      reached through Ktor), which is a SyntaxError in a classic script: the whole file fails
+      to parse and the page stays blank. Module scripts are deferred by default.
+    -->
+    <script type="module" src="app.js"></script>
     <style>
         html, body {
             width: 100%;

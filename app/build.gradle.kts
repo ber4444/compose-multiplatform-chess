@@ -113,7 +113,16 @@ kotlin {
     }
 
     wasmJs {
-        browser()
+        browser {
+            commonWebpackConfig {
+                // The bundle keeps a bare `import.meta` (kotlinx-io's Node shim, via Ktor), so
+                // index.html loads app.js as a module script. KGP's development default,
+                // eval-source-map, wraps each module in eval(), and eval'd code is always parsed
+                // as a classic script, so `import.meta` throws there even inside a module.
+                // Production already uses source-map; this gives the dev server the same.
+                devtool = org.jetbrains.kotlin.gradle.targets.js.webpack.WebpackDevtool.SOURCE_MAP
+            }
+        }
         binaries.executable()
     }
 
