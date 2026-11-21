@@ -110,11 +110,10 @@ class OnDeviceRulesQaAnswerer(
                 }
             }?.let { lookupTool.lookup(it) }.orEmpty()
 
-            // Only the best few reach the prompt. Handing a small model four passages and asking it
-            // to "answer from these" reliably produces a transcript of all four -- observed on
-            // device: three passages echoed back with their ids and nothing resembling an answer.
-            // The top hit is the answer; the rest are context it does not need in order to phrase one.
-            val passages = (fromQuestion + refined).distinctBy { it.id }.take(ANSWER_PASSAGES)
+            // Question and refined hits are interleaved so the refinement turn actually reaches the
+            // prompt. Before this, `(fromQuestion + refined).take(2)` kept the question's own top two
+            // every time -- lookup() returns up to four -- and the model's query was dead weight.
+            val passages = selectAnswerPassages(fromQuestion, refined, ANSWER_PASSAGES)
             if (passages.isEmpty()) return fallback(passages, "no passage was retrieved")
 
             val passageText = passages.joinToString("\n") { passage ->
@@ -132,14 +131,19 @@ class OnDeviceRulesQaAnswerer(
 
                             Reply with one or two sentences that answer the question directly, then the
                             id of the rule you used in square brackets. Do not list the rules and do not
-                            copy them word for word.
+                            copy them word for word. State only what the rule you cite says. If none of
+                            these rules answers the question, say that the offline rules do not cover it.
 
-                            Example of the shape: Yes — with no way left to force mate the game is
-                            drawn [${passages.first().id}].
+                            Example of the shape: <your answer> [${passages.first().id}]
                         """.trimIndent(),
                         // The example's id is deliberately a *retrieved* one: a model that copies the
                         // example verbatim still produces a citation the validator accepts, instead of
                         // inventing `[rule-id]` and failing closed to the passage text.
+                        //
+                        // Its *body* carries no content on purpose. It used to read "Yes -- with no way
+                        // left to force mate the game is drawn", and Gemini Nano copied that "Yes" and
+                        // the dead-position claim into unrelated draw answers ("Yes, players must
+                        // agree to a draw if there is no possible mate").
                         maxOutputTokens = 160,
                         temperature = 0.2,
                     ),
@@ -236,11 +240,15 @@ class OnDeviceRulesQaAnswerer(
 
     private companion object {
         /**
-         * How many retrieved passages reach the answer prompt. Two, not four: a 270M model asked to
-         * answer from four passages echoes four passages. This is also what `Sources:` reports, so
-         * the user is shown exactly what grounded the answer.
+         * How many retrieved passages reach the answer prompt.
+         *
+         * This was 2, sized for gemma3-270m via Cactus (which echoed four passages back instead of
+         * answering). That model is gone; Gemini Nano on a Pixel 10 Pro XL answers from four without
+         * echoing, and BM25's top four hold the right rule for 32 of 34 benchmark questions against
+         * 28 for its top two. With 2, the correct rule sat at rank 3–4 for every factually wrong in-corpus
+         * answer in the November 2026 benchmark. Re-measure before lowering it again.
          */
-        const val ANSWER_PASSAGES = 2
+        const val ANSWER_PASSAGES = 4
 
         const val LOOKUP_SYSTEM_PROMPT = """
             You route chess-rules questions to an offline lookup. This is structured-output
@@ -253,3 +261,17 @@ class OnDeviceRulesQaAnswerer(
         """
     }
 }
+
+/**
+ * The passages the answer turn sees: question and refined hits interleaved, then deduplicated.
+ */
+internal fun selectAnswerPassages(
+    fromQuestion: List<RulePassage>,
+    refined: List<RulePassage>,
+    limit: Int,
+): List<RulePassage> = buildList {
+    for (i in 0 until max(fromQuestion.size, refined.size)) {
+        fromQuestion.getOrNull(i)?.let(::add)
+        refined.getOrNull(i)?.let(::add)
+    }
+}.distinctBy { it.id }.take(limit)

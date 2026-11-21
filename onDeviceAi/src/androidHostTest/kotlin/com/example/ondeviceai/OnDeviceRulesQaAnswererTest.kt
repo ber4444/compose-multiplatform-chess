@@ -256,4 +256,43 @@ class OnDeviceRulesQaAnswererTest {
         assertTrue(output.text.contains("A game is drawn when neither player can win."))
         assertEquals(listOf("draw"), output.retrievedPassageIds)
     }
+
+    @Test
+    fun `refined passages reach the answer prompt even when the question fills the lookup`() = runTest {
+        // The pre-fix bug: lookup() returns up to four hits, and `(fromQuestion + refined).take(2)`
+        // kept the question's top two every time, so the model's own query never reached the prompt
+        // (31 of 31 rows on a Pixel 10 Pro XL). Every other test here stubs a one-passage question
+        // lookup, which is why none of them saw it.
+        val question = "Can I get a second queen without first losing my original one?"
+        val fromQuestion = listOf("initial-position", "queen-movement", "adjust-piece", "touch-move")
+            .map { RulePassage(it, it, "Text about $it.") }
+        val promotion = RulePassage("promotion", "Promotion", "A pawn reaching the farthest rank is replaced by a queen.")
+
+        coEvery { lookupTool.lookup(question) } returns fromQuestion
+        coEvery { executor.execute(any()) } returns generator
+        coEvery { generator.status() } returns AiAvailability.Available
+        every { generator.supportsTools } returns false
+        coEvery { generator.generate(match { it.systemPrompt.contains("structured-output") }) } returns flowOf(
+            AiTokenOrFinal.Token("{\"tool\":\"lookup_rule\",\"query\":\"pawn promotion\"}")
+        )
+        coEvery { lookupTool.lookup("pawn promotion") } returns listOf(promotion)
+        coEvery { generator.generate(match { it.systemPrompt.contains("Answer the") }) } returns flowOf(
+            AiTokenOrFinal.Token("Yes, a promoted pawn can become a second queen [promotion].")
+        )
+        coEvery { generator.release() } returns Unit
+
+        val output = answerer.answer(question, VendorRoute.CactusLocal())
+
+        assertTrue("promotion" in output.retrievedPassageIds)
+        assertTrue(output.text.contains("[promotion]"))
+    }
+
+    @Test
+    fun `answer passages interleave question and refined hits up to the limit`() {
+        fun passages(vararg ids: String) = ids.map { RulePassage(it, it, it) }
+        val selected = selectAnswerPassages(passages("q1", "q2", "q3", "q4"), passages("r1", "q1", "r2"), 4)
+        assertEquals(listOf("q1", "r1", "q2", "q3"), selected.map { it.id })
+        assertEquals(listOf("q1", "q2"), selectAnswerPassages(passages("q1", "q2"), emptyList(), 4).map { it.id })
+        assertEquals(listOf("r1"), selectAnswerPassages(emptyList(), passages("r1"), 4).map { it.id })
+    }
 }
