@@ -89,6 +89,10 @@ fun main() {
             gameHistory = gameHistory,
             pgnSharer = pgnSharer,
             moveCoachManager = moveCoachManager,
+            // Chat and the Opening Explainer are billed per request on the coach server; the web
+            // page points at the mobile apps instead.
+            aiAssistantsEnabled = false,
+            belowBoard = { MobileAppLinks() },
         )
     }
 }

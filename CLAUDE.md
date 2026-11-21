@@ -22,6 +22,7 @@ CHESS_ENABLE_COACH=1 ./gradlew :app:run         # desktop app WITH the on-device
 ./gradlew :app:run                              # launch desktop app (needs system stockfish installed)
 ./gradlew :app:wasmJsBrowserDevelopmentRun      # run web target
 ./gradlew :app:wasmJsBrowserDevelopmentWebpack  # build web dev bundle without dev server
+tools/deploy_web.sh                             # build the production web bundle and deploy it to Fly.io (app compose-chess-web, web/fly.toml)
 ./gradlew :app:connectedAndroidDeviceTest       # Android UI tests (needs device/emulator)
 ./gradlew :app:iosSimulatorArm64Test            # iOS Compose UI tests
 xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug -destination "platform=iOS Simulator,name=iPhone 17" CODE_SIGNING_ALLOWED=NO test # iOS Swift tests
@@ -204,6 +205,14 @@ Summary unless `summaryState !is GameSummaryUiState.Unavailable` and hides the O
 unless `cloudCoachConfigured`; the Rules screen reports itself unavailable when
 `defaultRulesQaAnswerer` returns `null` (desktop/wasm/JS); the Chat screen says it has no coach
 server when `cloudCoachConfigured` is false. Keep those signals if you touch these call sites.
+
+The **web build** goes one step further and hides the AI assistants outright: `wasmJsMain`'s
+`Main.kt` passes `AppRoot(aiAssistantsEnabled = false)`, which removes the Chat and Rules buttons
+(null `onOpenChat`/`onOpenRules`) and builds no Opening Explainer or Chat holder. Chat and the
+explainer are billed per request on the coach server, and the public web page is the easiest place to
+run that up. In their place, `belowBoard = { MobileAppLinks() }` puts the Google Play and TestFlight
+links under the board. The deterministic Move Coach and Explain mode stay, since they cost nothing.
+`AiAssistantEntryPointsUiTest` pins both configurations.
 
 Also gone with RevenueCat: the iOS test binary's explicit `-L` to the host Swift toolchain, which
 existed only to resolve RevenueCat's prebuilt Swift objects. Reintroducing any SDK that ships

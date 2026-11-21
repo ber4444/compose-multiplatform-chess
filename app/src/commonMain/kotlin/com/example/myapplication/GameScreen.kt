@@ -185,8 +185,10 @@ fun GameScreen(
     switchTopPadding: Dp = 8.dp,
     onOpenHistory: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
-    onOpenRules: () -> Unit = {},
-    onOpenChat: () -> Unit = {},
+    // Null hides the entry point (the web build has no Chat or Rules).
+    onOpenRules: (() -> Unit)? = {},
+    onOpenChat: (() -> Unit)? = {},
+    belowBoard: (@Composable () -> Unit)? = null,
 ) {
     val gameState by viewModel.gameState.collectAsState()
     val animState by viewModel.animState.collectAsState()
@@ -530,6 +532,7 @@ fun GameScreen(
                         onRetry = moveCoachManager?.let { { it.retry() } },
                     )
                 }
+                belowBoard?.invoke()
             }
         } else {
             // Measure the viewport OUTSIDE the verticalScroll — the scroll gives children infinite
@@ -594,6 +597,7 @@ fun GameScreen(
                             contentColor = MaterialTheme.colorScheme.onSurface,
                         )
                     }
+                    belowBoard?.invoke()
                 }
             }
         }
@@ -638,28 +642,32 @@ fun GameScreen(
                 .offset(y = switchTopPadding)
                 .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
         ) {
-            TextButton(
-                onClick = onOpenChat,
-                modifier = Modifier.testTag("open_chat_button")
-            ) {
-                Text(
-                    text = "Chat",
-                    color = THREE_D_CONTROL_ACCENT_COLOR,
-                    style = MaterialTheme.typography.labelLarge
-                )
+            if (onOpenChat != null) {
+                TextButton(
+                    onClick = onOpenChat,
+                    modifier = Modifier.testTag("open_chat_button")
+                ) {
+                    Text(
+                        text = "Chat",
+                        color = THREE_D_CONTROL_ACCENT_COLOR,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
             }
-            Spacer(modifier = Modifier.width(4.dp))
-            TextButton(
-                onClick = onOpenRules,
-                modifier = Modifier.testTag("open_rules_button")
-            ) {
-                Text(
-                    text = "Rules",
-                    color = THREE_D_CONTROL_ACCENT_COLOR,
-                    style = MaterialTheme.typography.labelLarge
-                )
+            if (onOpenRules != null) {
+                TextButton(
+                    onClick = onOpenRules,
+                    modifier = Modifier.testTag("open_rules_button")
+                ) {
+                    Text(
+                        text = "Rules",
+                        color = THREE_D_CONTROL_ACCENT_COLOR,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
             }
-            Spacer(modifier = Modifier.width(4.dp))
             // Settings + History entry points (issue #39). The 3D toggle moved to SettingsScreen.
             TextButton(
                 onClick = onOpenSettings,

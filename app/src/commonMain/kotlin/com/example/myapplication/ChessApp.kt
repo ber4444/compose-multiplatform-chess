@@ -24,8 +24,9 @@ fun ChessApp(
     switchTopPadding: Dp = 8.dp,
     onOpenHistory: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
-    onOpenRules: () -> Unit = {},
-    onOpenChat: () -> Unit = {},
+    onOpenRules: (() -> Unit)? = {},
+    onOpenChat: (() -> Unit)? = {},
+    belowBoard: (@Composable () -> Unit)? = null,
 ) {
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -48,6 +49,7 @@ fun ChessApp(
                 onOpenSettings = onOpenSettings,
                 onOpenRules = onOpenRules,
                 onOpenChat = onOpenChat,
+                belowBoard = belowBoard,
             )
         }
     }

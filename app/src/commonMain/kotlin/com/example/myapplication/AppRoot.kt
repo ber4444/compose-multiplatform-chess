@@ -77,9 +77,23 @@ fun AppRoot(
     moveCoachManager: MoveCoachManager? = null,
     switchTopPadding: Dp = 8.dp,
     isDebug: Boolean = false,
+    /**
+     * False on the web build, which hides the AI assistant surfaces: Position Chat and the Opening
+     * Explainer, which are cloud-routed and billed per request against the coach server, and Rules
+     * Q&A, which has no answerer on wasm anyway. The Move Coach is not one of them: it runs
+     * deterministically, offline and free, so it stays.
+     */
+    aiAssistantsEnabled: Boolean = true,
+    /** Drawn under the board and its controls on the game screen. The web build passes its store links. */
+    belowBoard: (@Composable () -> Unit)? = null,
 ) {
-    val openingExplainerStateHolder = remember { OpeningExplainerStateHolder(createOpeningExplainer()) }
-    val chatViewModel = remember { ChatViewModel(createPositionChat()) }
+    // Not constructed at all when the assistants are off, so the web page builds no cloud client.
+    val openingExplainerStateHolder = remember(aiAssistantsEnabled) {
+        if (aiAssistantsEnabled) OpeningExplainerStateHolder(createOpeningExplainer()) else null
+    }
+    val chatViewModel = remember(aiAssistantsEnabled) {
+        if (aiAssistantsEnabled) ChatViewModel(createPositionChat()) else null
+    }
     // Hoisted out of the RulesQaStateHolder construction below because a null answerer also means
     // "this build cannot answer rules questions" — desktop, wasm and JS return null unconditionally.
     val ruleLookupTool = remember { createBundledRuleLookupTool() }
@@ -101,10 +115,10 @@ fun AppRoot(
         )
     }
     DisposableEffect(openingExplainerStateHolder) {
-        onDispose { openingExplainerStateHolder.close() }
+        onDispose { openingExplainerStateHolder?.close() }
     }
     DisposableEffect(chatViewModel) {
-        onDispose { chatViewModel.close() }
+        onDispose { chatViewModel?.close() }
     }
     CompositionLocalProvider(
         LocalAppSettings provides settings,
@@ -144,8 +158,9 @@ fun AppRoot(
                     switchTopPadding = switchTopPadding,
                     onOpenHistory = { screen = Screen.HISTORY },
                     onOpenSettings = { screen = Screen.SETTINGS },
-                    onOpenRules = { screen = Screen.RULES },
-                    onOpenChat = { screen = Screen.CHAT },
+                    onOpenRules = if (aiAssistantsEnabled) { { screen = Screen.RULES } } else null,
+                    onOpenChat = if (aiAssistantsEnabled) { { screen = Screen.CHAT } } else null,
+                    belowBoard = belowBoard,
                 )
                 Screen.HISTORY -> if (gameHistory != null) {
                     GameHistoryScreen(
@@ -172,7 +187,7 @@ fun AppRoot(
                 )
                 // Chat is cloud-only, so without a base URL it could only ever emit its fixed offline
                 // sentence. Say that instead of pretending the input box works.
-                Screen.CHAT -> if (cloudCoachConfigured) {
+                Screen.CHAT -> if (cloudCoachConfigured && chatViewModel != null) {
                     // Collected here, not at the top of AppRoot: only Chat reads the position, and a
                     // top-level collector re-ran this whole host on every move and selection tap.
                     val gameState by viewModel.gameState.collectAsState()

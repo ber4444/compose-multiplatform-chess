@@ -1,0 +1,32 @@
+# Static web build of the chess app. Deploy with tools/deploy_web.sh, not a bare `fly deploy`:
+# the script builds the wasm dist and stages the Docker context this file expects.
+#
+# Separate from the coach API (server/fly.toml) on purpose. This app is a file server with no
+# state and no secrets, so it gets the smallest machine and stops completely when idle; Caddy
+# starts in well under a second, unlike the JVM next door.
+app = "compose-chess-web"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  cpus = 1
+  cpu_kind = "shared"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/index.html"
