@@ -70,7 +70,11 @@ dependencies {
     // GHSA-5gvw-p9qm-jgwh, GHSA-mhm7-754m-9p8w (both @JsonView bypasses) and GHSA-5jmj-h7xm-6q6v
     // (case-insensitive deserialization defeating per-property @JsonIgnoreProperties). Staying in
     // the 2.21 line rather than jumping to 2.22.x keeps this a patch bump.
-    implementation(platform("com.fasterxml.jackson:jackson-bom:2.21.5"))
+    //
+    // 2.21.5 -> 2.21.7: four databind advisories fixed in 2.21.6 (Duration/XMLGregorianCalendar
+    // parse DoS, Path scheme allowlist, Comparable missing from the PTV denylist) and four more in
+    // 2.21.7 (two databind DoS, two jackson-core: PATTERN_FLOAT ReDoS, unbounded error-token growth).
+    implementation(platform("com.fasterxml.jackson:jackson-bom:2.21.7"))
 
     // Apache HttpComponents 5.x, reached only through `ktor-server-test-host-jvm` ->
     // `ktor-client-apache5` (test-scoped above; it is the engine the test host offers for external

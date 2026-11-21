@@ -1,11 +1,16 @@
 plugins {
     alias(libs.plugins.androidTest)
     id("org.jetbrains.kotlin.android")
+    alias(libs.plugins.baselineprofile)
+}
+
+baselineProfile {
+    useConnectedDevices = true
 }
 
 android {
     namespace = "com.example.myapplication.macrobenchmark"
-    compileSdk = 36
+    compileSdk = 37
     targetProjectPath = ":androidApp"
     experimentalProperties["android.experimental.self-instrumenting"] = true
 

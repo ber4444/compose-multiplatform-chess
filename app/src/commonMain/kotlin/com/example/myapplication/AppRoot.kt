@@ -3,12 +3,12 @@ package com.example.myapplication
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -39,11 +39,11 @@ import com.example.myapplication.persistence.LocalAppSettings
 import com.example.myapplication.share.PgnSharer
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.example.myapplication.movecoach.MoveCoachManager
-import com.example.myapplication.movecoach.GameSummaryManager
 import com.example.myapplication.opening.OpeningExplainerStateHolder
 import com.example.myapplication.opening.createOpeningExplainer
 import com.example.myapplication.opening.cloudCoachConfigured
 import androidx.compose.runtime.staticCompositionLocalOf
+import kotlinx.coroutines.launch
 import com.example.myapplication.rules.RulesQaScreen
 import com.example.myapplication.rules.RulesQaStateHolder
 import com.example.myapplication.habits.HabitsManager
@@ -53,13 +53,6 @@ import com.example.ondeviceai.AiUserSetting
 import com.example.ondeviceai.DefaultRulesQaOrchestrator
 import com.example.ondeviceai.createBundledRuleLookupTool
 import com.example.ondeviceai.defaultRulesQaAnswerer
-import com.example.myapplication.monetization.Entitlements
-import com.example.myapplication.monetization.LocalEntitlements
-import com.example.myapplication.monetization.LocalProUnlockOverride
-import com.example.myapplication.monetization.UnconfiguredEntitlements
-import com.example.myapplication.monetization.PaywallScreen
-import com.example.myapplication.monetization.ProUpsellCard
-import com.example.myapplication.monetization.isProUnlocked
 
 /**
  * Top-level navigation host. Owns the single source of truth for the current screen, applies the
@@ -69,19 +62,11 @@ import com.example.myapplication.monetization.isProUnlocked
  * Replaces the per-platform `MyApplicationTheme { ChessApp(...) }` duplication. New screens
  * (History, Settings) are added here as the lifecycle/persistence work lands.
  */
-enum class Screen { GAME, HISTORY, SETTINGS, RULES, CHAT, PAYWALL, HABITS }
+enum class Screen { GAME, HISTORY, SETTINGS, RULES, CHAT, LICENSES, HABITS }
 
 val LocalMoveCoachManager = staticCompositionLocalOf<MoveCoachManager?> { null }
-val LocalGameSummaryManager = staticCompositionLocalOf<GameSummaryManager?> { null }
 val LocalOpeningExplainerStateHolder = staticCompositionLocalOf<OpeningExplainerStateHolder?> { null }
 
-/**
- * Published for one reason: `PaywallScreen` must not advertise Habits on a build that cannot show
- * it. Same rule as the coach line there — Pro lists what *this* build actually unlocks, and
- * availability is a property of the build (`gameHistory != null` per entry point), which
- * `LocalEntitlements` cannot know.
- */
-val LocalHabitsManager = staticCompositionLocalOf<HabitsManager?> { null }
 val LocalIsDebug = staticCompositionLocalOf { false }
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -93,21 +78,13 @@ fun AppRoot(
     gameHistory: GameHistoryRepository? = null,
     pgnSharer: PgnSharer? = null,
     moveCoachManager: MoveCoachManager? = null,
-    gameSummaryManager: GameSummaryManager? = null,
-    // The default is deliberately the locked, SDK-free implementation: previews, Compose UI tests,
-    // and any caller that omits this argument must not configure a billing SDK or hit the network.
-    // Android/iOS pass RevenueCatEntitlements.createOrNull(...); desktop/wasm pass a locked
-    // NoOpEntitlements seeded from AppSettings. purchase() here fails rather than granting Pro.
-    entitlements: Entitlements = remember { UnconfiguredEntitlements() },
     switchTopPadding: Dp = 8.dp,
-    forceProUnlocked: Boolean = false,
     isDebug: Boolean = false,
 ) {
     val openingExplainerStateHolder = remember { OpeningExplainerStateHolder(createOpeningExplainer()) }
     val chatViewModel = remember { ChatViewModel(createPositionChat()) }
-    val gameState by viewModel.gameState.collectAsState()
-    // Hoisted out of the RulesQaStateHolder construction below because a null answerer is also the
-    // "don't sell this" signal for the Pro gate — desktop, wasm and JS return null unconditionally.
+    // Hoisted out of the RulesQaStateHolder construction below because a null answerer also means
+    // "this build cannot answer rules questions" — desktop, wasm and JS return null unconditionally.
     val ruleLookupTool = remember { createBundledRuleLookupTool() }
     val rulesQaAnswerer = remember { defaultRulesQaAnswerer(ruleLookupTool) }
     val rulesQaStateHolder = remember {
@@ -141,38 +118,30 @@ fun AppRoot(
     }
     CompositionLocalProvider(
         LocalAppSettings provides settings,
-        LocalEntitlements provides entitlements,
-        LocalProUnlockOverride provides forceProUnlocked,
         LocalMoveCoachManager provides moveCoachManager,
-        LocalGameSummaryManager provides gameSummaryManager,
         LocalOpeningExplainerStateHolder provides openingExplainerStateHolder,
-        LocalHabitsManager provides habitsManager,
         LocalIsDebug provides isDebug,
     ) {
         MyApplicationTheme(darkTheme = isSystemInDarkTheme()) {
             var screen by rememberSaveable { mutableStateOf(Screen.GAME) }
-            BackHandler(enabled = screen != Screen.GAME) { screen = Screen.GAME }
+            // Licences is the one screen nested under another (Settings), so back returns there.
+            BackHandler(enabled = screen != Screen.GAME) {
+                screen = if (screen == Screen.LICENSES) Screen.SETTINGS else Screen.GAME
+            }
 
             // Bridge the persisted engine-difficulty setting → the VM (issue #39 Phase 4). The VM
             // seeds its initial value at construction; this forwards subsequent changes from
             // SettingsScreen, applying them to the attached engine via setEngineDifficulty.
+            // One effect, three collectors: the bridges share a lifetime, so they need not each
+            // pay for an effect node and a coroutine launch.
             LaunchedEffect(Unit) {
-                settings.engineDifficulty.collect { viewModel.setEngineDifficulty(it) }
-            }
-            LaunchedEffect(Unit) {
-                settings.aiCoachEnabled.collect { viewModel.aiCoachEnabled = it }
-            }
-            // Bridge the Pro entitlement → the coach manager, mirroring the aiCoachEnabled bridge
-            // above. Free keeps the deterministic coach; Pro gets the model-phrased one. The
-            // manager can't read LocalEntitlements itself — entry points construct it before any
-            // composition exists.
-            LaunchedEffect(entitlements, moveCoachManager, forceProUnlocked) {
-                entitlements.isProUnlocked.collect { moveCoachManager?.proUnlocked = if (forceProUnlocked) true else it }
-            }
-            LaunchedEffect(Unit) {
-                settings.playerSide.collect { sideStr -> 
-                    val side = if (sideStr == "BLACK") Set.BLACK else Set.WHITE
-                    viewModel.playerSide = side
+                launch { settings.engineDifficulty.collect { viewModel.setEngineDifficulty(it) } }
+                launch { settings.aiCoachEnabled.collect { viewModel.aiCoachEnabled = it } }
+                launch {
+                    settings.playerSide.collect { sideStr ->
+                        val side = if (sideStr == "BLACK") Set.BLACK else Set.WHITE
+                        viewModel.playerSide = side
+                    }
                 }
             }
 
@@ -187,7 +156,6 @@ fun AppRoot(
                     onOpenSettings = { screen = Screen.SETTINGS },
                     onOpenRules = { screen = Screen.RULES },
                     onOpenChat = { screen = Screen.CHAT },
-                    onOpenPaywall = { screen = Screen.PAYWALL },
                     onOpenHabits = { screen = Screen.HABITS },
                 )
                 Screen.HISTORY -> if (gameHistory != null) {
@@ -204,83 +172,43 @@ fun AppRoot(
                 Screen.SETTINGS -> SettingsScreen(
                     onBack = { screen = Screen.GAME },
                     board3D = board3D,
-                    onOpenPaywall = { screen = Screen.PAYWALL },
+                    onOpenLicenses = { screen = Screen.LICENSES },
                 )
-                // Branching here rather than wrapping in ProGate: RulesQaScreen supplies its own
-                // SubScreenScaffold, so nesting would render two title bars when unlocked.
-                //
-                // `rulesQaAnswerer == null` short-circuits the gate for the same reason ProGate's
-                // `available` flag does — on a build with no answerer the feature stays dead after a
-                // purchase, so it must not be sold. RulesQaScreen already says so itself.
-                Screen.RULES -> if (rulesQaAnswerer == null || isProUnlocked()) {
-                    RulesQaScreen(
-                        stateHolder = rulesQaStateHolder,
-                        onBack = { screen = Screen.GAME },
-                    )
+                Screen.LICENSES -> LicensesScreen(onBack = { screen = Screen.SETTINGS })
+                // RulesQaScreen reports itself unavailable when there is no answerer, so it is
+                // routed to unconditionally.
+                Screen.RULES -> RulesQaScreen(
+                    stateHolder = rulesQaStateHolder,
+                    onBack = { screen = Screen.GAME },
+                )
+                // HabitsScreen supplies its own SubScreenScaffold. `habitsManager` is null exactly when
+                // this entry point has no gameHistory, so there is nothing to aggregate; say so rather
+                // than render an empty profile.
+                Screen.HABITS -> if (habitsManager != null) {
+                    HabitsScreen(manager = habitsManager, onBack = { screen = Screen.GAME })
                 } else {
-                    SubScreenScaffold(title = "Chess rules", onBack = { screen = Screen.GAME }, showBackButton = !isAndroidPlatform) {
-                        ProUpsellCard(
-                            featureName = "Rules Q&A",
-                            pitch = "Ask any rules question and get an answer cited to the " +
-                                "rulebook, entirely on your device.",
-                            onOpenPaywall = { screen = Screen.PAYWALL },
+                    SubScreenScaffold(title = "Habits", onBack = { screen = Screen.GAME }) {
+                        Text(
+                            "Habits needs game history, which isn't available on this build.",
                             modifier = Modifier.padding(16.dp),
                         )
                     }
                 }
-                // Branching here rather than wrapping in ProGate, same reason as RULES above:
-                // HabitsScreen supplies its own SubScreenScaffold. `habitsManager == null` (no
-                // gameHistory at this entry point — there's nothing to aggregate) short-circuits the
-                // gate the same way `rulesQaAnswerer == null` does, so the feature is never sold on
-                // a build where it can't work.
-                Screen.HABITS -> if (habitsManager == null || isProUnlocked()) {
-                    if (habitsManager != null) {
-                        HabitsScreen(manager = habitsManager, onBack = { screen = Screen.GAME })
-                    } else {
-                        SubScreenScaffold(title = "Habits", onBack = { screen = Screen.GAME }, showBackButton = !isAndroidPlatform) {
-                            Text("Habits needs game history, which isn't available on this build.")
-                        }
-                    }
-                } else {
-                    SubScreenScaffold(title = "Habits", onBack = { screen = Screen.GAME }, showBackButton = !isAndroidPlatform) {
-                        ProUpsellCard(
-                            featureName = "Habits",
-                            pitch = "See the mistakes that keep recurring across your games, with the " +
-                                "exact positions to practice — computed from your own play, not a model.",
-                            onOpenPaywall = { screen = Screen.PAYWALL },
-                            modifier = Modifier.padding(16.dp),
-                        )
-                    }
-                }
-                // rulesQaAvailable is the same signal the RULES branch above gates on: the paywall
-                // must not list a surface this build can't deliver after payment.
-                Screen.PAYWALL -> PaywallScreen(
-                    onClose = { screen = Screen.GAME },
-                    rulesQaAvailable = rulesQaAnswerer != null,
-                )
-                Screen.CHAT -> when {
-                    // Unavailable beats both branches: chat is cloud-only, so without a base URL
-                    // it can only ever emit its fixed offline sentence. Say that instead of either
-                    // selling it or pretending the input box works.
-                    !cloudCoachConfigured ->
-                        SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }, showBackButton = !isAndroidPlatform) {
-                            Text(
-                                "Position Chat needs a coach server, and this build has none configured.",
-                                modifier = Modifier.padding(16.dp),
-                            )
-                        }
-
-                    isProUnlocked() -> ChatScreen(
+                // Chat is cloud-only, so without a base URL it could only ever emit its fixed offline
+                // sentence. Say that instead of pretending the input box works.
+                Screen.CHAT -> if (cloudCoachConfigured) {
+                    // Collected here, not at the top of AppRoot: only Chat reads the position, and a
+                    // top-level collector re-ran this whole host on every move and selection tap.
+                    val gameState by viewModel.gameState.collectAsState()
+                    ChatScreen(
                         viewModel = chatViewModel,
                         gameState = gameState,
                         onBack = { screen = Screen.GAME },
                     )
-
-                    else -> SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }, showBackButton = !isAndroidPlatform) {
-                        ProUpsellCard(
-                            featureName = "Position Chat",
-                            pitch = "Ask about the position you're in and get grounded answers as you play.",
-                            onOpenPaywall = { screen = Screen.PAYWALL },
+                } else {
+                    SubScreenScaffold(title = "Position Chat", onBack = { screen = Screen.GAME }) {
+                        Text(
+                            "Position Chat needs a coach server, and this build has none configured.",
                             modifier = Modifier.padding(16.dp),
                         )
                     }
@@ -297,7 +225,6 @@ internal fun SubScreenScaffold(
     title: String,
     onBack: () -> Unit,
     scrollable: Boolean = true,
-    showBackButton: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     Scaffold(
@@ -305,7 +232,7 @@ internal fun SubScreenScaffold(
             TopAppBar(
                 title = { Text(title) },
                 navigationIcon = {
-                    if (showBackButton) {
+                    if (!isAndroidPlatform) {
                         Button(onClick = onBack, modifier = Modifier.padding(start = 8.dp)) {
                             Text("Back")
                         }
@@ -319,6 +246,7 @@ internal fun SubScreenScaffold(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .consumeWindowInsets(padding)
                 .then(if (scrollable) Modifier.verticalScroll(scrollState) else Modifier),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.Start,

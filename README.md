@@ -1,12 +1,9 @@
-# game
+# Compose Multiplatform chess app with a 3D view mode and AI coaching 
 
-Compose Multiplatform chess app with full support for all standard chess rules, a 3D view mode,
-cross-game habit analysis, and five [AI coaching surfaces](#ai-features) (three on-device, two cloud), targeting:
+Live on [Google Play](https://play.google.com/store/apps/details?id=io.github.ber4444.chess)
+and [Apple TestFlight](https://testflight.apple.com/join/sXp1vXd5)
 
-- Android (minSdk 26)
-- Desktop (JVM): Linux and macOS
-- Web (Wasm)
-- iOS
+Build from source for Desktop (JVM) or Web (Wasm).
 
 ## Setup
 
@@ -35,6 +32,11 @@ macOS, Xcode 16+, and a working project JDK are required.
 The Stockfish engine is bundled automatically. The Filament iOS xcframeworks are fetched separately
 because they are large generated dependencies and are intentionally gitignored.
 
+### Mobile test releases
+
+See [weekly mobile test builds](docs/mobile-releases.md) for the Codemagic workflows, signing setup,
+and schedule for Google Play Internal testing and TestFlight.
+
 ## Architecture & Features
 
 ### Modules
@@ -52,9 +54,7 @@ The project is split into focused Gradle modules:
   Also home to the [perft verification rig](docs/perft.md) — the move generator is proven correct
   against arithmetic ground truth (canonical perft counts + Stockfish cross-check).
 - **`:app`** — the Compose Multiplatform app: all UI screens, platform glue, Stockfish bridges, and
-  the 3D renderers. Depends on `:chess-core` via `api(project(":chess-core"))`. Also home to the
-  [monetization seam](#monetization--entitlements), whose RevenueCat implementation lives in a
-  `storeMain` source set shared by Android and iOS only.
+  the 3D renderers. Depends on `:chess-core` via `api(project(":chess-core"))`.
 - **`:androidApp`** — thin Android application wrapper (manifest, launcher icons) that depends on `:app`.
 - **`:onDeviceAi`** — on-device AI orchestration (move coach, rules Q&A, opening explainer, route
   policy) in `commonMain`, with platform-specific LLM runtimes injected (none on Android — the coach is
@@ -138,13 +138,12 @@ graph TD
 - **Per-move assessment:** Every ply carries a `MoveAssessment` (`cpBefore`, `cpPlayed`, `cpBest`,
   `cpLoss`, a `MoveClass` from BEST/EXCELLENT/GOOD/INACCURACY/MISTAKE/BLUNDER, and detected
   `motifs`), computed by `MoveAssessor` + `MotifDetector` in `:chess-core` and persisted on
-  `MoveRecord`. This is what grounds the coach and the game summary: **code detects, the model only
-  narrates.** `GameHistoryBackfiller` fills assessments in for games saved before the feature
-  existed, respecting `SavedGame.playerSide` to evaluate only the human player's moves, with an
-  evaluation fallback that normalizes to White's perspective without double negation. Two caveats
-  worth knowing: the classification thresholds (10 / 30 / 60 / 100 / 300 centipawns) are calibrated
-  to *Stockfish's* evaluation scale, so swapping engines invalidates stored assessments; and the whole
-  record depends on the engine, so assessments are absent when no engine is attached.
+  `MoveRecord`. The Move Coach uses those facts to explain each move. `GameHistoryBackfiller`
+  fills assessments in for games saved before the feature
+  existed. Two caveats worth knowing: the classification thresholds (10 / 30 / 60 / 100 / 300
+  centipawns) are calibrated to *Stockfish's* evaluation scale, so swapping engines invalidates
+  stored assessments; and the whole record depends on the engine, so assessments are absent when no
+  engine is attached.
 - **Hint:** A **Hint** button asks the attached engine for the best move in the current position and
   shows it in SAN ("Hint: Try Nf3"). No LLM, no network, no tokens. Two deliberate behaviours: the
   button is **hidden when no engine is attached** (the CPU fallback picks a capture-preferring
@@ -158,9 +157,9 @@ graph TD
   enough (requiring repetition across multiple games, not multiple blunders in a single bad game).
   Re-projects existing `MoveAssessment` records into practice positions (`fenBefore` plus the
   engine's `bestMoveSan` alternative) with deterministic narration (`HabitNarrator`). Requires no
-  model or network calls on any platform. Accessible via the **Habits** screen and gated behind Pro.
+  model or network calls on any platform. Accessible via the **Habits** screen.
 - **Engine Difficulty:** A persisted Easy / Medium / Hard / Max setting (in **Settings**) weakens or strengthens Stockfish play via the UCI `Skill Level` option and a per-move think-time budget. Applies to the Stockfish engine on every platform.
-- **Settings & Navigation:** A minimal multiplatform navigation host (`AppRoot`) switches between the game, **History**, **Habits**, **Settings**, **Rules**, **Chat**, and the **paywall** screens. Settings holds four persisted controls: the 3D-board toggle (default on), the engine-difficulty selector, the AI Move Coach toggle (default on), and the **player side** selector — you can play as Black, in which case the engine opens.
+- **Settings & Navigation:** A minimal multiplatform navigation host (`AppRoot`) switches between the game, **History**, **Habits**, **Settings**, **Rules** and **Chat** screens, plus **Open-source licences** under Settings. Settings holds four persisted controls: the 3D-board toggle (default on), the engine-difficulty selector, the AI Move Coach toggle (default on), and the **player side** selector — you can play as Black, in which case the engine opens.
 
 ### Board rendering, engines & verification
 
@@ -178,26 +177,25 @@ graph TD
 
 ## AI features
 
-Five AI surfaces share one seam — `:onDeviceAi` owns the route policies, prompt builders, validators
+Four AI features in the app share one seam — `:onDeviceAi` owns the route policies, prompt builders, validators
 and deterministic fallbacks; `:app` owns the UI and injects the platform runtime. They differ in
-where inference runs, what leaves the device, and what the free tier gets:
+where inference runs and what leaves the device:
 
-| Feature | Where it appears | Route & policy | Free tier | Pro tier |
-|---|---|---|---|---|
-| **Move Coach** | Panel below the board, after your move is answered | On-device; `AiRoutePolicies.moveCoachOffline` — `LOCAL_ONLY`, 0¢ | The deterministic explanation of that ply's `MoveAssessment`, rendered as ordinary coach text | The same assessment, phrased by the model |
-| **Game Summary** | *Get Coach Summary* in the game-over popup | On-device; reuses `moveCoachOffline` | Upsell card | Full feature |
-| **Rules Q&A** | **Rules** screen | On-device retrieval **and** generation; `AiRoutePolicies.rulesQaOffline` — `LOCAL_ONLY`, 0¢ | Upsell card | Full feature |
-| **Opening Explainer** | Post-game panel, once per finished game | Cloud; `AiRoutePolicies.openingExplainer` — `PUBLIC_OR_SYNTHETIC`; server cost cap defaults to 1.5¢ | Upsell card | Full feature |
-| **Position Chat** | **Chat** screen, any number of turns mid-game | Cloud SSE; `AiRoutePolicies.positionChat` — `PUBLIC_OR_SYNTHETIC`; server cost cap defaults to 1.5¢ | Upsell card | Full feature |
+| Feature | Where it appears | Route & policy |
+|---|---|---|
+| **Move Coach** | Panel below the board, after your move is answered — the deterministic explanation of that ply's `MoveAssessment`, phrased by a model only where one is attached | On-device; `AiRoutePolicies.moveCoachOffline` — `LOCAL_ONLY`, 0¢ |
+| **Rules Q&A** | **Rules** screen | On-device retrieval **and** generation; `AiRoutePolicies.rulesQaOffline` — `LOCAL_ONLY`, 0¢ |
+| **Opening Explainer** | Game-over popup | Cloud; `AiRoutePolicies.openingExplainer` — `PUBLIC_OR_SYNTHETIC`; server cost cap defaults to 1.5¢ |
+| **Position Chat** | **Chat** screen, any number of turns mid-game | Cloud SSE; `AiRoutePolicies.positionChat` — `PUBLIC_OR_SYNTHETIC`; server cost cap defaults to 1.5¢ |
 
-Pro is the entitlement described under [Monetization & entitlements](#monetization--entitlements);
-free play is unlimited and keeps both boards, the full engine-difficulty range, the deterministic
-coach, PGN export and history. Where a build cannot run a surface at all — no coach orchestrator, no
-`coach.baseUrl`, no rules answerer — it renders *nothing*, not even the upsell, so the paywall never
-sells a feature that would stay dead after payment.
+Everything is free — there are no purchases, subscriptions or paywall. The AI features are
+experimental, and charging for them was not justified at their current quality. Where a build cannot
+run a surface at all — no coach orchestrator, no `coach.baseUrl`, no rules answerer — the surface is
+hidden (Opening Explainer) or says why it is unavailable (Rules, Chat) rather than
+showing a control that does nothing.
 
 Only the two cloud policies set `allowCloud = true`, and they carry public chess data only (FEN, SAN
-move list, bounded conversation history — no user identifiers, no free-form PII). The three
+move list, bounded conversation history — no user identifiers, no free-form PII). The two
 on-device policies are `LOCAL_ONLY` with a 0¢ budget, so `AiRoutePolicyDecider` can never hand them a
 cloud route.
 
@@ -206,21 +204,20 @@ no single switch that turns "AI" on or off everywhere:
 
 | Feature | Android | iOS | Desktop | Web |
 |---|---|---|---|---|
-| **Move Coach**, **Game Summary** | All builds — **deterministic: no model, no download, answers instantly.** Every on-device model available to Android was benchmarked and lost to the templates (see [No first-run model download](#no-first-run-model-download)) | iOS 26.0+, a Foundation-Models-eligible device, and Apple Intelligence on in Settings (`SystemLanguageModel.default.availability`), probed at launch on every build | `CHESS_ENABLE_COACH=1 ./gradlew :app:run` | `?coach=1` on the page URL; Chrome/Edge only, since it needs WebGPU |
-| **Rules Q&A** | All builds — the answerer is unconditionally available and falls back to corpus retrieval if the model has not initialized yet | Same iOS 26+ / Apple Intelligence gate as the coach | Unavailable: `defaultRulesQaAnswerer` returns `null`, and the **Rules** screen reports itself unavailable rather than rendering a dead input box | Unavailable, same as desktop |
+| **Move Coach** | Deterministic on all builds | Deterministic on all builds | Deterministic by default. Set `CHESS_ENABLE_COACH=1` to enable LiteRT-LM | Deterministic by default. Add `?coach=1` in a browser with WebGPU to enable LiteRT-LM |
+| **Rules Q&A** | Corpus retrieval on all builds, with ML Kit generation when the availability probe finds an eligible AICore model | Foundation Models on eligible iOS 26+ devices, with Apple Intelligence enabled | Unavailable: `defaultRulesQaAnswerer` returns `null`, and the **Rules** screen reports itself unavailable rather than rendering a dead input box | Unavailable, same as desktop |
 | **Opening Explainer**, **Position Chat** | A `coach.baseUrl` / `CHESS_COACH_BASE_URL` baked in at build time — identical precedence on all four targets (see [App-side wiring](#opening-explainer-service)) | ↑ | ↑ | ↑ |
 
 On top of its platform gate, **Move Coach** also honours the persisted **Enable AI Move Coach**
 switch in Settings (`AppSettings.aiCoachEnabled`, default on). It guards only the automatic per-move
-trigger, so Game Summary — attached in the same call at every entry point — still works when it is
-off. Neither Rules Q&A nor the two cloud surfaces has a Settings switch.
+trigger. Neither Rules Q&A nor the two cloud surfaces has a Settings switch.
 
 **On-device runtimes**, injected at the entry points through the `OnDeviceTextGenerator` /
 `VendorRouteExecutor` seam:
 
 | Target | Runtime | Model |
 |---|---|---|
-| Android | none — deterministic | No model ships and none is downloaded: every model in the Cactus catalog was benchmarked on hardware and all lost to the deterministic text on latency, truth, or both. `MoveCoachManager` renders `DeterministicCoach`; `GameSummaryManager` composes the turning points. ML Kit/AICore stays wired but dormant (`Unavailable` on every device tested). See `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md` |
+| Android | ML Kit/AICore for Rules Q&A | The availability probe checks FAST and FULL. The Move Coach uses `DeterministicCoach`. See `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md` |
 | iOS | Foundation Models, via `FoundationMoveCoachBridge` registered into `FoundationModelsBridgeRegistry` from `iOSApp.swift` | The system model. Every Foundation Models call is individually `@available(iOS 26.0, *)`-gated; the app's own deployment target is 16.0, set by ChessKitEngine |
 | Desktop | LiteRT-LM (`com.google.ai.edge.litertlm:litertlm-jvm`), native libs bundled inside the jar: linux-x86_64/aarch64, darwin-aarch64, win-x86_64 — **no Intel Mac**, which falls back | Qwen3-0.6B-int4, ~347 MB `.litertlm`, downloaded on first launch and cached under `~/.chess-coach-models/`. See `docs/benchmarks/on-device-ai/desktop-wasm-litert-lm.md` |
 | Web (Wasm) | `@litert-lm/core` loaded from the jsdelivr CDN at runtime, running in a module Web Worker so inference stays off the main thread | `gemma-4-E2B-it-web.litertlm`, ~2 GB — the only model `@litert-lm/core` documents for web. Without WebGPU the generator reports unavailable and the orchestrator falls back to `MoveCoachFallback` |
@@ -255,35 +252,22 @@ off-device at all."
   blocks the move. The response validator enforces a 300-char bound, forbidden phrases and grounding,
   and a rejection emits the deterministic line immediately — there is no retry. See
   [On-Device AI Architecture](docs/on-device-ai-architecture.md) for the prompt and routing internals.
-- **Game Summary** — feeds the finished game's PGN to the same generator (`DefaultGameSummaryOrchestrator`,
-  45 s ceiling for the whole PGN-sized prompt) and reuses the *same* `VendorRouteExecutor` the coach
-  warmed up, so there is no second model download. Turning points are ranked by `cpLoss`/`MoveClass`
-  and cited as `[move-N]`, which `:app` renders rather than strips: `CitationSanitizer` removes
-  internal corpus ids like `[lichess-…]` from every display path but deliberately preserves
-  `[move-N]`, since those are meant to become tappable board jumps. Two deliberate differences from
-  the coach — **no grounding validator** (any non-blank output is accepted; there is no per-move tag
-  list to check it against) and it is **pull-based**. The button renders only once an orchestrator is
-  attached, so it can never be pressed for nothing; a failed generation shows a fixed "review the
-  PGN" line.
 - **Rules Q&A** — retrieval and generation both stay on-device. The corpus is a bundled 30-passage
   FIDE/Wikibooks adaptation (`onDeviceAi/src/commonMain/resources/rulesCorpus/passages.tsv`) looked
   up with BM25 (`BundledRuleLookupTool`); see
   `docs/benchmarks/on-device-ai/rules-qa-retrieval-decision.md` for why BM25 rather than a bundled
   embedding model. iOS uses a native Foundation Models `Tool` conformance with `NLEmbedding`
-  query-time ranking; Android has no model, so BM25 retrieval answers on its own through the
-  grounding floor. Where a model is present it emits a
-  `{"tool":"lookup_rule","query":"…"}` envelope, Kotlin performs the real lookup, and a second
-  generation turn cites the passage. An answer that fails validation falls back to composing the
-  retrieved passage directly.
-- **Opening Explainer** — `OpeningExplainerPanel` posts the FEN plus the first 20 SAN plies to
-  `:server`, which retrieves grounded passages and composes a 2–3 sentence explanation. An unset base
-  URL, a dead network, or a non-2xx response all surface as a deterministic offline message rather
-  than an error state. See [Opening explainer service](#opening-explainer-service).
+  query-time ranking. Android starts with BM25, then lets an available ML Kit model refine
+  the lookup and phrase an answer. The retrieved passage supplies the answer when model output
+  is unavailable or fails validation.
+- **Opening Explainer** — the app posts the FEN plus the first 20 SAN plies to
+  `:server`, which retrieves grounded passages and composes a 2–3 sentence explanation. The app
+  gives the request up to 25 seconds and offers Retry if it times out or fails.
+  See [Opening explainer service](#opening-explainer-service).
 - **Position Chat** — cloud-only by design: there is no on-device chat generator, and an on-device
   route decision is treated as "no route". `KtorStreamingChatClient` uses `preparePost{}.execute{}` +
-  `bodyAsChannel()`, so cancelling the collecting job closes the TCP connection immediately and
-  leaves no orphaned server-side stream; **Stop** cancels an in-flight request (mid-token when the
-  provider delivers incrementally) and **Retry** re-sends the turn,
+  `bodyAsChannel()`. **Stop** cancels the in-flight request, including between chunks when the
+  provider delivers incrementally. **Retry** re-sends the turn,
   with `ChatViewModel` holding a single `streamJob` so at most one stream is live. It sends the last
   6 turns (`MAX_HISTORY_TURNS`) plus at most 20 SAN plies; the server caps history independently and
   re-pins retrieval every turn, so trimming old turns cannot let the grounding drift. A slow first
@@ -296,11 +280,9 @@ off-device at all."
 Android ships no on-device model and downloads none. Every model in the Cactus catalog was
 benchmarked on a Galaxy Z Fold 3, and all of them lost to the deterministic text on latency, on
 truth, or both — up to 36 s to answer, and in one case a fluent claim that a knight on h3 "controls
-the center". On Game Summary, which has no response validator, one model invented a bishop sacrifice
-on move 1 and another answered in German; both were accepted.
+the center".
 
-So the Move Coach answers instantly from `DeterministicCoach`, and Game Summary composes the same
-turning points a model was given and could not use. ML Kit/AICore remains wired but dormant: it costs
+The Move Coach answers instantly from `DeterministicCoach`. ML Kit/AICore remains wired but dormant: it costs
 no download, reports `Unavailable` on every device tested, and lights up by itself if a device ever
 provisions the feature.
 
@@ -316,7 +298,7 @@ and `movecoach/FallbackPresentation` maps it to exactly three designed outcomes:
 |---|---|---|
 | `Silent` | no local model, offline, no route, backgrounded, validator veto, **CRITICAL thermal** | Ordinary coach text, no error chrome — the deterministic line is the product, not a failure message |
 | `Labeled` | quota exhausted | A one-line note, because waiting changes the outcome |
-| `Retryable` | timeout | The note plus a **Retry** button (`MoveCoachManager.retry()` / `GameSummaryManager.retry()` replay the last request) |
+| `Retryable` | timeout | The note plus a **Retry** button (`MoveCoachManager.retry()` replays the last request) |
 
 The CRITICAL-thermal row is the guarantee worth naming: an overheating device degrades to the
 deterministic coach and **never renders a dead panel**. That holds only because the orchestrator's
@@ -656,79 +638,16 @@ COACH_DEPLOYED_URL=https://… ./gradlew :evals:run   # also score the live depl
 EVAL_CALIBRATION=1 ./gradlew :evals:run             # print per-route reading-grade distributions
 ```
 
-## Monetization & entitlements
+## Licence
 
-Feature gating goes through an injected `Entitlements` seam in `:app`'s `monetization/` package —
-never resolved statically, and never in `:chess-core`, which is the artifact the React Native repo
-compiles against and must stay free of any billing dependency. The interface is
-`isProUnlocked: StateFlow<Boolean>` / `availablePlans()` / `purchase(planId)` / `restorePurchases()`,
-published to the UI through `LocalEntitlements`. Its wire types are store-agnostic so they can cross
-into `commonMain`: `ProPlan` (opaque id, title, the store's own localized `priceLabel`, optional
-detail, `isBestValue`) and `PurchaseOutcome` (`Purchased` / `Cancelled` / `Unavailable` / `Failed`),
-where `Cancelled` is distinct so backing out of the store sheet raises no error.
-
-Three implementations, and which one you get is deliberate. **All three start locked**, so the
-paywall renders on every target and its layout is checkable at phone, desktop and browser sizes:
-
-| Implementation | Used by | Behaviour |
-|---|---|---|
-| `RevenueCatEntitlements` | Android, iOS | Backed by the RevenueCat KMP SDK, checking the `pro` entitlement (`DEFAULT_ENTITLEMENT_ID`). Built by `MainActivity` / `MainViewController` through `createOrNull(apiKey, debugLogging)`, which returns `null` on a blank key; the entry point then calls `refresh()` explicitly, so no network call runs from `init {}` on the composition thread |
-| `NoOpEntitlements` | Desktop, Web | No store on those targets: offers one synthetic plan priced "Free", and `purchase()` unlocks locally. Entry points seed it from `AppSettings.proUnlocked` and pass `AppSettings::setProUnlocked` as `onUnlockChanged`, so the unlock survives a restart. That key is never read on Android or iOS, where a device-writable setting would be a paywall bypass |
-| `UnconfiguredEntitlements` | The `AppRoot` **default** | Locked; `purchase()` returns `Unavailable` |
-
-`UnconfiguredEntitlements` is the default so that previews, Compose UI tests, and any caller that
-omits the argument neither configure a billing SDK nor make a network call. It is not
-interchangeable with `NoOpEntitlements`, whose `purchase()` unlocks Pro on the spot.
-
-**What's gated.** `ProGate` wraps Game Summary and Opening Explainer in `GameScreen`; the Habits,
-Rules, and Chat screens own their own `SubScreenScaffold`, so `AppRoot` branches on `isProUnlocked()`
-and drops a bare `ProUpsellCard` into its own scaffold instead of nesting a gate;
-`MoveCoachManager.proUnlocked` gives free users the deterministic coach line as a finished answer
-rather than an upsell mid-game. A gate also takes an `available` flag, and when it is false
-**nothing renders — not even the upsell**: a build with no coach orchestrator, no `coach.baseUrl`, no
-rules answerer, or no game history (for Habits) must not sell a feature that would stay dead after
-payment. Note that `isProUnlocked()` treats a null `LocalEntitlements` as unrestricted (right for
-previews), so **no Compose UI test can catch a paywall regression** — that surface is hand-tested.
-`EntitlementsTest` covers the parts that are unit-testable: the locked defaults, the storeless unlock,
-and its persistence round-trip.
-
-**The paywall** is `PaywallScreen`, reached as `Screen.PAYWALL` from any upsell card's *See Pro*
-button. It dynamically lists the available Pro surfaces (Habits when `GameHistoryRepository` is
-present, Game Summary, Position Chat, Opening Explainer, Rules Q&A, and Move Coach when an
-orchestrator is attached), renders one selectable row per `ProPlan` (pre-selecting `isBestValue`, else
-the first), and offers *Unlock Pro* plus *Restore purchases*. Three states are distinct on purpose:
-plans still loading, an **empty** plan list — "purchases aren't available on this device right now",
-covering a storeless target, a missing key and an empty offering — and Pro already active. It reads
-`LocalEntitlements` directly rather than through `isProUnlocked()`, which would report Pro as active
-in a preview.
-
-The SDK dependency is `com.revenuecat.purchases:purchases-kmp-core`, which publishes Android and iOS
-variants only. It therefore lives in `:app`'s `storeMain` intermediate source set
-(`commonMain` ← `storeMain` ← `androidMain` + `iosMain`), and the `iosSimulatorArm64` test binary
-carries an explicit `-L` to the host's Swift toolchain for RevenueCat's prebuilt Swift objects.
-
-**Configuration.** Keys are read at build time with the same precedence as the coach base URL and
-generated into `storeMain` by `generateRevenueCatConfig`; nothing is committed:
-
-```bash
-# env, or revenuecat.androidKey / revenuecat.iosKey in local.properties
-export REVENUECAT_ANDROID_KEY=goog_…
-export REVENUECAT_IOS_KEY=appl_…
-
-# optional Test Store keys — debug builds prefer these, release builds never use them
-export REVENUECAT_ANDROID_TEST_KEY=test_…
-export REVENUECAT_IOS_TEST_KEY=test_…
-```
-
-`revenueCatApiKey(debug)` picks between them. A **debug** build (`FLAG_DEBUGGABLE` on Android,
-`Platform.isDebugBinary` on iOS) uses the test key when one is set and otherwise falls back to the
-production key, so an existing single-key setup keeps working. A **release** build never resolves to
-a test key at all — shipping one would give every user a free, unverifiable "purchase".
-
-With no key configured, `RevenueCatEntitlements.createOrNull(...)` returns `null` and the entry point
-falls back to the locked default — a fresh clone builds and runs, it just can't purchase, and the
-Pro surfaces show their upsell. What Pro actually adds is per-surface; see the tier columns in
-[AI features](#ai-features).
+The app is free software under the **GNU General Public License, version 3 or later** —
+[COPYING.md](COPYING.md) states the terms and lists the third-party files that keep their own
+licences (Stockfish, the piece artwork, the openings and rules corpora, the Gradle wrapper), and
+[LICENSE](LICENSE) holds the full text. Store builds carry the same notice in-app under
+**Settings → Open-source licences** (`LicensesScreen`), together with the GPL text and a link to this
+repository, so every recipient of a binary gets the licence and a route to the source. Stockfish is
+GPL software from its own authors and is shipped unmodified on Android; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Benchmarking
 
@@ -794,20 +713,17 @@ git push origin on-device-ai-v0.1.0
 
 ## Plan inventory
 
-*Active and proposed plans under `docs/plans/`.*
-
-| Doc | Phases | Role |
-|---|---|---|
-| [`docs/plans/hybrid-inference-vendor-adoption-plan.md`](docs/plans/hybrid-inference-vendor-adoption-plan.md) | VA-1 … VA-8 | Vendor/runtime breadth: more platforms, more SDKs, telemetry, UI. |
-| [`docs/plans/on-device-coach-rag-unification.md`](docs/plans/on-device-coach-rag-unification.md) | RAG-1 … RAG-6 | Coaching *quality*: `MoveAssessment` (RAG-1), evaluative summary (RAG-2), coach headline grounding (RAG-3), counterfactuals/hints (RAG-4 partial), habit aggregation across games (RAG-5 landed in #136). |
-| [`docs/plans/on-device-ai-next-steps.md`](docs/plans/on-device-ai-next-steps.md) | — | **New in #138.** The three-step follow-on, written to be picked up cold: the Game Summary validator (done), turning AICore on for that surface (gated on a repeat run — zero invented tags is a hard gate, not a percentage), and the **Rules Q&A benchmark**, which is the one surface with a model live in production on both phones and the only one never measured. |
+| Plan | Status |
+|---|---|
+| [Hybrid inference vendor adoption](docs/plans/hybrid-inference-vendor-adoption-plan.md) | Platform runtimes and route badges are in place. VA-8 article updates follow device measurements. |
+| [Coaching grounded in verified game facts](docs/plans/on-device-coach-rag-unification.md) | RAG-1–3 landed. RAG-4 has a local Hint button, with assessment-backed chat and counterfactuals still open. Habit aggregation is in [PR #136](https://github.com/ber4444/compose-multiplatform-chess/pull/136). RAG-6 offline chat is optional. |
+| [On-device AI next steps](docs/plans/on-device-ai-next-steps.md) | The summary validator, device scorer, and Rules Q&A benchmark harness are available. Physical-device model runs are pending. |
 
 ## TODO
 
-| # | Work | Owner doc | Gate / blocker |
-|---|---|---|---|
-| **After Sep 30** | | | |
-| 7 | **Task 2 — AICore on for Game Summary** | `on-device-ai-next-steps.md` | Repeat the 50-game run with the validator in place. **Zero invented `[move-N]` is a hard gate, not a percentage.** The iOS voice problem is a prompt fix, not a validator fix |
-| 8 | **Task 3 — benchmark Rules Q&A** | same, §3a–3e | The only surface with a model live in production on both phones and never measured. Decides whether the model turn earns its place at all. Includes 3e, the missing Android availability probe |
-| 9 | **Bench schema → `DeviceRunScorer` summary mode** | same, Leftovers | Blocked on the summary row carrying the assessed move history. #139 fixed the failure mode only |
-
+| # | Work | Status / next step |
+|---|---|---|
+| 5 | Position Chat Stop mid-stream | Verified on the Android emulator with a controlled SSE server on November 6, 2026. Stop removed the partial reply and closed the connection before the next chunk. Retry completed the same turn once. |
+| 7 | [Repeat the 50-game Summary run](docs/plans/on-device-ai-next-steps.md#task-2--measure-game-summary-with-the-validator) | Requires an AICore phone and an Apple Intelligence iPhone. Any future rollout also depends on bringing Game Summary back as an app surface. Gates are zero invented tags, at least 90% validator acceptance, and p95 under 45 s. |
+| 8 | [Benchmark Rules Q&A](docs/plans/on-device-ai-next-steps.md#task-3--benchmark-rules-qa) | The emulator matched the designated BM25 passage on 22/34 in-corpus cases and returned a passage for 1/3 out-of-corpus cases. Model quality and latency still need physical-device runs. |
+| 9 | [Score Game Summary device runs](docs/plans/on-device-ai-next-steps.md#score-game-summary-runs) | Both runners write assessed plies and the original model output. `:evals:scoreDeviceRun -Psurface=summary` replays the validator and checks the device verdict. Verified the JSONL round trip on all 50 emulator fixtures. |

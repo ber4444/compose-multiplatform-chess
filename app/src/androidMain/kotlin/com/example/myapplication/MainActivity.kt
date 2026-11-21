@@ -7,7 +7,13 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.viewModelScope
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.CurrentGameStore
 import com.example.myapplication.persistence.CurrentGameStoreSupport
@@ -17,16 +23,16 @@ import com.example.myapplication.persistence.createSettings
 import com.example.myapplication.share.androidPgnSharer
 import android.content.pm.ApplicationInfo
 import com.example.myapplication.movecoach.MoveCoachManager
-import com.example.myapplication.movecoach.GameSummaryManager
-import com.example.myapplication.monetization.RevenueCatEntitlements
-import com.example.myapplication.monetization.UnconfiguredEntitlements
-import com.example.myapplication.monetization.revenueCatApiKey
 import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
 import com.example.myapplication.bench.runAndroidBench
+import com.example.myapplication.bench.runAndroidRulesQaBench
+import com.example.myapplication.performance.chessStartupTrace
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val holder: AndroidGameViewModel by viewModels()
@@ -39,11 +45,27 @@ class MainActivity : ComponentActivity() {
             Logger.setMinSeverity(Severity.Assert)
         }
 
+        if (isDebug && intent.hasExtra("bench_rules_qa_iterations")) {
+            val iterations = intent.getIntExtra("bench_rules_qa_iterations", 1)
+            val benchContext = applicationContext
+            keepBenchInForeground()
+            lifecycleScope.launch {
+                withContext(Dispatchers.IO) {
+                    runAndroidRulesQaBench(benchContext, iterations)
+                }
+                finish()
+            }
+            return
+        }
+
         if (isDebug && intent.hasExtra("bench_summary_iterations")) {
             val iterations = intent.getIntExtra("bench_summary_iterations", 1)
+            val benchContext = applicationContext
             keepBenchInForeground()
-            CoroutineScope(Dispatchers.IO).launch {
-                com.example.myapplication.bench.runAndroidSummaryBench(this@MainActivity, iterations)
+            lifecycleScope.launch {
+                withContext(Dispatchers.IO) {
+                    com.example.myapplication.bench.runAndroidSummaryBench(benchContext, iterations)
+                }
                 finish()
             }
             return
@@ -51,19 +73,22 @@ class MainActivity : ComponentActivity() {
 
         if (isDebug && intent.hasExtra("bench_iterations")) {
             val iterations = intent.getIntExtra("bench_iterations", 1)
+            val benchContext = applicationContext
             keepBenchInForeground()
-            CoroutineScope(Dispatchers.IO).launch {
-                runAndroidBench(this@MainActivity, iterations)
-                // Mirror the JSONL into the app's external files dir. `filesDir` needs `run-as`,
-                // which the remote-device tooling could not do — that is why an earlier run was read
-                // out of a deliberate crash. This path is plain `adb pull`.
-                runCatching {
-                    val source = java.io.File(filesDir, "bench/results.jsonl")
-                    val target = java.io.File(getExternalFilesDir(null), "bench/results.jsonl")
-                    target.parentFile?.mkdirs()
-                    source.copyTo(target, overwrite = true)
-                    android.util.Log.i("AndroidBenchRunner", "bench results at ${target.absolutePath}")
-                }.onFailure { android.util.Log.w("AndroidBenchRunner", "could not mirror results", it) }
+            lifecycleScope.launch {
+                withContext(Dispatchers.IO) {
+                    runAndroidBench(benchContext, iterations)
+                    // Mirror the JSONL into the app's external files dir. `filesDir` needs `run-as`,
+                    // which the remote-device tooling could not do — that is why an earlier run was read
+                    // out of a deliberate crash. This path is plain `adb pull`.
+                    runCatching {
+                        val source = java.io.File(benchContext.filesDir, "bench/results.jsonl")
+                        val target = java.io.File(benchContext.getExternalFilesDir(null), "bench/results.jsonl")
+                        target.parentFile?.mkdirs()
+                        source.copyTo(target, overwrite = true)
+                        android.util.Log.i("AndroidBenchRunner", "bench results at ${target.absolutePath}")
+                    }.onFailure { android.util.Log.w("AndroidBenchRunner", "could not mirror results", it) }
+                }
                 finish()
             }
             return
@@ -74,30 +99,26 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(SYSTEM_BAR_SCRIM)
         )
 
-        holder.attachEngine(createStockfishEngine())
+        // Off the main thread, and once per holder rather than per Activity. Started inline it held
+        // onCreate for ~340 ms of a 646 ms cold start (measured on an API 37 emulator) — the main
+        // thread asleep on Stockfish's UCI handshake — and every rotation paid it again for an
+        // engine identical to the one it replaced.
+        val app = applicationContext
+        holder.startEngine { createStockfishEngine(app) }
         // Skip the attach + warmup only when the retained holder already carries an orchestrator,
         // i.e. a configuration change. Keying this off `savedInstanceState == null` instead looks
         // equivalent but is not: process death also restores a bundle, and there the holder is a
         // brand-new ViewModel with no orchestrator, so the coach would stay dead for the whole
         // session.
-        attachOnDeviceAi()
+        chessStartupTrace("Chess.attachOnDeviceAi") { attachOnDeviceAi() }
 
-        val appSettings = AppSettings(createSettings("chess"))
+        val appSettings = chessStartupTrace("Chess.settings") { AppSettings(createSettings("chess")) }
         // PgnSharer needs the host Activity (for ACTION_SEND), so it's built here, not in the holder.
         val pgnSharer = androidPgnSharer(this)
 
-        // Injected like pgnSharer/board3D. Null when no key is configured (see
-        // generateRevenueCatConfig in app/build.gradle.kts) — AppRoot's UnconfiguredEntitlements
-        // default then applies, which is locked.
-        val entitlements = RevenueCatEntitlements.createOrNull(
-            // isDebug also picks the key: a debug build uses the RevenueCat Test Store key when one
-            // is configured, so a dev tap never buys a real Play product.
-            apiKey = revenueCatApiKey(debug = isDebug),
-            debugLogging = isDebug,
-        )
-        entitlements?.let { CoroutineScope(Dispatchers.IO).launch { it.refresh() } }
-
         setContent {
+            // Stable selectors for out-of-process profile journeys (also used by UIAutomator).
+            Box(Modifier.semantics { testTagsAsResourceId = true }) {
             AppRoot(
                 viewModel = holder.gameViewModel,
                 settings = appSettings,
@@ -105,20 +126,14 @@ class MainActivity : ComponentActivity() {
                 gameHistory = holder.gameHistory,
                 pgnSharer = pgnSharer,
                 moveCoachManager = holder.moveCoachManager,
-                gameSummaryManager = holder.gameSummaryManager,
-                entitlements = entitlements
-                    // Stays UnconfiguredEntitlements even in debug: the dev unlock is
-                    // forceProUnlocked below, which covers all five Pro surfaces *and* leaves
-                    // PaywallScreen — which reads LocalEntitlements directly — inspectable.
-                    ?: androidx.compose.runtime.remember { UnconfiguredEntitlements() },
-                forceProUnlocked = isDebug,
                 isDebug = isDebug,
             )
+            }
         }
     }
 
     /**
-     * Wires ML Kit / AICore into the two on-device surfaces, or leaves them deterministic.
+     * Wires ML Kit / AICore into the Move Coach when enabled.
      *
      * **This is the integration the Android seam was missing.** `probeAvailableLocalVendors()` had
      * no caller outside `bench/`, so the app's AICore path could only be exercised by running the
@@ -141,25 +156,15 @@ class MainActivity : ComponentActivity() {
      *    `checkStatus()` round trip on every coached move; thermal and quota conditions, which do
      *    change per request, are the decider's own inputs and are unaffected.
      *
-     * Both flags are off today, for different reasons — see the constants and
-     * `docs/benchmarks/on-device-ai/game-summary-2026-08.md`.
+     * The flag is off today. See the rationale on ATTACH_MOVE_COACH below.
      */
     private fun attachOnDeviceAi() {
-        // Unconditional, and *before* the probe. Not "no model, no summary": the composed turning
-        // points are a complete answer, and doing this first means the button is live from the first
-        // frame instead of after a probe that may await an AICore feature download. When a model is
-        // attached below it takes over; `deterministicEnabled` only applies while the orchestrator
-        // is null, so the two cannot fight.
-        holder.gameSummaryManager.enableDeterministic()
-
-        if (!ATTACH_GAME_SUMMARY && !ATTACH_MOVE_COACH) return
+        if (!ATTACH_MOVE_COACH) return
 
         CoroutineScope(Dispatchers.IO).launch {
             val vendors = com.example.ondeviceai.probeAvailableLocalVendors()
             Logger.i("MainActivity") { "on-device vendors: $vendors" }
-            // Every emulator, and every device without an AICore feature for this model. The
-            // deterministic summary above already stands, and the coach renders DeterministicCoach
-            // with no orchestrator, so there is nothing further to do.
+            // Without AICore, the Move Coach uses DeterministicCoach.
             if (vendors.isEmpty()) return@launch
 
             val executor = com.example.ondeviceai.VendorRouteExecutor()
@@ -171,22 +176,12 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            if (ATTACH_GAME_SUMMARY) {
-                holder.gameSummaryManager.attachOrchestrator(
-                    com.example.ondeviceai.DefaultGameSummaryOrchestrator(
-                        executor = executor,
-                        contextProvider = contextProvider,
-                    ),
-                )
-            }
-            if (ATTACH_MOVE_COACH) {
-                holder.moveCoachManager.attachCoachOrchestrator(
-                    com.example.ondeviceai.DefaultAiCoachOrchestrator(
-                        executor = executor,
-                        contextProvider = contextProvider,
-                    ),
-                )
-            }
+            holder.moveCoachManager.attachCoachOrchestrator(
+                com.example.ondeviceai.DefaultAiCoachOrchestrator(
+                    executor = executor,
+                    contextProvider = contextProvider,
+                ),
+            )
         }
     }
 
@@ -201,7 +196,7 @@ class MainActivity : ComponentActivity() {
      * `svc power stayon usb` does not prevent it because the keyguard, not the screen timeout, is
      * what stops the activity being resumed.
      *
-     * Bench-only, so this never touches a shipped launch: both callers sit behind `isDebug` plus a
+     * Bench-only, so this never touches a shipped launch: callers sit behind `isDebug` plus a
      * bench intent extra.
      */
     private fun keepBenchInForeground() {
@@ -212,15 +207,19 @@ class MainActivity : ComponentActivity() {
         }
         // Only dismisses a swipe keyguard; a secured device still needs unlocking by hand, which the
         // run will make obvious rather than silently mis-measure.
-        (getSystemService(android.content.Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager)
-            ?.requestDismissKeyguard(this, null)
+        val keyguard = getSystemService(android.content.Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+        // An unnecessary dismiss request can leave the framework's binder callback holding this
+        // Activity after finish(), even when there was no keyguard to dismiss.
+        if (keyguard?.isKeyguardLocked == true) {
+            keyguard.requestDismissKeyguard(this, null)
+        }
     }
 
-    private fun createStockfishEngine(): ChessEngine? {
+    private fun createStockfishEngine(app: android.content.Context): ChessEngine? {
         val engine = StockfishEngine(
-            nativeLibraryDir = applicationInfo.nativeLibraryDir,
-            filesDir = filesDir,
-            assetManager = assets,
+            nativeLibraryDir = app.applicationInfo.nativeLibraryDir,
+            filesDir = app.filesDir,
+            assetManager = app.assets,
             supportedAbis = Build.SUPPORTED_ABIS
         )
         return if (engine.isAvailable() && engine.start()) {
@@ -260,24 +259,6 @@ class MainActivity : ComponentActivity() {
          * `docs/benchmarks/on-device-ai/android-model-latency-2026-08.md`.
          */
         private const val ATTACH_MOVE_COACH = false
-
-        /**
-         * Whether ML Kit / AICore writes the Game Summary. **Off, and open** — a different question
-         * from [ATTACH_MOVE_COACH], which is why these are two constants and not one.
-         *
-         * With the prompt's raw PGN removed and `noRepeatNgramSize` widened, AICore went from 7/12
-         * to **12/12** on the 2026-08 fixtures at ~12 s, citing exactly the code-chosen turning
-         * points in 11 of 12 and inventing nothing — the best on-device output measured on this
-         * project. What holds it back is not quality: this surface has **no response validator at
-         * all**, so residual decoration ("a blunder that weakened your pawn structure", about a
-         * knight move) reaches the user unchallenged, and 12 games is a small sample for a surface
-         * where one bad summary is the entire answer.
-         *
-         * Flip it after the validator lands and a larger fixture set agrees — see
-         * `docs/plans/on-device-ai-next-steps.md`. The floor does not move when you do: a rejected
-         * summary falls back to `GameSummaryGrounding`, which is exactly what ships today.
-         */
-        private const val ATTACH_GAME_SUMMARY = false
     }
 }
 
@@ -290,17 +271,21 @@ class AndroidGameViewModel : ViewModel() {
     // game starts instead (CurrentGameStoreSupport.loadInitialState).
     private val settings = createSettings("chess")
     private val currentGameStore = CurrentGameStore(settings)
-    private val restoredState = CurrentGameStoreSupport.loadInitialState(currentGameStore)
+    private val restoredState = chessStartupTrace("Chess.restoreGame") {
+        CurrentGameStoreSupport.loadInitialState(currentGameStore)
+    }
     // Seed the VM's runtime show3D + engine difficulty from the persisted settings (first install:
     // 3D on, MEDIUM difficulty).
     private val appSettings = AppSettings(settings)
-    val gameViewModel = GameViewModel(
-        restoredState.state,
-        snapshotSink = currentGameStore.asSnapshotSink(),
-        initialShow3D = appSettings.board3DEnabled.value,
-        initialEngineDifficulty = appSettings.engineDifficulty.value,
-    ).apply {
-        aiCoachEnabled = appSettings.aiCoachEnabled.value
+    val gameViewModel = chessStartupTrace("Chess.createGameViewModel") {
+        GameViewModel(
+            restoredState.state,
+            snapshotSink = currentGameStore.asSnapshotSink(),
+            initialShow3D = appSettings.board3DEnabled.value,
+            initialEngineDifficulty = appSettings.engineDifficulty.value,
+        ).apply {
+            aiCoachEnabled = appSettings.aiCoachEnabled.value
+        }
     }
 
     val moveCoachManager = MoveCoachManager(
@@ -308,11 +293,10 @@ class AndroidGameViewModel : ViewModel() {
         engineDifficultyName = appSettings.engineDifficulty.value.name
     )
 
-    val gameSummaryManager = GameSummaryManager()
 
     // Phase 3: saved-games history lives on the same Settings backing store, owned by the holder so
     // it survives config changes (and is observed by the History screen across recompositions).
-    val gameHistory = GameHistoryRepository(settings)
+    val gameHistory = chessStartupTrace("Chess.loadHistory") { GameHistoryRepository(settings) }
 
     private var backfiller: com.example.myapplication.persistence.GameHistoryBackfiller? = null
 
@@ -320,7 +304,28 @@ class AndroidGameViewModel : ViewModel() {
         if (restoredState.shouldClear) currentGameStore.clear()
     }
 
-    fun attachEngine(engine: ChessEngine?) {
+    private var engineStartRequested = false
+    private var cleared = false
+
+    /**
+     * Starts the engine on [Dispatchers.IO] on the first call and does nothing on later ones, so a
+     * recreated Activity keeps the engine this holder already owns. Until it lands the VM holds the
+     * opponent back (`engineAttachSettled`) and the Hint button stays hidden, which is the same
+     * contract the desktop and web entry points already run under.
+     */
+    fun startEngine(create: () -> ChessEngine?) {
+        if (engineStartRequested) return
+        engineStartRequested = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val engine = chessStartupTrace("Chess.startStockfish") { create() }
+            // NonCancellable: a holder cleared mid-start still owns the process it just spawned.
+            withContext(NonCancellable + Dispatchers.Main) {
+                if (cleared) engine?.close() else attachEngine(engine)
+            }
+        }
+    }
+
+    private fun attachEngine(engine: ChessEngine?) {
         gameViewModel.attachEngine(engine)
         backfiller?.stop()
         if (engine != null) {
@@ -331,8 +336,8 @@ class AndroidGameViewModel : ViewModel() {
 
     override fun onCleared() {
         super.onCleared()
+        cleared = true
         moveCoachManager.close()
-        gameSummaryManager.close()
         gameViewModel.close()
         backfiller?.stop()
     }

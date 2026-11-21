@@ -5,13 +5,26 @@ This project vendors third-party code and assets used by the chess app.
 ## Stockfish
 
 Android vendors official Stockfish 17 executables under `app/src/androidMain/jniLibs/`.
-iOS uses ChessKitEngine, which includes Stockfish. Stockfish is licensed under GPLv3.
+iOS uses ChessKitEngine (MIT), which builds Stockfish 17 from source and also bundles Lc0 0.31.1;
+the NNUE networks it loads are checked in under `iosApp/iosApp/Resources/`. Stockfish is licensed
+under GPLv3 or later, Lc0 under GPLv3. The app's **Settings → Open-source licences** screen shows
+the GPL text and links to the Stockfish `sf_17` source.
 
 See:
 
 - `docs/Stockfish.md`
 - `docs/Stockfish-COPYING.txt`
 - `docs/Stockfish-README.md`
+
+## 2D chess pieces
+
+The piece drawables in `app/src/commonMain/composeResources/drawable/` (`{king,queen,rook,bishop,knight,pawn}_{light,dark}.xml`)
+are Colin M.L. Burnett's chess set from Wikimedia Commons, converted to Android vector drawables.
+Burnett released the set under GPLv2 or later, BSD and GFDL; this project uses it under the GPL.
+
+- https://commons.wikimedia.org/wiki/Category:SVG_chess_pieces
+
+`no_winner.xml` in the same directory is a Material Icons glyph (Google, Apache-2.0).
 
 ## Chess 3D Model
 

@@ -64,6 +64,20 @@ class DefaultOpeningExplainerTest {
 
         assertEquals(DefaultOpeningExplainer.FALLBACK_CLOUD_ERROR, result.reason)
         assertEquals("offline-fallback", result.response.composerId)
+        assertEquals("Couldn’t load the opening explanation.", result.response.text)
+    }
+
+    @Test
+    fun `cloud response after the server provider deadline can still succeed`() = runTest {
+        val explainer = DefaultOpeningExplainer(
+            client = OpeningExplainerClient {
+                delay(21_000)
+                response
+            },
+            contextProvider = { cloudContext() },
+        )
+
+        assertEquals(response, assertIs<OpeningExplainerResult.Success>(explainer.explain(request)).response)
     }
 
     @Test
@@ -79,6 +93,7 @@ class DefaultOpeningExplainerTest {
         val result = assertIs<OpeningExplainerResult.Fallback>(explainer.explain(request))
 
         assertEquals(AiRoutePolicyDecider.FallbackReason.Timeout, result.reason)
+        assertEquals("The opening explanation took too long to load.", result.response.text)
     }
 
     private fun cloudContext() = AiContextSnapshot(

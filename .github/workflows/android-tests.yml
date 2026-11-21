@@ -1,10 +1,13 @@
 name: Multiplatform CI
 
 on:
+  # Every push to main and every PR against it; the schedule below adds the nightly perft run.
   push:
-    branches: [ main ]
+    branches:
+      - main
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
   schedule:
     # 07:00 UTC daily — runs the opt-in depth-5/6 perft gate (PerftDeepTest) plus the full
     # Stockfish-backed Oracle 2 that's too slow / off-path for the per-commit gate.
@@ -17,27 +20,24 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Android: assemble every target, then run the Compose UI tests on an API 35 emulator.
   instrumented-tests:
     name: Build + Android tests (API ${{ matrix.api-level }}, Device ${{ matrix.profile }} / ${{ matrix.target }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     strategy:
       matrix:
         include:
           - api-level: 35
             profile: pixel_7
             target: default
-
     steps:
-      - name: Checkout code
+      - name: Check out the repository
         uses: actions/checkout@v7
 
       - name: Set up JDK
         uses: actions/setup-java@v5
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+        with: { distribution: temurin, java-version: '17' }
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -47,43 +47,30 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Install latest command-line tools
+      - name: SDK tools, emulator and system image
+        # Newest command-line tools first, then bring everything else current, then the emulator
+        # and the x86_64 image for the matrix's API level and target.
         run: |
           sdkmanager --install "cmdline-tools;latest"
           yes | sdkmanager --update
+          # compileSdk 37: sceneview 4.65 and the Compose 1.12 it brings require it.
+          sdkmanager "emulator" "platforms;android-37.0" "system-images;android-${{ matrix.api-level }};${{ matrix.target }};x86_64"
 
-      - name: Update SDK tools
-        run: yes | sdkmanager --update
-
-      - name: Install emulator + system image
-        run: sdkmanager "emulator" "system-images;android-${{ matrix.api-level }};${{ matrix.target }};x86_64"
-
-      - name: Enable KVM group perms
+      - name: Let the runner user open /dev/kvm
+        # Hardware acceleration for the emulator; the udev rule is the one android-emulator-runner documents.
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Clean AVD state
+      - name: Start from an empty AVD directory
         run: rm -rf ~/.android/avd/*
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
-    # - name: AVD cache
-    #   uses: actions/cache@v6
-    #   id: avd-cache
-    #   with:
-    #     path: |
-    #       ~/.android/avd/*
-    #       ~/.android/adb*
-    #     key: avd-${{ matrix.api-level }}
-
       - name: Show testing environment
-        run: |
-          echo "Running on API level: ${{ matrix.api-level }}"
-          echo "Running on device: ${{ matrix.profile }}"
-          echo "Building Android, Linux desktop, and Wasm targets"
+        run: echo "API ${{ matrix.api-level }} on ${{ matrix.profile }} — building Android, Linux desktop, and Wasm targets"
 
       - name: Install desktop Filament native build prerequisites + Stockfish
         # stockfish is installed here (not just in the nightly) so the per-commit :chess-core:check
@@ -120,7 +107,7 @@ jobs:
             echo "### Perft Stockfish localizer: ran" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Run instrumentation tests
+      - name: Run the device tests on an emulator
         uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: ${{ matrix.api-level }}
@@ -130,28 +117,46 @@ jobs:
           disable-animations: true
           force-avd-creation: true
           emulator-boot-timeout: 600  # Increase boot timeout to 10 minutes
-          emulator-options: >
-            -no-snapshot-save
-            -noaudio
-            -no-boot-anim
-            -gpu swiftshader_indirect
-            -camera-back none
-            -no-window
-            -grpc 8554
-            -grpc-use-jwt
-            -memory 2048
-            -cores 2
-          script: |
-            echo "grpc.allowlist=*" >> ~/.android/avd/test.avd/config.ini
-            ./gradlew :app:connectedAndroidDeviceTest
+          # Headless, software GPU, no audio/camera, nothing persisted. gRPC is on because
+          # espresso-device drives rotation through the emulator-control API. Deliberately without
+          # `-grpc-use-jwt`: AGP 9.5's built-in test engine connects without the JWT that mode
+          # requires (UTP's emulator-control plugin used to mint it), and rotation failed with
+          # "UNAUTHENTICATED: Missing the 'authorization' header". The emulator is local to the runner.
+          emulator-options: -no-snapshot-save -noaudio -no-boot-anim -gpu swiftshader_indirect -camera-back none -no-window -grpc 8554 -memory 2048 -cores 2
+          # Awake and unlocked for the whole run: ActivityLeakTest finds the UI through UiAutomator,
+          # which only sees what is on screen, and the default 60 s screen timeout locked the
+          # emulator before :androidApp's tests began. (Compose UI tests read semantics instead,
+          # so :app's suite never noticed.)
+          #
+          # One shell for the whole run (folded scalar: the action runs each *line* in its own
+          # `sh -c`), so the EXIT trap fires whether the tests pass or fail. The action's own
+          # "Terminate Emulator" is a bare `adb emu kill`, which only asks; about one run in three
+          # the emulator never obliges, and the runner's cancel log then shows
+          # qemu-system-x86_64-headless and its crashpad_handler child still alive 17 minutes later.
+          # The action launched both with its stdout/stderr pipes attached, so its Node process
+          # cannot exit until they do, and the step sat at "Terminate Emulator" until the job's
+          # 30-minute limit cancelled a green run (upstream #373/#381/#385, unfixed). So: ask, give
+          # it 30 s, then SIGKILL whatever is left. The action's later `adb emu kill` finds no device,
+          # logs that, and returns. Process names, not `-f`: this shell's own argv contains them.
+          script: >-
+            trap 'adb emu kill || true; for i in $(seq 1 15); do pgrep qemu-system >/dev/null || break; sleep 2; done; pkill -9 qemu-system || true; pkill -9 crashpad_handle || true' EXIT;
+            adb shell svc power stayon true && adb shell input keyevent KEYCODE_WAKEUP && adb shell wm dismiss-keyguard &&
+            ./gradlew :app:connectedAndroidDeviceTest &&
+            ./gradlew :androidApp:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notAnnotation=com.example.myapplication.Filament3D &&
+            { grep -rqsE 'tests="[1-9]' app/build/outputs/androidTest-results/connected && grep -rqsE 'tests="[1-9]' androidApp/build/outputs/androidTest-results/connected || (echo "::error::A device-test task ran zero tests; AGP 9.5 reports success when the test APK fails to install" && exit 1); }
 
       - name: Upload test results
+        # Always: the report is the only place a failure is named. AGP 9.5's connected-test task
+        # prints just "There were failing tests", so a red run without this artifact says nothing.
+        if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
-          name: test-results-api-${{ matrix.api-level }}-device-${{ matrix.profile }}
+          name: android-device-test-results-api${{ matrix.api-level }}-${{ matrix.profile }}
           path: |
             app/build/reports/androidTests/connected/
             app/build/outputs/androidTest-results/connected/
+            androidApp/build/reports/androidTests/connected/
+            androidApp/build/outputs/androidTest-results/connected/
 
   # The Apple checks are split into two jobs that run concurrently (Kotlin + Xcode). The previous
   # single job ran them sequentially (~9 min of heavy work); splitting caps wall-clock at the
@@ -162,14 +167,12 @@ jobs:
     timeout-minutes: 40
 
     steps:
-      - name: Checkout code
+      - name: Check out the repository
         uses: actions/checkout@v7
 
       - name: Set up JDK
         uses: actions/setup-java@v5
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+        with: { distribution: temurin, java-version: '17' }
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
@@ -259,14 +262,12 @@ jobs:
     timeout-minutes: 40
 
     steps:
-      - name: Checkout code
+      - name: Check out the repository
         uses: actions/checkout@v7
 
       - name: Set up JDK
         uses: actions/setup-java@v5
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+        with: { distribution: temurin, java-version: '17' }
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
@@ -386,14 +387,12 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout code
+      - name: Check out the repository
         uses: actions/checkout@v5.0.0
 
       - name: Set up JDK
         uses: actions/setup-java@v5.0.0
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+        with: { distribution: temurin, java-version: '17' }
 
       # PerftDeepTest gates on -Dperft.deep=true (see chess-core/build.gradle.kts systemProperty
       # forwarding). Without the flag the deep tests assume-skip; the broad --tests filter

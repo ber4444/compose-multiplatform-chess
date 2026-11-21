@@ -9,6 +9,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import com.example.coachserver.OpeningQueryBuilder
 
+// allDistinct/allEqual: Experimental stdlib, test sources only — see CLAUDE.md, "Build quirks".
+@OptIn(ExperimentalStdlibApi::class)
 class EvalScorerTest {
     @Test
     fun `token chunks flatten in order`() {
@@ -24,9 +26,8 @@ class EvalScorerTest {
 
         assertEquals(100, cases.size)
         assertTrue(cases.all { it.fen.isNotBlank() && it.bestMoveUci.length >= 4 })
-        assertEquals(
-            100,
-            cases.map { listOf(it.fen, it.bestMoveUci, it.eco, it.movesSan.joinToString(" ")) }.toSet().size,
+        assertTrue(
+            cases.allDistinctBy { listOf(it.fen, it.bestMoveUci, it.eco, it.movesSan.joinToString(" ")) },
             "golden candidates must be semantically distinct, not repeated under new ids",
         )
     }

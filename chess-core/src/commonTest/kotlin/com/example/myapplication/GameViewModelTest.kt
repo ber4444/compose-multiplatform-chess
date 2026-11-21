@@ -9,231 +9,99 @@ import kotlinx.coroutines.launch
 import kotlin.test.assertNull
 
 class GameViewModelTest {
-    private val viewModel = GameViewModel()
+    private val viewModel: GameViewModel = GameViewModel()
 
-    @Test
-    fun `test movePieceWhite within bounds and no overlap`() = kotlinx.coroutines.test.runTest {
-        viewModel.moveCPU(Set.WHITE)  {
-            enemyPositions: List<Pair<Int, Int>>,
-            enemyPieces: List<Piece>,
-            allyPositions: List<Pair<Int,Int>>,
-            allyPieces: List<Piece> ->
-            pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces)
-        }
-        val positionWhite = viewModel.gameState.value.positionsWhite.first()
-        val positionBlack = viewModel.gameState.value.positionsBlack.first()
+    /** The engine-less opponent, as the production fallback wires it. */
+    private val randomMover: suspend (
+        List<Pair<Int, Int>>, List<Piece>, List<Pair<Int, Int>>, List<Piece>,
+    ) -> SelectedMove = { theirSquares, theirPieces, ourSquares, ourPieces ->
+        pickMoveCPU(theirSquares, theirPieces, ourSquares, ourPieces)
+    }
 
-        assertTrue(positionWhite.first in 0 until BOARD_SIZE && positionWhite.second in 0 until BOARD_SIZE, "White piece out of bounds")
-        assertTrue(positionWhite != positionBlack, "Pieces overlap")
+    /** Every piece on the board, and no two of them on one square. */
+    private fun assertBoardConsistent(state: GameUiState) {
+        val occupied = state.positionsWhite + state.positionsBlack
+        assertTrue(occupied.all { (row, col) -> row in 0 until BOARD_SIZE && col in 0 until BOARD_SIZE }, "piece off the board: $occupied")
+        assertEquals(occupied.size, occupied.toSet().size, "two pieces share a square: $occupied")
+    }
+
+    private fun kingSquare(state: GameUiState, side: Set): Pair<Int, Int> {
+        val pieces = if (side == Set.WHITE) state.piecesWhite else state.piecesBlack
+        val squares = if (side == Set.WHITE) state.positionsWhite else state.positionsBlack
+        return squares[pieces.indexOfFirst { it is King }]
+    }
+
+    /** Is the White king attacked in [fen]? Read straight off the position, whoever is to move. */
+    private fun whiteKingAttacked(fen: String): Boolean {
+        val state = FenConverter.fenToGameState(fen)
+        return checkCheck(kingSquare(state, Set.WHITE), state.positionsBlack, state.piecesBlack, state.positionsWhite)
+    }
+
+    /** (side to move is in check, side to move has a legal move) for [fen]. */
+    private fun checkAndMobility(fen: String): Pair<Boolean, Boolean> {
+        val state = FenConverter.fenToGameState(fen)
+        val white = state.turn == Set.WHITE
+        val ours = if (white) state.positionsWhite else state.positionsBlack
+        val ourPieces = if (white) state.piecesWhite else state.piecesBlack
+        val theirs = if (white) state.positionsBlack else state.positionsWhite
+        val theirPieces = if (white) state.piecesBlack else state.piecesWhite
+        val inCheck = checkCheck(kingSquare(state, state.turn), theirs, theirPieces, ours)
+        return inCheck to hasLegalMoves(theirs, theirPieces, ours, ourPieces, state.enPassantTarget)
     }
 
     @Test
-    fun `test movePieceBlack within bounds and no overlap`() = kotlinx.coroutines.test.runTest {
-        viewModel.moveCPU(Set.BLACK) {
-            enemyPositions: List<Pair<Int, Int>>,
-            enemyPieces: List<Piece>,
-            allyPositions: List<Pair<Int, Int>>,
-            allyPieces: List<Piece> ->
-            pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces)
-        }
-        val positionBlack = viewModel.gameState.value.positionsBlack.first()
-        val positionWhite = viewModel.gameState.value.positionsWhite.first()
-
-        assertTrue(positionBlack.first in 0 until BOARD_SIZE && positionBlack.second in 0 until BOARD_SIZE, "Black piece out of bounds")
-        assertTrue(positionBlack != positionWhite, "Pieces overlap")
+    fun `a CPU move by either side keeps every piece on its own square`() = kotlinx.coroutines.test.runTest {
+        viewModel.moveCPU(Set.WHITE, randomMover)
+        assertBoardConsistent(viewModel.gameState.value)
+        viewModel.moveCPU(Set.BLACK, randomMover)
+        assertBoardConsistent(viewModel.gameState.value)
+        assertEquals(2, viewModel.gameState.value.moveHistory.size, "both CPU moves should have been played")
     }
 
     @Test
-    fun `play until game over and ensure no overlap`() = kotlinx.coroutines.test.runTest {
-        while(viewModel.gameState.value.winState == WinState.NONE) {
-            viewModel.moveCPU(Set.WHITE) {
-                enemyPositions: List<Pair<Int, Int>>,
-                enemyPieces: List<Piece>,
-                allyPositions: List<Pair<Int, Int>>,
-                allyPieces: List<Piece> ->
-                pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces)
-            }
-            viewModel.moveCPU(Set.BLACK) {
-                enemyPositions: List<Pair<Int, Int>>,
-                enemyPieces: List<Piece>,
-                allyPositions: List<Pair<Int, Int>>,
-                allyPieces: List<Piece> ->
-                pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces)
-            }
-
-            val positionWhite = viewModel.gameState.value.positionsWhite.firstOrNull()
-            val positionBlack = viewModel.gameState.value.positionsBlack.firstOrNull()
-
-            if (positionWhite != null) {
-                assertTrue(positionWhite.first in 0 until BOARD_SIZE && positionWhite.second in 0 until BOARD_SIZE, "White piece out of bounds")
-            }
-            if (positionBlack != null) {
-                assertTrue(positionBlack.first in 0 until BOARD_SIZE && positionBlack.second in 0 until BOARD_SIZE, "Black piece out of bounds")
-            }
-            if (positionWhite != null && positionBlack != null) {
-                assertTrue(positionWhite != positionBlack, "Pieces overlap")
-            }
+    fun `a random game played to the end never stacks two pieces`() = kotlinx.coroutines.test.runTest {
+        // Random play terminates: the fifty-move rule and insufficient material end any game that
+        // mate and stalemate do not.
+        while (viewModel.gameState.value.winState == WinState.NONE) {
+            viewModel.moveCPU(viewModel.gameState.value.turn, randomMover)
+            assertBoardConsistent(viewModel.gameState.value)
         }
     }
 
+    // A White king on d4 walled in by its own pawns on every neighbouring square.
+    private val walledKing = "3q3q/q7/7k/2PPP3/q1PKP2q/2PPP3/8/q2q2q1 w - - 0 1"
+
     @Test
-    fun `verify King is in a bad position`() {
-        val kingPosition = Pair(3,3)
-        val knightPositions = listOf(
-            Pair(1,2),Pair(1,4),Pair(2,1),Pair(2,5),
-            Pair(4,1),Pair(4,5),Pair(5,2),Pair(5,4)
-        )
-        val queenPositions = listOf(
-            Pair(1,1),Pair(1,3),Pair(1,5),Pair(3,1),
-            Pair(3,7),Pair(5,1),Pair(3,6),Pair(7,7)
-        )
-
-        val killingGameState = GameUiState(
-            positionsBlack = knightPositions + queenPositions,
-            positionsWhite = listOf(kingPosition),
-            piecesBlack = listOf(
-                Knight(Set.BLACK),Knight(Set.BLACK),Knight(Set.BLACK),Knight(Set.BLACK),
-                Knight(Set.BLACK),Knight(Set.BLACK),Knight(Set.BLACK),Knight(Set.BLACK),
-                Queen(Set.BLACK),Queen(Set.BLACK),Queen(Set.BLACK),Queen(Set.BLACK),
-                Queen(Set.BLACK),Queen(Set.BLACK),Queen(Set.BLACK),Queen(Set.BLACK),
-            ),
-            piecesWhite = listOf(King(Set.WHITE))
-        )
-
-        assertTrue(
-            checkCheck(
-                kingPosition = Pair(3,3),
-                enemyPositions = killingGameState.positionsBlack,
-                enemyPieces = killingGameState.piecesBlack,
-                allyPositions = killingGameState.positionsWhite
-            )
-        )
+    fun `queens on every line are blocked by the king's own wall`() {
+        // Eight queens, one per line through d4, each with a white pawn in the way.
+        assertFalse(whiteKingAttacked(walledKing))
     }
 
     @Test
-    fun `the King is not safe from Knights`() {
-        val kingPosition = Pair(3,3)
-        val knightPositions = listOf(
-            Pair(1,2),Pair(1,4),Pair(2,1),Pair(2,5),
-            Pair(4,1),Pair(4,5),Pair(5,2),Pair(5,4)
-        )
-        val whitePositions = listOf(
-            Pair(1,3),Pair(2,2),Pair(2,3),Pair(2,4),
-            Pair(3,1),Pair(3,2),Pair(3,4),Pair(3,5),
-            Pair(4,2),Pair(4,3),Pair(4,4),Pair(5,3)
-        )
-
-        val killingGameState = GameUiState(
-            positionsBlack = knightPositions,
-            positionsWhite = whitePositions,
-            piecesBlack = listOf(
-                Knight(Set.BLACK),Knight(Set.BLACK),Knight(Set.BLACK),Knight(Set.BLACK),
-                Knight(Set.BLACK),Knight(Set.BLACK),Knight(Set.BLACK),Knight(Set.BLACK)
-            ),
-            piecesWhite = listOf(King(Set.WHITE)) // we don't care about pieces, just locations
-        )
-
-        assertTrue(
-            checkCheck(
-                kingPosition = kingPosition,
-                enemyPositions = killingGameState.positionsBlack,
-                enemyPieces = killingGameState.piecesBlack,
-                allyPositions = killingGameState.positionsWhite
-            ),
-            "Knights should be able to capture King even when allies are in between"
-        )
+    fun `a knight jumps the same wall and gives check`() {
+        // b5 is a knight's move from d4; the pawns around the king do not matter to it.
+        assertTrue(whiteKingAttacked("7k/8/8/1nPPP3/2PKP3/2PPP3/8/8 w - - 0 1"))
     }
 
     @Test
-    fun `the King is safe with allies blocking`() {
-        val kingPairPosition = Pair(3,3)
-        val whitePositions = listOf(
-            Pair(2,2),Pair(2,3),Pair(2,4),
-            Pair(3,2),Pair(3,4),
-            Pair(4,2),Pair(4,3),Pair(4,4)
-        )
-        val queenPositions = listOf(
-            Pair(1,1),Pair(1,3),Pair(1,5),Pair(3,1),
-            Pair(3,7),Pair(5,1),Pair(3,6),Pair(7,7)
-        )
-
-        val killingGameState = GameUiState(
-            positionsBlack = queenPositions,
-            positionsWhite = whitePositions,
-            piecesBlack = listOf(
-                Queen(Set.BLACK),Queen(Set.BLACK),Queen(Set.BLACK),Queen(Set.BLACK),
-                Queen(Set.BLACK),Queen(Set.BLACK),Queen(Set.BLACK),Queen(Set.BLACK),
-            ),
-            piecesWhite = listOf(King(Set.WHITE)) // we don't care about pieces, just locations
-        )
-
-        val kingIsDead = checkCheck(
-            kingPosition = kingPairPosition,
-            enemyPositions = killingGameState.positionsBlack,
-            enemyPieces = killingGameState.piecesBlack,
-            allyPositions = killingGameState.positionsWhite
-        )
-
-        assertTrue(
-            !kingIsDead,
-            "Queens should be blocked by King's allies"
-        )
+    fun `a rook check with an escape square is check but not mate`() {
+        val (inCheck, canMove) = checkAndMobility("R3k3/8/8/8/8/8/8/4K3 b - - 0 1")
+        assertTrue(inCheck, "the a8 rook attacks e8 along the empty back rank")
+        assertTrue(canMove, "the king can step up to d7, e7 or f7")
     }
 
     @Test
-    fun `verify King is in check but not checkmate`() {
-        val kingPosition = Pair(3,3)
-        val rookPosition = Pair(3,0)
-        val killingGameState = GameUiState(
-            positionsBlack = listOf(rookPosition),
-            positionsWhite = listOf(kingPosition),
-            piecesBlack = listOf(Rook(Set.BLACK)),
-            piecesWhite = listOf(King(Set.WHITE))
-        )
-        val kingInCheck = checkCheck(
-            kingPosition = kingPosition,
-            enemyPositions = killingGameState.positionsBlack,
-            enemyPieces = killingGameState.piecesBlack,
-            allyPositions = killingGameState.positionsWhite
-        )
-
-        val playerHasLegalMove = hasLegalMoves(
-            enemyPositions = killingGameState.positionsBlack,
-            enemyPieces = killingGameState.piecesBlack,
-            allyPositions = killingGameState.positionsWhite,
-            allyPieces = killingGameState.piecesWhite,
-        )
-        assertTrue(kingInCheck && playerHasLegalMove, "King should be in check and still have valid move")
+    fun `a back-rank mate is check with no legal reply`() {
+        val (inCheck, canMove) = checkAndMobility("R5k1/5ppp/8/8/8/8/8/6K1 b - - 0 1")
+        assertTrue(inCheck)
+        assertFalse(canMove, "f8 and h8 are covered by the rook and the pawns block the second rank")
     }
 
     @Test
-    fun `verify King is in stalemate`() {
-        val kingPosition = Pair(3,3)
-        val rookPositions = listOf(
-            Pair(0,2), Pair(2,0), Pair(4,5), Pair(5,4)
-        )
-        val killingGameState = GameUiState(
-            positionsBlack = rookPositions,
-            positionsWhite = listOf(kingPosition),
-            piecesBlack = listOf(
-                Rook(Set.BLACK), Rook(Set.BLACK), Rook(Set.BLACK), Rook(Set.BLACK)
-            ),
-            piecesWhite = listOf(King(Set.WHITE))
-        )
-        val kingInCheck = checkCheck(
-            kingPosition = kingPosition,
-            enemyPositions = killingGameState.positionsBlack,
-            enemyPieces = killingGameState.piecesBlack,
-            allyPositions = killingGameState.positionsWhite
-        )
-
-        val playerHasLegalMove = hasLegalMoves(
-            enemyPositions = killingGameState.positionsBlack,
-            enemyPieces = killingGameState.piecesBlack,
-            allyPositions = killingGameState.positionsWhite,
-            allyPieces = killingGameState.piecesWhite,
-        )
-        assertTrue(!kingInCheck && !playerHasLegalMove, "King should be not be in check, but no legal moves (stalemate)")
+    fun `a cornered king with no move and no check is stalemate`() {
+        val (inCheck, canMove) = checkAndMobility("7k/5Q2/6K1/8/8/8/8/8 b - - 0 1")
+        assertFalse(inCheck, "nothing attacks h8 itself")
+        assertFalse(canMove, "g8, g7 and h7 are all covered")
     }
 
     @Test

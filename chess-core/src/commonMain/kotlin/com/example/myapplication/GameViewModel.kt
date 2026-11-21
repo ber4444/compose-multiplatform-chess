@@ -11,6 +11,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -24,8 +26,8 @@ class GameViewModel(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private val _gameState = MutableStateFlow(gameState)
-    val gameState: StateFlow<GameUiState> = _gameState
+    private val _gameState: MutableStateFlow<GameUiState> = MutableStateFlow(gameState)
+    val gameState: StateFlow<GameUiState> = _gameState.asStateFlow()
 
     init {
         if (_gameState.value.winState == WinState.NONE) {
@@ -33,8 +35,8 @@ class GameViewModel(
         }
     }
 
-    private val _animState = MutableStateFlow(PieceAnimationState())
-    val animState: StateFlow<PieceAnimationState> = _animState
+    private val _animState: MutableStateFlow<PieceAnimationState> = MutableStateFlow(PieceAnimationState())
+    val animState: StateFlow<PieceAnimationState> = _animState.asStateFlow()
 
     // Seeded from the persisted AppSettings.board3DEnabled at construction (entry points pass it in).
     // GameScreen re-runs its 3D entry/teardown choreography whenever AppSettings.board3DEnabled flips.
@@ -141,6 +143,15 @@ class GameViewModel(
      *  Used for PGN player naming (issue #39 Phase 3: Black = "Stockfish" vs "CPU"). */
     val engineAttached: Boolean get() = chessEngine != null
 
+    private val _engineAttachedFlow = MutableStateFlow(false)
+
+    /**
+     * [engineAttached], observable. Entry points attach Stockfish asynchronously, after the first
+     * frame, so a UI that reads the plain getter (the Hint button does) would not show the engine
+     * until something unrelated recomposed it.
+     */
+    val engineAttachedFlow: StateFlow<Boolean> = _engineAttachedFlow.asStateFlow()
+
     companion object {
         private val logger = Logger.withTag("GameViewModel")
     }
@@ -161,6 +172,7 @@ class GameViewModel(
     fun attachEngine(engine: ChessEngine?) {
         chessEngine?.close()
         chessEngine = engine
+        _engineAttachedFlow.value = engine != null
         engineAttachSettled = true
         // Apply the current difficulty to the new engine (issue #39 Phase 4). The default no-op
         // configure() leaves the CPU fallback unaffected; real engines send the setoption.
@@ -199,12 +211,12 @@ class GameViewModel(
         gameMoves?.cancel()
         chessEngine?.close()
         chessEngine = null
+        _engineAttachedFlow.value = false
         scope.cancel()
     }
 
-    fun hideWindow() {
-        _viewState.value = viewState.value.copy(buttonLock = true, hideWindow = true)
-    }
+    /** Dismisses the game-over popup but leaves the final position on screen, controls locked. */
+    fun hideWindow() = _viewState.update { it.copy(buttonLock = true, hideWindow = true) }
 
     fun setShow3D(enabled: Boolean) {
         _viewState.value = viewState.value.copy(show3D = enabled, board3DUnavailable = false)
@@ -214,15 +226,18 @@ class GameViewModel(
         _viewState.value = viewState.value.copy(show3D = false, board3DUnavailable = true)
     }
 
-    fun updateSelected(position: Pair<Int, Int>) {
-        _gameState.value = gameState.value.copy(selectedSquare = position)
-    }
+    /** Records the tapped square; [INVALID_POSITION] clears the selection. */
+    fun updateSelected(position: Pair<Int, Int>) = _gameState.update { it.copy(selectedSquare = position) }
 
     fun playerMoveCheck(): Boolean {
         return true
     }
 
-    fun playerMove(selectedPieceIndex: Int, newPosition: Pair<Int, Int>) {
+    /** Plays the player's piece at [selectedPieceIndex] to [newPosition], if that is legal now. */
+    fun playerMove(
+        selectedPieceIndex: Int,
+        newPosition: Pair<Int, Int>,
+    ) {
         if (
             gameState.value.turn == playerSide &&
             _gameState.value.winState == WinState.NONE &&
@@ -247,8 +262,7 @@ class GameViewModel(
                 castlingRights = gameState.value.castlingRights,
                 enPassantTarget = gameState.value.enPassantTarget
             )
-
-            if (legalMoves.none { move -> move.first == newPosition && move.second == selectedPieceIndex }) {
+            if ((newPosition to selectedPieceIndex) !in legalMoves) {
                 logger.w { "Cannot move into Check!" }
                 return
             }
@@ -268,15 +282,7 @@ class GameViewModel(
                 return  // applied later by promotePawn, or discarded by cancelPromotion
             }
 
-            _gameState.value = deriveNewGameState(
-                newPosition = newPosition,
-                pieceIndex = selectedPieceIndex,
-                turn = gameState.value.turn,
-                enemyPieces = if (playerSide == Set.WHITE) gameState.value.piecesBlack else gameState.value.piecesWhite,
-                enemyPositions = if (playerSide == Set.WHITE) gameState.value.positionsBlack else gameState.value.positionsWhite,
-                allyPositions = if (playerSide == Set.WHITE) gameState.value.positionsWhite else gameState.value.positionsBlack,
-                allyPieces = if (playerSide == Set.WHITE) gameState.value.piecesWhite else gameState.value.piecesBlack
-            )
+            _gameState.value = deriveNewGameState(pieceIndex = selectedPieceIndex, newPosition = newPosition)
             autosave()
 
             val rookMove = castlingRookMove(movingPiece, preMovePosition, newPosition)
@@ -300,14 +306,7 @@ class GameViewModel(
         val pending = _gameState.value.pendingPromotion ?: return
         if (_gameState.value.turn != playerSide || _gameState.value.winState != WinState.NONE) return
         val pawn = if (playerSide == Set.WHITE) _gameState.value.piecesWhite[pending.pieceIndex] else _gameState.value.piecesBlack[pending.pieceIndex]
-        _gameState.value = deriveNewGameState(
-            pieceIndex = pending.pieceIndex, newPosition = pending.to, turn = playerSide,
-            enemyPieces = if (playerSide == Set.WHITE) _gameState.value.piecesBlack else _gameState.value.piecesWhite, 
-            enemyPositions = if (playerSide == Set.WHITE) _gameState.value.positionsBlack else _gameState.value.positionsWhite,
-            allyPositions = if (playerSide == Set.WHITE) _gameState.value.positionsWhite else _gameState.value.positionsBlack, 
-            allyPieces = if (playerSide == Set.WHITE) _gameState.value.piecesWhite else _gameState.value.piecesBlack,
-            promotion = promotion
-        )
+        _gameState.value = deriveNewGameState(pieceIndex = pending.pieceIndex, newPosition = pending.to, promotion = promotion)
         autosave()
 
         if (_gameState.value.winState == WinState.NONE) {
@@ -323,9 +322,20 @@ class GameViewModel(
         _gameState.value = _gameState.value.copy(pendingPromotion = null)
     }
 
+    /**
+     * Clears the in-flight animation. Returns false when there was none, which is how a second
+     * end-of-animation callback for the same move is ignored.
+     */
+    private fun clearAnimation(): Boolean {
+        if (_animState.value.pieceToAnimate == null) return false
+        _animState.update { it.copy(pieceToAnimate = null, secondaryPiece = null) }
+        return true
+    }
+
+    private fun unlockMoveButton() = _viewState.update { it.copy(moveButtonLock = false) }
+
     fun animationEnd() {
-        if (_animState.value.pieceToAnimate == null) return
-        _animState.value = _animState.value.copy(pieceToAnimate = null, secondaryPiece = null)
+        if (!clearAnimation()) return
 
         if (_gameState.value.turn == engineSide) {
             gameMoves?.cancel()
@@ -333,8 +343,7 @@ class GameViewModel(
                 if (!tryEngineDrawOffer()) moveEngine()
             }
         } else {
-            _viewState.value = _viewState.value.copy(moveButtonLock = false)
-            
+            unlockMoveButton()
             analysisJob?.cancel()
             analysisJob = scope.launch {
                 runIdleAnalysis()
@@ -422,13 +431,9 @@ class GameViewModel(
         }
     }
 
+    /** Like [animationEnd] but without handing the turn on: only unlocks the player's controls. */
     fun updateUI() {
-        if (_animState.value.pieceToAnimate == null) return
-        _animState.value = _animState.value.copy(pieceToAnimate = null, secondaryPiece = null)
-
-        if (_gameState.value.turn == playerSide) {
-            _viewState.value = _viewState.value.copy(moveButtonLock = false)
-        }
+        if (clearAnimation() && _gameState.value.turn == playerSide) unlockMoveButton()
     }
 
     fun resetGame(show3D: Boolean = viewState.value.show3D) {
@@ -464,42 +469,20 @@ class GameViewModel(
     suspend fun moveCPU(
         turn: Set = _gameState.value.turn,
         pickMove: suspend (
-            enemyPositions: List<Pair<Int, Int>>,
-            enemyPieces: List<Piece>,
-            allyPositions: List<Pair<Int, Int>>,
-            allyPieces: List<Piece>
-        ) -> SelectedMove
+            enemyPositions: List<Pair<Int, Int>>, enemyPieces: List<Piece>,
+            allyPositions: List<Pair<Int, Int>>, allyPieces: List<Piece>,
+        ) -> SelectedMove,
     ) {
-        _gameState.value = _gameState.value.copy(turn = turn, selectedSquare = INVALID_POSITION)
+        _gameState.update { it.copy(turn = turn, selectedSquare = INVALID_POSITION) }
         logger.d { "MOVEBUTTONLOCK=TRUE" }; _viewState.value = _viewState.value.copy(moveButtonLock = true)
 
-        val allyPositions: List<Pair<Int, Int>>
-        val allyPieces: List<Piece>
-        val enemyPositions: List<Pair<Int, Int>>
-        val enemyPieces: List<Piece>
-        when (turn) {
-            Set.WHITE -> {
-                allyPositions = _gameState.value.positionsWhite
-                allyPieces = _gameState.value.piecesWhite
-                enemyPositions = _gameState.value.positionsBlack
-                enemyPieces = _gameState.value.piecesBlack
-            }
-
-            Set.BLACK -> {
-                allyPositions = _gameState.value.positionsBlack
-                allyPieces = _gameState.value.piecesBlack
-                enemyPositions = _gameState.value.positionsWhite
-                enemyPieces = _gameState.value.piecesWhite
-            }
-        }
-
-        if (allyPieces.isEmpty() || _gameState.value.winState != WinState.NONE) {
-            return
-        }
-
-        if (allyPieces.isEmpty() || _gameState.value.winState != WinState.NONE) {
-            return
-        }
+        val current = _gameState.value
+        val whiteMoves = turn == Set.WHITE
+        val allyPositions = if (whiteMoves) current.positionsWhite else current.positionsBlack
+        val allyPieces = if (whiteMoves) current.piecesWhite else current.piecesBlack
+        val enemyPositions = if (whiteMoves) current.positionsBlack else current.positionsWhite
+        val enemyPieces = if (whiteMoves) current.piecesBlack else current.piecesWhite
+        if (allyPieces.isEmpty() || current.winState != WinState.NONE) return
 
         // Snapshot the pre-move state
         val stateBefore = _gameState.value
@@ -518,14 +501,9 @@ class GameViewModel(
         }
 
         _gameState.value = deriveNewGameState(
-            newPosition = newPosition,
             pieceIndex = selectedMove.pieceIndex,
-            turn = turn,
-            enemyPieces = enemyPieces,
-            enemyPositions = enemyPositions,
-            allyPositions = allyPositions,
-            allyPieces = allyPieces,
-            promotion = selectedMove.promotion
+            newPosition = newPosition,
+            promotion = selectedMove.promotion,
         )
         autosave()
 
@@ -541,19 +519,12 @@ class GameViewModel(
         )
     }
 
-    @Suppress("UNUSED_PARAMETER")
-    // turn/enemy/ally params are retained for the existing call sites in playerMove / moveCPU /
-    // promotePawn; the pure transition now lives in the top-level applyMove (Move.kt), which
-    // derives the ally/enemy split from _gameState.value.turn. Keeping this as a thin delegate
-    // preserves every existing call without touching UI/animation behavior.
+    // The pure transition lives in the top-level applyMove (Move.kt), which derives the
+    // ally/enemy split from _gameState.value.turn; this adds repetition history, win/draw
+    // evaluation and the MoveRecord on top.
     private fun deriveNewGameState(
         pieceIndex: Int,
         newPosition: Pair<Int, Int>,
-        turn: Set,
-        enemyPieces: List<Piece>,
-        enemyPositions: List<Pair<Int, Int>>,
-        allyPositions: List<Pair<Int, Int>>,
-        allyPieces: List<Piece>,
         promotion: PromotionType? = null
     ): GameUiState {
         val state = _gameState.value
@@ -577,9 +548,11 @@ class GameViewModel(
             else -> ""
         }
         
-        val movingPiece = allyPieces[pieceIndex]
-        val fromPosition = allyPositions[pieceIndex]
-        val captureOccurred = newPosition in enemyPositions || 
+        // Every caller moves the side whose turn it is, so the mover's lists follow from preMove.
+        val whiteMoved = preMove.turn == Set.WHITE
+        val movingPiece = (if (whiteMoved) preMove.piecesWhite else preMove.piecesBlack)[pieceIndex]
+        val fromPosition = (if (whiteMoved) preMove.positionsWhite else preMove.positionsBlack)[pieceIndex]
+        val captureOccurred = newPosition in (if (whiteMoved) preMove.positionsBlack else preMove.positionsWhite) ||
             (movingPiece is Pawn && fromPosition.second != newPosition.second && newPosition == preMove.enPassantTarget)
         val castleRook = castlingRookMove(movingPiece, fromPosition, newPosition)
 

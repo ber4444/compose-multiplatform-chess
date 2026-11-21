@@ -67,7 +67,11 @@ class DefaultOpeningExplainer(
 
     private fun fallback(reason: AiRoutePolicyDecider.FallbackReason) = OpeningExplainerResult.Fallback(
         response = OpeningExplainResponse(
-            text = "The opening explanation is unavailable offline. Focus on central control, develop minor pieces, and secure the king.",
+            text = when (reason) {
+                AiRoutePolicyDecider.FallbackReason.NoNetwork -> "The opening explanation is unavailable offline."
+                AiRoutePolicyDecider.FallbackReason.Timeout -> "The opening explanation took too long to load."
+                else -> "Couldn’t load the opening explanation."
+            },
             passages = emptyList(),
             composerId = "offline-fallback",
         ),

@@ -20,12 +20,12 @@ buildscript {
     dependencies {
         // Mirrors build.gradle.kts — see the rationale there. Both files carry the same set because
         // the settings classpath is resolved before the root project's and does not inherit it.
-        classpath(platform("com.fasterxml.jackson:jackson-bom:2.21.5"))
-        classpath(platform("io.opentelemetry:opentelemetry-bom:1.62.0"))
+        classpath(platform("com.fasterxml.jackson:jackson-bom:2.21.7"))
+        classpath(platform("io.opentelemetry:opentelemetry-bom:1.67.0"))
         constraints {
-            classpath("org.bouncycastle:bcprov-jdk18on:1.84")
-            classpath("org.bouncycastle:bcpkix-jdk18on:1.84")
-            classpath("org.bouncycastle:bcutil-jdk18on:1.84")
+            classpath("org.bouncycastle:bcprov-jdk18on:1.85")
+            classpath("org.bouncycastle:bcpkix-jdk18on:1.85")
+            classpath("org.bouncycastle:bcutil-jdk18on:1.85")
             classpath("io.netty:netty-codec-http2:4.1.137.Final")
             classpath("io.netty:netty-handler:4.1.137.Final")
             classpath("io.netty:netty-codec-http:4.1.137.Final")
@@ -34,7 +34,7 @@ buildscript {
             classpath("org.jdom:jdom2:2.0.6.1")
             classpath("org.apache.httpcomponents:httpclient:4.5.14")
             classpath("org.apache.commons:commons-lang3:3.20.0")
-            classpath("com.google.guava:guava:33.7.1-jre")
+            classpath("com.google.guava:guava:33.7.2-jre")
         }
     }
 }

@@ -3,6 +3,7 @@ package com.example.myapplication
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -35,7 +36,7 @@ class EngineDifficultySettingsTest {
                 SettingsScreen(onBack = {}, board3D = null)
             }
         }
-        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Back").assertDoesNotExist()
 
         // Default is MEDIUM; tap HARD and assert it persisted.
         assertEquals(EngineDifficulty.MEDIUM, appSettings.engineDifficulty.value)

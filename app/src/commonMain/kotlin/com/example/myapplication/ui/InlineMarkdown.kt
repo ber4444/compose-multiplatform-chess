@@ -11,7 +11,7 @@ import androidx.compose.ui.text.font.FontWeight
  * The coach panel is a `Text`, so `**Why d4 was better:**` arrived on screen with the asterisks
  * intact and nothing bold — the answer read like raw machine output. The prompt now asks for plain
  * prose, but a prompt is a request: gemma3-270m has seen enough Markdown to reach for it anyway, and
- * on the free tier there is no validator between the model and the panel at all. This is the
+ * Game Summary has no response validator between the model and the panel at all. This is the
  * backstop, and it belongs on the display path for the same reason [CitationSanitizer] does.
  *
  * Deliberately tiny. It handles the two things that actually show up — `**bold**` and leading list

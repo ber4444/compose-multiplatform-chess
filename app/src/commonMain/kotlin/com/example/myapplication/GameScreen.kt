@@ -53,8 +53,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -64,7 +66,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
@@ -75,26 +77,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
-import com.example.myapplication.monetization.ProGate
 import com.example.myapplication.ui.theme.BoardDarkSquare
 import com.example.myapplication.ui.theme.BoardLightSquare
 import com.example.myapplication.ui.theme.CaptureMarker
 import com.example.myapplication.ui.theme.MoveMarker
 import com.example.myapplication.ui.theme.SelectionBlockedRing
 import com.example.myapplication.ui.theme.SelectionRing
-import com.example.myapplication.movecoach.FallbackPresentation
 import com.example.myapplication.movecoach.MoveCoachManager
 import com.example.myapplication.movecoach.MoveCoachPanel
 import com.example.myapplication.movecoach.SquareInsight
 import com.example.myapplication.movecoach.MoveCoachUiState
 import com.example.myapplication.movecoach.narratedText
 import com.example.myapplication.movecoach.highlightTone
-import com.example.myapplication.movecoach.GameSummaryUiState
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.material3.CircularProgressIndicator
 import com.example.myapplication.opening.OpeningExplainerPanel
 import com.example.myapplication.opening.cloudCoachConfigured
-import com.example.myapplication.opening.OpeningExplainerUiState
 import game.app.generated.resources.Res
 import game.app.generated.resources.cancel_button
 import game.app.generated.resources.game_end_message_no_winner
@@ -191,7 +187,6 @@ fun GameScreen(
     onOpenSettings: () -> Unit = {},
     onOpenRules: () -> Unit = {},
     onOpenChat: () -> Unit = {},
-    onOpenPaywall: (() -> Unit)? = null,
     onOpenHabits: () -> Unit = {},
 ) {
     val gameState by viewModel.gameState.collectAsState()
@@ -210,9 +205,10 @@ fun GameScreen(
      * every tap would be swallowed. One-shot means even a mis-tap on the toggle costs one tap, not
      * a stuck mode.
      */
-    var explainMode by remember { mutableStateOf(false) }
-    // Leaving the mode armed across a move would fire it on an unrelated later tap.
-    LaunchedEffect(gameState.moveHistory.size) { explainMode = false }
+    // Keyed so a move disarms it: leaving the mode armed across a move would fire it on an unrelated
+    // later tap. A keyed remember rather than a LaunchedEffect that writes `false`, which cost a
+    // coroutine plus a second recomposition on every move.
+    var explainMode by remember(gameState.moveHistory.size) { mutableStateOf(false) }
 
     /**
      * Squares the coach line currently on screen names, as board coordinates.
@@ -220,7 +216,7 @@ fun GameScreen(
      * Parsed from the text the panel is displaying rather than from a field carried on the Ready
      * state: only a model-authored `Ready` ever populated that field, so the tint was dead on the
      * two paths that produce most of the lines a user actually sees — the deterministic fallback
-     * and the free tier — and on Explain mode, which usually lands on one of them.
+     * and the no-model coach line — and on Explain mode, which usually lands on one of them.
      */
     val coachHighlights = remember(coachState) {
         val tone = coachState.highlightTone
@@ -241,9 +237,8 @@ fun GameScreen(
             coachHighlights
         }
     }
-    val openingExplainerStateHolder = LocalOpeningExplainerStateHolder.current
-    val openingExplainerState = openingExplainerStateHolder?.state?.collectAsState()?.value
-        ?: OpeningExplainerUiState.Hidden
+    val openingExplainerStateHolder = LocalOpeningExplainerStateHolder.current.takeIf { cloudCoachConfigured }
+    var openingRetry by remember(gameState.winState, gameState.fullmoveNumber) { mutableIntStateOf(0) }
     val scrollState = rememberScrollState()
     // The 3D toggle now lives in SettingsScreen and writes to AppSettings.board3DEnabled. Observe it
     // here (when a settings instance is provided via LocalAppSettings — production always provides
@@ -260,6 +255,9 @@ fun GameScreen(
     // directly: `playerSide` is a plain `var` there, so a Settings change would not recompose and
     // the board would keep the previous orientation until something else invalidated it.
     val playerSide by viewModel.playerSideFlow.collectAsState()
+    // Collected for the same reason: the engine attaches after the first frame, and the Hint button
+    // reading the plain `engineAttached` getter stayed hidden until something else recomposed.
+    val engineAttached by viewModel.engineAttachedFlow.collectAsState()
     val board3DCameraSession = remember(playerSide) {
         Board3DSessionState(
             initialYawDegrees = if (playerSide == Set.BLACK) OrbitCameraController.BLACK_YAW_DEG else 0f,
@@ -270,8 +268,12 @@ fun GameScreen(
     var showResetConfirmation by remember { mutableStateOf(false) }
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
-    LaunchedEffect(gameState.winState, gameState.fullmoveNumber, openingExplainerStateHolder) {
-        openingExplainerStateHolder?.explain(gameState)
+    LaunchedEffect(
+        gameState.winState, gameState.fullmoveNumber, viewState.hideWindow,
+        openingExplainerStateHolder, openingRetry,
+    ) {
+        if (viewState.hideWindow) openingExplainerStateHolder?.reset()
+        else openingExplainerStateHolder?.explain(gameState)
     }
 
     // Bridge the persisted setting → the VM's runtime show3D flag, preserving the exact frame
@@ -304,46 +306,34 @@ fun GameScreen(
             // between games, or hideWindow flips). Keyed on the result token so a genuinely new
             // finished game can be saved even if the previous popup wasn't dismissed.
             var gameSaved by remember(gameState.winState, gameState.fullmoveNumber) { mutableStateOf(false) }
+            // true = start over; false = just close the popup and keep looking at the final position.
             val resetGame: (Boolean) -> Unit = { reset: Boolean ->
-                if (reset) {
+                if (!reset) viewModel.hideWindow() else {
                     viewModel.resetGame(show3D = board3DEnabled)
                     moveCoachManager?.hideWindow()
-                } else {
-                    viewModel.hideWindow()
                 }
             }
-            PopupWindow(resetGame) {
+            PopupWindow(onDismiss = resetGame) {
                 val (winIcon, gameEndMessageFormat) = when (gameState.winState) {
                     WinState.NONE -> error("Invalid Game State")
                     WinState.WHITE -> Res.drawable.king_light to Res.string.game_end_message_winner
                     WinState.BLACK -> Res.drawable.king_dark to Res.string.game_end_message_winner
                     WinState.DRAW, WinState.STALEMATE -> Res.drawable.no_winner to Res.string.game_end_message_no_winner
                 }
-                Icon(
-                    painter = painterResource(winIcon),
-                    tint = Color.Unspecified,
-                    modifier = Modifier.size(50.dp),
-                    contentDescription = null
-                )
+                // Decorative: the result line below says the same thing in words.
+                Icon(painterResource(winIcon), contentDescription = null, Modifier.size(50.dp), tint = Color.Unspecified)
                 Text(
-                    modifier = Modifier.testTag("winnerText"),
                     text = stringResource(gameEndMessageFormat, gameState.winState),
+                    modifier = Modifier.testTag("winnerText"),
                     color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.titleLarge
                 )
 
                 Row(horizontalArrangement = Arrangement.SpaceBetween) {
-                    Button(
-                        modifier = Modifier.padding(5.dp),
-                        onClick = { resetGame(true) }
-                    ) {
-                        Text(stringResource(Res.string.play_again_button))
-                    }
-                    Button(
-                        modifier = Modifier.padding(5.dp),
-                        onClick = { resetGame(false) }
-                    ) {
-                        Text(stringResource(Res.string.cancel_button))
+                    for ((label, startOver) in listOf(Res.string.play_again_button to true, Res.string.cancel_button to false)) {
+                        Button(onClick = { resetGame(startOver) }, modifier = Modifier.padding(5.dp)) {
+                            Text(stringResource(label))
+                        }
                     }
                 }
 
@@ -383,129 +373,14 @@ fun GameScreen(
                         }
                     }
                 }
-                // Coach Summary (issue #39 Phase 4 / issue #33)
-                val gameSummaryManager = LocalGameSummaryManager.current
-                if (gameSummaryManager != null) {
-                    val summaryState by gameSummaryManager.uiState.collectAsState()
-                    // Unavailable (no orchestrator attached — release Android, coach-disabled
-                    // desktop/web, or Foundation Models unavailable on iOS) renders nothing: the
-                    // trigger button would otherwise be visible but do nothing when pressed, since
-                    // GameSummaryManager.triggerSummary no-ops without an orchestrator.
-                    if (summaryState !is GameSummaryUiState.Unavailable) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-
-                    ProGate(
-                        featureName = "Game Summary",
-                        pitch = "Get a coach's read on the whole game — the turning points and what to work on.",
-                        onOpenPaywall = onOpenPaywall,
-                        // Same Unavailable check that hides the button: with no orchestrator
-                        // attached the feature would not work after a purchase either, so the
-                        // upsell has to disappear alongside it.
-                        available = summaryState !is GameSummaryUiState.Unavailable,
-                    ) {
-                    when (summaryState) {
-                        GameSummaryUiState.Unavailable -> Unit
-                        is GameSummaryUiState.Hidden -> {
-                            Button(
-                                onClick = {
-                                    val pgn = GameActions.toPgn(gameState, viewModel.engineAttached, playerSide = viewModel.playerSide)
-                                    val engineDiff = appSettings?.engineDifficulty?.value?.name ?: "MEDIUM"
-                                    gameSummaryManager.triggerSummary(
-                                        pgn = pgn,
-                                        moveHistory = gameState.moveHistory,
-                                        playerSide = viewModel.playerSide,
-                                        engineDifficultyName = engineDiff
-                                    )
-                                }
-                            ) {
-                                Text("Get Coach Summary")
-                            }
-                        }
-                        is GameSummaryUiState.Loading -> {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Crunching data...", style = MaterialTheme.typography.bodyMedium)
-                            }
-                        }
-                        is GameSummaryUiState.Streaming -> {
-                            val text = (summaryState as GameSummaryUiState.Streaming).text
-                            Text(
-                                text = text,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(8.dp)
-                            )
-                        }
-                        is GameSummaryUiState.Ready -> {
-                            val state = summaryState as GameSummaryUiState.Ready
-                            val exp = state.explanation
-                            Column(modifier = Modifier.padding(8.dp)) {
-                                Text("Coach Summary", fontWeight = FontWeight.Bold)
-                                Text(exp.explanation, style = MaterialTheme.typography.bodyMedium)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                com.example.myapplication.ui.ProvenanceBadge(
-                                    route = exp.route,
-                                    modifier = Modifier.testTag("game_summary_provenance")
-                                )
-                            }
-                        }
-                        is GameSummaryUiState.Fallback -> {
-                            val fallback = (summaryState as GameSummaryUiState.Fallback)
-                            // B17: same three designed states as the coach panel. A silent
-                            // substitution reads as an ordinary summary — no label, no retry.
-                            val presentation = FallbackPresentation.of(fallback.reason)
-                            Column(modifier = Modifier.padding(8.dp)) {
-                                Text("Coach Summary", fontWeight = FontWeight.Bold)
-                                when (presentation) {
-                                    is FallbackPresentation.Labeled -> Text(
-                                        presentation.label,
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
-                                    is FallbackPresentation.Retryable -> Text(
-                                        presentation.label,
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
-                                    FallbackPresentation.Silent -> Unit
-                                }
-                                Text(fallback.text, style = MaterialTheme.typography.bodyMedium)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                // Fallback text is engine-derived by construction, so the reason
-                                // that produced it is also its provenance (B11).
-                                com.example.myapplication.ui.ProvenanceBadge(
-                                    route = com.example.ondeviceai.AiRoute.Fallback(fallback.reason),
-                                    modifier = Modifier.testTag("game_summary_provenance")
-                                )
-                                if (presentation is FallbackPresentation.Retryable) {
-                                    TextButton(onClick = { gameSummaryManager.retry() }) {
-                                        Text("Retry")
-                                    }
-                                }
-                            }
-                        }
-                        is GameSummaryUiState.Error -> {
-                            Text(
-                                "Error: ${(summaryState as GameSummaryUiState.Error).message}",
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                    }
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                ProGate(
-                    featureName = "Opening Explainer",
-                    pitch = "See what opening you played and the ideas behind it.",
-                    onOpenPaywall = onOpenPaywall,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    // No base URL → the panel can only ever show its offline sentence.
-                    available = cloudCoachConfigured,
-                ) {
-                OpeningExplainerPanel(
-                    state = openingExplainerState,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                )
+                if (openingExplainerStateHolder != null) {
+                    val openingExplainerState by openingExplainerStateHolder.state.collectAsState()
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OpeningExplainerPanel(
+                        state = openingExplainerState,
+                        onRetry = { openingRetry++ },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    )
                 }
             }
         }
@@ -588,13 +463,8 @@ fun GameScreen(
                     val selectedPieceIndex = ownPositions.indexOf(gameState.selectedSquare)
                     val legalMoves = if (selectedPieceIndex != -1) {
                         getLegalMovesForPiece(
-                            pieceIndex = selectedPieceIndex,
-                            enemyPieces = enemyPieces,
-                            enemyPositions = enemyPositions,
-                            allyPositions = ownPositions,
-                            allyPieces = ownPieces,
-                            castlingRights = gameState.castlingRights,
-                            enPassantTarget = gameState.enPassantTarget,
+                            selectedPieceIndex, enemyPositions, enemyPieces, ownPositions, ownPieces,
+                            gameState.castlingRights, gameState.enPassantTarget,
                         )
                     } else emptyList()
                     when {
@@ -648,6 +518,7 @@ fun GameScreen(
                     animState = animState,
                     viewState = viewState,
                     viewModel = viewModel,
+                    engineAttached = engineAttached,
                     onResetGame = { showResetConfirmation = true },
                     transparentButtons = true,
                     explainMode = explainMode,
@@ -706,6 +577,7 @@ fun GameScreen(
                         animState = animState,
                         viewState = viewState,
                         viewModel = viewModel,
+                        engineAttached = engineAttached,
                         onResetGame = { showResetConfirmation = true },
                         explainMode = explainMode,
                         onToggleExplainMode = moveCoachManager?.let { { explainMode = !explainMode } },
@@ -832,6 +704,7 @@ private fun GameControls(
     animState: PieceAnimationState,
     viewState: ViewState,
     viewModel: GameViewModel,
+    engineAttached: Boolean,
     onResetGame: () -> Unit,
     transparentButtons: Boolean = false,
     explainMode: Boolean = false,
@@ -858,7 +731,7 @@ private fun GameControls(
                 ) {
                     Text(stringResource(Res.string.reset_button))
                 }
-                if (viewModel.engineAttached) {
+                if (engineAttached) {
                     TransparentUnderlineButton(
                         onClick = viewModel::requestHint,
                         enabled = gameState.turn == viewModel.playerSide && gameState.winState == WinState.NONE && animState.pieceToAnimate == null,
@@ -880,7 +753,7 @@ private fun GameControls(
                 ) {
                     Text(stringResource(Res.string.reset_button))
                 }
-                if (viewModel.engineAttached) {
+                if (engineAttached) {
                     Button(
                         onClick = viewModel::requestHint,
                         enabled = gameState.turn == viewModel.playerSide && gameState.winState == WinState.NONE && animState.pieceToAnimate == null,
@@ -1007,9 +880,11 @@ fun Board(
     highlightedSquares: List<HighlightedSquare> = emptyList(),
     onSquareTapped: ((Pair<Int, Int>) -> Unit)? = null,
 ) {
-    val squareSizePx = remember { mutableStateOf(IntSize.Zero) }
-    val squareAvgSizePx = remember { mutableStateOf(IntSize.Zero) }
-    val selectedPossibleMoves = remember { mutableStateOf(emptyList<Pair<Int, Int>>()) }
+    // One grid cell, which is what an animated piece steps by. Every cell is the same weighted 1:1
+    // square, so the grid is measured once: an onGloballyPositioned on each of the 64 squares ran
+    // on every frame the 2D layout scrolled, and the castling rook needed a fallback size because
+    // its own start square might not have been measured.
+    var squareSizePx by remember { mutableStateOf(IntSize.Zero) }
     // A set, not the list: this is tested once per square, 64 times per recomposition.
     // Last tone wins on a collision, which only happens when a hint and a coach line name the same
     // square; the coach's verdict is the more specific statement, and it is appended second.
@@ -1023,41 +898,41 @@ fun Board(
     val enemyPositions = if (playingWhite) gameState.positionsBlack else gameState.positionsWhite
     val enemyPieces = if (playingWhite) gameState.piecesBlack else gameState.piecesWhite
 
-    if (gameState.selectedSquare != INVALID_POSITION) {
-        val pieceIndex = ownPositions.indexOf(gameState.selectedSquare)
-        if (pieceIndex != -1) {
-            selectedPossibleMoves.value = getLegalMovesForPiece(
-                pieceIndex = pieceIndex,
-                enemyPieces = enemyPieces,
-                enemyPositions = enemyPositions,
-                allyPositions = ownPositions,
-                allyPieces = ownPieces,
-                castlingRights = gameState.castlingRights,
-                enPassantTarget = gameState.enPassantTarget
-            )
-        }
+    // Legal destinations of the selected piece; empty when nothing (or a stuck piece) is selected.
+    // Derived from the state rather than written into a MutableState during composition: the
+    // write only ever happened while a piece was selected, so a selection cleared anywhere but the
+    // board's own click handler (Reset, for one) left the old piece's move dots on the board.
+    // BoardSelectionUiTest pins it.
+    val targets = remember(gameState, playingWhite) {
+        val pieceIndex = if (gameState.selectedSquare == INVALID_POSITION) -1 else ownPositions.indexOf(gameState.selectedSquare)
+        if (pieceIndex == -1) emptyList() else getLegalMovesForPiece(
+            pieceIndex, enemyPositions, enemyPieces, ownPositions, ownPieces,
+            gameState.castlingRights, gameState.enPassantTarget,
+        )
     }
 
     val boxModifier = Modifier
         .then(if (boardMaxSize != Dp.Unspecified) Modifier.size(boardMaxSize) else Modifier.fillMaxWidth())
+        // Wider windows get a margin around the board; a phone in portrait uses every pixel.
         .padding(
             when (windowSize) {
-                WindowWidthSizeClass.Expanded -> 18.dp
-                WindowWidthSizeClass.Medium -> 12.dp
                 WindowWidthSizeClass.Compact -> 0.dp
+                WindowWidthSizeClass.Medium -> 12.dp
+                WindowWidthSizeClass.Expanded -> 18.dp
             }
         )
 
     Box(
         modifier = boxModifier
     ) {
-        Column(modifier = Modifier.testTag("chess_board")) {
-            repeat(8) { row ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    repeat(8) { column ->
+        Column(
+            modifier = Modifier
+                .testTag("chess_board")
+                .onSizeChanged { squareSizePx = IntSize(it.width / BOARD_SIZE, it.height / BOARD_SIZE) }
+        ) {
+            for (row in 0 until BOARD_SIZE) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    for (column in 0 until BOARD_SIZE) {
                         // The grid index is a *view* position; `currentSquare` is the board square
                         // it shows. Playing Black rotates the board 180°, which is what "flip the
                         // board" means — and because the rotation preserves (row + col) parity, the
@@ -1065,20 +940,12 @@ fun Board(
                         val currentSquare = viewToBoard(row, column, playingWhite)
 
                         val squareType = if (currentSquare == gameState.selectedSquare) {
-                            if (selectedPossibleMoves.value.isEmpty()) {
-                                SquareType.CannotMove
-                            } else {
-                                SquareType.CanMove
-                            }
+                            // The selected square says whether the piece on it can go anywhere.
+                            if (targets.isEmpty()) SquareType.CannotMove else SquareType.CanMove
                         } else {
                             when {
-                                currentSquare in selectedPossibleMoves.value -> {
-                                    if (currentSquare in enemyPositions) {
-                                        SquareType.PossibleCapture
-                                    } else {
-                                        SquareType.PossibleMove
-                                    }
-                                }
+                                currentSquare in targets ->
+                                    if (currentSquare in enemyPositions) SquareType.PossibleCapture else SquareType.PossibleMove
                                 // These two stay literally white/black: they pick which drawable is
                                 // rendered and they name the test tag. Whether a square is *yours*
                                 // is `currentSquare in ownPositions`, asked separately below.
@@ -1094,14 +961,7 @@ fun Board(
                             isOwnPiece
 
                         Square(
-                            modifier = Modifier.onGloballyPositioned {
-                                if (animState.animatePositionStart == currentSquare) {
-                                    squareSizePx.value = it.size
-                                }
-                                if (squareAvgSizePx.value == IntSize.Zero) {
-                                    squareAvgSizePx.value = it.size
-                                }
-                            },
+                            modifier = Modifier,
                             isDarkSquare = (currentSquare.first + currentSquare.second) % 2 == 1,
                             squareType = squareType,
                             clickable = clickable,
@@ -1118,10 +978,9 @@ fun Board(
                                     onSquareTapped(currentSquare)
                                 } else when (currentSquareType) {
                                     SquareType.PossibleMove, SquareType.PossibleCapture -> {
-                                        val moveIndex = gameState.selectedSquare
+                                        // Resolve the mover before the selection is cleared.
+                                        val idx = ownPositions.indexOf(gameState.selectedSquare)
                                         updateSelected(INVALID_POSITION)
-                                        selectedPossibleMoves.value = emptyList()
-                                        val idx = ownPositions.indexOf(moveIndex)
                                         if (idx != -1) {
                                             playerMove(idx, currentSquare)
                                         }
@@ -1170,17 +1029,16 @@ fun Board(
                 // sent every piece to the mirrored square and back.
                 AnimatedChessPiece(
                     piece = primaryPiece,
-                    squareSizePx = squareSizePx.value,
+                    squareSizePx = squareSizePx,
                     from = boardToView(animState.animatePositionStart, playingWhite),
                     to = boardToView(animState.animatePositionEnd, playingWhite),
                     animationEnd = animationEnd
                 )
                 val secondaryPiece = animState.secondaryPiece
                 if (secondaryPiece != null) {
-                    val fallbackSize = if (squareSizePx.value == IntSize.Zero) squareAvgSizePx.value else squareSizePx.value
                     AnimatedChessPiece(
                         piece = secondaryPiece,
-                        squareSizePx = fallbackSize,
+                        squareSizePx = squareSizePx,
                         from = boardToView(animState.secondaryStart, playingWhite),
                         to = boardToView(animState.secondaryEnd, playingWhite),
                         animationEnd = {}
@@ -1202,63 +1060,64 @@ fun Piece(pieceModel: Piece) {
     )
 }
 
+/**
+ * A piece gliding from [from] to [to], both in *view* grid cells. Position is animated in cell
+ * units and scaled by [squareSizePx] at layout time, so a resize mid-flight cannot strand it.
+ * [animationEnd] fires once both axes have arrived.
+ */
 @Composable
-fun AnimatedChessPiece(
-    piece: Piece,
-    squareSizePx: IntSize,
-    from: Pair<Int, Int>,
-    to: Pair<Int, Int>,
-    animationEnd: () -> Unit
-) {
-    val offsetY = remember(from) { Animatable(from.first.toFloat()) }
-    val offsetX = remember(from) { Animatable(from.second.toFloat()) }
-
-    val squareSizeDp = with(LocalDensity.current) {
+fun AnimatedChessPiece(piece: Piece, squareSizePx: IntSize, from: Pair<Int, Int>, to: Pair<Int, Int>, animationEnd: () -> Unit) {
+    // Re-keyed on `from`: a new move restarts from its own origin rather than wherever the last one ended.
+    val row = remember(from) { Animatable(from.first.toFloat()) }
+    val col = remember(from) { Animatable(from.second.toFloat()) }
+    val cellDp = with(LocalDensity.current) {
         DpSize(width = squareSizePx.width.toDp(), height = squareSizePx.height.toDp())
     }
 
+    // The glide outlives the composition that launched it, so it reads the latest callback rather
+    // than the one captured at launch.
+    val currentTo by rememberUpdatedState(to)
+    val currentAnimationEnd by rememberUpdatedState(animationEnd)
     LaunchedEffect(from) {
-        val yAnim = launch { offsetY.animateTo(to.first.toFloat(), animationSpec = tween(500)) }
-        val xAnim = launch { offsetX.animateTo(to.second.toFloat(), animationSpec = tween(500)) }
-        joinAll(yAnim, xAnim)
-        animationEnd()
+        val glide = tween<Float>(500)
+        joinAll(
+            launch { row.animateTo(currentTo.first.toFloat(), glide) },
+            launch { col.animateTo(currentTo.second.toFloat(), glide) },
+        )
+        currentAnimationEnd()
     }
 
     Box(
-        modifier = Modifier
-            .offset {
-                IntOffset(
-                    (offsetX.value * squareSizePx.width).roundToInt(),
-                    (offsetY.value * squareSizePx.height).roundToInt()
-                )
-            }
-            .size(squareSizeDp)
-            .zIndex(1f)
+        Modifier
+            .offset { IntOffset((col.value * squareSizePx.width).roundToInt(), (row.value * squareSizePx.height).roundToInt()) }
+            .size(cellDp)
+            .zIndex(1f) // above the squares it passes over
     ) {
         Piece(pieceModel = piece)
     }
 }
 
+/**
+ * Modal card used for the game-over and promotion prompts. Tapping outside calls
+ * `onDismiss(false)`; the content decides what `true` means.
+ */
 @Composable
 fun PopupWindow(onDismiss: (Boolean) -> Unit, content: @Composable () -> Unit) {
-    val cornerRoundness = 25.dp
-    val contentPadding = 15.dp
     val scrollState = rememberScrollState()
-
     Dialog(onDismissRequest = { onDismiss(false) }) {
         Card(
             modifier = Modifier.fillMaxWidth().heightIn(max = 640.dp),
-            shape = RoundedCornerShape(cornerRoundness),
+            shape = RoundedCornerShape(25.dp),
         ) {
+            // Scrolls rather than clips when the prompt is taller than a landscape phone.
             Column(
-                modifier = Modifier
-                    .padding(contentPadding)
+                Modifier
+                    .padding(15.dp)
                     .verticalScroll(scrollState)
                     .wrapContentHeight(Alignment.CenterVertically),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                content()
-            }
+                horizontalAlignment = Alignment.CenterHorizontally,
+                content = { content() },
+            )
         }
     }
 }

@@ -23,14 +23,14 @@ This plan outlines the staged adoption of hybrid (on-device and cloud) inference
 ### VA-4: Desktop Backend (Status: completed)
 - Provide a standalone desktop implementation (e.g., local ONNX, server proxy, or mock fallback).
 
-### VA-5: Web / Wasm Backend (Status: abandoned)
-- Implement browser-compatible WebGL/WebGPU or standard REST inference routes.
+### VA-5: Web / Wasm Backend (Status: shipped)
+- LiteRT-LM runs the optional Move Coach in a WebGPU module worker behind `?coach=1`. See the [desktop and Wasm benchmark](../benchmarks/on-device-ai/desktop-wasm-litert-lm.md).
 
 ### VA-6: Telemetry & Quota Handling (Status: completed)
 - Gracefully handle `AiAvailability.Busy` and quota limits across vendors.
 
-### VA-7: UI & UX Integration (Status: proposed)
-- Expose the chosen model route (Local vs. Cloud) transparently in the application UI.
+### VA-7: UI & UX Integration (Status: shipped)
+- The Move Coach, Rules Q&A, Opening Explainer, and Position Chat render route labels through the shared `ProvenanceBadge`.
 
 ### VA-8: Documentation (Status: proposed)
 - Finalize article updates once manual measurements are complete.

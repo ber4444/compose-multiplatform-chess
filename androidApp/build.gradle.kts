@@ -6,6 +6,7 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.baselineprofile)
 }
 
 val sharedComposeAssetsDir = project(":app").layout.buildDirectory
@@ -15,26 +16,37 @@ val sharedComposeAssetsDir = project(":app").layout.buildDirectory
 
 val goldenBenchAssetsDir = layout.buildDirectory.dir("generated/benchAssets").get().asFile
 
-// The Play upload key lives outside the repo; `~/key.properties` points at the
-// keystore so release builds carry the certificate Play expects. When it's absent
-// (fresh clone, CI) release falls back to the debug key — fine for local installs,
-// and Play rejects the upload rather than accepting a wrongly signed build.
-// Same convention as the sibling ics-compose project.
+// Codemagic injects the Play upload key. Local release builds can use
+// ~/key.properties or fall back to the debug key for local installs.
 val uploadKeyProperties = Properties().apply {
     val f = File(System.getProperty("user.home"), "key.properties")
-    if (f.exists()) f.inputStream().use { load(it) }
+    val signingVariables = mapOf(
+        "storeFile" to "CM_KEYSTORE_PATH",
+        "storePassword" to "CM_KEYSTORE_PASSWORD",
+        "keyAlias" to "CM_KEY_ALIAS",
+        "keyPassword" to "CM_KEY_PASSWORD",
+    )
+    if (signingVariables.values.any { providers.environmentVariable(it).isPresent }) {
+        signingVariables.forEach { (property, variable) ->
+            val value = providers.environmentVariable(variable).orNull
+            require(!value.isNullOrBlank()) { "$variable is required for Codemagic signing" }
+            setProperty(property, value)
+        }
+    } else if (f.exists()) {
+        f.inputStream().use { load(it) }
+    }
 }
 
 android {
     namespace = "com.example.myapplication.app"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "io.github.ber4444.chess"
         minSdk = 26
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 1
+        versionCode = providers.gradleProperty("versionCode").map { it.toInt() }.getOrElse(1)
         versionName = "1.0"
     }
 
@@ -52,6 +64,10 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            // R8-integrated (optimized) resource shrinking, AGP 9's default: resources are traced
+            // through the same reachability graph as code. Compose Multiplatform resources ship as
+            // assets, which the shrinker never touches, so this only reaches Android `res/`.
+            isShrinkResources = true
             // Either branch leaves the variant signable, which is what makes AGP register
             // `installRelease` at all — an unsigned release build type gets `uninstallRelease`
             // and no matching install task.
@@ -79,12 +95,9 @@ android {
             // `<profileable android:shell="true"/>` at manifest merge, so the shared
             // androidApp/src/main/AndroidManifest.xml stays release-only.
             isProfileable = true
-            // Inherited `true` from release. R8 is orthogonal to a frame-*count* measurement while
-            // being the largest risk surface in this app (Compose Multiplatform + SceneView and
-            // Filament both reach for types reflectively), so the benchmark variant does not pay
-            // for it. Flip this on if a future benchmark measures something R8 can actually move,
-            // such as startup.
-            isMinifyEnabled = false
+            // Startup benchmarks must measure the same R8 optimization and startup DEX layout as
+            // release. Profile generation uses the plugin's separate nonMinifiedRelease variant.
+            isMinifyEnabled = true
             // :macrobenchmark has no `release`; without this AGP cannot resolve its dependency on
             // this project for the benchmark variant.
             matchingFallbacks += listOf("release")
@@ -111,12 +124,19 @@ android {
     }
 }
 
+baselineProfile {
+    // Check generated profiles into source control; normal/CI builds need no device.
+    automaticGenerationDuringBuild = false
+    mergeIntoMain = true
+}
+
 // `AndroidBenchRunner` reads its golden set from `golden/candidates.json` in assets. Stage it from
 // the eval harness's copy rather than committing a second one: a drifting duplicate means the device
 // bench and CI's `:evals:run` score different sets while both call it "the golden set". Debug only —
 // it is a 36 KB test fixture, not app content.
 val stageGoldenBenchAssets by tasks.registering(Sync::class) {
     from(rootProject.layout.projectDirectory.file("evals/golden/candidates.json"))
+    from(rootProject.layout.projectDirectory.file("tools/rules_qa_fixtures.json"))
     into(layout.buildDirectory.dir("generated/benchAssets/golden"))
 }
 
@@ -136,11 +156,16 @@ tasks.configureEach {
 dependencies {
     implementation(project(":app"))
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.profileinstaller)
+    baselineProfile(project(":macrobenchmark"))
     debugImplementation(libs.androidx.activity.compose)
+    debugImplementation(libs.leakcanary.android)
 
     androidTestImplementation(libs.androidx.compose.ui.test.junit4.android)
     androidTestImplementation(libs.androidx.espresso.device)
     androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.leakcanary.instrumentation)
+    androidTestImplementation(libs.androidx.uiautomator)
 }
 
 configurations.all {

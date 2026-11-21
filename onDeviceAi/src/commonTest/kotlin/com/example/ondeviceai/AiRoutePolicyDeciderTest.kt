@@ -58,7 +58,7 @@ class AiRoutePolicyDeciderTest {
         assertEquals(true, AiRoutePolicies.openingExplainer.allowCloud)
         assertEquals(false, AiRoutePolicies.openingExplainer.requireOffline)
         assertEquals(2500, AiRoutePolicies.openingExplainer.latencyBudget.firstTokenMs)
-        assertEquals(8000, AiRoutePolicies.openingExplainer.latencyBudget.completeMs)
+        assertEquals(25_000, AiRoutePolicies.openingExplainer.latencyBudget.completeMs)
         assertEquals(0.2, AiRoutePolicies.openingExplainer.costBudget.maxUsdCents)
     }
 

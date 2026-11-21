@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,13 +28,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.GameUiState
-import com.example.myapplication.isAndroidPlatform
 import com.example.myapplication.SubScreenScaffold
 
 /**
  * Interactive position-chat screen. Renders each `token` event as it arrives; Stop cancels the
- * in-flight stream, Retry re-issues the last turn. The message list uses stable keys so a token
- * arrival only recomposes the in-flight row, not the whole transcript.
+ * in-flight stream, Retry re-issues the last turn. The in-flight row is its own keyed item, so a
+ * token arrival only recomposes that row, not the whole transcript.
  *
  * **The UI is incremental; the wire currently is not.** Measured against the deployment on
  * 2026-08-05, a turn arrives as one `token` event 10.9 s after the request, immediately followed by
@@ -62,13 +62,15 @@ fun ChatScreen(
     SubScreenScaffold(
         title = "Position Chat",
         onBack = onBack,
-        showBackButton = !isAndroidPlatform,
         // The transcript is a LazyColumn that must own its own scrolling and give the input row a
         // weight-based bottom anchor; a scrollable scaffold would nest two scroll containers.
         scrollable = false,
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
@@ -81,7 +83,7 @@ fun ChatScreen(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(state.messages) { message ->
+                items(state.messages, contentType = { it.role }) { message ->
                     MessageRow(message)
                 }
                 if (state.streaming) {

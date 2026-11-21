@@ -33,24 +33,12 @@ configurations.all {
     }
 }
 
-// Resolved from the active developer dir rather than hard-coded, so a machine with a differently
-// named or versioned Xcode still links. See the iosSimulatorArm64 test-binary linkerOpts below.
-val xcodeSwiftSimulatorLibDir: String by lazy {
-    if (!System.getProperty("os.name").contains("Mac")) {
-        ""
-    } else {
-        val developerDir = providers.exec {
-            commandLine("xcode-select", "-p")
-        }.standardOutput.asText.get().trim()
-        "$developerDir/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator"
-    }
-}
 
 kotlin {
 
     android {
         namespace = "com.example.myapplication"
-        compileSdk = 36
+        compileSdk = 37
         minSdk = 26
 
         compilerOptions {
@@ -65,6 +53,11 @@ kotlin {
 
         withDeviceTestBuilder {}.configure {
             instrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+            // Pinned rather than following compileSdk (37): an APK targeting 37 needs
+            // ACCESS_LOCAL_NETWORK to reach 10.0.2.2, so on an Android 17 device espresso-device
+            // could not reach the emulator's gRPC and rotation tests timed out. Matches
+            // :androidApp's targetSdk.
+            targetSdk { version = release(36) }
             emulatorControl {
                 enable = true
             }
@@ -113,16 +106,6 @@ kotlin {
             export(project(":ondeviceai"))
             export(project(":chess-core"))
         }
-        // The Kotlin/Native *test* executable is fully linked here (unlike the framework, which
-        // defers symbol resolution to Xcode), so it must resolve RevenueCat's Swift runtime
-        // dependencies itself: swiftCompatibility56 / swiftCompatibilityConcurrency /
-        // swift_getFunctionTypeMetadataGlobalActorBackDeploy. purchases-kmp-core ships RevenueCat's
-        // *prebuilt* Swift objects, whose embedded LC_LINKER_OPTION points at the Xcode path on
-        // RevenueCat's build machine (/Applications/Xcode-16.4.app/…), which doesn't exist here —
-        // so ld silently skips it and the symbols go undefined. Point it at this host's toolchain.
-        binaries.withType<org.jetbrains.kotlin.gradle.plugin.mpp.TestExecutable>().configureEach {
-            linkerOpts("-L$xcodeSwiftSimulatorLibDir")
-        }
         // KGP's default simulator device often doesn't exist on current Xcode images.
         testRuns.configureEach {
             deviceId = providers.gradleProperty("iosSimulatorDeviceId").getOrElse("iPhone 17")
@@ -138,19 +121,8 @@ kotlin {
         val jvmCommonMain by creating {
             dependsOn(commonMain.get())
         }
-        // Android + iOS only — the two targets that have an app store. purchases-kmp publishes no
-        // desktop/JVM or wasm artifact, so putting it in commonMain breaks `:app:compileKotlinDesktop`
-        // at dependency resolution. Desktop and wasm construct NoOpEntitlements(true) instead and
-        // never see this source set.
-        val storeMain by creating {
-            dependsOn(commonMain.get())
-            dependencies {
-                implementation(libs.purchases.kmp)
-            }
-        }
         androidMain {
             dependsOn(jvmCommonMain)
-            dependsOn(storeMain)
         }
 
         commonMain.dependencies {
@@ -228,7 +200,6 @@ kotlin {
 
         val iosMain by creating {
             dependsOn(commonMain.get())
-            dependsOn(storeMain)
             dependencies {
                 // Removed materia from iosMain
                 implementation(libs.ktor.client.darwin)
@@ -285,62 +256,9 @@ kotlin.sourceSets.named("commonMain") {
     kotlin.srcDir(openingExplainerConfigDir)
 }
 
-// RevenueCat public SDK keys (§0.4). Same env → local.properties → empty chain as the coach base
-// URL above, for the same reason: the key must not be committed, and a missing key has to degrade
-// to "locked" rather than fail the build. Two keys because RevenueCat issues one per store.
-// Blank → RevenueCatEntitlements.createOrNull() returns null and the entry point falls back to
-// UnconfiguredEntitlements, so a fresh clone still builds and runs.
-fun revenueCatKey(envName: String, propertyName: String) = providers.provider {
-    System.getenv(envName)?.takeIf { it.isNotBlank() } ?: run {
-        val propertiesFile = rootProject.file("local.properties")
-        if (!propertiesFile.exists()) return@run ""
-        Properties().apply { propertiesFile.inputStream().use(::load) }
-            .getProperty(propertyName)
-            .orEmpty()
-    }
-}
-val revenueCatAndroidKey = revenueCatKey("REVENUECAT_ANDROID_KEY", "revenuecat.androidKey")
-val revenueCatIosKey = revenueCatKey("REVENUECAT_IOS_KEY", "revenuecat.iosKey")
-// Test Store keys (the `test_…` ones from the RevenueCat dashboard). Debug builds prefer these so
-// a dev tap never reaches a real store product; release builds never see them at all — see
-// revenueCatApiKey(debug) in RevenueCatEntitlements.kt. Blank is fine and normal: debug then falls
-// back to the production key, exactly as before this split existed.
-val revenueCatAndroidTestKey = revenueCatKey("REVENUECAT_ANDROID_TEST_KEY", "revenuecat.androidTestKey")
-val revenueCatIosTestKey = revenueCatKey("REVENUECAT_IOS_TEST_KEY", "revenuecat.iosTestKey")
-val revenueCatConfigDir = layout.buildDirectory.dir("generated/revenueCat/storeMain/kotlin")
-val generateRevenueCatConfig by tasks.registering {
-    inputs.property("androidKey", revenueCatAndroidKey)
-    inputs.property("iosKey", revenueCatIosKey)
-    inputs.property("androidTestKey", revenueCatAndroidTestKey)
-    inputs.property("iosTestKey", revenueCatIosTestKey)
-    outputs.dir(revenueCatConfigDir)
-    doLast {
-        fun String.escaped() = replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\$", "\\\$")
-            .replace("\r", "\\r")
-            .replace("\n", "\\n")
-        val packageDir = revenueCatConfigDir.get().dir("com/example/myapplication/monetization").asFile
-        packageDir.mkdirs()
-        packageDir.resolve("RevenueCatBuildConfig.kt").writeText(
-            """
-            package com.example.myapplication.monetization
-
-            internal const val REVENUECAT_ANDROID_KEY: String = "${revenueCatAndroidKey.get().escaped()}"
-            internal const val REVENUECAT_IOS_KEY: String = "${revenueCatIosKey.get().escaped()}"
-            internal const val REVENUECAT_ANDROID_TEST_KEY: String = "${revenueCatAndroidTestKey.get().escaped()}"
-            internal const val REVENUECAT_IOS_TEST_KEY: String = "${revenueCatIosTestKey.get().escaped()}"
-            """.trimIndent() + "\n",
-        )
-    }
-}
-kotlin.sourceSets.named("storeMain") {
-    kotlin.srcDir(revenueCatConfigDir)
-}
 tasks.configureEach {
     if (name.startsWith("compile")) {
         dependsOn(generateOpeningExplainerConfig)
-        dependsOn(generateRevenueCatConfig)
     }
 }
 
@@ -460,7 +378,13 @@ tasks.withType<JavaExec>().configureEach {
 // recompile of :app:compileKotlinWasmJs. The kotlin.incremental.js.klib/.wasm/.ir gradle
 // properties are not honored by this KGP, so disable IC directly on the wasm klib compile task.
 // `incremental` is the public toggle; `incrementalJsKlib` is the klib-specific one (internal in
-// KGP, set reflectively). Remove both once on Kotlin 2.4+, where wasm IC is stable.
+// KGP, set reflectively).
+//
+// The old note here said "remove once on Kotlin 2.4+". That condition passed without anyone
+// checking, so it is restated as what it actually is: **untested on 2.4.20**. Verifying it costs a
+// clean `:app:compileKotlinWasmJs`, an edit to a wasmJsMain file, and a *second* compile — one
+// build proves nothing, because the crash is in the incremental path only, which is also why no CI
+// job can catch a regression here.
 tasks.withType<Kotlin2JsCompile>().configureEach {
     incremental = false
     javaClass.methods

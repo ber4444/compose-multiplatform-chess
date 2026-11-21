@@ -36,12 +36,7 @@ fun legalMovesFor(state: GameUiState): List<PerftMove> {
     val enemyPieces    = if (state.turn == Set.WHITE) state.piecesBlack   else state.piecesWhite
 
     val rawMoves = getAllLegalMoves(
-        enemyPositions = enemyPositions,
-        enemyPieces = enemyPieces,
-        allyPositions = allyPositions,
-        allyPieces = allyPieces,
-        castlingRights = state.castlingRights,
-        enPassantTarget = state.enPassantTarget
+        enemyPositions, enemyPieces, allyPositions, allyPieces, state.castlingRights, state.enPassantTarget,
     )
 
     val expanded = ArrayList<PerftMove>(rawMoves.size + 8)  // worst case: +3 per promotion

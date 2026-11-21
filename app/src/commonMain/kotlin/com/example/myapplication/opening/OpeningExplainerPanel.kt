@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -15,6 +16,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun OpeningExplainerPanel(
     state: OpeningExplainerUiState,
+    onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when (state) {
@@ -26,6 +28,14 @@ fun OpeningExplainerPanel(
             Text("Opening explainer", style = MaterialTheme.typography.titleMedium)
             CircularProgressIndicator()
             Text("Finding the opening ideas…")
+        }
+        is OpeningExplainerUiState.Failed -> Column(
+            modifier = modifier,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("Opening explainer", style = MaterialTheme.typography.titleMedium)
+            Text(state.message, style = MaterialTheme.typography.bodyMedium)
+            TextButton(onClick = onRetry) { Text("Retry") }
         }
         is OpeningExplainerUiState.Ready -> OpeningExplainerReadyPanel(state, modifier)
     }

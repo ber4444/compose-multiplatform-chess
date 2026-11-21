@@ -9,8 +9,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * Drops a trailing sentence fragment, keeping everything up to the last completed sentence.
  *
- * The last line of defence on the one surface that has **no response validator at all**: whatever
- * survives here is rendered. A summary can be cut mid-sentence by the token cap or by
+ * Runs before response validation. A summary can be cut mid-sentence by the token cap or by
  * [withAntiRepetitionGuard], and a half-sentence reads as a crash rather than as an answer:
  *
  * > *"…Finally, at [move-45], `Rhh1` didn't quite achieve the desired effect, and `Re1`"*
@@ -30,6 +29,14 @@ internal fun trimIncompleteSummaryTail(text: String): String {
     return trimmed.substring(0, cut + 1).trim().ifEmpty { trimmed }
 }
 
+/** The completed model output and the exact input and verdict used for response validation. */
+data class GameSummaryValidationSample(
+    val rawText: String,
+    val validatorInput: String,
+    val accepted: Boolean,
+    val rejectionReason: String?,
+)
+
 class DefaultGameSummaryOrchestrator(
     private val executor: AiRouteExecutor,
     private val contextProvider: suspend () -> AiContextSnapshot = DefaultContextProvider,
@@ -37,29 +44,45 @@ class DefaultGameSummaryOrchestrator(
     private val logger: Logger = Logger.withTag("GameSummary"),
 ) : GameSummaryOrchestrator {
 
-    override fun summarizeGameStreaming(request: GameSummaryRequest): Flow<GameSummaryEvent> = flow {
+    override fun summarizeGameStreaming(request: GameSummaryRequest): Flow<GameSummaryEvent> =
+        summarizeGameStreaming(request, null)
+
+    private fun summarizeGameStreaming(
+        request: GameSummaryRequest,
+        onValidation: ((GameSummaryValidationSample) -> Unit)?,
+    ): Flow<GameSummaryEvent> = flow {
         val context = runCatching { contextProvider() }.getOrElse {
             emit(complete(GameSummaryResult.Failed("context snapshot failed: ${it.message}")))
             return@flow
         }
         val decision = AiRoutePolicyDecider.decide(request.policy, context)
         when (decision) {
-            is AiRoutePolicyDecider.Decision.RunOnDevice -> emit(runOnDevice(request, decision.route))
+            is AiRoutePolicyDecider.Decision.RunOnDevice -> emit(runOnDevice(request, decision.route, onValidation))
             is AiRoutePolicyDecider.Decision.RunCloud -> emit(complete(GameSummaryResult.Failed("Cloud route not supported in onDeviceAi orchestrator")))
             is AiRoutePolicyDecider.Decision.FallBack ->
                 emit(fallback(request, decision.reason))
         }
     }
 
-    override suspend fun summarizeGame(request: GameSummaryRequest): GameSummaryResult {
+    override suspend fun summarizeGame(request: GameSummaryRequest): GameSummaryResult =
+        summarizeGame(request, null)
+
+    suspend fun summarizeGame(
+        request: GameSummaryRequest,
+        onValidation: ((GameSummaryValidationSample) -> Unit)?,
+    ): GameSummaryResult {
         var result: GameSummaryResult = GameSummaryResult.Failed("orchestrator produced no result")
-        summarizeGameStreaming(request).collect { event ->
+        summarizeGameStreaming(request, onValidation).collect { event ->
             if (event is GameSummaryEvent.Complete) result = event.result
         }
         return result
     }
 
-    private suspend fun runOnDevice(request: GameSummaryRequest, route: VendorRoute): GameSummaryEvent {
+    private suspend fun runOnDevice(
+        request: GameSummaryRequest,
+        route: VendorRoute,
+        onValidation: ((GameSummaryValidationSample) -> Unit)?,
+    ): GameSummaryEvent {
         val start = clock()
         val generator = runCatching { executor.execute(route) }.getOrElse {
             return fallback(
@@ -70,7 +93,7 @@ class DefaultGameSummaryOrchestrator(
 
         return try {
             when (val status = generator.status()) {
-                is AiAvailability.Available -> runGeneration(request, generator, start)
+                is AiAvailability.Available -> runGeneration(request, generator, start, onValidation)
                 is AiAvailability.Busy -> fallback(request, AiRoutePolicyDecider.FallbackReason.Quota)
                 is AiAvailability.Error ->
                     fallback(
@@ -96,6 +119,7 @@ class DefaultGameSummaryOrchestrator(
         request: GameSummaryRequest,
         generator: OnDeviceTextGenerator,
         startMs: Long,
+        onValidation: ((GameSummaryValidationSample) -> Unit)?,
     ): GameSummaryEvent {
         val prompt = GameSummaryPromptBuilder.build(request)
         // "Timed out" and "the generator finished but never emitted a Final event" are different
@@ -112,16 +136,17 @@ class DefaultGameSummaryOrchestrator(
             is CollectResult.Completed -> result.outcome
         }
 
-        // Validates output against citations, coverage, piece types, voice, and class fidelity.
-        // On validation failure, emit the deterministic summary immediately with no retry.
-        if (outcome.rawText.isBlank()) {
-            return fallback(request, AiRoutePolicyDecider.FallbackReason.Validation)
-        }
-
         val text = trimIncompleteSummaryTail(outcome.rawText)
-        if (text.isBlank()) return fallback(request, AiRoutePolicyDecider.FallbackReason.Validation)
-
-        return when (val validation = GameSummaryResponseValidator.validate(text, request)) {
+        val validation = GameSummaryResponseValidator.validate(text, request)
+        onValidation?.invoke(
+            GameSummaryValidationSample(
+                rawText = outcome.rawText,
+                validatorInput = text,
+                accepted = validation is GameSummaryResponseValidator.Result.Valid,
+                rejectionReason = (validation as? GameSummaryResponseValidator.Result.Invalid)?.reason,
+            ),
+        )
+        return when (validation) {
             is GameSummaryResponseValidator.Result.Valid -> success(validation.text, outcome.metrics)
             is GameSummaryResponseValidator.Result.Invalid -> {
                 logger.w { "Game summary output failed validation: ${validation.reason}" }

@@ -28,7 +28,7 @@ object MoveCoachPromptBuilder {
         appendLine("Use only the facts you are given. Never invent moves, squares, or evaluations.")
         // Asking is cheap and works often enough to be worth it; InlineMarkdown on the display path
         // is what makes it safe when it doesn't. gemma3-270m reaches for **bold** and bullet lists
-        // unprompted, and the free tier has no validator between the model and the panel.
+        // unprompted, and the validators check what a line claims, not how it is formatted.
         appendLine("Write plain prose. No markdown, no asterisks, no bullet points, no headings.")
         appendLine("Do not mention openings by name, engine depth, or ratings.")
     }

@@ -58,6 +58,21 @@ class DefaultGameSummaryOrchestratorTest {
     }
 
     @Test
+    fun `benchmark sees rejected model text before the deterministic replacement`() = runTest {
+        val modelText = "At [move-1], you played e5. The trailing fragment"
+        val samples = mutableListOf<GameSummaryValidationSample>()
+        val result = orchestrator(FakeTextGenerator(response = modelText))
+            .summarizeGame(request, samples::add)
+
+        assertIs<GameSummaryResult.FellBack>(result)
+        val sample = samples.single()
+        assertEquals(modelText, sample.rawText)
+        assertEquals("At [move-1], you played e5.", sample.validatorInput)
+        assertEquals(false, sample.accepted)
+        assertEquals("invented citation: [move-1]", sample.rejectionReason)
+    }
+
+    @Test
     fun `unavailable model falls back deterministically`() = runTest {
         val gen = FakeTextGenerator(status = AiAvailability.Unavailable)
         val result = orchestrator(gen).summarizeGame(request)

@@ -53,7 +53,8 @@ object AiRoutePolicies {
 
     val openingExplainer = AiRoutePolicy(
         privacyClass = PrivacyClass.PUBLIC_OR_SYNTHETIC,
-        latencyBudget = LatencyBudget(firstTokenMs = 2500, completeMs = 8000),
+        // Leave time for the server's 20 s provider deadline plus retrieval and network overhead.
+        latencyBudget = LatencyBudget(firstTokenMs = 2500, completeMs = 25_000),
         costBudget = CostBudget(maxUsdCents = 0.2),
         allowCloud = true,
         allowLocal = false,

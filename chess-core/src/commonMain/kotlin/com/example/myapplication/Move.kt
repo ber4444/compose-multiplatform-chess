@@ -4,8 +4,10 @@ import co.touchlab.kermit.Logger
 
 private val logger = Logger.withTag("Move")
 
-// Used to represent an invalid position on the board
-//  y and x values must always be between 0 and 8
+/**
+ * Sentinel for "no square": nothing is selected, an animation has no endpoint, or no move was
+ * found. Every real square has both coordinates in `0 until BOARD_SIZE`.
+ */
 val INVALID_POSITION = Pair(-1, -1)
 
 internal val WHITE_KING_HOME = Pair(7, 4)
@@ -25,39 +27,6 @@ data class SelectedMove(
 internal fun isPromotionMove(piece: Piece, newPosition: Pair<Int, Int>): Boolean =
     piece is Pawn && newPosition.first == if (piece.set == Set.WHITE) 0 else BOARD_SIZE - 1
 
-// Return a randomly selected move
-internal fun pickMoveRandom(
-    enemyPositions: List<Pair<Int, Int>>,
-    enemyPieces: List<Piece>,
-    allyPositions: List<Pair<Int, Int>>,
-    allyPieces: List<Piece>
-): SelectedMove {
-    // If no newPosition is assigned, returns an invalid position (not a possible move)
-    var newPosition: Pair<Int, Int> = INVALID_POSITION
-    var newPositionIndex = -1
-
-    // Go through the Pieces in a random order
-    val shuffledAllyIndexes = (0 until allyPieces.size).toList().shuffled()
-
-    // Going through all the ally Pieces,
-    for (i in 0 until shuffledAllyIndexes.size) {
-        // Get all possible moves for the Piece
-        val possibleMoves = allyPieces[shuffledAllyIndexes[i]].
-            getValidMovesPositions(allyPositions[shuffledAllyIndexes[i]], enemyPositions, allyPositions)
-
-        // If there are possible moves,
-        if (possibleMoves.isNotEmpty()) {
-            // Have the Piece take a random move
-            newPosition = possibleMoves.random()
-            newPositionIndex = shuffledAllyIndexes[i]
-            break // Break to return the random move
-        }
-    }
-
-    // Return the newPosition to update the PositionIndex with
-    return SelectedMove(newPosition, newPositionIndex)
-}
-
 /**
  * Pick a move using the Stockfish chess engine.
  * Converts the current board state to FEN, queries Stockfish for the best move,
@@ -75,10 +44,8 @@ internal fun pickMoveRandom(
 internal suspend fun pickMoveStockfish(
     engine: ChessEngine?,
     gameState: GameUiState,
-    enemyPositions: List<Pair<Int, Int>>,
-    enemyPieces: List<Piece>,
-    allyPositions: List<Pair<Int, Int>>,
-    allyPieces: List<Piece>
+    enemyPositions: List<Pair<Int, Int>>, enemyPieces: List<Piece>,
+    allyPositions: List<Pair<Int, Int>>, allyPieces: List<Piece>,
 ): SelectedMove {
     if (engine == null) {
         return pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces, gameState.castlingRights, gameState.enPassantTarget)
@@ -114,266 +81,117 @@ internal suspend fun pickMoveStockfish(
     return pickMoveCPU(enemyPositions, enemyPieces, allyPositions, allyPieces, gameState.castlingRights, gameState.enPassantTarget)
 }
 
+/**
+ * The engine-less opponent: a random capture when one exists (en passant included), otherwise a
+ * random legal move. Returns `SelectedMove(INVALID_POSITION, -1)` when the side has no legal move.
+ */
 fun pickMoveCPU(
-    enemyPositions: List<Pair<Int, Int>>,
-    enemyPieces: List<Piece>,
-    allyPositions: List<Pair<Int, Int>>,
-    allyPieces: List<Piece>,
+    enemyPositions: List<Pair<Int, Int>>, enemyPieces: List<Piece>,
+    allyPositions: List<Pair<Int, Int>>, allyPieces: List<Piece>,
     castlingRights: CastlingRights = CastlingRights.NONE,
-    enPassantTarget: Pair<Int, Int>? = null
+    enPassantTarget: Pair<Int, Int>? = null,
 ): SelectedMove {
-    // Determine all possible moves given the state of the board
-    val allPossibleMoves = getAllLegalMoves(
-        enemyPositions = enemyPositions,
-        enemyPieces = enemyPieces,
-        allyPositions = allyPositions,
-        allyPieces = allyPieces,
-        castlingRights = castlingRights,
-        enPassantTarget = enPassantTarget
-    )
-    if(allPossibleMoves.isEmpty()) return SelectedMove(INVALID_POSITION, -1)
-
-
-    // Focus on capturing enemy Pieces
-    val captureMoves = allPossibleMoves.filter { it.first in enemyPositions || (it.first == enPassantTarget && allyPieces[it.second] is Pawn) }
-    if(captureMoves.isNotEmpty()) {
-        val move = captureMoves.random()
-        return SelectedMove(move.first, move.second)
+    val legal = getAllLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces, castlingRights, enPassantTarget)
+    if (legal.isEmpty()) return SelectedMove(INVALID_POSITION, -1)
+    val captures = legal.filter { (to, mover) ->
+        to in enemyPositions || (to == enPassantTarget && allyPieces[mover] is Pawn)
     }
-
-    // Otherwise, return a random possible move
-    val move = allPossibleMoves.random()
-    return SelectedMove(move.first, move.second)
+    val (to, mover) = captures.ifEmpty { legal }.random()
+    return SelectedMove(to, mover)
 }
 
-// Get the possible moves for all ally Pieces
+/**
+ * Pseudo-legal moves for every ally piece as `(destination, pieceIndex)`, in piece order. Check,
+ * castling and en passant are not considered here; [getAllLegalMoves] adds them.
+ */
 internal fun getPossibleMoves(
-    enemyPositions: List<Pair<Int, Int>>,
-    //enemyPieces: List<Piece>, // [REMOVE]: Could pass to getValidMoves to determine if a taken move would put the Enemy King in Check (not efficient, only needed for CPU)
-    allyPositions: List<Pair<Int, Int>>,
-    allyPieces: List<Piece>) : List<Pair<Pair<Int, Int>, Int>> {
-    // Determine what moves are possible for the given team, given the board information
-    val possibleMoves : MutableList<Pair<Pair<Int, Int>, Int>> = mutableListOf() // List of (Position(y, x), PieceIndex) pairs
-
-    // For every allied Piece,
-    for(pieceIndex in 0 until allyPieces.size) {
-        // Determine the current Piece's possible move locations
-        val pieceType = allyPieces[pieceIndex]
-        val allyPosition = allyPositions[pieceIndex]
-        val pieceMoves = pieceType.getValidMovesPositions(allyPosition, enemyPositions, allyPositions)
-
-        // Add each possible location, paired with the current pieceIndex
-        for (move in pieceMoves) {
-            possibleMoves += Pair(move, pieceIndex)
-        }
+    enemyPositions: List<Pair<Int, Int>>, allyPositions: List<Pair<Int, Int>>, allyPieces: List<Piece>,
+): List<Pair<Pair<Int, Int>, Int>> =
+    allyPieces.flatMapIndexed { index, piece ->
+        piece.getValidMovesPositions(allyPositions[index], enemyPositions, allyPositions).map { it to index }
     }
-    return possibleMoves
-}
 
-// Return if the King is in Check/Checkmate
+/**
+ * Whether some enemy piece could move onto [kingPosition], i.e. whether that square is attacked.
+ * [allyPositions] must already reflect whatever hypothetical move is being tested.
+ */
 internal fun checkCheck(
-    kingPosition : Pair<Int, Int>,
-    enemyPositions: List<Pair<Int, Int>>,
-    enemyPieces: List<Piece>,
-    allyPositions: List<Pair<Int, Int>>
-): Boolean {
-    // DEBUG: When is Check looked for, [BUG] sometimes movement happens after a move resulting in Check
-    //println("Checking King at ${kingPosition}..")
-
-    // TODO [EFFICIENCY]: Rewrite King.amIDead logic to check if anyone can get to the King
-    //  instead of checking all Enemy movement with getPossibleMoves
-    //  Can use enemyPieces to determine what types of moves to look for
-    //  (if no queens or bishops, don't need to check diagonals)
-    // Using getPossibleMoves,
-    val enemyMoves = getPossibleMoves(allyPositions, enemyPositions, enemyPieces)
-
-    // Determine if the King can be attacked by any possible Enemy move
-    val checkMoveIndex = enemyMoves.map { it.first }.indexOf(kingPosition)
-
-    // DEBUG: Show which Piece poses a threat]
-    if(checkMoveIndex != -1) {
-        val attackerIndex = enemyMoves[checkMoveIndex].second
-        logger.d { "King at ${kingPosition} is at risk of attack from ${enemyPieces[attackerIndex].name} at ${enemyPositions[attackerIndex]}!" }
-    }
-
-    // If an enemy can reach the King, they are in Check
-    return checkMoveIndex != -1
-
-    /*
-    // Return if the Piece is at risk by one or more Enemy Pieces
-    return kingPosition in enemyMoves.map {
-        it.first
-    }*/
-
-    // Logic from previous King.amIDead
-    // Ignores Pawns and the opposing King (explicitly checks Enemy Piece type)
-    /*
-    val bishopMovement = listOf(Pair(1, 1), Pair(1, -1), Pair(-1, 1), Pair(-1, -1))
-    val rookMovement = listOf(Pair(1, 0), Pair(-1, 0), Pair(0, 1), Pair(0, -1))
-    val knightMovement = listOf(
-        Pair(2, 1), Pair(1, 2), Pair(-1, 2), Pair(-2, 1),
-        Pair(-2, -1), Pair(-1, -2), Pair(1, -2), Pair(2, -1)
-    )
-
-    // Not sure what 4 stands for here
-    for (i in 0 until 4) {
-        var rookX = kingPosition.first + rookMovement[i].first
-        var rookY = kingPosition.second + rookMovement[i].second
-        var bishopX = kingPosition.first + bishopMovement[i].first
-        var bishopY = kingPosition.second + bishopMovement[i].second
-
-        // Checks if Pieces that move like a Rook to get to the King
-        while (rookX in 0 until BOARD_SIZE && rookY in 0 until BOARD_SIZE) {
-            val pos = listOf(rookX, rookY)
-            if (enemyPositions.contains(pos)) { // if this space has a rook or queen, we're dead!
-                val pieceIndex = enemyPositions.indexOfFirst { it == pos }
-                when (enemyPieces[pieceIndex]) {
-                    is Queen, is Rook -> return true
-                }
-            } else if (allyPositions.contains(pos)) { // friend is blocking!
-                break
-            }
-            rookX += rookMovement[i].first
-            rookY += rookMovement[i].second
-        }
-
-        // Checks if Pieces that move like a Bishop can get to the King
-        while (bishopX in 0 until BOARD_SIZE && bishopY in 0 until BOARD_SIZE) {
-            val pos = listOf(bishopX, bishopY)
-            if (enemyPositions.contains(pos)) { // if this space has a bishop or queen, we're dead!
-                val pieceIndex = enemyPositions.indexOfFirst { it == pos }
-                when (enemyPieces[pieceIndex]) {
-                    is Queen, is Bishop -> return true
-                }
-            } else if (allyPositions.contains(pos)) { // friend is blocking!
-                break
-            }
-            // move in the direction and see if the next square is also good
-            bishopX += bishopMovement[i].first
-            bishopY += bishopMovement[i].second
-        }
-    }
-
-    // Checks if Pieces that move like a Knight can get to the King
-    for (direction in knightMovement) {
-        var x = kingPosition.first + direction.first
-        var y = kingPosition.second + direction.second
-        if (x in 0 until BOARD_SIZE && y in 0 until BOARD_SIZE && enemyPositions.contains(listOf(x, y))) {
-            val pieceIndex = enemyPositions.indexOfFirst { it == listOf(x, y) }
-            when (enemyPieces[pieceIndex]) {
-                is Knight -> return true
-            }
-        }
-    }
-
-    // Nobody can reach the King right now
-    return false */
-}
-
-// Return if the given team has any valid moves
-internal fun hasLegalMoves(
-    enemyPositions: List<Pair<Int, Int>>,
-    enemyPieces: List<Piece>,
+    kingPosition: Pair<Int, Int>,
+    enemyPositions: List<Pair<Int, Int>>, enemyPieces: List<Piece>,
     allyPositions: List<Pair<Int, Int>>,
-    allyPieces: List<Piece>,
-    enPassantTarget: Pair<Int, Int>? = null
 ): Boolean {
-    // Using getPossibleMoves,
-    val possibleMoves = getPossibleMoves(enemyPositions, allyPositions, allyPieces)
-    val kingIndex = allyPieces.indexOfFirst { it is King }
-    for (move in possibleMoves) {
-        // move = Pair(Pair(y,x), pieceIndex)
-        // If there is at least one valid move, return true
-        val kingPosition = if (move.second == kingIndex) move.first else allyPositions[kingIndex]
-        val updatedAllyPositions = allyPositions.toMutableList()
-        updatedAllyPositions[move.second] = move.first
-        var tempEnemyPositions = enemyPositions
-        var tempEnemyPieces = enemyPieces
-        val capturedEnemyIndex = enemyPositions.indexOf(move.first)
-        if (capturedEnemyIndex != -1) {
-            // If a capture happened, create new lists WITHOUT the captured piece.
-            tempEnemyPositions = enemyPositions.filterIndexed { index, _ -> index != capturedEnemyIndex }
-            tempEnemyPieces = enemyPieces.filterIndexed { index, _ -> index != capturedEnemyIndex }
-        }
-        val isKingSafe = !checkCheck(
-            kingPosition = kingPosition,
-            enemyPositions = tempEnemyPositions,
-            enemyPieces = tempEnemyPieces,
-            allyPositions = updatedAllyPositions
-        )
-        if (isKingSafe) {
-            return true
-        }
-    }
-    
-    val enPassantMoves = getEnPassantMoves(enPassantTarget, enemyPositions, enemyPieces, allyPositions, allyPieces)
-    if (enPassantMoves.isNotEmpty()) {
-        return true
-    }
-
-    return false
+    // Seen from the enemy's side, our pieces are the ones it may capture — hence the swapped lists.
+    val attacker = enemyPieces.indices.firstOrNull { i ->
+        kingPosition in enemyPieces[i].getValidMovesPositions(enemyPositions[i], allyPositions, enemyPositions)
+    } ?: return false
+    logger.d { "King at $kingPosition is attacked by ${enemyPieces[attacker].name} at ${enemyPositions[attacker]}" }
+    return true
 }
 
+/**
+ * Whether playing [move] `(destination, pieceIndex)` leaves the mover's king unattacked. A captured
+ * enemy piece is lifted off the board first so it cannot count as an attacker. A side with no king
+ * (hand-built test positions only) is never in check.
+ */
+private fun leavesKingSafe(
+    move: Pair<Pair<Int, Int>, Int>,
+    enemyPositions: List<Pair<Int, Int>>, enemyPieces: List<Piece>,
+    allyPositions: List<Pair<Int, Int>>, kingIndex: Int,
+): Boolean {
+    if (kingIndex == -1) return true
+    val (destination, mover) = move
+    val alliesAfter = allyPositions.toMutableList().also { it[mover] = destination }
+    val victim = enemyPositions.indexOf(destination)
+    val enemyPositionsAfter = if (victim == -1) enemyPositions else enemyPositions.withoutIndex(victim)
+    val enemyPiecesAfter = if (victim == -1) enemyPieces else enemyPieces.withoutIndex(victim)
+    return !checkCheck(alliesAfter[kingIndex], enemyPositionsAfter, enemyPiecesAfter, alliesAfter)
+}
+
+private fun <T> List<T>.withoutIndex(index: Int): List<T> = filterIndexed { i, _ -> i != index }
+
+/**
+ * Whether the side to move has any legal move. Castling is deliberately not consulted: it needs the
+ * king's neighbouring square empty and unattacked, and stepping there is already a legal move.
+ */
+internal fun hasLegalMoves(
+    enemyPositions: List<Pair<Int, Int>>, enemyPieces: List<Piece>,
+    allyPositions: List<Pair<Int, Int>>, allyPieces: List<Piece>,
+    enPassantTarget: Pair<Int, Int>? = null,
+): Boolean {
+    val kingIndex = allyPieces.indexOfFirst { it is King }
+    val anyOrdinaryMove = getPossibleMoves(enemyPositions, allyPositions, allyPieces)
+        .any { leavesKingSafe(it, enemyPositions, enemyPieces, allyPositions, kingIndex) }
+    return anyOrdinaryMove ||
+        getEnPassantMoves(enPassantTarget, enemyPositions, enemyPieces, allyPositions, allyPieces).isNotEmpty()
+}
+
+/** Legal destinations for the ally piece at [pieceIndex], castling and en passant included. */
 fun getLegalMovesForPiece(
     pieceIndex: Int,
-    enemyPositions: List<Pair<Int, Int>>,
-    enemyPieces: List<Piece>,
-    allyPositions: List<Pair<Int, Int>>,
-    allyPieces: List<Piece>,
+    enemyPositions: List<Pair<Int, Int>>, enemyPieces: List<Piece>,
+    allyPositions: List<Pair<Int, Int>>, allyPieces: List<Piece>,
     castlingRights: CastlingRights = CastlingRights.NONE,
-    enPassantTarget: Pair<Int, Int>? = null
-) : List<Pair<Int, Int>> {
-    val allLegalMoves = getAllLegalMoves(
-        enemyPositions = enemyPositions,
-        enemyPieces = enemyPieces,
-        allyPositions = allyPositions,
-        allyPieces = allyPieces,
-        castlingRights = castlingRights,
-        enPassantTarget = enPassantTarget
-    )
-    return allLegalMoves.filter { it.second == pieceIndex }.map { it.first }
-}
+    enPassantTarget: Pair<Int, Int>? = null,
+): List<Pair<Int, Int>> =
+    getAllLegalMoves(enemyPositions, enemyPieces, allyPositions, allyPieces, castlingRights, enPassantTarget)
+        .mapNotNull { (destination, mover) -> destination.takeIf { mover == pieceIndex } }
 
+/**
+ * Every legal move for the side to move as `(destination, pieceIndex)`: the pseudo-legal moves that
+ * keep the king safe, followed by castling, followed by en passant.
+ */
 internal fun getAllLegalMoves(
-    enemyPositions: List<Pair<Int, Int>>,
-    enemyPieces: List<Piece>,
-    allyPositions: List<Pair<Int, Int>>,
-    allyPieces: List<Piece>,
+    enemyPositions: List<Pair<Int, Int>>, enemyPieces: List<Piece>,
+    allyPositions: List<Pair<Int, Int>>, allyPieces: List<Piece>,
     castlingRights: CastlingRights = CastlingRights.NONE,
-    enPassantTarget: Pair<Int, Int>? = null
-) : List<Pair<Pair<Int, Int>, Int>> {
-    val legalMoves : MutableList<Pair<Pair<Int, Int>, Int>> = mutableListOf()
-    // Using getPossibleMoves,
-    val possibleMoves = getPossibleMoves(enemyPositions, allyPositions, allyPieces)
+    enPassantTarget: Pair<Int, Int>? = null,
+): List<Pair<Pair<Int, Int>, Int>> {
     val kingIndex = allyPieces.indexOfFirst { it is King }
-    for (move in possibleMoves) {
-        // move = Pair(Pair(y,x), pieceIndex)
-        val kingPosition = if (move.second == kingIndex) move.first else allyPositions[kingIndex]
-
-        val updatedAllyPositions = allyPositions.toMutableList()
-        updatedAllyPositions[move.second] = move.first
-
-        var tempEnemyPositions = enemyPositions
-        var tempEnemyPieces = enemyPieces
-        val capturedEnemyIndex = enemyPositions.indexOf(move.first)
-        if (capturedEnemyIndex != -1) {
-            // If a capture happened, create new lists WITHOUT the captured piece.
-            tempEnemyPositions = enemyPositions.filterIndexed { index, _ -> index != capturedEnemyIndex }
-            tempEnemyPieces = enemyPieces.filterIndexed { index, _ -> index != capturedEnemyIndex }
-        }
-        val isKingSafe = !checkCheck(
-            kingPosition = kingPosition,
-            enemyPositions = tempEnemyPositions,
-            enemyPieces = tempEnemyPieces,
-            allyPositions = updatedAllyPositions
-        )
-        if (isKingSafe) {
-            legalMoves.add(move)
-        }
-    }
-    legalMoves.addAll(getCastlingMoves(castlingRights, enemyPositions, enemyPieces, allyPositions, allyPieces))
-    legalMoves.addAll(getEnPassantMoves(enPassantTarget, enemyPositions, enemyPieces, allyPositions, allyPieces))
-    return legalMoves
+    val ordinary = getPossibleMoves(enemyPositions, allyPositions, allyPieces)
+        .filter { leavesKingSafe(it, enemyPositions, enemyPieces, allyPositions, kingIndex) }
+    return ordinary +
+        getCastlingMoves(castlingRights, enemyPositions, enemyPieces, allyPositions, allyPieces) +
+        getEnPassantMoves(enPassantTarget, enemyPositions, enemyPieces, allyPositions, allyPieces)
 }
 
 // Returns (rookFrom, rookTo) if this king move is castling, else null
@@ -389,10 +207,8 @@ internal fun castlingRookMove(piece: Piece, from: Pair<Int, Int>, to: Pair<Int, 
 
 internal fun getCastlingMoves(
     castlingRights: CastlingRights,
-    enemyPositions: List<Pair<Int, Int>>,
-    enemyPieces: List<Piece>,
-    allyPositions: List<Pair<Int, Int>>,
-    allyPieces: List<Piece>
+    enemyPositions: List<Pair<Int, Int>>, enemyPieces: List<Piece>,
+    allyPositions: List<Pair<Int, Int>>, allyPieces: List<Piece>,
 ): List<Pair<Pair<Int, Int>, Int>> {
     val castlingMoves = mutableListOf<Pair<Pair<Int, Int>, Int>>()
     val kingIndex = allyPieces.indexOfFirst { it is King }
@@ -467,16 +283,15 @@ internal fun getCastlingMoves(
 
 internal fun getEnPassantMoves(
     enPassantTarget: Pair<Int, Int>?,
-    enemyPositions: List<Pair<Int, Int>>,
-    enemyPieces: List<Piece>,
-    allyPositions: List<Pair<Int, Int>>,
-    allyPieces: List<Piece>
+    enemyPositions: List<Pair<Int, Int>>, enemyPieces: List<Piece>,
+    allyPositions: List<Pair<Int, Int>>, allyPieces: List<Piece>,
 ): List<Pair<Pair<Int, Int>, Int>> {
     val enPassantMoves = mutableListOf<Pair<Pair<Int, Int>, Int>>()
     if (enPassantTarget == null) return enPassantMoves
 
-    val kingIndex = allyPieces.indexOfFirst { it is King }
-    if (kingIndex == -1) return enPassantMoves
+    // The king is needed twice: its colour says which way the victim pawn sits, and its square is
+    // what must not end up attacked.
+    val kingIndex = allyPieces.indexOfFirst { it is King }.takeIf { it != -1 } ?: return enPassantMoves
     val isWhite = allyPieces[kingIndex].set == Set.WHITE
 
     val victimRow = if (isWhite) enPassantTarget.first + 1 else enPassantTarget.first - 1
@@ -521,24 +336,11 @@ fun applyMove(
     promotion: PromotionType? = null
 ): GameUiState {
     val turn = state.turn
-    val allyPositions: List<Pair<Int, Int>>
-    val allyPieces: List<Piece>
-    val enemyPositions: List<Pair<Int, Int>>
-    val enemyPieces: List<Piece>
-    when (turn) {
-        Set.WHITE -> {
-            allyPositions = state.positionsWhite
-            allyPieces = state.piecesWhite
-            enemyPositions = state.positionsBlack
-            enemyPieces = state.piecesBlack
-        }
-        Set.BLACK -> {
-            allyPositions = state.positionsBlack
-            allyPieces = state.piecesBlack
-            enemyPositions = state.positionsWhite
-            enemyPieces = state.piecesWhite
-        }
-    }
+    val whiteMoves = turn == Set.WHITE
+    val allyPositions = if (whiteMoves) state.positionsWhite else state.positionsBlack
+    val allyPieces = if (whiteMoves) state.piecesWhite else state.piecesBlack
+    val enemyPositions = if (whiteMoves) state.positionsBlack else state.positionsWhite
+    val enemyPieces = if (whiteMoves) state.piecesBlack else state.piecesWhite
 
     val mutableEnemyPieces = enemyPieces.toMutableList()
     val mutableEnemyPositions = enemyPositions.toMutableList()
@@ -549,12 +351,17 @@ fun applyMove(
 
     var updatedRights = state.castlingRights
     var captureOccurred = false
+    fun removeEnemyAt(victim: Int) {
+        mutableEnemyPositions.removeAt(victim)
+        mutableEnemyPieces.removeAt(victim)
+        captureOccurred = true
+    }
 
     if (newPosition in enemyPositions) {
-        val index = enemyPositions.indexOf(newPosition)
-        logger.i { "${when (turn) { Set.WHITE -> Set.BLACK.name; Set.BLACK -> Set.WHITE.name }} ${enemyPieces[index].name} was captured!" }
+        val victim = enemyPositions.indexOf(newPosition)
+        logger.i { "${when (turn) { Set.WHITE -> Set.BLACK.name; Set.BLACK -> Set.WHITE.name }} ${enemyPieces[victim].name} was captured!" }
 
-        val capturedPiece = enemyPieces[index]
+        val capturedPiece = enemyPieces[victim]
         if (capturedPiece is Rook) {
             if (turn == Set.WHITE) {
                 if (newPosition == BLACK_KS_ROOK_HOME) updatedRights = updatedRights.copy(blackKingside = false)
@@ -565,17 +372,13 @@ fun applyMove(
             }
         }
 
-        mutableEnemyPositions.removeAt(index)
-        mutableEnemyPieces.removeAt(index)
-        captureOccurred = true
+        removeEnemyAt(victim)
     } else if (allyPieces[pieceIndex] is Pawn && allyPositions[pieceIndex].second != newPosition.second && newPosition == state.enPassantTarget) {
         val victimPosition = Pair(allyPositions[pieceIndex].first, newPosition.second)
-        val index = enemyPositions.indexOf(victimPosition)
-        if (index != -1) {
-            logger.i { "${when (turn) { Set.WHITE -> Set.BLACK.name; Set.BLACK -> Set.WHITE.name }} ${enemyPieces[index].name} was captured en passant!" }
-            mutableEnemyPositions.removeAt(index)
-            mutableEnemyPieces.removeAt(index)
-            captureOccurred = true
+        val victim = enemyPositions.indexOf(victimPosition)
+        if (victim != -1) {
+            logger.i { "${when (turn) { Set.WHITE -> Set.BLACK.name; Set.BLACK -> Set.WHITE.name }} ${enemyPieces[victim].name} was captured en passant!" }
+            removeEnemyAt(victim)
         }
     }
 
@@ -608,7 +411,7 @@ fun applyMove(
         }
     }
 
-    mutableAllyPositions[pieceIndex] = newPosition
+    mutableAllyPositions[pieceIndex] = newPosition // a castling rook follows just below
 
     castlingRookMove(movingPiece, fromPosition, newPosition)?.let { (rookFrom, rookTo) ->
         val rookIndex = allyPositions.indexOf(rookFrom)
@@ -622,7 +425,7 @@ fun applyMove(
         mutableAllyPieces[pieceIndex] = promoted
     }
 
-    val allyKingIndex = mutableAllyPieces.indexOfFirst { it::class == King::class }
+    val allyKingIndex = mutableAllyPieces.indexOfFirst { it is King }
     val allyInCheck = if (allyKingIndex != -1) checkCheck(
         mutableAllyPositions[allyKingIndex],
         mutableEnemyPositions,
@@ -630,7 +433,7 @@ fun applyMove(
         mutableAllyPositions
     ) else false
 
-    val enemyKingIndex = mutableEnemyPieces.indexOfFirst { it::class == King::class }
+    val enemyKingIndex = mutableEnemyPieces.indexOfFirst { it is King }
     val enemyInCheck = if (enemyKingIndex != -1) checkCheck(
         mutableEnemyPositions[enemyKingIndex],
         mutableAllyPositions,
@@ -638,10 +441,7 @@ fun applyMove(
         mutableEnemyPositions
     ) else false
 
-    val nextTurn = when (turn) {
-        Set.WHITE -> Set.BLACK
-        Set.BLACK -> Set.WHITE
-    }
+    val nextTurn = if (whiteMoves) Set.BLACK else Set.WHITE
 
     if (allyInCheck) {
         logger.i { "Ally $turn in Check!" }
@@ -649,45 +449,24 @@ fun applyMove(
         logger.i { "Enemy $nextTurn in Check!" }
     }
 
-    val movedState = when (turn) {
-        Set.WHITE -> state.copy(
-            turn = nextTurn,
-            piecesBlack = mutableEnemyPieces,
-            positionsBlack = mutableEnemyPositions,
-            positionsWhite = mutableAllyPositions,
-            piecesWhite = mutableAllyPieces,
-            inCheckWhite = allyInCheck,
-            inCheckBlack = enemyInCheck,
-            pendingPromotion = null,
-            castlingRights = updatedRights,
-            enPassantTarget = newEnPassantTarget,
-            halfmoveClock = newHalfmoveClock,
-            fullmoveNumber = newFullmoveNumber,
-            drawOffer = null,
-            drawOfferDeclinedBy = null,
-            selectedSquare = INVALID_POSITION
-        )
-
-        Set.BLACK -> state.copy(
-            turn = nextTurn,
-            piecesWhite = mutableEnemyPieces,
-            positionsWhite = mutableEnemyPositions,
-            positionsBlack = mutableAllyPositions,
-            piecesBlack = mutableAllyPieces,
-            inCheckWhite = enemyInCheck,
-            inCheckBlack = allyInCheck,
-            pendingPromotion = null,
-            castlingRights = updatedRights,
-            enPassantTarget = newEnPassantTarget,
-            halfmoveClock = newHalfmoveClock,
-            fullmoveNumber = newFullmoveNumber,
-            drawOffer = null,
-            drawOfferDeclinedBy = null,
-            selectedSquare = INVALID_POSITION
-        )
-    }
-
-    return movedState
+    // Map ally/enemy back onto colours once, instead of spelling the copy out per side.
+    return state.copy(
+        turn = nextTurn,
+        piecesWhite = if (whiteMoves) mutableAllyPieces else mutableEnemyPieces,
+        positionsWhite = if (whiteMoves) mutableAllyPositions else mutableEnemyPositions,
+        piecesBlack = if (whiteMoves) mutableEnemyPieces else mutableAllyPieces,
+        positionsBlack = if (whiteMoves) mutableEnemyPositions else mutableAllyPositions,
+        inCheckWhite = if (whiteMoves) allyInCheck else enemyInCheck,
+        inCheckBlack = if (whiteMoves) enemyInCheck else allyInCheck,
+        pendingPromotion = null,
+        castlingRights = updatedRights,
+        enPassantTarget = newEnPassantTarget,
+        halfmoveClock = newHalfmoveClock,
+        fullmoveNumber = newFullmoveNumber,
+        drawOffer = null,
+        drawOfferDeclinedBy = null,
+        selectedSquare = INVALID_POSITION,
+    )
 }
 
 /**

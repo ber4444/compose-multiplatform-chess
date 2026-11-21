@@ -1,19 +1,9 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12+ backup rules. Nothing is included or excluded explicitly, so the platform defaults
+    apply: settings, the autosaved game and saved-game history all travel with cloud backup and
+    device-to-device transfer. Add <exclude> entries here if anything must stay on one device.
 -->
 <data-extraction-rules>
-    <cloud-backup>
-        <!-- Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
-    </cloud-backup>
-    <!--
-    <device-transfer>
-        <include .../>
-        <exclude .../>
-    </device-transfer>
-    -->
+    <cloud-backup />
 </data-extraction-rules>

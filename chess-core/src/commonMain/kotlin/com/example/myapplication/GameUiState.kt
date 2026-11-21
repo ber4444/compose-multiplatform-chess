@@ -15,31 +15,24 @@ data class CastlingRights(
     companion object { val NONE = CastlingRights(false, false, false, false) }
 }
 
+/**
+ * The whole game: position, side to move, and the bookkeeping the rules need (castling rights,
+ * en passant, clocks, repetition history) plus the move log.
+ *
+ * Each side is two parallel lists: `piecesWhite[i]` stands on `positionsWhite[i]`. A square is
+ * `(row, column)`, row 0 being Black's back rank and column 0 the a-file. Defaults are the
+ * standard starting position, White to move.
+ */
 data class GameUiState(
-    val turn: Set = Set.WHITE,
-
-    // Team Pieces and their locations
-    // Usage: positionsWhite[pieceIndex][first = vertical/ second = horizontal]
-
-    // White team's Pieces and their positions
-    val piecesWhite: List<Piece> = listOf(
-        Rook(Set.WHITE), Knight(Set.WHITE), Bishop(Set.WHITE), Queen(Set.WHITE),
-        King(Set.WHITE), Bishop(Set.WHITE), Knight(Set.WHITE), Rook(Set.WHITE))
-            + List(8) { Pawn(Set.WHITE) },
-    val positionsWhite: List<Pair<Int, Int>> = List(8) { Pair(7, it) } + List(8) { Pair(6, it) },
-    val inCheckWhite : Boolean = false,
-
-    // Black team's Pieces and their positions
-    val piecesBlack: List<Piece> = listOf(
-        Rook(Set.BLACK), Knight(Set.BLACK), Bishop(Set.BLACK), Queen(Set.BLACK),
-        King(Set.BLACK), Bishop(Set.BLACK), Knight(Set.BLACK), Rook(Set.BLACK))
-            + List(8) { Pawn(Set.BLACK) },
-    val positionsBlack: List<Pair<Int, Int>> = List(8) { Pair(0, it) } + List(8) { Pair(1, it) },
-    val inCheckBlack : Boolean = false,
-
-    val winState: WinState = WinState.NONE, // The current WinState of the game
-
-    val selectedSquare : Pair<Int, Int> = INVALID_POSITION, // The Position on the board that the user has selected
+    val turn: Set = Set.WHITE, // side to move
+    val piecesWhite: List<Piece> = startingArmy(Set.WHITE),
+    val positionsWhite: List<Pair<Int, Int>> = startingSquares(backRow = BOARD_SIZE - 1, pawnRow = BOARD_SIZE - 2),
+    val inCheckWhite: Boolean = false,
+    val piecesBlack: List<Piece> = startingArmy(Set.BLACK),
+    val positionsBlack: List<Pair<Int, Int>> = startingSquares(backRow = 0, pawnRow = 1),
+    val inCheckBlack: Boolean = false,
+    val winState: WinState = WinState.NONE, // NONE while the game is still being played
+    val selectedSquare: Pair<Int, Int> = INVALID_POSITION, // square the player last tapped, if any
     val pendingPromotion: PendingPromotion? = null,
     val castlingRights: CastlingRights = CastlingRights(),
     val enPassantTarget: Pair<Int, Int>? = null,
@@ -57,19 +50,29 @@ data class GameUiState(
     val moveHistory: List<MoveRecord> = emptyList(),
 )
 
-// Current win state of the game
+/** How the game ended, or [NONE] while it is still being played. */
 enum class WinState {
-    NONE,       // The game has not been won
-    WHITE,      // White won the game
-    BLACK,      // Black won the game
-    DRAW,       // THe game is over, but there is no winner
-    STALEMATE   // The game is over because no more moves can be made by a Player (no winner)
+    NONE,
+    WHITE,     // Black is checkmated
+    BLACK,     // White is checkmated
+    DRAW,      // repetition, fifty-move rule, insufficient material, or agreement
+    STALEMATE, // the side to move has no legal move and is not in check
 }
 
-data class ViewState (
-    val hideWindow: Boolean = false,        // If the gameOver window should be hidden
-    val buttonLock : Boolean = false,       // Lock all game modifying buttons (doesn't include reset/exit)
-    val moveButtonLock: Boolean = false,    // If the 'Move' button is locked
+/** Back rank in the usual R N B Q K B N R order (indices 0..7), then eight pawns (8..15). */
+private fun startingArmy(side: Set): List<Piece> =
+    listOf(Rook(side), Knight(side), Bishop(side), Queen(side), King(side), Bishop(side), Knight(side), Rook(side)) +
+        List(BOARD_SIZE) { Pawn(side) }
+
+/** Squares matching [startingArmy]'s order: the back row left to right, then the pawn row. */
+private fun startingSquares(backRow: Int, pawnRow: Int): List<Pair<Int, Int>> =
+    (0 until BOARD_SIZE).map { backRow to it } + (0 until BOARD_SIZE).map { pawnRow to it }
+
+/** Screen state that is not part of the chess position. */
+data class ViewState(
+    val hideWindow: Boolean = false,      // the game-over popup was dismissed
+    val buttonLock: Boolean = false,      // game-changing controls disabled; reset/exit stay live
+    val moveButtonLock: Boolean = false,  // set while the opponent thinks or a move animates
     val show3D: Boolean = true,            // If the 3D board should be displayed instead of 2D
     val board3DUnavailable: Boolean = false // Set to true if 3D initialization fails
 )

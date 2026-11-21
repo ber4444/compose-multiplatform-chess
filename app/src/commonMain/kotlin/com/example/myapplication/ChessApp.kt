@@ -26,7 +26,6 @@ fun ChessApp(
     onOpenSettings: () -> Unit = {},
     onOpenRules: () -> Unit = {},
     onOpenChat: () -> Unit = {},
-    onOpenPaywall: (() -> Unit)? = null,
     onOpenHabits: () -> Unit = {},
 ) {
     Surface(
@@ -50,7 +49,6 @@ fun ChessApp(
                 onOpenSettings = onOpenSettings,
                 onOpenRules = onOpenRules,
                 onOpenChat = onOpenChat,
-                onOpenPaywall = onOpenPaywall,
                 onOpenHabits = onOpenHabits,
             )
         }

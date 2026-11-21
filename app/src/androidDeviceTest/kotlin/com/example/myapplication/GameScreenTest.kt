@@ -55,44 +55,32 @@ class GameScreenTest {
         composeTestRule.onNodeWithText("Game ended! WHITE wins!").assertIsDisplayed()
     }
 
+    /** Waits for the game-over popup's result line to be laid out with real text in it. */
+    private fun awaitResultLine() {
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            val shown = composeTestRule.onAllNodesWithTag("winnerText", useUnmergedTree = true)
+                .fetchSemanticsNodes()
+                .firstOrNull() ?: return@waitUntil false
+            val label = shown.config.getOrNull(SemanticsProperties.Text)?.firstOrNull()?.text
+            shown.layoutInfo.width > 0 && shown.layoutInfo.height > 0 && !label.isNullOrBlank()
+        }
+    }
+
     @Test
-    fun testStalemate() {
-        val testGameState = FenConverter.fenToGameState("k7/8/K7/1Q6/8/8/8/8 b - - 0 1")
-
-        val viewModel = GameViewModel(testGameState)
-
+    fun stalemateIsDetectedBeforeTheEngineIsAskedForAMove() {
+        // Black to move, king a8 boxed in by Ka6 and Qb5 without being in check.
+        val viewModel = GameViewModel(FenConverter.fenToGameState("k7/8/K7/1Q6/8/8/8/8 b - - 0 1"))
         composeTestRule.setContent {
-            MyApplicationTheme {
-                GameScreen(WindowWidthSizeClass.Medium, viewModel)
-            }
+            MyApplicationTheme { GameScreen(WindowWidthSizeClass.Medium, viewModel) }
         }
 
         composeTestRule.runOnIdle {
             runBlocking {
-                viewModel.moveCPU { _, _, _, _ ->
-                    error("Expected stalemate detection before move selection")
-                }
+                viewModel.moveCPU { _, _, _, _ -> error("stalemate should end the game before a move is picked") }
             }
         }
 
-        composeTestRule.waitUntil(timeoutMillis = 5_000) {
-            composeTestRule
-                .onAllNodesWithTag("winnerText", useUnmergedTree = true)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
-
-        composeTestRule.waitUntil(timeoutMillis = 5_000) {
-            val node = composeTestRule
-                .onNodeWithTag("winnerText", useUnmergedTree = true)
-                .fetchSemanticsNode()
-
-            val isVisible = node.layoutInfo.width > 0f && node.layoutInfo.height > 0f
-            val text = node.config.getOrNull(SemanticsProperties.Text)?.firstOrNull()?.text
-
-            isVisible && !text.isNullOrBlank()
-        }
-
+        awaitResultLine()
         composeTestRule.onNodeWithText("Game ended in a STALEMATE!").assertIsDisplayed()
     }
 
@@ -126,13 +114,7 @@ class GameScreenTest {
         // Click capture square on g5 (knight)
         composeTestRule.onNodeWithTag(boardSquareTag(SquareType.PossibleCapture, 3, 6)).performClick()
 
-        composeTestRule.waitUntil(timeoutMillis = 5_000) {
-            composeTestRule
-                .onAllNodesWithTag("winnerText", useUnmergedTree = true)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
-
+        awaitResultLine()
         composeTestRule.onNodeWithText("Game ended in a DRAW!").assertIsDisplayed()
     }
 
@@ -167,56 +149,39 @@ class GameScreenTest {
     }
 
     @Test
-    fun chessBoardInPortrait_shouldBeVisible() {
-        assertChessboardVisibleIn(ScreenOrientation.PORTRAIT)
-    }
+    fun boardClearsTheStatusBarInPortrait() = assertBoardClearsStatusBar(ScreenOrientation.PORTRAIT)
 
     @Test
-    fun chessBoardInLandscape_shouldBeVisible() {
-        assertChessboardVisibleIn(ScreenOrientation.LANDSCAPE)
+    fun boardClearsTheStatusBarInLandscape() = assertBoardClearsStatusBar(ScreenOrientation.LANDSCAPE)
+
+    /** Height of the system status bar on this device, or 0 if the platform doesn't report one. */
+    private fun statusBarHeightPx(): Int {
+        val res = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext.resources
+        val id = res.getIdentifier("status_bar_height", "dimen", "android")
+        return if (id > 0) res.getDimensionPixelSize(id) else 0
     }
 
-    private fun assertChessboardVisibleIn(orientation: ScreenOrientation) {
+    /**
+     * Rotates the device, renders a fresh game edge to edge, and checks the board's top edge is not
+     * tucked under the status bar — and that a far-corner piece (Black's a8 rook) is still drawn.
+     */
+    private fun assertBoardClearsStatusBar(orientation: ScreenOrientation) {
         onDevice().setScreenOrientation(orientation)
         composeTestRule.waitForIdle()
-
-        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
-        val statusBarHeightPx = context.resources.getIdentifier("status_bar_height", "dimen", "android")
-            .takeIf { it > 0 }
-            ?.let { context.resources.getDimensionPixelSize(it) }
-            ?: 0
+        val statusBar = statusBarHeightPx()
 
         composeTestRule.setContent {
             MyApplicationTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    GameScreen(
-                        windowSize = WindowWidthSizeClass.Medium,
-                        viewModel = GameViewModel(
-                            gameState = GameUiState()
-                        )
-                    )
+                Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
+                    GameScreen(windowSize = WindowWidthSizeClass.Medium, viewModel = GameViewModel())
                 }
             }
         }
-
         composeTestRule.waitForIdle()
 
-        val chessboardTop = composeTestRule
-            .onNodeWithTag("chess_board")
-            .fetchSemanticsNode()
-            .boundsInRoot.top
-
-        assertTrue(
-            "Expected chessboard to be below status bar (≥ $statusBarHeightPx px), but was at $chessboardTop px",
-            chessboardTop >= statusBarHeightPx
-        )
-
-        composeTestRule
-            .onNodeWithTag(boardSquareTag(SquareType.BlackPiece, row = 0, column = 0))
-            .assertIsDisplayed()
+        val boardTop = composeTestRule.onNodeWithTag("chess_board").fetchSemanticsNode().boundsInRoot.top
+        assertTrue("board top $boardTop px sits under the $statusBar px status bar ($orientation)", boardTop >= statusBar)
+        composeTestRule.onNodeWithTag(boardSquareTag(SquareType.BlackPiece, row = 0, column = 0)).assertIsDisplayed()
     }
 
     private fun performRandomPlayerMove(): String {
@@ -239,9 +204,9 @@ class GameScreenTest {
                 val movedWhitePieceTag = selectedMoveTag.toWhitePieceSquareTag()
 
                 composeTestRule.onNodeWithTag(selectedMoveTag).performClick()
+                // The piece only gets its new tag once the move has animated in.
                 composeTestRule.waitUntil(timeoutMillis = 5_000) {
-                    composeTestRule
-                        .onAllNodesWithTag(movedWhitePieceTag)
+                    composeTestRule.onAllNodesWithTag(movedWhitePieceTag)
                         .fetchSemanticsNodes(atLeastOneRootRequired = false)
                         .isNotEmpty()
                 }
