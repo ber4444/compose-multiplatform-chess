@@ -46,6 +46,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import kotlinx.coroutines.launch
 import com.example.myapplication.rules.RulesQaScreen
 import com.example.myapplication.rules.RulesQaStateHolder
+import com.example.myapplication.habits.HabitsManager
 import com.example.ondeviceai.AiContextSnapshot
 import com.example.ondeviceai.AiUserSetting
 import com.example.ondeviceai.DefaultRulesQaOrchestrator
@@ -124,11 +125,19 @@ fun AppRoot(
             },
         )
     }
+    // Unlike the AI managers below, this needs no platform runtime — it's a pure aggregation over
+    // gameHistory — so AppRoot can own it directly instead of entry points threading it through.
+    // Null exactly when gameHistory is null, mirroring how the Save/Share buttons already gate.
+    // Its habits render at the top of the History screen; there is no separate Habits screen.
+    val habitsManager = remember(gameHistory) { gameHistory?.let { HabitsManager(it) } }
     DisposableEffect(openingExplainerStateHolder) {
         onDispose { openingExplainerStateHolder?.close() }
     }
     DisposableEffect(chatViewModel) {
         onDispose { chatViewModel?.close() }
+    }
+    DisposableEffect(habitsManager) {
+        onDispose { habitsManager?.close() }
     }
     CompositionLocalProvider(
         LocalAppSettings provides settings,
@@ -177,6 +186,7 @@ fun AppRoot(
                     GameHistoryScreen(
                         gameHistory = gameHistory,
                         pgnSharer = pgnSharer,
+                        habitsManager = habitsManager,
                         onBack = { screen = Screen.GAME },
                     )
                 } else {
