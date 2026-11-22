@@ -351,7 +351,7 @@ fun GameScreen(
                                     .testTag("save_game_button"),
                                 enabled = !gameSaved,
                                 onClick = {
-                                    val saved = GameActions.toSavedGame(gameState, viewModel.engineAttached, playerSide = viewModel.playerSide)
+                                    val saved = GameActions.toSavedGame(gameState, viewModel.engineAttached, playerSide = viewModel.playerSide, opponent = viewModel.opponentName)
                                     gameHistory.add(saved)
                                     gameSaved = true
                                 }
@@ -365,7 +365,7 @@ fun GameScreen(
                                     .padding(5.dp)
                                     .testTag("share_pgn_button"),
                                 onClick = {
-                                    val pgn = GameActions.toPgn(gameState, viewModel.engineAttached, playerSide = viewModel.playerSide)
+                                    val pgn = GameActions.toPgn(gameState, viewModel.engineAttached, playerSide = viewModel.playerSide, opponent = viewModel.opponentName)
                                     pgnSharer.share(pgn, "game-${PgnSerializer.resultToken(gameState.winState)}.pgn")
                                 }
                             ) {

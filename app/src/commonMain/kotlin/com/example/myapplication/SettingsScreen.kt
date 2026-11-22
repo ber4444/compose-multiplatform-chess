@@ -22,7 +22,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.board3d.Board3DSupport
+import com.example.myapplication.explorer.RatingBand
 import com.example.myapplication.persistence.LocalAppSettings
+import com.example.myapplication.persistence.Opponent
 import game.app.generated.resources.Res
 import game.app.generated.resources.board_3d_toggle_label
 import org.jetbrains.compose.resources.stringResource
@@ -36,9 +38,14 @@ import org.jetbrains.compose.resources.stringResource
  * platforms without one never show a dead control. Toggling it writes to `AppSettings.board3DEnabled`,
  * which `GameScreen` observes and translates into the 3D surface mount/teardown choreography.
  *
- * Difficulty is always visible — it applies to the engine on every platform (the CPU fallback ignores
- * it, but the setting persists for when an engine is attached). `AppRoot` bridges the setting to the
- * VM's `setEngineDifficulty`, which applies it to the attached engine.
+ * Difficulty is always visible. For Stockfish it applies to the engine on every
+ * platform (the CPU fallback ignores it, but the setting persists for when an engine is attached).
+ * `AppRoot` bridges the setting to the VM's `setEngineDifficulty`, which applies it to the attached
+ * engine.
+ *
+ * Where the build runs Maia-3 (`maiaAvailable`), an Opponent choice appears, with Maia selected unless
+ * the user picked Stockfish. The same difficulty list sets Maia's strength; each level shows the
+ * rating band it plays like. Without Maia there is no Opponent choice.
  */
 @Composable
 fun SettingsScreen(
@@ -46,6 +53,11 @@ fun SettingsScreen(
     board3D: Board3DSupport? = null,
     /** Opens the open-source licences screen. Null hides the row (previews, Compose UI tests). */
     onOpenLicenses: (() -> Unit)? = null,
+    /**
+     * Whether this build can run Maia-3 (every target with a Maia runtime). Without it the Opponent choice is not
+     * shown at all, and Stockfish's difficulty is the only strength control.
+     */
+    maiaAvailable: Boolean = false,
 ) {
     val settings = LocalAppSettings.current
         ?: error("SettingsScreen requires AppSettings. Render it under AppRoot.")
@@ -53,21 +65,46 @@ fun SettingsScreen(
     val engineDifficulty by settings.engineDifficulty.collectAsState()
     val aiCoachEnabled by settings.aiCoachEnabled.collectAsState()
 
+    val opponent by settings.opponent.collectAsState()
+    val playsMaia = maiaAvailable && opponent == Opponent.MAIA
+
     SubScreenScaffold(title = "Settings", onBack = onBack) {
+        if (maiaAvailable) {
+            Text(
+                text = "Opponent",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+            )
+            Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
+                ChoiceRow("Maia-3: plays like a person at your level", playsMaia, "settings_opponent_maia") {
+                    settings.setOpponent(Opponent.MAIA)
+                }
+                ChoiceRow("Stockfish", !playsMaia, "settings_opponent_stockfish") {
+                    settings.setOpponent(Opponent.STOCKFISH)
+                }
+            }
+            if (playsMaia) {
+                Text(
+                    "Hints and move coaching still come from Stockfish.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("settings_maia_note"),
+                )
+            }
+        }
         Text(
             text = "Engine difficulty",
             style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+            modifier = Modifier.padding(top = if (maiaAvailable) 16.dp else 8.dp, bottom = 4.dp)
         )
         Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
             EngineDifficulty.entries.forEach { level ->
-                DifficultyOption(
-                    label = level.name.lowercase().replaceFirstChar { it.titlecase() },
-                    level = level,
-                    current = engineDifficulty,
-                    onSelect = settings::setEngineDifficulty,
+                val name = level.name.lowercase().replaceFirstChar { it.titlecase() }
+                ChoiceRow(
+                    // With Maia, say what each level means: the rating band it plays like.
+                    label = if (playsMaia) "$name (plays like ${RatingBand.forDifficulty(level).label})" else name,
+                    selected = engineDifficulty == level,
                     testTag = "settings_difficulty_${level.name}",
-                )
+                ) { settings.setEngineDifficulty(level) }
             }
         }
 
@@ -146,20 +183,19 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun DifficultyOption(
+private fun ChoiceRow(
     label: String,
-    level: EngineDifficulty,
-    current: EngineDifficulty,
-    onSelect: (EngineDifficulty) -> Unit,
+    selected: Boolean,
     testTag: String,
+    onSelect: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .selectable(
-                selected = current == level,
+                selected = selected,
                 role = Role.RadioButton,
-                onClick = { onSelect(level) },
+                onClick = onSelect,
             )
             .padding(vertical = 4.dp)
             .testTag(testTag),
@@ -167,7 +203,7 @@ private fun DifficultyOption(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         RadioButton(
-            selected = current == level,
+            selected = selected,
             onClick = null,
         )
         Text(label)

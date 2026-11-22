@@ -72,4 +72,28 @@ class AppSettingsTest {
         settings.setEngineDifficulty(EngineDifficulty.MAX)
         assertEquals(EngineDifficulty.MAX, settings.engineDifficulty.value)
     }
+
+    // --- opponent (Maia-3 by default, Stockfish when chosen) ---
+
+    @Test
+    fun `opponent defaults to Maia and writes nothing until the user chooses`() {
+        val backing = MapSettings()
+        val settings = AppSettings(backing)
+        assertEquals(Opponent.MAIA, settings.opponent.value)
+        assertEquals(null, backing.getStringOrNull(AppSettings.KEY_OPPONENT))
+    }
+
+    @Test
+    fun `an explicit Stockfish choice persists`() {
+        val backing = MapSettings()
+        AppSettings(backing).setOpponent(Opponent.STOCKFISH)
+        assertEquals(Opponent.STOCKFISH, AppSettings(backing).opponent.value)
+    }
+
+    @Test
+    fun `an unknown persisted opponent falls back to Maia`() {
+        val backing = MapSettings()
+        backing.putString(AppSettings.KEY_OPPONENT, "LEELA")
+        assertEquals(Opponent.MAIA, AppSettings(backing).opponent.value)
+    }
 }

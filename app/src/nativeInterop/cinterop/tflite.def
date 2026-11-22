@@ -1,0 +1,8 @@
+# LiteRT (TensorFlow Lite) C API for Maia-3 on iOS. The framework is fetched and SHA-256-checked by
+# the :app:fetchLiteRtIos task; app/build.gradle.kts adds the -F search path per target slice.
+language = C
+headers = TensorFlowLiteC/c_api.h
+headerFilter = TensorFlowLiteC/**
+package = com.example.myapplication.tflite
+compilerOpts = -framework TensorFlowLiteC
+linkerOpts = -framework TensorFlowLiteC -lc++

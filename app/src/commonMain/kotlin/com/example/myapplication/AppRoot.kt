@@ -30,12 +30,19 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.board3d.Board3DSupport
+import com.example.myapplication.explorer.HumanMoveExplorer
+import com.example.myapplication.explorer.MaiaHumanMovePredictor
+import com.example.myapplication.explorer.MaiaOpponent
+import com.example.myapplication.explorer.RatingBand
+import com.example.myapplication.explorer.forReview
+import com.example.myapplication.explorer.maiaRuntimeFactory
 import com.example.myapplication.chat.ChatScreen
 import com.example.myapplication.chat.ChatViewModel
 import com.example.myapplication.chat.createPositionChat
 import com.example.myapplication.persistence.AppSettings
 import com.example.myapplication.persistence.GameHistoryRepository
 import com.example.myapplication.persistence.LocalAppSettings
+import com.example.myapplication.persistence.Opponent
 import com.example.myapplication.share.PgnSharer
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.example.myapplication.movecoach.MoveCoachManager
@@ -130,6 +137,22 @@ fun AppRoot(
     // Null exactly when gameHistory is null, mirroring how the Save/Share buttons already gate.
     // Its habits render at the top of the History screen; there is no separate Habits screen.
     val habitsManager = remember(gameHistory) { gameHistory?.let { HabitsManager(it) } }
+    // One Maia predictor, so one model load, shared by the History explorer and the Maia opponent.
+    // Null where the platform has no Maia runtime. Nothing loads until the first prediction.
+    val maiaPredictor = remember { maiaRuntimeFactory()?.let { MaiaHumanMovePredictor(it) } }
+    DisposableEffect(maiaPredictor) { onDispose { maiaPredictor?.close() } }
+    val humanMoveExplorer = remember(maiaPredictor) { HumanMoveExplorer(maia = maiaPredictor) }
+    // Settings → Opponent. Only the move choice moves to Maia; Stockfish stays attached for hints,
+    // coach assessments and draw offers.
+    val opponent by settings.opponent.collectAsState()
+    // The same Easy/Medium/Hard/Max setting sets Maia's strength, mapped to a rating band.
+    val opponentDifficulty by settings.engineDifficulty.collectAsState()
+    DisposableEffect(viewModel, maiaPredictor, opponent, opponentDifficulty) {
+        val chooser = maiaPredictor?.takeIf { opponent == Opponent.MAIA }
+            ?.let { MaiaOpponent(it, RatingBand.forDifficulty(opponentDifficulty)) }
+        viewModel.setOpponentMoveChooser(chooser)
+        onDispose { viewModel.setOpponentMoveChooser(null) }
+    }
     DisposableEffect(openingExplainerStateHolder) {
         onDispose { openingExplainerStateHolder?.close() }
     }
@@ -188,6 +211,8 @@ fun AppRoot(
                         pgnSharer = pgnSharer,
                         habitsManager = habitsManager,
                         onBack = { screen = Screen.GAME },
+                        humanMoves = humanMoveExplorer.forReview(),
+                        humanMovesBand = RatingBand.forDifficulty(opponentDifficulty),
                     )
                 } else {
                     SubScreenScaffold(title = "Game History", onBack = { screen = Screen.GAME }) {
@@ -197,6 +222,7 @@ fun AppRoot(
                 Screen.SETTINGS -> SettingsScreen(
                     onBack = { screen = Screen.GAME },
                     board3D = board3D,
+                    maiaAvailable = maiaPredictor != null,
                     onOpenLicenses = { screen = Screen.LICENSES },
                 )
                 Screen.LICENSES -> LicensesScreen(onBack = { screen = Screen.SETTINGS })
