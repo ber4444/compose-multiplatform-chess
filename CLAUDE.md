@@ -46,8 +46,15 @@ CI (`.github/workflows/android-tests.yml`) builds every target with:
 ./gradlew :chess-core:check :ondeviceai:check :coachapi:check :perft-mcp:test :androidApp:assembleDebug :app:assembleAndroidDeviceTest :app:check :app:desktopJar :app:packageDistributionForCurrentOS :app:wasmJsBrowserDistribution
 ```
 
-then runs `:app:connectedAndroidDeviceTest` on an API 35 emulator. A change isn't done until that
-command passes — it covers Android, desktop, and wasm. A second job (`apple`) builds the iOS/macOS
+The Linux desktop/Wasm checks and Android device tests run in parallel jobs. The Android job
+builds `:androidApp:assembleDebug :androidApp:assembleDebugAndroidTest :app:assembleAndroidDeviceTest`
+before starting the API 35 emulator, then runs both `:app:connectedAndroidDeviceTest` and
+`:androidApp:connectedDebugAndroidTest` (excluding only the existing `Filament3D` leak tests).
+`tools/ci/run_android_device_tests.py` owns the emulator and its logs, bounds boot/tests/shutdown,
+and cleans up on cancellation; `tools/ci/test_android_device_runner.py` tests those failure paths
+without an SDK. The original combined check name is retained by an aggregate gate that requires
+both jobs to succeed. A change isn't done until the command above passes — it covers Android,
+desktop, and wasm. A second job (`apple`) builds the iOS/macOS
 targets and runs `:app:iosSimulatorArm64Test :ondeviceai:iosSimulatorArm64Test
 :coachapi:iosSimulatorArm64Test :app:desktopTest :chess-core:desktopTest` plus the `iosApp` xcodebuild
 tests; a nightly job runs the deep perft tier. Touching AI code also triggers
