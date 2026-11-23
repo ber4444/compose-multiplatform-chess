@@ -56,7 +56,7 @@ app itself. See [docs/Stockfish.md](docs/Stockfish.md) and
 
 Maia-3 is AGPL-3.0 software and weights from the University of Toronto's CSSLab. Every build
 bundles a converted copy of the Maia3-5M checkpoint (ONNX on desktop, LiteRT with int8 weights on
-Android and iOS), and the web build downloads the float LiteRT file from Hugging Face. Every build includes an adapted copy
+Android and iOS), and the web build downloads the same int8 LiteRT file from Hugging Face. Every build includes an adapted copy
 of its board encoding (the files in the table above). Those files stay under the AGPL. The rest of the app stays
 under GPL-3.0-or-later. Section 13 of GPLv3, and section 13 of AGPLv3, expressly allow combining a
 GPLv3 work with an AGPLv3 work and conveying the result. Each part keeps its own licence.

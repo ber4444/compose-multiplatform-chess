@@ -6,12 +6,13 @@ package com.example.myapplication.explorer
  * `docs/maia3-model-provenance.md`; the platform tests fail if a bundled file drifts from these values.
  *
  * - **LiteRT int8** (`.tflite`, [TFLITE_NAME]) bundled on Android (`org.tensorflow.lite.Interpreter`)
- *   and iOS (the TFLite C API). Weight-only int8 quantization of the float export
+ *   and iOS (the TFLite C API). Weight-only int8 quantization of the float LiteRT export
  *   (`tools/maia3/quantize_litert.py`): 5.9 MB instead of 20.8 MB, still computed in float32, and
  *   within `BundledMaiaParity.INT8_SHARE_TOLERANCE` of PyTorch. Its Elo inputs are int32.
- * - **LiteRT float** ([WEB_TFLITE_NAME]) downloaded by web (LiteRT.js) from Hugging Face and checked
- *   against [WEB_TFLITE_SHA256]. It is the file the int8 one is quantized from. Web moves to the int8
- *   file once that is uploaded to Hugging Face, with a new `MODEL_REVISION` in `MaiaRuntime.wasm.kt`.
+ * - **The same int8 file on web** ([WEB_TFLITE_NAME]), downloaded by LiteRT.js from Hugging Face at
+ *   `MODEL_REVISION` (`MaiaRuntime.wasm.kt`) and checked against [WEB_TFLITE_SHA256]. These are
+ *   separate constants because web runs whatever that upload holds: re-quantizing the bundled file
+ *   changes them only once the new file is uploaded and `MODEL_REVISION` moves to it.
  * - **ONNX** on desktop (ONNX Runtime), the one platform LiteRT publishes no runtime for.
  *
  * All are AGPL-3.0 (CSSLab's Maia-3), distributed with this GPL-3.0-or-later app as GPLv3 §13
@@ -22,8 +23,8 @@ internal object MaiaModelFiles {
     const val TFLITE_BYTES = 5_889_056L
     const val TFLITE_SHA256 = "bb8c8247a41fb6eccbbf7b717f496d9d02e723a43c1fe484c0b0f16a63f9f122"
 
-    const val WEB_TFLITE_NAME = "maia3-5m.tflite"
-    const val WEB_TFLITE_SHA256 = "f0acad2d11db917c10ecc4418a5ef5600c00e21dcac1f54b77008acfeeed998e"
+    const val WEB_TFLITE_NAME = "maia3-5m-int8.tflite"
+    const val WEB_TFLITE_SHA256 = "bb8c8247a41fb6eccbbf7b717f496d9d02e723a43c1fe484c0b0f16a63f9f122"
 
     const val ONNX_NAME = "maia3-5m.onnx"
     const val ONNX_BYTES = 21_346_659L

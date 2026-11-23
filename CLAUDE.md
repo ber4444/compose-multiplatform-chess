@@ -446,8 +446,8 @@ game is still going. The same predictor plays the Maia opponent (see *Engine arc
   colour-swapped when Black is to move, and a wrong mirror still returns a plausible distribution,
   so `MaiaEncoderTest` pins it against Python-generated `MaiaGolden`.
   - **Platforms.**
-    - Android and iOS run the **bundled LiteRT** `maia3-5m-int8.tflite`; web runs the float
-      `maia3-5m.tflite` it is quantized from, downloaded from Hugging Face (below):
+    - Android and iOS run the **bundled LiteRT** `maia3-5m-int8.tflite`; web runs the same file,
+      downloaded from Hugging Face (below):
       - Android: `org.tensorflow.lite.Interpreter`.
       - iOS: the TFLite C API through cinterop. `:app:fetchLiteRtIos` downloads TensorFlowLiteC
         2.17.0, SHA-256-checks it and caches it in the Gradle home; `iosApp/project.yml` links it next
@@ -475,12 +475,13 @@ game is still going. The same predictor plays the Maia opponent (see *Engine arc
   - **The runtime seam is `suspend`** (`MaiaRuntime.moveLogits`, `maiaRuntimeFactory`), because
     LiteRT.js is asynchronous.
   - **Web downloads the model; it does not bundle it.** The app's Fly.io host would otherwise pay
-    egress on 20 MB per visitor. `MaiaRuntime.wasm.kt` fetches
-    `https://huggingface.co/ber4444/maia3-5m-litert/resolve/<MODEL_REVISION>/maia3-5m.tflite`, pinned to a commit so the URL is immutable. It
+    egress on 5.9 MB per visitor. `MaiaRuntime.wasm.kt` fetches
+    `https://huggingface.co/ber4444/maia3-5m-litert/resolve/<MODEL_REVISION>/maia3-5m-int8.tflite`, pinned to a commit so the URL is immutable. It
     hashes the bytes against `MaiaModelFiles.WEB_TFLITE_SHA256` before LiteRT.js compiles them. A new
-    model means a new upload and a new `MODEL_REVISION`. Web still fetches the **float** file because
-    the int8 one has not been uploaded yet; once it is, point `WEB_TFLITE_NAME`/`WEB_TFLITE_SHA256` at
-    it (or drop them for `TFLITE_*`) with the new revision.
+    model means a new upload and a new `MODEL_REVISION`. `WEB_TFLITE_*` equal `TFLITE_*` today but
+    are kept separate on purpose: they describe the upload, which moves only when a re-quantized file is
+    uploaded. **Uploads are add-only**: the float `maia3-5m.tflite` stays in the repo because web
+    builds before the int8 upload pin the commit that added it (`d80145dd`).
   - **The LiteRT.js `import()` needs `/* webpackIgnore: true */`**, or webpack turns it into a failing
     bundled-module lookup.
   - **Loading is lazy on purpose.** The factory only checks that the resource exists, and the model

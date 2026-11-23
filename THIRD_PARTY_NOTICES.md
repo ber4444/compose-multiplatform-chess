@@ -103,10 +103,11 @@ licensed under MIT. LiteRT has no desktop JVM runtime.
 - Copyright: University of Toronto CSSLab contributors
 - Licence: GNU Affero General Public License v3.0
 
-`maia3-5m.tflite` (downloaded by the web build from
+`maia3-5m.tflite` (the float LiteRT conversion, on
 [`ber4444/maia3-5m-litert`](https://huggingface.co/ber4444/maia3-5m-litert)) and `maia3-5m.onnx` (desktop) are converted forms of the released
 Maia-3 5M checkpoint. They add no training data and do not change the learned weights.
-`maia3-5m-int8.tflite` (bundled on Android and iOS) is `maia3-5m.tflite` with its weights rounded to
+`maia3-5m-int8.tflite` (bundled on Android and iOS, and downloaded by the web build from the same
+Hugging Face repo) is `maia3-5m.tflite` with its weights rounded to
 8-bit integers: a modified form of the checkpoint, under the same licence, that adds no training data.
 Exact revisions, checkpoint and conversion hashes, and reproduction instructions are in
 [docs/maia3-model-provenance.md](docs/maia3-model-provenance.md). The conversion tools are

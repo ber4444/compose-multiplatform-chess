@@ -3,16 +3,19 @@
 Every build runs a conversion of the released Maia-3 5M model: as the default opponent, and in the
 History screen's human-move explorer.
 
-- **LiteRT int8** (`maia3-5m-int8.tflite`) on Android (`org.tensorflow.lite.Interpreter`) and iOS
-  (the TFLite C API). Both bundle the same file, so Maia works with no network:
+- **LiteRT int8** (`maia3-5m-int8.tflite`) on Android (`org.tensorflow.lite.Interpreter`), iOS
+  (the TFLite C API) and web (LiteRT.js). Android and iOS bundle the same file, so Maia works with no
+  network:
   - `app/src/androidMain/resources/maia/`;
   - `app/src/iosMain/composeResources/files/maia/`.
-- **LiteRT float** (`maia3-5m.tflite`) on web (LiteRT.js). It is the file the int8 one is quantized
-  from. **Web does not bundle it.** It downloads it from the public Hugging Face repo
+
+  **Web does not bundle it.** It downloads it from the public Hugging Face repo
   [`ber4444/maia3-5m-litert`](https://huggingface.co/ber4444/maia3-5m-litert), pinned to commit
-  `d80145dd10ca56bbe4453c667c10ea56c3c9a99b`, and checks its SHA-256 before use. The repo's model card
-  carries the AGPL-3.0 licence and this provenance. Web moves to the int8 file once it is uploaded to
-  that repo.
+  `76710ab522d2724eff302be0bc49e81db3d4ab92`, and checks its SHA-256 before use. The repo's model card
+  carries the AGPL-3.0 licence and this provenance, and notes that the int8 file is a modified form.
+- **LiteRT float** (`maia3-5m.tflite`), the file the int8 one is quantized from. No build runs it any
+  more. It stays in the same Hugging Face repo, unchanged, because web builds before the int8 upload
+  download it from commit `d80145dd10ca56bbe4453c667c10ea56c3c9a99b`.
 - **ONNX** on desktop (ONNX Runtime), the one platform LiteRT publishes no runtime for:
   `app/src/desktopMain/resources/maia/`.
 The layout of this record follows Mobile Maia's
@@ -51,9 +54,9 @@ op at opset 17. `eps` is torch's default for `RMSNorm(d_model)`, float32 machine
 `tools/maia3/make_golden.py` checks the export against the **unmodified** PyTorch model: the
 largest logit difference is `1.8e-05`.
 
-## LiteRT conversion (downloaded on web; the input to the int8 file)
+## LiteRT conversion (the input to the int8 file)
 
-- File: `maia3-5m.tflite` (the Hugging Face file; no longer bundled)
+- File: `maia3-5m.tflite` (on Hugging Face at commit `d80145dd10ca56bbe4453c667c10ea56c3c9a99b`; no longer bundled or downloaded)
 - Size: `20813796` bytes
 - SHA-256: `f0acad2d11db917c10ecc4418a5ef5600c00e21dcac1f54b77008acfeeed998e`
 - Converter: `litert-torch 0.10.0` (`litert-converter 0.5.0`) on torch `2.14.1`, with `jax`/`jaxlib`
@@ -69,11 +72,13 @@ largest logit difference is `1.8e-05`.
   refuses to write it unless every legal-move logit matches within 1e-3. The measured difference is
   `9.5e-06`, which is tighter than the ONNX export.
 
-## LiteRT int8 quantization (bundled on Android and iOS)
+## LiteRT int8 quantization (bundled on Android and iOS, downloaded on web)
 
 - File: `maia3-5m-int8.tflite`
 - Size: `5889056` bytes
 - SHA-256: `bb8c8247a41fb6eccbbf7b717f496d9d02e723a43c1fe484c0b0f16a63f9f122`
+- Hugging Face (web): `ber4444/maia3-5m-litert` at commit `76710ab522d2724eff302be0bc49e81db3d4ab92`,
+  which added it next to the unchanged float file.
 - Input: the float `maia3-5m.tflite` above, checked against its SHA-256.
 - Quantizer: `litert-quantizer 0.11.0` on `ai-edge-litert 2.3.0`, recipe `weight_only_wi8_afp32`
   (`tools/maia3/requirements-quantize.txt`). The deprecated `ai-edge-quantizer 0.10.1` writes the same
@@ -112,7 +117,8 @@ These fail if a bundled file's SHA-256 differs from the values above:
 - `MaiaOnDeviceTest` (Android device, int8).
 
 `MaiaModelFiles` pins the same hashes and sizes, and the desktop and Android loaders refuse a file of
-the wrong size.
+the wrong size. Web hashes the downloaded bytes against `MaiaModelFiles.WEB_TFLITE_SHA256` and
+refuses to load a mismatch.
 
 ## Reproduction
 

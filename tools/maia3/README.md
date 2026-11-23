@@ -1,11 +1,12 @@
 # Maia-3 export and golden fixtures
 
-Maia-3 5M ships in three forms, all from the same checkpoint:
+Maia-3 5M is built in three forms, all from the same checkpoint:
 
-- `maia3-5m-int8.tflite`, bundled on Android and iOS: `quantize_litert.py` applied to the float LiteRT
-  file. Weight-only int8, 5.9 MB instead of 20.8 MB, still computed in float32.
-- `maia3-5m.tflite`, the float LiteRT export made by `export_litert.py`. Web downloads it from
-  `ber4444/maia3-5m-litert` on Hugging Face until the int8 file is uploaded there.
+- `maia3-5m-int8.tflite`, bundled on Android and iOS and downloaded on web from
+  `ber4444/maia3-5m-litert` on Hugging Face: `quantize_litert.py` applied to the float LiteRT file.
+  Weight-only int8, 5.9 MB instead of 20.8 MB, still computed in float32.
+- `maia3-5m.tflite`, the float LiteRT export made by `export_litert.py`: the quantizer's input. No
+  build runs it; it stays on Hugging Face for older web builds.
 - `maia3-5m.onnx`, desktop, made by `export_onnx.py`.
 
 These scripts reproduce every file and the encoder fixtures; nothing here runs in CI. The pinned
@@ -45,7 +46,8 @@ model's by more than 1e-3.
 - `MaiaOnDeviceTest` (androidDeviceTest) does the same through LiteRT on a device and logs load and
   inference times under the `MaiaOnDevice` tag.
 - Web has no automated runtime test: the karma browser would need the CDN and the served model. It
-  was checked in Chrome: the same logits within 9.5e-06, and the real app opening a game with Maia.
+  was checked in Chrome: the float file within 9.5e-06 of PyTorch, then the int8 file from Hugging
+  Face within 4e-06 of `ai-edge-litert` on the same file, and the real app playing a game with Maia.
 
 If you change the model, update all of these together: every bundled copy (re-quantized), the Hugging
 Face upload and `MODEL_REVISION` in `MaiaRuntime.wasm.kt`, `MaiaModelFiles`, the provenance document,
