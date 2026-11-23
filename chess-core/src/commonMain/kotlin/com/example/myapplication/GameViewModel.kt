@@ -617,15 +617,22 @@ class GameViewModel(
         // Look for the most recent unassessed player move.
         // If it's the player's turn, the history ends with the engine's move.
         // Player's last move is at lastIndex - 1.
-        val targetIndex = history.indexOfLast { 
+        //
+        // Deliberately **not** filtered on `cpAfter != null`. `cpAfter` is a by-product of
+        // Stockfish's search for its *reply*, so it exists only when Stockfish chose the reply.
+        // Once an OpponentMoveChooser (Maia) plays the engine side, no search runs and `cpAfter`
+        // stays null on every player move — the filter then matched nothing, so no move was ever
+        // assessed, `onMoveCoached` never fired, and the board lost its move-quality colours with
+        // nothing failing. The score is computed below instead when the reply didn't supply it.
+        val targetIndex = history.indexOfLast {
             val isPlayerMove = if (playerSide == Set.WHITE) history.indexOf(it) % 2 == 0 else history.indexOf(it) % 2 != 0
-            isPlayerMove && it.assessment == null && it.cpAfter != null
+            isPlayerMove && it.assessment == null
         }
-        
+
         if (targetIndex == -1) return
 
         val playerRecord = history[targetIndex]
-        
+
         // FEN before player's move
         val fenBefore = if (targetIndex == 0) {
             FenConverter.gameStateToFen(GameUiState()) // Initial state
@@ -633,7 +640,15 @@ class GameViewModel(
             history[targetIndex - 1].fenAfter
         }
 
-        val cpPlayed = playerRecord.cpAfter ?: return
+        // Harvested for free when Stockfish chose the reply; otherwise one evaluation here, during
+        // the player's idle time, rather than a second search on the opponent's turn that would
+        // delay Maia's move. evaluate() is White-perspective, like the harvested score, so the two
+        // are interchangeable (GameHistoryBackfiller makes the same substitution). No material
+        // fallback on purpose: cpBest comes from Stockfish, and grading a Stockfish score against a
+        // piece count would mislabel the move. A null evaluation leaves it unassessed, as before.
+        val cpPlayed = playerRecord.cpAfter ?: engineStrengthMutex.withLock {
+            engine.evaluate(playerRecord.fenAfter, engineDifficulty.thinkTimeMs)
+        } ?: return
 
         // Expensive call behind Mutex
         // Bound cpBest by movetime, not depth, as requested in RAG-1 B1a.4
@@ -723,7 +738,9 @@ class GameViewModel(
         val currentHistory = _gameState.value.moveHistory.toMutableList()
         // Ensure we haven't lost sync
         if (targetIndex < currentHistory.size && currentHistory[targetIndex].uci == playerRecord.uci) {
-            val updatedRecord = playerRecord.copy(assessment = assessment)
+            // cpAfter is written back too, so the saved record carries the score its assessment
+            // was graded against whichever side chose the reply.
+            val updatedRecord = playerRecord.copy(cpAfter = cpPlayed, assessment = assessment)
             currentHistory[targetIndex] = updatedRecord
             _gameState.value = _gameState.value.copy(moveHistory = currentHistory)
             autosave()
