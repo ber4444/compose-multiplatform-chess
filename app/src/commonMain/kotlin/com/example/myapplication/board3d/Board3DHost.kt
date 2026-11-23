@@ -35,6 +35,9 @@ fun Board3D(
     selectedSquare: BoardSquare? = null,
     highlightedSquares: List<HighlightedSquare> = emptyList(),
     onSquareTapped: (BoardSquare) -> Unit = {},
+    /** Fractions of the surface's height to keep the board out of; see `Board3DSessionState.setViewportReserve`. */
+    reserveTop: Float = 0f,
+    reserveBottom: Float = 0f,
 ) {
     var renderer by remember { mutableStateOf<Chess3DBoardRenderer?>(null) }
     var initAttempted by remember { mutableStateOf(false) }
@@ -91,6 +94,13 @@ fun Board3D(
         // Closed briefly after each renderer creation to swallow SceneView's one-shot
         // surface-creation pinch (see SPURIOUS_ZOOM_GUARD_MS); zoom only — orbit/pan stay live.
         var zoomGateOpen by remember { mutableStateOf(false) }
+
+        // Declared before the initial push below so the first camera a renderer sees already has
+        // the reserve; it also re-pushes when the reserve changes without a resize.
+        LaunchedEffect(currentRenderer, cameraSession, reserveTop, reserveBottom) {
+            cameraSession.setViewportReserve(reserveTop, reserveBottom)
+            currentRenderer.onUserInteraction(Board3DInput.SetCamera(cameraSession.cameraForRenderer()))
+        }
 
         // Push the initial (session-preserved) camera once, then open the zoom gate after the guard.
         // Keyed on the session too: switching sides hands down a new one (flipped to the other end

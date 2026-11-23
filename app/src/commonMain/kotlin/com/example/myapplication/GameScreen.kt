@@ -142,11 +142,12 @@ internal val SIDE_RAIL_WIDTH = 136.dp
 private val SIDE_RAIL_BUTTON_PADDING = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
 
 /**
- * The most of the window's height the coach strip may take under the 3D board in landscape.
+ * The most of the window's height the coach strip may take under the 3D board in landscape. Longer
+ * text scrolls inside it.
  *
- * The default camera (`OrbitCameraController`: pitch 33°, distance 12, vertical FOV 50°) leaves the
- * board's near edge at about 77% of a landscape viewport's height, so a strip this tall sits on the
- * frame below the player's back rank rather than over their pieces. Longer text scrolls inside it.
+ * The default camera would leave the board's near edge at about 77% of the viewport's height, and
+ * its frame to the bottom edge, so the strip (plus the bottom inset under it) is passed to the
+ * camera as a viewport reserve and the board is lifted clear of it rather than shrunk.
  */
 private const val LANDSCAPE_3D_COACH_HEIGHT_FRACTION = 0.2f
 
@@ -177,11 +178,14 @@ private fun TransparentUnderlineButton(
         ),
         contentPadding = contentPadding,
         modifier = modifier.drawBehind {
+            // The middle third of the button, so it reads as a mark under the (centred) label
+            // rather than a rule across the rail. The tap target is still the whole button.
             val strokeWidth = 1.dp.toPx()
+            val y = size.height - strokeWidth / 2f
             drawLine(
                 color = underlineColor,
-                start = Offset(0f, size.height - strokeWidth / 2f),
-                end = Offset(size.width, size.height - strokeWidth / 2f),
+                start = Offset(size.width / 3f, y),
+                end = Offset(size.width * 2f / 3f, y),
                 strokeWidth = strokeWidth,
             )
         },
@@ -347,6 +351,15 @@ fun GameScreen(
         // original stack (nav buttons top-right, game buttons and coach text under the board).
         val sideControls = usesSideControls(maxWidth, maxHeight)
         val landscape3DCoachMaxHeight = maxHeight * LANDSCAPE_3D_COACH_HEIGHT_FRACTION
+        // What the landscape 3D board must stay clear of, as fractions of its height: the status bar
+        // at the top, and the coach strip at its cap plus the inset under it at the bottom (each
+        // with the rails' 4dp). Zero in portrait, where the camera keeps its original framing.
+        val density = LocalDensity.current
+        val safeTop = with(density) { WindowInsets.safeDrawing.getTop(this).toDp() }
+        val safeBottom = with(density) { WindowInsets.safeDrawing.getBottom(this).toDp() }
+        val board3DReserveTop = if (sideControls) (safeTop + 4.dp) / maxHeight else 0f
+        val board3DReserveBottom =
+            if (sideControls) (safeBottom + 4.dp + landscape3DCoachMaxHeight) / maxHeight else 0f
         val coachVisible = coachState !is MoveCoachUiState.Hidden
         if (gameState.winState != WinState.NONE && !viewState.hideWindow) {
             // `gameSaved` guards against double-saves of the same finished game (tapping "Save game"
@@ -488,6 +501,8 @@ fun GameScreen(
                         .takeIf { it != INVALID_POSITION }
                         ?.let { BoardSquare(it.first, it.second) },
                     highlightedSquares = allHighlights,
+                    reserveTop = board3DReserveTop,
+                    reserveBottom = board3DReserveBottom,
                     onSquareTapped = onSquareTapped@{ sq ->
                     // Explain mode is opt-in and one-shot (see explainMode). Outside it, a tap is a
                     // move — the board must never stop accepting moves because a panel is open.
