@@ -72,12 +72,20 @@ largest logit difference is `1.8e-05`.
 ## LiteRT int8 quantization (bundled on Android and iOS)
 
 - File: `maia3-5m-int8.tflite`
-- Size: `5890400` bytes
-- SHA-256: `b07703def6f7bdd1c3253884b52d6eeb2a8a4328e84dd08f64f7e9ba0311ec71`
+- Size: `5889056` bytes
+- SHA-256: `bb8c8247a41fb6eccbbf7b717f496d9d02e723a43c1fe484c0b0f16a63f9f122`
 - Input: the float `maia3-5m.tflite` above, checked against its SHA-256.
 - Quantizer: `litert-quantizer 0.11.0` on `ai-edge-litert 2.3.0`, recipe `weight_only_wi8_afp32`
   (`tools/maia3/requirements-quantize.txt`). The deprecated `ai-edge-quantizer 0.10.1` writes the same
-  bytes.
+  quantized model.
+- Layout: every constant is stored **inside** the flatbuffer, as in the float export. The quantizer
+  itself writes each weight matrix after the flatbuffer and points at it by offset, and iOS cannot run
+  that file: TensorFlowLiteC 2.17.0's `TfLiteInterpreterCreate` builds its interpreter without the
+  model's allocation, so offset buffers load as tensors with no data and inference fails with "Input
+  tensor 150 lacks data" (later releases pass the allocation; 2.17.0 is the last iOS one).
+  `quantize_litert.py` therefore rewrites the quantizer's output inline (`inline_buffers`) and runs
+  its checks on the rewritten file. The tensors are the same bytes in a different place: the two
+  layouts give bit-identical logits on `ai-edge-litert`.
 - What changes: each weight matrix is stored as int8 with a float scale per output channel, and is
   dequantized to float32 once, when the interpreter is prepared. Every op still computes in float32;
   the only new op is DEQUANTIZE (53 instances), so the iOS TensorFlowLiteC 2.17.0 runtime still

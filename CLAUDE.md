@@ -464,6 +464,14 @@ game is still going. The same predictor plays the Maia opponent (see *Engine arc
     swaps one near-tied fifth move in `MaiaGolden`. That tolerance is duplicated in
     `quantize_litert.py` and `MaiaOnDeviceTest` (which cannot see commonTest); change all three
     together. Dynamic-range int8 and int4 were measured and rejected (see the provenance doc).
+  - **The int8 file keeps its weights inside the flatbuffer, and iOS depends on it.** litert-quantizer
+    writes weights after the flatbuffer and points at them by offset; TensorFlowLiteC 2.17's
+    `TfLiteInterpreterCreate` drops the model's allocation, so those load as empty tensors and every
+    inference fails with "Input tensor N lacks data" (in `MaiaLiteRtSimulatorTest` it surfaces only
+    as `IllegalStateException`; the TFLite error is in the test XML's `system-out`). Android's
+    newer LiteRT reads either layout, so only the iOS test notices. `quantize_litert.py`'s
+    `inline_buffers` rewrites the output; don't drop it, and don't swap in a quantizer output that
+    skipped it.
   - **The runtime seam is `suspend`** (`MaiaRuntime.moveLogits`, `maiaRuntimeFactory`), because
     LiteRT.js is asynchronous.
   - **Web downloads the model; it does not bundle it.** The app's Fly.io host would otherwise pay

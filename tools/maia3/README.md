@@ -20,7 +20,9 @@ epsilon, *not* 1e-6. It also exports with `dynamo=False`.
 `quantize_litert.py` refuses to write the int8 file unless it stays close to the float one: against
 `MaiaGolden`, the same top move and every PyTorch top-5 share within 0.02; over ~600 positions from
 Maia's own self-play at the four difficulty ratings, a mean total-variation distance of at most 0.01
-and a worst case of at most 0.05. It checks its encoder port against `MaiaGolden` first. It needs only
+and a worst case of at most 0.05. It checks its encoder port against `MaiaGolden` first. It also
+rewrites the quantizer's output so the weights sit inside the flatbuffer rather than after it: iOS's
+TensorFlowLiteC 2.17 cannot read weights stored by offset (see the provenance document). It needs only
 `requirements-quantize.txt` (no torch).
 
 ## Regenerate the golden fixtures

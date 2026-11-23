@@ -18,6 +18,9 @@ The encoder below is a port of MaiaEncoder.kt. Step 1 runs the *float* model aga
 token indices included, and that is what proves the port: a wrong encoding cannot reproduce the
 PyTorch top-5.
 
+The quantizer's output is rewritten with every constant inside the flatbuffer (inline_buffers below);
+the checks run on that rewritten file, which is the one written.
+
 Needs its own environment (tools/maia3/requirements-quantize.txt); it does not need torch.
 
 Usage:
@@ -33,6 +36,7 @@ import sys
 import chess
 import numpy as np
 from ai_edge_litert.interpreter import Interpreter
+from ai_edge_litert.tools import flatbuffer_utils
 from litert_quantizer import quantizer, recipe
 
 FLOAT_SHA256 = "f0acad2d11db917c10ecc4418a5ef5600c00e21dcac1f54b77008acfeeed998e"
@@ -171,6 +175,28 @@ def self_play_positions(model):
     return positions
 
 
+def inline_buffers(path):
+    """Rewrite `path` with every constant buffer stored inside the flatbuffer, not after it.
+
+    litert-quantizer moves each buffer of 1 KiB or more to the end of the file and points at it by
+    offset whenever those buffers add up to 256 KiB, which here is every weight matrix. The iOS
+    runtime cannot read that layout: TfLiteInterpreterCreate in TensorFlowLiteC 2.17 (the last iOS
+    release) builds its InterpreterBuilder without the model's allocation, so a buffer given by
+    offset loads as a tensor with no data, and the first DEQUANTIZE fails with "Input tensor N lacks
+    data". Inline is also the layout of the float export, which every platform already runs.
+    """
+    model = flatbuffer_utils.read_model_from_bytearray(open(path, "rb").read())  # resolves offsets
+    for buffer in model.buffers:
+        if buffer.data is not None:
+            buffer.data = np.frombuffer(bytes(buffer.data), np.uint8)
+    serialized = flatbuffer_utils.convert_object_to_bytearray(model)
+    rewritten = flatbuffer_utils.convert_bytearray_to_object(serialized)
+    if any(buffer.offset or buffer.size for buffer in rewritten.buffers):
+        raise SystemExit(f"{path} still stores a buffer by offset")
+    with open(path, "wb") as out:
+        out.write(serialized)
+
+
 def main(float_path, out_path):
     digest = hashlib.sha256(open(float_path, "rb").read()).hexdigest()
     if digest != FLOAT_SHA256:
@@ -186,6 +212,7 @@ def main(float_path, out_path):
     candidate = out_path + ".candidate"
     q.quantize().export_model(candidate, overwrite=True)
     try:
+        inline_buffers(candidate)
         quantized = Model(candidate)
         golden_error = worst_golden_share_error(quantized, check_tokens=False)
         if golden_error > GOLDEN_SHARE_TOLERANCE:

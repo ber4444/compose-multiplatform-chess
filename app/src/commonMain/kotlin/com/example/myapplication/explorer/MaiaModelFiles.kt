@@ -19,8 +19,8 @@ package com.example.myapplication.explorer
  */
 internal object MaiaModelFiles {
     const val TFLITE_NAME = "maia3-5m-int8.tflite"
-    const val TFLITE_BYTES = 5_890_400L
-    const val TFLITE_SHA256 = "b07703def6f7bdd1c3253884b52d6eeb2a8a4328e84dd08f64f7e9ba0311ec71"
+    const val TFLITE_BYTES = 5_889_056L
+    const val TFLITE_SHA256 = "bb8c8247a41fb6eccbbf7b717f496d9d02e723a43c1fe484c0b0f16a63f9f122"
 
     const val WEB_TFLITE_NAME = "maia3-5m.tflite"
     const val WEB_TFLITE_SHA256 = "f0acad2d11db917c10ecc4418a5ef5600c00e21dcac1f54b77008acfeeed998e"
