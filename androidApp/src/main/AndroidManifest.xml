@@ -13,9 +13,16 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="false"
         android:theme="@style/Theme.Chess">
+        <!-- Landscape on phones: a square board in portrait leaves most of the screen empty above
+             and below it, so the game screen puts its buttons in side rails instead
+             (GameScreen.usesSideControls). userLandscape allows both landscape directions and
+             honours the user's rotation lock between them. Android 16+ ignores the request on large
+             screens (targetSdk 36), where the layout follows the window's shape instead. -->
         <activity
             android:name="com.example.myapplication.MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:screenOrientation="userLandscape"
+            tools:ignore="LockedOrientationActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

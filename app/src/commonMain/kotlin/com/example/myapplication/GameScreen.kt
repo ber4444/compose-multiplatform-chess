@@ -18,14 +18,18 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -69,6 +73,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntOffset
@@ -117,23 +122,60 @@ internal val THREE_D_CONTROL_ACCENT_COLOR = Color.LightGray.copy(alpha = 0.70f)
 internal val THREE_D_CONTROL_DISABLED_CONTENT_COLOR = Color.Black.copy(alpha = 0.38f)
 internal val THREE_D_CONTROL_DISABLED_ACCENT_COLOR = Color.LightGray.copy(alpha = 0.38f)
 
+/**
+ * Whether the game screen puts its buttons in rails beside the board instead of above and below it.
+ *
+ * Decided by the window's shape, not the device: a phone (which the Android manifest and the iOS
+ * Info.plist hold in landscape), a tablet on its side, and a wide desktop or browser window all get
+ * the rails. A window wider than it is tall has its spare room at the sides, so that is where the
+ * buttons go, and the board keeps the full height.
+ */
+internal fun usesSideControls(width: Dp, height: Dp): Boolean = width > height
+
+/**
+ * Width of each landscape button rail, sized for the longest label, "Cancel Explain". Labels are
+ * centred, so a larger font scale wraps one onto two lines rather than clipping it.
+ */
+internal val SIDE_RAIL_WIDTH = 136.dp
+
+/** Narrower than Material's 24dp so the labels fit the rail; the underline still spans the full rail. */
+private val SIDE_RAIL_BUTTON_PADDING = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+
+/**
+ * The most of the window's height the coach strip may take under the 3D board in landscape.
+ *
+ * The default camera (`OrbitCameraController`: pitch 33°, distance 12, vertical FOV 50°) leaves the
+ * board's near edge at about 77% of a landscape viewport's height, so a strip this tall sits on the
+ * frame below the player's back rank rather than over their pieces. Longer text scrolls inside it.
+ */
+private const val LANDSCAPE_3D_COACH_HEIGHT_FRACTION = 0.2f
+
+/** In the 2D landscape layout the coach shares the right-hand margin with the game buttons. */
+private const val LANDSCAPE_2D_COACH_HEIGHT_FRACTION = 0.4f
+
 @Composable
 private fun TransparentUnderlineButton(
     onClick: () -> Unit,
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
+    // The 3D defaults read on the rendered scene; the 2D board sits on a themed surface, where
+    // light grey on the light theme's paper background would all but vanish.
+    accentColor: Color = THREE_D_CONTROL_ACCENT_COLOR,
+    disabledAccentColor: Color = THREE_D_CONTROL_DISABLED_ACCENT_COLOR,
+    contentPadding: PaddingValues = ButtonDefaults.ContentPadding,
     content: @Composable RowScope.() -> Unit,
 ) {
-    val underlineColor = if (enabled) THREE_D_CONTROL_ACCENT_COLOR else THREE_D_CONTROL_DISABLED_ACCENT_COLOR
+    val underlineColor = if (enabled) accentColor else disabledAccentColor
     Button(
         onClick = onClick,
         enabled = enabled,
         colors = ButtonDefaults.buttonColors(
             containerColor = THREE_D_CONTROL_CONTAINER_COLOR,
-            contentColor = THREE_D_CONTROL_ACCENT_COLOR,
+            contentColor = accentColor,
             disabledContainerColor = THREE_D_CONTROL_CONTAINER_COLOR,
-            disabledContentColor = THREE_D_CONTROL_DISABLED_ACCENT_COLOR,
+            disabledContentColor = disabledAccentColor,
         ),
+        contentPadding = contentPadding,
         modifier = modifier.drawBehind {
             val strokeWidth = 1.dp.toPx()
             drawLine(
@@ -300,7 +342,12 @@ fun GameScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        // Landscape: buttons in rails at the sides, coach text along the bottom. Portrait keeps the
+        // original stack (nav buttons top-right, game buttons and coach text under the board).
+        val sideControls = usesSideControls(maxWidth, maxHeight)
+        val landscape3DCoachMaxHeight = maxHeight * LANDSCAPE_3D_COACH_HEIGHT_FRACTION
+        val coachVisible = coachState !is MoveCoachUiState.Hidden
         if (gameState.winState != WinState.NONE && !viewState.hideWindow) {
             // `gameSaved` guards against double-saves of the same finished game (tapping "Save game"
             // twice). Reset whenever a new game-over is shown (winState transitions back to NONE
@@ -502,48 +549,183 @@ fun GameScreen(
                 }
             }
 
-            // Stack controls + coach panel at the bottom. Panel fills remaining
-            // vertical space below the buttons down to the bottom of the screen;
-            // internally scrolls with a 5s auto-scroll delay if text overflows.
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 4.dp)
-            ) {
-                GameControls(
-                    gameState = gameState,
-                    animState = animState,
-                    viewState = viewState,
-                    viewModel = viewModel,
-                    engineAttached = engineAttached,
-                    onResetGame = { showResetConfirmation = true },
-                    transparentButtons = true,
-                    explainMode = explainMode,
-                    onToggleExplainMode = moveCoachManager?.let { { explainMode = !explainMode } },
-                )
-                if (coachState !is MoveCoachUiState.Hidden) {
-                    MoveCoachPanel(
-                        state = coachState,
-                        modifier = Modifier.weight(1f, fill = false),
-                        onRetry = moveCoachManager?.let { { it.retry() } },
-                    )
+            if (sideControls) {
+                // The 3D board keeps the whole window; the controls overlay its side margins, which
+                // the default camera leaves empty in landscape, and the coach text runs along the
+                // bottom between the rails. Empty parts of the overlay have no pointer input, so
+                // taps there still reach the board.
+                SideRails(
+                    start = {
+                        NavigationButtons(
+                            onOpenChat = onOpenChat,
+                            onOpenRules = onOpenRules,
+                            onOpenSettings = onOpenSettings,
+                            onOpenHistory = onOpenHistory,
+                            vertical = true,
+                        )
+                    },
+                    end = {
+                        GameControls(
+                            gameState = gameState,
+                            animState = animState,
+                            viewState = viewState,
+                            viewModel = viewModel,
+                            engineAttached = engineAttached,
+                            onResetGame = { showResetConfirmation = true },
+                            transparentButtons = true,
+                            explainMode = explainMode,
+                            onToggleExplainMode = moveCoachManager?.let { { explainMode = !explainMode } },
+                            vertical = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    },
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                    ) {
+                        if (coachVisible) {
+                            MoveCoachPanel(
+                                state = coachState,
+                                modifier = Modifier.heightIn(max = landscape3DCoachMaxHeight),
+                                onRetry = moveCoachManager?.let { { it.retry() } },
+                            )
+                        }
+                        belowBoard?.invoke()
+                    }
                 }
-                belowBoard?.invoke()
+            } else {
+                // Stack controls + coach panel at the bottom. Panel fills remaining
+                // vertical space below the buttons down to the bottom of the screen;
+                // internally scrolls with a 5s auto-scroll delay if text overflows.
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 4.dp)
+                ) {
+                    GameControls(
+                        gameState = gameState,
+                        animState = animState,
+                        viewState = viewState,
+                        viewModel = viewModel,
+                        engineAttached = engineAttached,
+                        onResetGame = { showResetConfirmation = true },
+                        transparentButtons = true,
+                        explainMode = explainMode,
+                        onToggleExplainMode = moveCoachManager?.let { { explainMode = !explainMode } },
+                    )
+                    if (coachVisible) {
+                        MoveCoachPanel(
+                            state = coachState,
+                            modifier = Modifier.weight(1f, fill = false),
+                            onRetry = moveCoachManager?.let { { it.retry() } },
+                        )
+                    }
+                    belowBoard?.invoke()
+                }
+            }
+        } else if (sideControls) {
+            // 2D landscape. Unlike the 3D board, this one is a square laid out by Compose, so a coach
+            // strip under it would come straight out of the board's size. It takes the full height
+            // instead, and the coach text shares the right-hand margin with the game buttons.
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                val boardSize = maxOf(0.dp, minOf(maxHeight, maxWidth - SIDE_RAIL_WIDTH * 2))
+                // Read here, not inside the Row/Column below: layout scopes are DSL-marked, so the
+                // outer scope's maxHeight is not implicitly reachable from in there.
+                val coachMaxHeight = maxHeight * LANDSCAPE_2D_COACH_HEIGHT_FRACTION
+                val accent = MaterialTheme.colorScheme.primary
+                val disabledAccent = accent.copy(alpha = 0.38f)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.Start,
+                        modifier = Modifier.weight(1f).fillMaxHeight().testTag("side_rail_start"),
+                    ) {
+                        NavigationButtons(
+                            onOpenChat = onOpenChat,
+                            onOpenRules = onOpenRules,
+                            onOpenSettings = onOpenSettings,
+                            onOpenHistory = onOpenHistory,
+                            vertical = true,
+                            accentColor = accent,
+                            modifier = Modifier.width(SIDE_RAIL_WIDTH),
+                        )
+                    }
+                    Board(
+                        gameState = gameState,
+                        animState = animState,
+                        windowSize = windowSize,
+                        playerSide = playerSide,
+                        updateSelected = viewModel::updateSelected,
+                        playerMove = viewModel::playerMove,
+                        animationEnd = viewModel::animationEnd,
+                        boardMaxSize = boardSize,
+                        highlightedSquares = allHighlights,
+                        onSquareTapped = if (explainMode && moveCoachManager != null) {
+                            { pos ->
+                                explainSquareAt(pos, gameState, viewModel.playerSide, moveCoachManager)
+                                explainMode = false
+                            }
+                        } else null,
+                    )
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        modifier = Modifier.weight(1f).fillMaxHeight().testTag("side_rail_end"),
+                    ) {
+                        // The buttons centre in whatever height the coach text leaves them.
+                        Box(
+                            contentAlignment = Alignment.CenterEnd,
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                        ) {
+                            GameControls(
+                                gameState = gameState,
+                                animState = animState,
+                                viewState = viewState,
+                                viewModel = viewModel,
+                                engineAttached = engineAttached,
+                                onResetGame = { showResetConfirmation = true },
+                                transparentButtons = true,
+                                explainMode = explainMode,
+                                onToggleExplainMode = moveCoachManager?.let { { explainMode = !explainMode } },
+                                vertical = true,
+                                accentColor = accent,
+                                disabledAccentColor = disabledAccent,
+                                modifier = Modifier.width(SIDE_RAIL_WIDTH),
+                            )
+                        }
+                        if (coachVisible) {
+                            MoveCoachPanel(
+                                state = coachState,
+                                modifier = Modifier.heightIn(max = coachMaxHeight),
+                                onRetry = moveCoachManager?.let { { it.retry() } },
+                                contentColor = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                        belowBoard?.invoke()
+                    }
+                }
             }
         } else {
             // Measure the viewport OUTSIDE the verticalScroll — the scroll gives children infinite
             // max height, so BoxWithConstraints inside it can't cap the board. Capping the board at
-            // min(width, 0.85 × height) keeps it fully visible on wide/landscape windows (web/desktop)
-            // while still using the full width on portrait.
+            // min(width, 0.85 × height) keeps it fully visible on squat portrait windows while still
+            // using the full width on a phone. Landscape windows take the side-rail branch above.
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 // Shrink the board cap when the coach panel is visible so it has guaranteed
                 // room above the fold (otherwise the panel — which can't use `weight` inside a
                 // scrollable Column — sits below the board + controls and needs scrolling).
-                val coachVisible = coachState !is MoveCoachUiState.Hidden
                 val boardHeightFraction = if (coachVisible) 0.65f else 0.85f
                 val boardMaxSize = minOf(maxWidth, maxHeight * boardHeightFraction)
                 Column(
@@ -633,64 +815,114 @@ fun GameScreen(
             }
         }
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .zIndex(1f)
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
-                .offset(y = switchTopPadding)
-                .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
+        // Portrait only: in landscape the same buttons are the left-hand rail.
+        if (!sideControls) {
+            NavigationButtons(
+                onOpenChat = onOpenChat,
+                onOpenRules = onOpenRules,
+                onOpenSettings = onOpenSettings,
+                onOpenHistory = onOpenHistory,
+                vertical = false,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .zIndex(1f)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                    .offset(y = switchTopPadding)
+                    .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
+            )
+        }
+    }
+}
+
+/**
+ * The Chat / Rules / Settings / History entry points (issue #39; the 3D toggle lives in Settings).
+ * A null action hides its button — the web build has no Chat.
+ *
+ * [vertical] is the landscape rail: the same underlined, transparent buttons as Reset/Hint/Explain,
+ * stretched to the rail's width so the underlines line up. Portrait keeps the plain text row.
+ */
+@Composable
+private fun NavigationButtons(
+    onOpenChat: (() -> Unit)?,
+    onOpenRules: (() -> Unit)?,
+    onOpenSettings: () -> Unit,
+    onOpenHistory: () -> Unit,
+    vertical: Boolean,
+    accentColor: Color = THREE_D_CONTROL_ACCENT_COLOR,
+    modifier: Modifier = Modifier,
+) {
+    val entries = listOfNotNull(
+        onOpenChat?.let { NavEntry("Chat", "open_chat_button", it) },
+        onOpenRules?.let { NavEntry("Rules", "open_rules_button", it) },
+        NavEntry("Settings", "open_settings_button", onOpenSettings),
+        NavEntry("History", "open_history_button", onOpenHistory),
+    )
+    if (vertical) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = modifier,
         ) {
-            if (onOpenChat != null) {
-                TextButton(
-                    onClick = onOpenChat,
-                    modifier = Modifier.testTag("open_chat_button")
+            entries.forEach { entry ->
+                TransparentUnderlineButton(
+                    onClick = entry.onClick,
+                    modifier = Modifier.fillMaxWidth().testTag(entry.testTag),
+                    accentColor = accentColor,
+                    contentPadding = SIDE_RAIL_BUTTON_PADDING,
                 ) {
-                    Text(
-                        text = "Chat",
-                        color = THREE_D_CONTROL_ACCENT_COLOR,
-                        style = MaterialTheme.typography.labelLarge
-                    )
+                    Text(entry.label, textAlign = TextAlign.Center)
                 }
-                Spacer(modifier = Modifier.width(4.dp))
-            }
-            if (onOpenRules != null) {
-                TextButton(
-                    onClick = onOpenRules,
-                    modifier = Modifier.testTag("open_rules_button")
-                ) {
-                    Text(
-                        text = "Rules",
-                        color = THREE_D_CONTROL_ACCENT_COLOR,
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-            }
-            // Settings + History entry points (issue #39). The 3D toggle moved to SettingsScreen.
-            TextButton(
-                onClick = onOpenSettings,
-                modifier = Modifier.testTag("open_settings_button")
-            ) {
-                Text(
-                    text = "Settings",
-                    color = THREE_D_CONTROL_ACCENT_COLOR,
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-            Spacer(modifier = Modifier.width(4.dp))
-            TextButton(
-                onClick = onOpenHistory,
-                modifier = Modifier.testTag("open_history_button")
-            ) {
-                Text(
-                    text = "History",
-                    color = THREE_D_CONTROL_ACCENT_COLOR,
-                    style = MaterialTheme.typography.labelLarge
-                )
             }
         }
+    } else {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
+            entries.forEachIndexed { index, entry ->
+                if (index > 0) Spacer(modifier = Modifier.width(4.dp))
+                TextButton(
+                    onClick = entry.onClick,
+                    modifier = Modifier.testTag(entry.testTag)
+                ) {
+                    Text(
+                        text = entry.label,
+                        color = accentColor,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            }
+        }
+    }
+}
+
+private class NavEntry(val label: String, val testTag: String, val onClick: () -> Unit)
+
+/**
+ * The landscape frame over the 3D board: [start] and [end] rails at the window's side edges,
+ * vertically centred where thumbs rest when a phone is held sideways, and [center] filling the
+ * strip between them.
+ */
+@Composable
+private fun SideRails(
+    start: @Composable ColumnScope.() -> Unit,
+    end: @Composable ColumnScope.() -> Unit,
+    modifier: Modifier = Modifier,
+    center: @Composable BoxScope.() -> Unit,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Column(
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.width(SIDE_RAIL_WIDTH).fillMaxHeight().testTag("side_rail_start"),
+            content = start,
+        )
+        Box(modifier = Modifier.weight(1f).fillMaxHeight(), content = center)
+        Column(
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.width(SIDE_RAIL_WIDTH).fillMaxHeight().testTag("side_rail_end"),
+            content = end,
+        )
     }
 }
 
@@ -705,8 +937,47 @@ private fun GameControls(
     transparentButtons: Boolean = false,
     explainMode: Boolean = false,
     onToggleExplainMode: (() -> Unit)? = null,
+    /** Stack the buttons as a landscape side rail, each stretched to the rail's width. */
+    vertical: Boolean = false,
+    accentColor: Color = THREE_D_CONTROL_ACCENT_COLOR,
+    disabledAccentColor: Color = THREE_D_CONTROL_DISABLED_ACCENT_COLOR,
     modifier: Modifier = Modifier
 ) {
+    val hintEnabled = gameState.turn == viewModel.playerSide &&
+        gameState.winState == WinState.NONE &&
+        animState.pieceToAnimate == null
+    // Each button is declared once; the same set is laid out as a row under the board or as a rail.
+    val controlButton: @Composable (label: String, tag: String, enabled: Boolean, onClick: () -> Unit) -> Unit =
+        { label, tag, enabled, onClick ->
+            val buttonModifier = if (vertical) Modifier.fillMaxWidth().testTag(tag) else Modifier.testTag(tag)
+            if (transparentButtons) {
+                TransparentUnderlineButton(
+                    onClick = onClick,
+                    enabled = enabled,
+                    modifier = buttonModifier,
+                    accentColor = accentColor,
+                    disabledAccentColor = disabledAccentColor,
+                    contentPadding = if (vertical) SIDE_RAIL_BUTTON_PADDING else ButtonDefaults.ContentPadding,
+                ) { Text(label, textAlign = TextAlign.Center) }
+            } else {
+                Button(onClick = onClick, enabled = enabled, modifier = buttonModifier) { Text(label) }
+            }
+        }
+    val buttons: @Composable () -> Unit = {
+        controlButton(stringResource(Res.string.reset_button), "reset_button", true, onResetGame)
+        if (engineAttached) {
+            controlButton("Hint", "hint_button", hintEnabled) { viewModel.requestHint() }
+        }
+        if (onToggleExplainMode != null) {
+            controlButton(
+                if (explainMode) "Cancel Explain" else "Explain",
+                "move_coach_explain_toggle",
+                true,
+                onToggleExplainMode,
+            )
+        }
+    }
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
@@ -715,56 +986,18 @@ private fun GameControls(
             Text(
                 text = stringResource(Res.string.board_3d_unavailable),
                 color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center,
                 modifier = Modifier.testTag("board_3d_unavailable")
             )
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (transparentButtons) {
-                TransparentUnderlineButton(
-                    onClick = onResetGame,
-                    modifier = Modifier.testTag("reset_button")
-                ) {
-                    Text(stringResource(Res.string.reset_button))
-                }
-                if (engineAttached) {
-                    TransparentUnderlineButton(
-                        onClick = viewModel::requestHint,
-                        enabled = gameState.turn == viewModel.playerSide && gameState.winState == WinState.NONE && animState.pieceToAnimate == null,
-                        modifier = Modifier.testTag("hint_button")
-                    ) { Text("Hint") }
-                }
-                if (onToggleExplainMode != null) {
-                    TransparentUnderlineButton(
-                        onClick = onToggleExplainMode,
-                        modifier = Modifier.testTag("move_coach_explain_toggle")
-                    ) {
-                        Text(if (explainMode) "Cancel Explain" else "Explain")
-                    }
-                }
-            } else {
-                Button(
-                    onClick = onResetGame,
-                    modifier = Modifier.testTag("reset_button")
-                ) {
-                    Text(stringResource(Res.string.reset_button))
-                }
-                if (engineAttached) {
-                    Button(
-                        onClick = viewModel::requestHint,
-                        enabled = gameState.turn == viewModel.playerSide && gameState.winState == WinState.NONE && animState.pieceToAnimate == null,
-                        modifier = Modifier.testTag("hint_button")
-                    ) { Text("Hint") }
-                }
-                if (onToggleExplainMode != null) {
-                    Button(
-                        onClick = onToggleExplainMode,
-                        modifier = Modifier.testTag("move_coach_explain_toggle")
-                    ) {
-                        Text(if (explainMode) "Cancel Explain" else "Explain")
-                    }
-                }
-            }
+        if (vertical) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) { buttons() }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { buttons() }
         }
     }
 }
@@ -869,8 +1102,8 @@ fun Board(
     updateSelected: (Pair<Int, Int>) -> Unit,
     playerMove: (Int, Pair<Int, Int>) -> Unit,
     animationEnd: () -> Unit,
-    /** Caps the board's size so it fits within the viewport on wide/landscape windows.
-     *  On portrait this equals the full width; on landscape it equals ~85% of the height. */
+    /** Caps the board's size so it fits within the viewport. In portrait this is about the full
+     *  width; in landscape it is the full height between the side rails. */
     boardMaxSize: Dp = Dp.Unspecified,
     /** Squares named in the current coach line (B16). Rendered on the 2D board as a tint. */
     highlightedSquares: List<HighlightedSquare> = emptyList(),
