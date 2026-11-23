@@ -988,7 +988,16 @@ fun Board(
                                         if (gameState.turn == playerSide) {
                                             updateSelected(currentSquare)
                                         }
-                                    else -> error("Should not be clickable")
+                                    // The selected square holds your piece, so `isOwnPiece` makes it
+                                    // clickable too, and tapping it again deselects. Since #153 widened
+                                    // `clickable` to own pieces, this case fell into an
+                                    // `else -> error("Should not be clickable")` and crashed the app.
+                                    // BoardSelectionUiTest pins it.
+                                    SquareType.CanMove, SquareType.CannotMove ->
+                                        updateSelected(INVALID_POSITION)
+                                    // Not clickable outside Explain mode; listed so this `when` stays
+                                    // exhaustive and a new SquareType is a compile error, not a crash.
+                                    SquareType.Empty -> Unit
                                 }
                             }
                         ) {
