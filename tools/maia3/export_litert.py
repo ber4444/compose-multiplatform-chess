@@ -1,4 +1,7 @@
-"""Export the published Maia-3 5M checkpoint to LiteRT (.tflite) for Android and iOS.
+"""Export the published Maia-3 5M checkpoint to float LiteRT (.tflite).
+
+The result is the file web downloads, and the input to quantize_litert.py, which makes the int8 file
+Android and iOS bundle.
 
 Same model and the same RMSNorm decomposition as export_onnx.py, converted with litert-torch. Only
 the move logits are exported (signature `serving_default`: `args_0` tokens float32 [1, 64, 97],

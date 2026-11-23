@@ -446,8 +446,8 @@ game is still going. The same predictor plays the Maia opponent (see *Engine arc
   colour-swapped when Black is to move, and a wrong mirror still returns a plausible distribution,
   so `MaiaEncoderTest` pins it against Python-generated `MaiaGolden`.
   - **Platforms.**
-    - Android and iOS run the **bundled LiteRT** `maia3-5m.tflite`; web runs the same file downloaded
-      from Hugging Face (below):
+    - Android and iOS run the **bundled LiteRT** `maia3-5m-int8.tflite`; web runs the float
+      `maia3-5m.tflite` it is quantized from, downloaded from Hugging Face (below):
       - Android: `org.tensorflow.lite.Interpreter`.
       - iOS: the TFLite C API through cinterop. `:app:fetchLiteRtIos` downloads TensorFlowLiteC
         2.17.0, SHA-256-checks it and caches it in the Gradle home; `iosApp/project.yml` links it next
@@ -455,21 +455,31 @@ game is still going. The same predictor plays the Maia opponent (see *Engine arc
       - Web: LiteRT.js from jsDelivr, on its WASM CPU backend.
     - Desktop runs the ONNX export through ONNX Runtime, because LiteRT publishes no desktop JVM
       runtime.
-    - `MaiaModelFiles` pins both files.
+    - `MaiaModelFiles` pins every file.
+  - **The bundled file is int8 on purpose.** The float export was 18.9 MB of the 21.7 MB Play download
+    increase Maia caused; weight-only int8 (`tools/maia3/quantize_litert.py`) is 5.0 MB compressed,
+    still computes in float32, and keeps the same top move in 99.5% of self-play positions (mean TV
+    distance 0.0047). The parity tests therefore compare by **share, not rank**: same top move, each
+    PyTorch top-5 share within `BundledMaiaParity.INT8_SHARE_TOLERANCE` (0.02), because the int8 file
+    swaps one near-tied fifth move in `MaiaGolden`. That tolerance is duplicated in
+    `quantize_litert.py` and `MaiaOnDeviceTest` (which cannot see commonTest); change all three
+    together. Dynamic-range int8 and int4 were measured and rejected (see the provenance doc).
   - **The runtime seam is `suspend`** (`MaiaRuntime.moveLogits`, `maiaRuntimeFactory`), because
     LiteRT.js is asynchronous.
   - **Web downloads the model; it does not bundle it.** The app's Fly.io host would otherwise pay
     egress on 20 MB per visitor. `MaiaRuntime.wasm.kt` fetches
     `https://huggingface.co/ber4444/maia3-5m-litert/resolve/<MODEL_REVISION>/maia3-5m.tflite`, pinned to a commit so the URL is immutable. It
-    hashes the bytes against `MaiaModelFiles.TFLITE_SHA256` before LiteRT.js compiles them. A new
-    model means a new upload and a new `MODEL_REVISION`.
+    hashes the bytes against `MaiaModelFiles.WEB_TFLITE_SHA256` before LiteRT.js compiles them. A new
+    model means a new upload and a new `MODEL_REVISION`. Web still fetches the **float** file because
+    the int8 one has not been uploaded yet; once it is, point `WEB_TFLITE_NAME`/`WEB_TFLITE_SHA256` at
+    it (or drop them for `TFLITE_*`) with the new revision.
   - **The LiteRT.js `import()` needs `/* webpackIgnore: true */`**, or webpack turns it into a failing
     bundled-module lookup.
   - **Loading is lazy on purpose.** The factory only checks that the resource exists, and the model
     is read on the first prediction. On a Pixel 10 Pro XL that takes ~170 ms, then ~30 ms per position.
     Creating the runtime in composition would put that load in cold start.
-  - **Model changes.** Changing the model means re-exporting with `tools/maia3`, then updating every
-    bundled copy, the Hugging Face upload and `MODEL_REVISION`, `MaiaModelFiles`,
+  - **Model changes.** Changing the model means re-exporting and re-quantizing with `tools/maia3`, then
+    updating every bundled copy, the Hugging Face upload and `MODEL_REVISION`, `MaiaModelFiles`,
     `docs/maia3-model-provenance.md` and `MaiaGolden.kt` together. The platform tests fail on a hash
     drift.
   - **R8.** The LiteRT AAR ships its own consumer rules.

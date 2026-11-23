@@ -34,8 +34,9 @@ interface MaiaRuntime : AutoCloseable {
  * calls it only on the first prediction. Having a factory at all is what makes the explorer
  * "available", so this must stay cheap.
  *
- * Android (LiteRT), iOS (LiteRT C API) and web (LiteRT.js) run the bundled `maia3-5m.tflite`;
- * desktop runs the ONNX export through ONNX Runtime, because LiteRT has no desktop JVM runtime.
+ * Android (LiteRT) and iOS (LiteRT C API) run the bundled `maia3-5m-int8.tflite`, and web (LiteRT.js)
+ * a LiteRT file it downloads; desktop runs the ONNX export through ONNX Runtime, because LiteRT has no
+ * desktop JVM runtime.
  */
 internal expect fun maiaRuntimeFactory(): (suspend () -> MaiaRuntime)?
 

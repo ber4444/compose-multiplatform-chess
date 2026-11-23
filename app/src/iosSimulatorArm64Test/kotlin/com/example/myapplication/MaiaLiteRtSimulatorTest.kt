@@ -23,7 +23,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.time.measureTime
 
-/** iOS bundles the pinned LiteRT export, runs it through the TFLite C API, and matches PyTorch. */
+/** iOS bundles the pinned int8 LiteRT file, runs it through the TFLite C API, and matches PyTorch. */
 @OptIn(ExperimentalResourceApi::class, ExperimentalForeignApi::class)
 class MaiaLiteRtSimulatorTest {
     @Test
@@ -40,7 +40,7 @@ class MaiaLiteRtSimulatorTest {
 
     @Test
     fun topMovesMatchReferencePyTorch() = runTest {
-        BundledMaiaParity.assertMatchesPyTorch(assertNotNull(maiaRuntimeFactory()))
+        BundledMaiaParity.assertMatchesPyTorch(assertNotNull(maiaRuntimeFactory()), BundledMaiaParity.INT8_SHARE_TOLERANCE)
     }
 
     @Test

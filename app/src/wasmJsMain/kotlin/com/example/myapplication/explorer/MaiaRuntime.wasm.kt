@@ -9,9 +9,12 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  * No WebGPU is needed, so every current browser qualifies. Checked in Chrome against PyTorch: max
  * legal-move logit difference 9.5e-06, about 10 ms per inference.
  *
- * Unlike the other platforms, **web does not bundle the model**. It downloads the same file from the
- * `ber4444/maia3-5m-litert` Hugging Face repo, pinned to a commit so the URL is immutable, and
- * checks the bytes against [MaiaModelFiles.TFLITE_SHA256] before LiteRT.js sees them. Serving 20 MB
+ * Unlike the other platforms, **web does not bundle the model**. It downloads the float export from
+ * the `ber4444/maia3-5m-litert` Hugging Face repo, pinned to a commit so the URL is immutable, and
+ * checks the bytes against [MaiaModelFiles.WEB_TFLITE_SHA256] before LiteRT.js sees them. Android and
+ * iOS bundle the 5.9 MB int8 quantization of that file instead; web switches to it once it is
+ * uploaded to the same repo (new [MODEL_REVISION], [MaiaModelFiles.WEB_TFLITE_NAME] and
+ * [MaiaModelFiles.WEB_TFLITE_SHA256]). Serving 20 MB
  * per visitor from the app's own Fly.io host would be billed as egress; Hugging Face serves it at no
  * cost and allows the cross-origin request. LiteRT.js itself loads from jsDelivr, the way
  * `filament.js` does from unpkg. Nothing is fetched until Maia is first asked.
@@ -20,13 +23,13 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  * Lichess or says there is no answer, and the opponent falls back to Stockfish.
  */
 internal actual fun maiaRuntimeFactory(): (suspend () -> MaiaRuntime)? = {
-    LiteRtJsMaiaRuntime.open(MODEL_URL, MaiaModelFiles.TFLITE_SHA256)
+    LiteRtJsMaiaRuntime.open(MODEL_URL, MaiaModelFiles.WEB_TFLITE_SHA256)
 }
 
 /** The Hugging Face commit that added the file. A `resolve/<commit>/` URL never changes content. */
 private const val MODEL_REVISION = "d80145dd10ca56bbe4453c667c10ea56c3c9a99b"
 private const val MODEL_URL =
-    "https://huggingface.co/ber4444/maia3-5m-litert/resolve/$MODEL_REVISION/${MaiaModelFiles.TFLITE_NAME}"
+    "https://huggingface.co/ber4444/maia3-5m-litert/resolve/$MODEL_REVISION/${MaiaModelFiles.WEB_TFLITE_NAME}"
 
 internal class LiteRtJsMaiaRuntime private constructor(private val handle: JsAny) : MaiaRuntime {
     override suspend fun moveLogits(tokens: FloatArray, rating: Int): FloatArray {

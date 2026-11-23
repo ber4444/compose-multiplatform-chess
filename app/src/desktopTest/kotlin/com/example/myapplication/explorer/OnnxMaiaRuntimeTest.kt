@@ -24,6 +24,6 @@ class OnnxMaiaRuntimeTest {
 
     @Test
     fun topMovesMatchReferencePyTorch(): Unit = runBlocking {
-        BundledMaiaParity.assertMatchesPyTorch(assertNotNull(maiaRuntimeFactory()))
+        BundledMaiaParity.assertMatchesPyTorch(assertNotNull(maiaRuntimeFactory()), BundledMaiaParity.FLOAT_SHARE_TOLERANCE)
     }
 }
