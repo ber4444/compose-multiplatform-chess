@@ -121,7 +121,7 @@ internal object HabitFixtures {
             MoveRecord("e7e5", "e5", AFTER_E5),
             MoveRecord("g1f3", "Nf3", AFTER_NF3, hintUsed = true),
             MoveRecord("b8c6", "Nc6", AFTER_NC6),
-            MoveRecord("f3e5", "Nxe5", AFTER_NXE5, assessment = blunder(bestMoveSan = "Bb5")),
+            MoveRecord("f3e5", "Nxe5", AFTER_NXE5, assessment = blunder(Set.WHITE, bestMoveSan = "Bb5")),
         ),
         game(
             id = "2", playerSide = "WHITE",
@@ -133,7 +133,7 @@ internal object HabitFixtures {
             MoveRecord("e2e4", "e4", AFTER_E4),
             MoveRecord("e7e5", "e5", AFTER_E5, hintUsed = true),
             MoveRecord("g1f3", "Nf3", AFTER_NF3),
-            MoveRecord("b8c6", "Nc6", AFTER_NC6, hintUsed = true, assessment = blunder(bestMoveSan = "Nf6")),
+            MoveRecord("b8c6", "Nc6", AFTER_NC6, hintUsed = true, assessment = blunder(Set.BLACK, bestMoveSan = "Nf6")),
         ),
     )
 
@@ -143,8 +143,14 @@ internal object HabitFixtures {
     private const val AFTER_NC6 = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
     private const val AFTER_NXE5 = "r1bqkbnr/pppp1ppp/2n5/4N3/4P3/8/PPPP1PPP/RNBQKB1R b KQkq - 0 3"
 
-    private fun blunder(bestMoveSan: String) = MoveAssessment(
-        cpBefore = 30, cpPlayed = -300, cpBest = 30, cpLoss = 330,
+    /**
+     * A 330 cp blunder by [mover], stored as the app stores it: White-perspective scores, so a
+     * Black blunder *raises* the score. This used `-300` for both sides, which is a Black move
+     * that wins; it only read as a blunder while MoveAssessor ignored the mover, and History now
+     * re-grades saved records on load (MoveAssessor.regrade).
+     */
+    private fun blunder(mover: Set, bestMoveSan: String) = MoveAssessment(
+        cpBefore = 30, cpPlayed = if (mover == Set.WHITE) -300 else 360, cpBest = 30, cpLoss = 330,
         moveClass = MoveClass.BLUNDER, motifs = listOf(MotifDetector.HANGS_PIECE), bestMoveSan = bestMoveSan,
     )
 

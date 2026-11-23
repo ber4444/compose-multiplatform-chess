@@ -1,5 +1,8 @@
 package com.example.myapplication.persistence
 
+import com.example.myapplication.MoveAssessment
+import com.example.myapplication.MoveClass
+import com.example.myapplication.MoveRecord
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -16,6 +19,26 @@ class GameHistoryRepositoryTest {
         moveCount = 10,
         pgn = "[Event \"Casual Game\"]\n...",
     )
+
+    @Test
+    fun `a black game saved with white-side grades reads back graded for black`() {
+        // Saved before MoveAssessor knew who moved: Black's 1...f6, which handed White +450, stored
+        // as a 0 cp loss and BEST. Habits read MISTAKE/BLUNDER off these, so a Black player's
+        // History never showed one. The raw scores are right, and the grade is recomputed on load.
+        val stale = MoveRecord(
+            uci = "f7f6",
+            san = "f6",
+            fenAfter = "rnbqkbnr/ppppp1pp/5p2/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+            cpAfter = 450,
+            assessment = MoveAssessment(cpBefore = 30, cpPlayed = 450, cpBest = 30, cpLoss = 0, moveClass = MoveClass.BEST, motifs = emptyList()),
+        )
+        val backing = MapSettings()
+        GameHistoryRepository(backing).add(savedGame("1").copy(moveRecords = listOf(stale), playerSide = "BLACK"))
+
+        val reloaded = GameHistoryRepository(backing).games.value.single().moveRecords.single().assessment!!
+        assertEquals(MoveClass.BLUNDER, reloaded.moveClass)
+        assertEquals(420, reloaded.cpLoss)
+    }
 
     @Test
     fun `starts empty when nothing is saved`() {

@@ -63,7 +63,9 @@ object GameSnapshotMapper {
      */
     fun toState(snapshot: GameSnapshot): GameUiState =
         FenConverter.fenToGameState(snapshot.fen).copy(
-            moveHistory = snapshot.moveHistory,
+            // Re-graded on the way in: a game saved mid-way while playing Black carries grades from
+            // before MoveAssessor knew who moved, and the game summary ranks turning points by them.
+            moveHistory = snapshot.moveHistory.map(MoveAssessor::regrade),
             positionHistory = snapshot.positionHistory,
             winState = snapshot.winState,
             drawOffer = snapshot.drawOffer?.let { parseSet(it) },

@@ -13,13 +13,13 @@ import kotlin.test.assertTrue
 class MoveAssessorTest {
 
     private fun lossOf(cpLoss: Int) =
-        MoveAssessor.assessMove(cpBefore = 0, cpPlayed = -cpLoss, cpBest = 0)
+        MoveAssessor.assessMove(mover = Set.WHITE, cpBefore = 0, cpPlayed = -cpLoss, cpBest = 0)
 
     // --- cpLoss ------------------------------------------------------------------------------
 
     @Test
     fun `cpLoss is best minus played`() {
-        val a = MoveAssessor.assessMove(cpBefore = 50, cpPlayed = 20, cpBest = 120)
+        val a = MoveAssessor.assessMove(mover = Set.WHITE, cpBefore = 50, cpPlayed = 20, cpBest = 120)
         assertEquals(100, a.cpLoss)
     }
 
@@ -29,7 +29,7 @@ class MoveAssessorTest {
         // line can score the played move above the "best" one. Without the clamp that is a negative
         // loss, which would sort to the top of RAG-2's turning-point ranking — the single worst
         // place for an artefact to land.
-        val a = MoveAssessor.assessMove(cpBefore = 0, cpPlayed = 80, cpBest = 30)
+        val a = MoveAssessor.assessMove(mover = Set.WHITE, cpBefore = 0, cpPlayed = 80, cpBest = 30)
         assertEquals(0, a.cpLoss)
         assertEquals(MoveClass.BEST, a.moveClass)
     }
@@ -37,10 +37,101 @@ class MoveAssessorTest {
     @Test
     fun `cpLoss is unaffected by cpBefore`() {
         // cpBefore is carried for the narrative ("you were winning"), not the classification.
-        val losing = MoveAssessor.assessMove(cpBefore = -900, cpPlayed = 0, cpBest = 50)
-        val winning = MoveAssessor.assessMove(cpBefore = 900, cpPlayed = 0, cpBest = 50)
+        val losing = MoveAssessor.assessMove(mover = Set.WHITE, cpBefore = -900, cpPlayed = 0, cpBest = 50)
+        val winning = MoveAssessor.assessMove(mover = Set.WHITE, cpBefore = 900, cpPlayed = 0, cpBest = 50)
         assertEquals(losing.cpLoss, winning.cpLoss)
         assertEquals(losing.moveClass, winning.moveClass)
+    }
+
+    // --- the mover ---------------------------------------------------------------------------
+    //
+    // Every score is White's perspective. A Black move that costs Black *raises* it, so the loss
+    // has to be read the other way round for Black, or every Black blunder clamps to a loss of 0.
+
+    @Test
+    fun `a black move that hands white the advantage is a loss for black`() {
+        val a = MoveAssessor.assessMove(mover = Set.BLACK, cpBefore = 30, cpPlayed = 450, cpBest = 30)
+        assertEquals(420, a.cpLoss)
+        assertEquals(MoveClass.BLUNDER, a.moveClass)
+    }
+
+    @Test
+    fun `a black move that matches black's best loses nothing`() {
+        val a = MoveAssessor.assessMove(mover = Set.BLACK, cpBefore = -50, cpPlayed = -50, cpBest = -50)
+        assertEquals(0, a.cpLoss)
+        assertEquals(MoveClass.BEST, a.moveClass)
+    }
+
+    @Test
+    fun `the two sides grade mirrored positions identically`() {
+        for (loss in listOf(0, 11, 31, 61, 101, 301, 100_000)) {
+            val white = MoveAssessor.assessMove(mover = Set.WHITE, cpBefore = 40, cpPlayed = 40 - loss, cpBest = 40)
+            val black = MoveAssessor.assessMove(mover = Set.BLACK, cpBefore = -40, cpPlayed = -40 + loss, cpBest = -40)
+            assertEquals(white.cpLoss, black.cpLoss, "loss $loss")
+            assertEquals(white.moveClass, black.moveClass, "loss $loss")
+        }
+    }
+
+    @Test
+    fun `black's clamp holds when the played move out-scores the search's best`() {
+        val a = MoveAssessor.assessMove(mover = Set.BLACK, cpBefore = 0, cpPlayed = -80, cpBest = -30)
+        assertEquals(0, a.cpLoss)
+    }
+
+    @Suppress("DEPRECATION")
+    @Test
+    fun `the deprecated overload still grades as white`() {
+        // Kept for the published API; it must not have quietly changed meaning.
+        val old = MoveAssessor.assessMove(cpBefore = 50, cpPlayed = 20, cpBest = 120)
+        assertEquals(MoveAssessor.assessMove(mover = Set.WHITE, cpBefore = 50, cpPlayed = 20, cpBest = 120), old)
+    }
+
+    // --- regrade: records saved before the mover was known ------------------------------------
+
+    /** As the old assessMove stored a Black move: graded as White's, so the 420 cp loss reads 0. */
+    private fun staleBlackBlunder() = MoveRecord(
+        uci = "f7f6",
+        san = "f6",
+        fenAfter = "rnbqkbnr/ppppp1pp/5p2/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+        cpAfter = 450,
+        assessment = MoveAssessment(cpBefore = 30, cpPlayed = 450, cpBest = 30, cpLoss = 0, moveClass = MoveClass.BEST, motifs = listOf("x")),
+    )
+
+    @Test
+    fun `regrade fixes a black move graded as white's`() {
+        val fixed = MoveAssessor.regrade(staleBlackBlunder()).assessment!!
+        assertEquals(420, fixed.cpLoss)
+        assertEquals(MoveClass.BLUNDER, fixed.moveClass)
+        assertEquals(listOf("x"), fixed.motifs, "only the grade changes")
+    }
+
+    @Test
+    fun `regrade is a no-op on a correct record and on its own output`() {
+        val white = MoveRecord(
+            uci = "e2e3", san = "e3",
+            fenAfter = "rnbqkbnr/pppppppp/8/8/8/4P3/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+            assessment = MoveAssessor.assessMove(mover = Set.WHITE, cpBefore = 30, cpPlayed = -50, cpBest = 30),
+        )
+        assertTrue(MoveAssessor.regrade(white) === white, "a correct White record was rewritten")
+        val once = MoveAssessor.regrade(staleBlackBlunder())
+        assertTrue(MoveAssessor.regrade(once) === once, "regrading twice changed the record again")
+    }
+
+    @Test
+    fun `regrade leaves what it cannot place alone`() {
+        val noSide = staleBlackBlunder().copy(fenAfter = "")
+        assertTrue(MoveAssessor.regrade(noSide) === noSide)
+        val unassessed = staleBlackBlunder().copy(assessment = null)
+        assertTrue(MoveAssessor.regrade(unassessed) === unassessed)
+        val book = staleBlackBlunder().let { it.copy(assessment = it.assessment!!.copy(moveClass = MoveClass.BOOK)) }
+        assertTrue(MoveAssessor.regrade(book) === book)
+    }
+
+    @Test
+    fun `a resumed game re-grades its history on the way in`() {
+        val snapshot = GameSnapshot(fen = staleBlackBlunder().fenAfter, moveHistory = listOf(staleBlackBlunder()))
+        val restored = GameSnapshotMapper.toState(snapshot).moveHistory.single().assessment!!
+        assertEquals(MoveClass.BLUNDER, restored.moveClass)
     }
 
     // --- thresholds --------------------------------------------------------------------------
@@ -83,7 +174,7 @@ class MoveAssessorTest {
     @Test
     fun `motifs and evaluations pass through untouched`() {
         val motifs = listOf(MotifDetector.FORK, MotifDetector.PIN)
-        val a = MoveAssessor.assessMove(cpBefore = 12, cpPlayed = 34, cpBest = 56, motifs = motifs)
+        val a = MoveAssessor.assessMove(mover = Set.WHITE, cpBefore = 12, cpPlayed = 34, cpBest = 56, motifs = motifs)
         assertEquals(12, a.cpBefore)
         assertEquals(34, a.cpPlayed)
         assertEquals(56, a.cpBest)
@@ -92,7 +183,7 @@ class MoveAssessorTest {
 
     @Test
     fun `motifs default to empty rather than null`() {
-        assertTrue(MoveAssessor.assessMove(0, 0, 0).motifs.isEmpty())
+        assertTrue(MoveAssessor.assessMove(Set.WHITE, 0, 0, 0).motifs.isEmpty())
     }
 
     @Test

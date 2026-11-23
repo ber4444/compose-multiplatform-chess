@@ -110,6 +110,7 @@ class GameHistoryBackfiller(
                 } else MotifDetector.Detected(emptyList(), emptyMap())
 
                 val assessment = MoveAssessor.assessMove(
+                    mover = if (moverIsWhite) Set.WHITE else Set.BLACK,
                     cpBefore = cpBest,
                     cpPlayed = cpPlayed,
                     cpBest = cpBest,

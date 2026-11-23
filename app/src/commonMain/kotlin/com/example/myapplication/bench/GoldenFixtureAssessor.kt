@@ -94,6 +94,7 @@ suspend fun assessGoldenCase(
     )
 
     val assessment = MoveAssessor.assessMove(
+        mover = movingSide,
         // By definition the eval of the position before the move is the eval of the best move.
         cpBefore = cpBest,
         cpPlayed = cpPlayed,

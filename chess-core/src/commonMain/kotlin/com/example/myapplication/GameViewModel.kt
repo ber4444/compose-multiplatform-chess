@@ -687,6 +687,7 @@ class GameViewModel(
         )
 
         val baseAssessment = MoveAssessor.assessMove(
+            mover = movingSide,
             cpBefore = cpBest, // By definition, eval of board before move is the eval of the best move
             cpPlayed = cpPlayed,
             cpBest = cpBest,
