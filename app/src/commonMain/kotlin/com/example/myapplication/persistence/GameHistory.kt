@@ -1,5 +1,6 @@
 package com.example.myapplication.persistence
 
+import com.example.myapplication.MoveAssessor
 import com.example.myapplication.MoveRecord
 import com.russhwolf.settings.Settings
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -80,7 +81,12 @@ class GameHistoryRepository(
         settings.getStringOrNull(KEY)?.let {
             runCatching { json.decodeFromString(ListSerializer(SavedGame.serializer()), it) }
                 .getOrNull()
-        } ?: emptyList()
+        }
+            // Games saved while playing Black were graded as if White had moved, so habits never
+            // saw a Black mistake. Re-graded on read rather than rewritten: it is exact, cheap, and
+            // a no-op on every record that was already right. See MoveAssessor.regrade.
+            ?.map { game -> game.copy(moveRecords = game.moveRecords.map(MoveAssessor::regrade)) }
+            ?: emptyList()
 
     companion object {
         const val KEY = "game_history.v1"

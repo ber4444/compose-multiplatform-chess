@@ -143,6 +143,46 @@ class PlayingAsBlackTest {
         }
     }
 
+    /**
+     * Opens 1.e4 (+30), keeps +30 for Black's best reply e5, and answers anything else Black plays
+     * with Nf3 at +450. Every score is White's perspective, as every real transport reports it.
+     */
+    private class GradingEngine : ChessEngine {
+        override suspend fun getBestMove(fen: String, thinkTimeMs: Long?): BestMoveResult = when {
+            fen.startsWith(FenConverter.STARTING_FEN.substringBefore(' ')) -> BestMoveResult("e2e4", evaluationCp = 30)
+            " b " in fen -> BestMoveResult("e7e5", evaluationCp = 30)
+            else -> BestMoveResult("g1f3", evaluationCp = 450)
+        }
+        override fun close() {}
+    }
+
+    @Test
+    fun `a black player's blunder is graded as a blunder`() = onRealTime {
+        // Scores are White-perspective, so a Black move that hands White +450 *raises* the score.
+        // MoveAssessor took `cpBest - cpPlayed` as the loss whoever moved, which for Black is
+        // 30 - 450 < 0, clamped to 0: every Black blunder graded BEST and the board painted it green.
+        val coached = CompletableDeferred<MoveRecord>()
+        viewModel.onMoveCoached = { _, record -> coached.complete(record) }
+        viewModel.attachEngine(GradingEngine())
+        viewModel.playerSide = Set.BLACK
+
+        suspend fun awaitAnimatedPly(count: Int) = withTimeout(TIMEOUT_MS) {
+            while (viewModel.gameState.value.moveHistory.size < count || viewModel.animState.value.pieceToAnimate == null) delay(10)
+        }
+        awaitAnimatedPly(1) // 1.e4
+        viewModel.animationEnd()
+
+        val f7 = viewModel.gameState.value.positionsBlack.indexOf(Pair(1, 5))
+        viewModel.playerMove(f7, Pair(2, 5)) // 1...f6
+        viewModel.animationEnd()
+        awaitAnimatedPly(3) // 2.Nf3
+        viewModel.animationEnd()
+
+        val assessment = withTimeout(TIMEOUT_MS) { coached.await() }.assessment
+        assertEquals(420, assessment?.cpLoss, "450 - 30: what Black gave away")
+        assertEquals(MoveClass.BLUNDER, assessment?.moveClass)
+    }
+
     /** Position after 1. d4 — Black to move, which is the player's turn in these tests. */
     private fun afterWhitesFirstMove(): GameUiState =
         FenConverter.fenToGameState("rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1")

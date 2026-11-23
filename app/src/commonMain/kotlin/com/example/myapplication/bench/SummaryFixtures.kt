@@ -79,6 +79,7 @@ object SummaryFixtures {
                     // records them: the coach never assesses the engine's replies.
                     assessment = if (ply.isPlayer && ply.cpBefore != null && ply.cpPlayed != null && ply.cpBest != null) {
                         MoveAssessor.assessMove(
+                            mover = playerSide,
                             cpBefore = ply.cpBefore,
                             cpPlayed = ply.cpPlayed,
                             cpBest = ply.cpBest,
