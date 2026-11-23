@@ -2,6 +2,9 @@ package com.example.myapplication
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.backhandler.BackHandler
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -256,6 +261,20 @@ fun AppRoot(
     }
 }
 
+/**
+ * True while the soft keyboard is open in a window too short to keep the title bar as well — a
+ * phone in landscape, where the keyboard takes about two thirds of the height and the bar, status
+ * bar and keyboard together left the Chat and Rules input rows about 58dp, squashing them to
+ * nothing. [SubScreenScaffold] drops its title bar then, and screens drop their intro text.
+ *
+ * Android only: there the system back gesture closes the keyboard and navigates, so hiding the bar
+ * cannot strand anyone. On iOS the bar holds the only Back button and nothing guarantees the
+ * keyboard can be dismissed, so it stays.
+ */
+internal val LocalKeyboardCompact = compositionLocalOf { false }
+
+private val KEYBOARD_COMPACT_MAX_HEIGHT = 500.dp
+
 /** Shared Material3 scaffold for the secondary screens so back-navigation is consistent. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -264,10 +283,12 @@ internal fun SubScreenScaffold(
     onBack: () -> Unit,
     scrollable: Boolean = true,
     content: @Composable () -> Unit,
-) {
+) = BoxWithConstraints {
+    val imeOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val keyboardCompact = isAndroidPlatform && imeOpen && maxHeight < KEYBOARD_COMPACT_MAX_HEIGHT
     Scaffold(
         topBar = {
-            TopAppBar(
+            if (!keyboardCompact) TopAppBar(
                 title = { Text(title) },
                 navigationIcon = {
                     if (!isAndroidPlatform) {
@@ -288,6 +309,6 @@ internal fun SubScreenScaffold(
                 .then(if (scrollable) Modifier.verticalScroll(scrollState) else Modifier),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.Start,
-        ) { content() }
+        ) { CompositionLocalProvider(LocalKeyboardCompact provides keyboardCompact) { content() } }
     }
 }

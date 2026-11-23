@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.example.myapplication.LocalKeyboardCompact
 import com.example.myapplication.SubScreenScaffold
 import kotlinx.coroutines.launch
 import com.example.myapplication.movecoach.FallbackPresentation
@@ -48,10 +49,13 @@ fun RulesQaScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                "Ask a rules question. Answers and retrieval stay on this device.",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            // Gone while the keyboard holds most of a short window, so the input row keeps its height.
+            if (!LocalKeyboardCompact.current) {
+                Text(
+                    "Ask a rules question. Answers and retrieval stay on this device.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
