@@ -46,8 +46,9 @@ internal val thirdPartyNotices = listOf(
     ThirdPartyNotice("SceneView", "3D rendering on Android", "Apache-2.0", "https://github.com/SceneView/sceneview-android"),
     ThirdPartyNotice(
         "Maia-3 (University of Toronto CSSLab)",
-        "the human-like opponent and predictions of what players at a rating play; the bundled model is a " +
-            "converted copy of the Maia3-5M checkpoint, and its board encoding is adapted from maia3",
+        "the human-like opponent and predictions of what players at a rating play; the model is a " +
+            "converted copy of the Maia3-5M checkpoint (with 8-bit weights on Android, iOS and the web), and its board " +
+            "encoding is adapted from maia3",
         "GNU AGPL v3", "https://github.com/CSSLab/maia3",
     ),
     ThirdPartyNotice("LiteRT (TensorFlow Lite)", "running Maia-3 on Android, iOS and the web", "Apache-2.0", "https://github.com/google-ai-edge/LiteRT"),

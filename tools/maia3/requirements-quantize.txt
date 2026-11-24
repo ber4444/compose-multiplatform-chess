@@ -1,0 +1,7 @@
+# Pinned environment that produced the bundled maia3-5m-int8.tflite byte for byte (Python 3.12.3).
+# No torch: quantize_litert.py works on the float .tflite that export_litert.py writes.
+# litert-quantizer replaces the deprecated ai-edge-quantizer; 0.10.1 of the latter writes the same bytes.
+litert-quantizer==0.11.0
+ai-edge-litert==2.3.0
+numpy==2.5.5
+chess==1.11.2
