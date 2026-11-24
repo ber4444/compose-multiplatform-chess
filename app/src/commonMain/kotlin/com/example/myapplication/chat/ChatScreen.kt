@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,9 +27,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.myapplication.GameUiState
+import com.example.myapplication.LocalKeyboardCompact
 import com.example.myapplication.SubScreenScaffold
 
 /**
@@ -53,8 +57,10 @@ fun ChatScreen(
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    // Keep the latest message in view as tokens stream in.
-    LaunchedEffect(state.messages.size, state.partialText) {
+    // Keep the latest message in view as tokens stream in, and when the keyboard opens and the
+    // transcript shrinks to what is left above it.
+    val imeOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    LaunchedEffect(state.messages.size, state.partialText, imeOpen) {
         val lastIndex = state.messages.size - 1
         if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)
     }
@@ -73,10 +79,13 @@ fun ChatScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                "Ask about the current position. Replies are grounded and cloud-streamed; Stop cancels.",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            // Gone while the keyboard holds most of a short window, so the input row keeps its height.
+            if (!LocalKeyboardCompact.current) {
+                Text(
+                    "Ask about the current position. Replies are grounded and cloud-streamed; Stop cancels.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             LazyColumn(
                 state = listState,
                 // Use weight(1f) instead of heightIn so the chat view pushes the input box to the bottom.

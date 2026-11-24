@@ -36,10 +36,12 @@ targets:
         # HTTPS through the system TLS stack only, which is export-exempt. Without this key every
         # TestFlight upload sits in "Missing Compliance" until someone answers the prompt in ASC.
         ITSAppUsesNonExemptEncryption: false
+        # iPhone runs in landscape only: a square board in portrait leaves most of the screen empty,
+        # so the game screen puts its buttons in side rails (GameScreen.usesSideControls). iPad
+        # keeps every orientation; the layout follows the window's shape there.
         UISupportedInterfaceOrientations:
-          - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationLandscapeLeft
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationPortraitUpsideDown

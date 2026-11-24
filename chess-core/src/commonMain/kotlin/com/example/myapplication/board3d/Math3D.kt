@@ -97,7 +97,7 @@ object CameraMath {
      * projection that's on screen, so ray/screen math must use this, not the raw fovYDegrees —
      * otherwise taps land one or more ranks off in portrait. Landscape (aspect ≥ 1) is unchanged.
      */
-    private fun effectiveFovYRad(camera: CameraParams): Float =
+    internal fun effectiveFovYRad(camera: CameraParams): Float =
         if (camera.aspect < 1f) {
             val tanHalfFovX = kotlin.math.tan((60f * PI.toFloat() / 180f) / 2f)
             2f * kotlin.math.atan(tanHalfFovX / camera.aspect)
@@ -281,24 +281,80 @@ class OrbitCameraController(private var aspect: Float, initialYawDegrees: Float 
     private var pitchDegrees = DEFAULT_PITCH_DEG
     private var distance = DEFAULT_DISTANCE
     private val center = Vec3(0f, 0f, 0f)
+    private var reserveTop = 0f
+    private var reserveBottom = 0f
 
+    /**
+     * The orbit camera, translated along its own up axis when a viewport reserve is set (see
+     * [setViewportReserve]). A pure translation: the view direction, the distance to the board and
+     * so the board's size on screen are unchanged, and picking needs nothing extra because
+     * `CameraMath.rayFromScreen` inverts whatever camera this returns.
+     */
     val camera: CameraParams
         get() {
-            val yawRad = yawDegrees * PI.toFloat() / 180f
-            val pitchRad = pitchDegrees * PI.toFloat() / 180f
-            val x = distance * sin(yawRad) * cos(pitchRad)
-            val y = distance * sin(pitchRad)
-            val z = distance * cos(yawRad) * cos(pitchRad)
-            return CameraParams(
-                position = Vec3(x, y, z),
-                target = center,
-                up = Vec3(0f, 1f, 0f),
-                fovYDegrees = FOV_Y_DEG,
-                aspect = aspect,
-                near = 0.1f,
-                far = 100f
-            )
+            val orbit = orbitCamera(yawDegrees, pitchDegrees, distance)
+            val lift = boardLift()
+            if (lift <= 0f) return orbit
+            val forward = (orbit.target - orbit.position).normalized()
+            val right = forward.cross(orbit.up).normalized()
+            val cameraUp = right.cross(forward).normalized()
+            // Moving the camera down by k puts the orbit target k above the view axis, i.e.
+            // `lift` of the viewport's height above its centre at the target's depth.
+            val k = 2f * lift * distance * kotlin.math.tan(CameraMath.effectiveFovYRad(orbit) / 2f)
+            val shift = cameraUp * -k
+            return orbit.copy(position = orbit.position + shift, target = orbit.target + shift)
         }
+
+    private fun orbitCamera(yawDeg: Float, pitchDeg: Float, dist: Float): CameraParams {
+        val yawRad = yawDeg * PI.toFloat() / 180f
+        val pitchRad = pitchDeg * PI.toFloat() / 180f
+        val x = dist * sin(yawRad) * cos(pitchRad)
+        val y = dist * sin(pitchRad)
+        val z = dist * cos(yawRad) * cos(pitchRad)
+        return CameraParams(
+            position = Vec3(x, y, z),
+            target = center,
+            up = Vec3(0f, 1f, 0f),
+            fovYDegrees = FOV_Y_DEG,
+            aspect = aspect,
+            near = 0.1f,
+            far = 100f
+        )
+    }
+
+    /**
+     * Keeps the board out of the top [top] and bottom [bottom] fractions of the viewport's height,
+     * by lifting it on screen rather than shrinking it. Landscape `GameScreen` reserves the bottom
+     * for the coach text, which runs along the bottom edge over the 3D surface.
+     *
+     * The lift is solved once, for the default framing, and then held as a screen-space offset of
+     * the orbit target, so orbiting and zooming behave exactly as before around a raised centre
+     * instead of the board re-framing itself under the player's finger. If the window is too short
+     * to clear both reserves, the top one wins: a cropped king reads worse than coach text over the
+     * frame's front edge.
+     */
+    fun setViewportReserve(top: Float, bottom: Float) {
+        reserveTop = top.coerceIn(0f, 1f)
+        reserveBottom = bottom.coerceIn(0f, 1f)
+    }
+
+    /** Fraction of the viewport height the orbit target sits above the centre. */
+    private fun boardLift(): Float {
+        if (reserveBottom <= 0f) return 0f
+        val reference = orbitCamera(0f, DEFAULT_PITCH_DEG, DEFAULT_DISTANCE)
+        val nearBottom = Vec3(0f, FRAME_MIN_Y, FRAME_HALF_EXTENT)
+        val farTop = Vec3(0f, TALLEST_PIECE_HEIGHT, -FAR_RANK_Z)
+        val yNear = CameraMath.worldToScreen(reference, nearBottom)?.second ?: return 0f
+        val yFar = CameraMath.worldToScreen(reference, farTop)?.second ?: return 0f
+        // A lift of L raises a point at depth z by L * DEFAULT_DISTANCE / z of the viewport height:
+        // near things move further than far ones, which is the direction this needs.
+        val needed = (yNear - (1f - reserveBottom)) * depth(reference, nearBottom) / DEFAULT_DISTANCE
+        val allowed = (yFar - reserveTop) * depth(reference, farTop) / DEFAULT_DISTANCE
+        return minOf(needed, allowed).coerceAtLeast(0f)
+    }
+
+    private fun depth(camera: CameraParams, point: Vec3): Float =
+        (point - camera.position).dot((camera.target - camera.position).normalized())
 
     fun onDrag(deltaXNorm: Float, deltaYNorm: Float) {
         yawDegrees -= deltaXNorm * 180f
@@ -337,6 +393,14 @@ class OrbitCameraController(private var aspect: Float, initialYawDegrees: Float 
          */
         const val BLACK_YAW_DEG = 180f
 
+        // Extremes of what the board shows, in world units (chess.glb bounds × the 0.5 model scale
+        // every backend instances with): the frame's outer edge and underside, and the king on the
+        // far back rank. Only the viewport reserve reads them.
+        private const val FRAME_HALF_EXTENT = 5.15f
+        private const val FRAME_MIN_Y = -0.255f
+        private const val TALLEST_PIECE_HEIGHT = 1.95f
+        private const val FAR_RANK_Z = 3.5f
+
         val DEFAULT_WHITE_VIEW: CameraParams
             get() = OrbitCameraController(1f).apply {
                 yawDegrees = 0f
@@ -365,4 +429,7 @@ class Board3DSessionState(initialAspect: Float = 1f, initialYawDegrees: Float = 
     fun onZoom(factor: Float) = controller.onZoom(factor)
 
     fun onResize(aspect: Float) = controller.onResize(aspect)
+
+    /** See [OrbitCameraController.setViewportReserve]. */
+    fun setViewportReserve(top: Float, bottom: Float) = controller.setViewportReserve(top, bottom)
 }
