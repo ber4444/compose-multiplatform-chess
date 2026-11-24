@@ -1,6 +1,8 @@
 package com.example.myapplication
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.dp
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -23,28 +25,58 @@ class SideControlsLayoutTest {
         assertFalse(usesSideControls(width = 600.dp, height = 600.dp), "square window")
     }
 
-    // A Pixel 7a in landscape, in px: the camera hole sits on one long edge at mid-height.
-    private val camera = Rect(left = 0f, top = 455f, right = 118f, bottom = 600f)
+    // A Pixel 7a in landscape, in px: rail buttons 48dp tall, 8dp apart, the rail 6dp in from the
+    // edge, and the camera hole on one long edge at mid-height (cutout rects as Android reports them,
+    // moved into the rail's coordinates).
+    private val nav = listOf(Size(152f, 126f), Size(157f, 126f), Size(200f, 126f), Size(184f, 126f)) // Chat Rules Settings History
+    private val game = listOf(Size(159f, 126f), Size(152f, 126f), Size(182f, 126f)) // Reset Hint Explain
+    private val rail = 357f // 136dp
+    private val row = 21f
+    private val gap = 21f
     private val margin = 16f
+    private val leftCamera = Rect(left = -16f, top = 369f, right = 102f, bottom = 514f) // rotation 90
+    private val rightCamera = Rect(left = rail + 16f - 118f, top = 394f, right = rail + 16f, bottom = 539f) // rotation 270
+
+    private fun layout(sizes: List<Size>, alignEnd: Boolean, cutouts: List<Rect>) =
+        railPositions(sizes, rail, row, gap, alignEnd, cutouts, margin)
 
     @Test
-    fun railButtonsAwayFromTheCutoutKeepHuggingTheEdge() {
-        val above = railChildClearOfCutouts(0f, 200f, top = 84f, bottom = 189f, alignEnd = false, listOf(camera), margin)
-        assertEquals(0f, above, "a button in rows the camera doesn't reach stays at the edge")
-        val endRail = railChildClearOfCutouts(2180f, 200f, top = 455f, bottom = 560f, alignEnd = true, listOf(camera), margin)
-        assertEquals(2180f, endRail, "the other edge's rail is not affected")
-        assertEquals(0f, railChildClearOfCutouts(0f, 200f, 455f, 560f, false, emptyList(), margin), "no cutout, no step")
+    fun withoutACutoutOnItsEdgeARailIsOneColumnFromTheTop() {
+        listOf(emptyList(), listOf(rightCamera)).forEach { cutouts ->
+            val left = layout(nav, alignEnd = false, cutouts)
+            assertEquals(listOf(0f, 147f, 294f, 441f), left.map { it.y }, "stacked from the top ($cutouts)")
+            assertTrue(left.all { it.x == 0f }, "against the left edge ($cutouts)")
+        }
+        val right = layout(game, alignEnd = true, listOf(leftCamera))
+        assertEquals(game.map { rail - it.width }, right.map { it.x }, "against the right edge")
+        assertEquals(listOf(0f, 147f, 294f), right.map { it.y })
     }
 
     @Test
-    fun railButtonsMeetingTheCutoutStepJustPastIt() {
-        val start = railChildClearOfCutouts(0f, 200f, top = 462f, bottom = 567f, alignEnd = false, listOf(camera), margin)
-        assertEquals(camera.right + margin, start)
-        // The same hole on the right-hand edge (the other landscape), against the end rail.
-        val mirrored = Rect(left = 2282f, top = 480f, right = 2400f, bottom = 625f)
-        val end = railChildClearOfCutouts(2194f, 200f, top = 462f, bottom = 567f, alignEnd = true, listOf(mirrored), margin)
-        assertEquals(mirrored.left - margin - 200f, end)
-        // Rows that come within the margin of the hole count as meeting it.
-        assertEquals(camera.right + margin, railChildClearOfCutouts(0f, 200f, 340f, 445f, false, listOf(camera), margin))
+    fun theButtonsFromTheFirstOneMeetingTheCutoutWrapIntoATopAlignedInnerColumn() {
+        // Camera on the left: Settings (rows 294..420) comes within the margin of the hole, so
+        // Settings and History move into a second column, level with Chat and Rules.
+        val left = layout(nav, alignEnd = false, listOf(leftCamera))
+        val innerX = 157f + gap // widest of Chat/Rules, plus the gap
+        assertEquals(
+            listOf(Offset(0f, 0f), Offset(0f, 147f), Offset(innerX, 0f), Offset(innerX, 147f)),
+            left,
+        )
+        // Camera on the right: Explain (rows 294..420) meets it, and goes up beside Reset.
+        val right = layout(game, alignEnd = true, listOf(rightCamera))
+        val innerRight = rail - 159f - gap
+        assertEquals(
+            listOf(Offset(rail - 159f, 0f), Offset(rail - 152f, 147f), Offset(innerRight - 182f, 0f)),
+            right,
+        )
+    }
+
+    @Test
+    fun aCutoutAtTheTopOfTheEdgeMovesTheWholeRailPastIt() {
+        // iOS reports its notch as a strip down the whole edge, so the first button meets it.
+        val notch = Rect(left = -16f, top = -100f, right = 140f, bottom = 2000f)
+        val left = layout(nav, alignEnd = false, listOf(notch))
+        assertEquals(listOf(0f, 147f, 294f, 441f), left.map { it.y }, "still one column from the top")
+        assertTrue(left.all { it.x == notch.right + margin }, "all clear of the notch: $left")
     }
 }

@@ -146,7 +146,8 @@ class LandscapeLayoutUiTest {
 
     /**
      * Both rails start at the top and keep to the side edges: each button within a few dp of its
-     * edge (this window has no cutout, so none is stepped in), stacked downwards in order.
+     * edge, stacked downwards in order. This window has no display cutout, so each rail stays one
+     * column; wrapping beside a cutout is `SideControlsLayoutTest` and `LandscapeRailsDeviceTest`.
      */
     private fun ComposeUiTest.assertRailsHugTheTopCorners(frame: Rect) {
         val near = with(density) { 12.dp.toPx() }
