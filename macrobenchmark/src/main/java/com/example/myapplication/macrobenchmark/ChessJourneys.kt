@@ -4,6 +4,8 @@ import android.content.Intent
 import androidx.benchmark.macro.MacrobenchmarkScope
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiObject2
+import androidx.test.uiautomator.Direction
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import java.util.regex.Pattern
@@ -53,8 +55,7 @@ internal fun UiDevice.resetGame() {
 /** Repeatable offline paths. Leaves the default 3D board and a fresh game ready for the next run. */
 internal fun UiDevice.playAndNavigate() {
     clickTag("open_settings_button")
-    val toggle = wait(Until.findObject(By.res("settings_board_3d")), UI_TIMEOUT_MS)
-    checkNotNull(toggle) { "3D board setting is missing" }
+    val toggle = findSetting("settings_board_3d")
     // Settings row exposes the label; its Switch child carries the checked state.
     val switch = toggle.findObject(By.checkable(true)) ?: toggle
     if (switch.isChecked) switch.click()
@@ -72,9 +73,22 @@ internal fun UiDevice.playAndNavigate() {
     pressBack()
     resetGame()
     clickTag("open_settings_button")
-    val row = checkNotNull(wait(Until.findObject(By.res("settings_board_3d")), UI_TIMEOUT_MS))
+    val row = findSetting("settings_board_3d")
     val boardSwitch = row.findObject(By.checkable(true)) ?: row
     if (!boardSwitch.isChecked) boardSwitch.click()
     pressBack()
     awaitBoard()
+}
+
+/**
+ * A Settings row that may be below the fold. The app runs in landscape on phones, where the 3D
+ * toggle sits under the opponent and difficulty groups, and UiAutomator does not report nodes a
+ * scroll container has off screen, so a plain wait never finds it.
+ */
+private fun UiDevice.findSetting(tag: String): UiObject2 {
+    repeat(6) {
+        wait(Until.findObject(By.res(tag)), 1_000L)?.let { return it }
+        findObject(By.scrollable(true))?.scroll(Direction.DOWN, 0.8f)
+    }
+    return checkNotNull(wait(Until.findObject(By.res(tag)), UI_TIMEOUT_MS)) { "$tag is missing" }
 }
