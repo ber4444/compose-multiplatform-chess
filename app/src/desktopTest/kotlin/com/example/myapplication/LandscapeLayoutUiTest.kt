@@ -69,12 +69,7 @@ class LandscapeLayoutUiTest {
 
             navButtons.forEach { assertInside(it, startRail) }
             gameButtons.forEach { assertInside(it, endRail) }
-            // Centred where thumbs rest, not along the top edge where the portrait nav row sits.
-            (navButtons + gameButtons).forEach { tag ->
-                val button = bounds(tag)
-                assertTrue(button.top >= frame.top + frame.height * 0.15f, "$tag is too close to the top: $button")
-                assertTrue(button.bottom <= frame.bottom - frame.height * 0.15f, "$tag is too close to the bottom: $button")
-            }
+            assertRailsHugTheTopCorners(frame)
 
             // The coach strip sits at the bottom, between the rails, and stays short enough to stay
             // under the board's near edge.
@@ -108,6 +103,7 @@ class LandscapeLayoutUiTest {
                 assertTrue(bounds(tag).left >= board.right, "$tag should be right of the board")
             }
             assertTrue(board.height >= frame.height * 0.85f, "board $board should take the height of $frame")
+            assertRailsHugTheTopCorners(frame)
 
             coach.explainSquare("e4", "e4", "The pawn on e4 controls d5 and f5.")
             waitForIdle()
@@ -145,6 +141,26 @@ class LandscapeLayoutUiTest {
     private fun Frame(size: DpSize, coach: MoveCoachManager? = null, content: @Composable () -> Unit) {
         CompositionLocalProvider(LocalMoveCoachManager provides coach) {
             Box(Modifier.requiredSize(size).testTag("frame")) { content() }
+        }
+    }
+
+    /**
+     * Both rails start at the top and keep to the side edges: each button within a few dp of its
+     * edge (this window has no cutout, so none is stepped in), stacked downwards in order.
+     */
+    private fun ComposeUiTest.assertRailsHugTheTopCorners(frame: Rect) {
+        val near = with(density) { 12.dp.toPx() }
+        listOf(navButtons, gameButtons).forEach { rail ->
+            assertTrue(bounds(rail.first()).top <= frame.top + near, "${rail.first()} starts at the top: ${bounds(rail.first())} in $frame")
+            rail.zipWithNext().forEach { (above, below) ->
+                assertTrue(bounds(above).bottom <= bounds(below).top, "$above sits above $below")
+            }
+        }
+        navButtons.forEach { tag ->
+            assertTrue(bounds(tag).left - frame.left <= near, "$tag hugs the left edge: ${bounds(tag)} in $frame")
+        }
+        gameButtons.forEach { tag ->
+            assertTrue(frame.right - bounds(tag).right <= near, "$tag hugs the right edge: ${bounds(tag)} in $frame")
         }
     }
 

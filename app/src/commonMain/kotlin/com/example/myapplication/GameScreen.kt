@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -133,12 +134,13 @@ internal val THREE_D_CONTROL_DISABLED_ACCENT_COLOR = Color.LightGray.copy(alpha 
 internal fun usesSideControls(width: Dp, height: Dp): Boolean = width > height
 
 /**
- * Width of each landscape button rail, sized for the longest label, "Cancel Explain". Labels are
- * centred, so a larger font scale wraps one onto two lines rather than clipping it.
+ * Width of the slot each landscape button rail sits in, sized for the longest label, "Cancel
+ * Explain". The buttons take their own label's width and hug the slot's outer edge; a larger font
+ * scale wraps a label onto two lines rather than clipping it.
  */
 internal val SIDE_RAIL_WIDTH = 136.dp
 
-/** Narrower than Material's 24dp so the labels fit the rail; the underline still spans the full rail. */
+/** Narrower than Material's 24dp, so a rail button's label sits close to the edge it hugs. */
 private val SIDE_RAIL_BUTTON_PADDING = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
 
 /**
@@ -591,7 +593,6 @@ fun GameScreen(
                             explainMode = explainMode,
                             onToggleExplainMode = moveCoachManager?.let { { explainMode = !explainMode } },
                             vertical = true,
-                            modifier = Modifier.fillMaxWidth(),
                         )
                     },
                 ) {
@@ -650,8 +651,8 @@ fun GameScreen(
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .windowInsetsPadding(sideRailInsets())
+                    .padding(horizontal = SIDE_RAIL_EDGE_MARGIN, vertical = 4.dp)
             ) {
                 val boardSize = maxOf(0.dp, minOf(maxHeight, maxWidth - SIDE_RAIL_WIDTH * 2))
                 // Read here, not inside the Row/Column below: layout scopes are DSL-marked, so the
@@ -664,7 +665,6 @@ fun GameScreen(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     Column(
-                        verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.Start,
                         modifier = Modifier.weight(1f).fillMaxHeight().testTag("side_rail_start"),
                     ) {
@@ -675,7 +675,6 @@ fun GameScreen(
                             onOpenHistory = onOpenHistory,
                             vertical = true,
                             accentColor = accent,
-                            modifier = Modifier.width(SIDE_RAIL_WIDTH),
                         )
                     }
                     Board(
@@ -699,9 +698,9 @@ fun GameScreen(
                         horizontalAlignment = Alignment.End,
                         modifier = Modifier.weight(1f).fillMaxHeight().testTag("side_rail_end"),
                     ) {
-                        // The buttons centre in whatever height the coach text leaves them.
+                        // The buttons start at the top; the coach text sits at the bottom.
                         Box(
-                            contentAlignment = Alignment.CenterEnd,
+                            contentAlignment = Alignment.TopEnd,
                             modifier = Modifier.weight(1f).fillMaxWidth(),
                         ) {
                             GameControls(
@@ -717,13 +716,16 @@ fun GameScreen(
                                 vertical = true,
                                 accentColor = accent,
                                 disabledAccentColor = disabledAccent,
-                                modifier = Modifier.width(SIDE_RAIL_WIDTH),
                             )
                         }
                         if (coachVisible) {
                             MoveCoachPanel(
                                 state = coachState,
-                                modifier = Modifier.heightIn(max = coachMaxHeight),
+                                // The frame leaves the cutout side unpadded for the buttons'
+                                // sake; the text clears a cutout on its edge outright.
+                                modifier = Modifier
+                                    .heightIn(max = coachMaxHeight)
+                                    .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.End)),
                                 onRetry = moveCoachManager?.let { { it.retry() } },
                                 contentColor = MaterialTheme.colorScheme.onSurface,
                             )
@@ -854,7 +856,7 @@ fun GameScreen(
  * A null action hides its button — the web build has no Chat.
  *
  * [vertical] is the landscape rail: the same underlined, transparent buttons as Reset/Hint/Explain,
- * stretched to the rail's width so the underlines line up. Portrait keeps the plain text row.
+ * stacked from the top against the left edge (see [RailColumn]). Portrait keeps the plain text row.
  */
 @Composable
 private fun NavigationButtons(
@@ -873,14 +875,11 @@ private fun NavigationButtons(
         NavEntry("History", "open_history_button", onOpenHistory),
     )
     if (vertical) {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = modifier,
-        ) {
+        RailColumn(alignEnd = false, modifier = modifier) {
             entries.forEach { entry ->
                 TransparentUnderlineButton(
                     onClick = entry.onClick,
-                    modifier = Modifier.fillMaxWidth().testTag(entry.testTag),
+                    modifier = Modifier.testTag(entry.testTag),
                     accentColor = accentColor,
                     contentPadding = SIDE_RAIL_BUTTON_PADDING,
                 ) {
@@ -910,9 +909,9 @@ private fun NavigationButtons(
 private class NavEntry(val label: String, val testTag: String, val onClick: () -> Unit)
 
 /**
- * The landscape frame over the 3D board: [start] and [end] rails at the window's side edges,
- * vertically centred where thumbs rest when a phone is held sideways, and [center] filling the
- * strip between them.
+ * The landscape frame over the 3D board: [start] and [end] rails against the window's side edges,
+ * starting just under the status bar, and [center] filling the strip between them. The sides are
+ * padded by [sideRailInsets], not the full safe area: the rails clear a display cutout per button.
  */
 @Composable
 private fun SideRails(
@@ -924,17 +923,17 @@ private fun SideRails(
     Row(
         modifier = modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .windowInsetsPadding(sideRailInsets())
+            .padding(horizontal = SIDE_RAIL_EDGE_MARGIN, vertical = 4.dp),
     ) {
         Column(
-            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.Start,
             modifier = Modifier.width(SIDE_RAIL_WIDTH).fillMaxHeight().testTag("side_rail_start"),
             content = start,
         )
         Box(modifier = Modifier.weight(1f).fillMaxHeight(), content = center)
         Column(
-            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.End,
             modifier = Modifier.width(SIDE_RAIL_WIDTH).fillMaxHeight().testTag("side_rail_end"),
             content = end,
         )
@@ -952,7 +951,7 @@ private fun GameControls(
     transparentButtons: Boolean = false,
     explainMode: Boolean = false,
     onToggleExplainMode: (() -> Unit)? = null,
-    /** Stack the buttons as a landscape side rail, each stretched to the rail's width. */
+    /** Stack the buttons as the right-hand landscape rail (see [RailColumn]). */
     vertical: Boolean = false,
     accentColor: Color = THREE_D_CONTROL_ACCENT_COLOR,
     disabledAccentColor: Color = THREE_D_CONTROL_DISABLED_ACCENT_COLOR,
@@ -964,7 +963,7 @@ private fun GameControls(
     // Each button is declared once; the same set is laid out as a row under the board or as a rail.
     val controlButton: @Composable (label: String, tag: String, enabled: Boolean, onClick: () -> Unit) -> Unit =
         { label, tag, enabled, onClick ->
-            val buttonModifier = if (vertical) Modifier.fillMaxWidth().testTag(tag) else Modifier.testTag(tag)
+            val buttonModifier = Modifier.testTag(tag)
             if (transparentButtons) {
                 TransparentUnderlineButton(
                     onClick = onClick,
@@ -994,7 +993,7 @@ private fun GameControls(
     }
 
     Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+        horizontalAlignment = if (vertical) Alignment.End else Alignment.CenterHorizontally,
         modifier = modifier
     ) {
         if (viewState.board3DUnavailable) {
@@ -1007,10 +1006,7 @@ private fun GameControls(
         }
 
         if (vertical) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) { buttons() }
+            RailColumn(alignEnd = true) { buttons() }
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { buttons() }
         }
