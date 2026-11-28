@@ -60,7 +60,9 @@ val generateRulesCorpus by tasks.registering {
 kotlin {
     android {
         namespace = "com.example.ondeviceai"
-        compileSdk = 36
+        // Was 36. Raised with :app because androidDeviceTest consumes compose
+        // ui-test-junit4-android 1.13.0, which declares minCompileSdk=37 + minCompileMinorSdk=1.
+        compileSdk { version = release(37) { minor = 2 } }
         minSdk = 26
 
         compilerOptions {

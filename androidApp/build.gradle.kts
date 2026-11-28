@@ -40,6 +40,8 @@ val uploadKeyProperties = Properties().apply {
 android {
     namespace = "com.example.myapplication.app"
     compileSdk = 37
+    // 37.2, not 37: compose ui-test-junit4-android 1.13.0 declares minCompileMinorSdk=1.
+    compileSdkMinor = 2
 
     defaultConfig {
         applicationId = "io.github.ber4444.chess"
