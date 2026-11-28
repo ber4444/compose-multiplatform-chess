@@ -19,7 +19,7 @@ dependencies {
     implementation("io.ktor:ktor-serialization-kotlinx-json-jvm:$ktorVersion")
 
     testImplementation(kotlin("test-junit5"))
-    testImplementation("org.junit.jupiter:junit-jupiter:5.13.4")
+    testImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
 
     // Same Apache HttpComponents constraint as :server, and for the same reason — see the long
     // comment there. It has to be repeated because constraints are per-configuration and this

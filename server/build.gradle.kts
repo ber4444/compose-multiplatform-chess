@@ -24,7 +24,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     testImplementation(kotlin("test-junit5"))
-    testImplementation("org.junit.jupiter:junit-jupiter:5.13.4")
+    testImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
     testImplementation("io.ktor:ktor-server-test-host-jvm:$ktorVersion")
     testImplementation("io.ktor:ktor-client-content-negotiation-jvm:$ktorVersion")
     testImplementation("org.testcontainers:testcontainers-postgresql:2.0.5")
