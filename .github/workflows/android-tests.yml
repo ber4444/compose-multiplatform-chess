@@ -37,7 +37,7 @@ jobs:
 
       - name: Set up JDK
         uses: actions/setup-java@v5
-        with: { distribution: temurin, java-version: '17' }
+        with: { distribution: temurin, java-version: '21' }
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -108,7 +108,7 @@ jobs:
 
       - name: Set up JDK
         uses: actions/setup-java@v5
-        with: { distribution: temurin, java-version: '17' }
+        with: { distribution: temurin, java-version: '21' }
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
@@ -185,7 +185,7 @@ jobs:
 
       - name: Set up JDK
         uses: actions/setup-java@v5
-        with: { distribution: temurin, java-version: '17' }
+        with: { distribution: temurin, java-version: '21' }
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
@@ -280,7 +280,7 @@ jobs:
 
       - name: Set up JDK
         uses: actions/setup-java@v5
-        with: { distribution: temurin, java-version: '17' }
+        with: { distribution: temurin, java-version: '21' }
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
@@ -404,7 +404,7 @@ jobs:
 
       - name: Set up JDK
         uses: actions/setup-java@v5.0.0
-        with: { distribution: temurin, java-version: '17' }
+        with: { distribution: temurin, java-version: '21' }
 
       # PerftDeepTest gates on -Dperft.deep=true (see chess-core/build.gradle.kts systemProperty
       # forwarding). Without the flag the deep tests assume-skip; the broad --tests filter

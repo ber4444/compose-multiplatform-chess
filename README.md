@@ -8,7 +8,7 @@ Build from source for Desktop (JVM) or Web (Wasm).
 
 ## Setup
 
-For the desktop target on Linux and macOS, **JDK 26 is recommended**. The desktop 3D renderer uses a native C++ Filament bridge; after a clean checkout run `tools/fetch_filament_desktop.sh` to fetch the gitignored Filament desktop payload before desktop builds.
+**JDK 21 is the only JDK this project needs** — the Gradle daemon, every module's bytecode target, the desktop run/test launchers and every CI job all use it. Gradle auto-provisions it via the foojay resolver if it isn't installed. The desktop 3D renderer uses a native C++ Filament bridge; after a clean checkout run `tools/fetch_filament_desktop.sh` to fetch the gitignored Filament desktop payload before desktop builds.
 
 For the desktop target on Linux, install stockfish first:
 
