@@ -20,7 +20,7 @@ dependencies {
     implementation("com.zaxxer:HikariCP:7.1.0")
     implementation("org.postgresql:postgresql:42.7.15")
     implementation("com.pgvector:pgvector:0.1.6")
-    implementation("com.microsoft.onnxruntime:onnxruntime:1.22.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime:1.32.0")
     implementation(libs.kotlinx.serialization.json)
 
     testImplementation(kotlin("test-junit5"))
