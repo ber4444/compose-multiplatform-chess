@@ -109,9 +109,11 @@ allprojects {
                 }
                 // Only :macrobenchmark resolves wire, via benchmark-traceprocessor 1.5.0's plain
                 // `requires 6.4.0` (no longer the `strictly` pin 1.4.x carried, so this can lift it).
-                // The overflow left by CVE-2026-45799's incomplete fix is patched from 6.4.5; 6.4.7 is the latest 6.4.x.
+                // The overflow left by CVE-2026-45799's incomplete fix is patched from 6.4.5; this
+                // now sits on the 7.x head, two majors above what benchmark-traceprocessor asks for.
+                // If trace parsing breaks, 6.4.7 is the last version inside the requested major.
                 "com.squareup.wire" -> if (requested.name.startsWith("wire-runtime")) {
-                    useVersion("6.4.7")
+                    useVersion("7.2.2")
                     because("GHSA for ByteArrayProtoReader32 length overflow, fixed in 6.4.5")
                 }
                 // Only LeakCanary 2.14 (`debugImplementation` in :androidApp) asks for Okio 2.x: shark

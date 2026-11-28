@@ -143,7 +143,7 @@ kotlin {
             // KV cache + generation internally.
             
             // Phase 2 dependencies
-            implementation(project.dependencies.platform("com.google.firebase:firebase-bom:34.16.0"))
+            implementation(project.dependencies.platform("com.google.firebase:firebase-bom:35.2.0"))
             implementation(libs.genai.prompt)
         }
 
@@ -159,7 +159,7 @@ kotlin {
                 // the weights), see LitertLmModelStore's KDoc. Gated behind
                 // CHESS_ENABLE_COACH=1 at the desktop entry point. Mirrors how
                 // androidMain depends on Cactus — same OnDeviceTextGenerator seam.
-                implementation("com.google.ai.edge.litertlm:litertlm-jvm:0.14.0")
+                implementation("com.google.ai.edge.litertlm:litertlm-jvm:0.20.0")
             }
         }
 
