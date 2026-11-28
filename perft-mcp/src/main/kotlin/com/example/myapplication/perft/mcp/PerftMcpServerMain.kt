@@ -1,14 +1,14 @@
 package com.example.myapplication.perft.mcp
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.Implementation
-import io.modelcontextprotocol.kotlin.sdk.ServerCapabilities
-import io.modelcontextprotocol.kotlin.sdk.TextContent
-import io.modelcontextprotocol.kotlin.sdk.Tool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.server.StdioServerTransport
 import io.modelcontextprotocol.kotlin.sdk.shared.Transport
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.Implementation
+import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.runBlocking
 import kotlinx.io.asSink
 import kotlinx.io.asSource
@@ -35,8 +35,8 @@ import kotlinx.serialization.json.put
 fun main(): Unit = kotlinx.coroutines.runBlocking {
     val server = PerftMcpServer()
     val transport = StdioServerTransport(
-        inputStream = System.`in`.asSource().buffered(),
-        outputStream = System.out.asSink().buffered(),
+        input = System.`in`.asSource().buffered(),
+        output = System.out.asSink().buffered(),
     )
     server.connect(transport)
     // Canonical MCP Kotlin SDK idiom: keep the runBlocking scope alive so the transport's IO
@@ -66,9 +66,15 @@ class PerftMcpServer {
         registerTools()
     }
 
-    /** Connect the server to a transport (stdio in production, in-memory in tests). */
+    /**
+      * Connect the server to a transport (stdio in production, in-memory in tests).
+      *
+      * `Server.connect` became `Server.createSession` in SDK 0.7.5 and the deprecated alias is gone
+      * as of 0.10.0. The returned [io.modelcontextprotocol.kotlin.sdk.server.ServerSession] is
+      * discarded: this server registers every tool up front and needs no per-session handle.
+      */
     suspend fun connect(transport: Transport) {
-        server.connect(transport)
+        server.createSession(transport)
     }
 
     // --- Tool registration -----------------------------------------------------
@@ -78,7 +84,7 @@ class PerftMcpServer {
         addTool(
             name = TOOL_RUN_GATE,
             description = RUN_GATE_DESCRIPTION,
-            inputSchema = Tool.Input(
+            inputSchema = ToolSchema(
                 properties = buildJsonObject {
                     putJsonObject("deep") {
                         put("type", "boolean")
@@ -88,7 +94,7 @@ class PerftMcpServer {
                 },
                 required = emptyList(),
             ),
-        ) { request ->
+        ) { _, request ->
             val deep = request.arguments["deep"]?.let { (it as? JsonPrimitive)?.booleanOrNull } ?: false
             val root = PerftMcpPaths.repoRoot()
             val result = PerftGateRunner.run(root, deep)
@@ -99,7 +105,7 @@ class PerftMcpServer {
         addTool(
             name = TOOL_SF_DIVIDE,
             description = SF_DIVIDE_DESCRIPTION,
-            inputSchema = Tool.Input(
+            inputSchema = ToolSchema(
                 properties = buildJsonObject {
                     putJsonObject("fen") {
                         put("type", "string")
@@ -113,7 +119,7 @@ class PerftMcpServer {
                 },
                 required = listOf("fen"),
             ),
-        ) { request ->
+        ) { _, request ->
             val fen = (request.arguments["fen"] as? JsonPrimitive)?.content
                 ?: return@addTool CallToolResult(content = listOf(TextContent("Missing required argument 'fen'.")))
             val depth = (request.arguments["depth"] as? JsonPrimitive)?.intOrNull ?: 3
@@ -125,11 +131,11 @@ class PerftMcpServer {
         addTool(
             name = TOOL_READ_DIV,
             description = READ_DIV_DESCRIPTION,
-            inputSchema = Tool.Input(
+            inputSchema = ToolSchema(
                 properties = buildJsonObject {},
                 required = emptyList(),
             ),
-        ) {
+        ) { _, _ ->
             val result = DivergenceReader.read()
             CallToolResult(content = listOf(TextContent(result.content)))
         }

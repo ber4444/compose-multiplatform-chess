@@ -29,9 +29,9 @@ kotlin {
 }
 
 dependencies {
-    // MCP SDK 0.7.5 declares ktor deps without versions (expects ktor-bom via a POM import that
-    // Gradle doesn't honor automatically). Bring the BOM in as a platform dependency, then the
-    // three modules the SDK's server/client pull in. Versions come from the BOM.
+    // The BOM used to be a workaround: MCP SDK 0.7.5 declared its ktor deps with no versions and
+    // could not resolve without it (fixed upstream in 0.8.0, #392). It stays because this module
+    // declares three Ktor artifacts of its own below and the BOM is what keeps them aligned.
     implementation(platform(libs.ktor.bom))
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.sse)

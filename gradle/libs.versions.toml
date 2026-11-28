@@ -41,7 +41,7 @@ junit = "4.13.2"
 sceneview = "4.76.0"
 multiplatformSettings = "1.3.0"
 kotlinxSerialization = "1.13.0"
-mcpSdk = "0.7.5"
+mcpSdk = "0.16.0"
 ktor = "3.6.2"
 ksp = "2.3.14"
 genaiPrompt = "1.0.0-beta5"
@@ -72,9 +72,9 @@ compose-ui-backhandler = { module = "org.jetbrains.compose.ui:ui-backhandler", v
 # :perft-mcp — adapter that exposes the perft rig as MCP tools (stdio). No dependency on :app or
 # :chess-core; it shells out to gradle + stockfish exactly as a human following the loop brief would.
 mcp-sdk = { module = "io.modelcontextprotocol:kotlin-sdk", version.ref = "mcpSdk" }
-# MCP SDK 0.7.5 declares Ktor deps without versions (expects the consumer to bring them via the
-# ktor-bom POM import). We pull the BOM explicitly in perft-mcp/build.gradle.kts; the BOM manages
-# perft-mcp's ktor deps, while :app references the client entries below directly with version.ref.
+# The ktor-bom entry is no longer a workaround for the MCP SDK: 0.7.5 declared its Ktor deps
+# without versions (#392) and 0.8.0 fixed that, so :perft-mcp pulls only the Ktor pieces it uses
+# itself. :app references the client entries below directly with version.ref.
 ktor-bom = { module = "io.ktor:ktor-bom", version.ref = "ktor" }
 ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
 ktor-server-sse = { module = "io.ktor:ktor-server-sse", version.ref = "ktor" }
