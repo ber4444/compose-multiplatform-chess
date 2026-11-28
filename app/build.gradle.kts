@@ -92,7 +92,7 @@ kotlin {
         // The KMP android extension has no `compileSdkMinor`; the spec block is the only way
         // to name a minor SDK here. 37.2 is required by compose ui-test-junit4-android 1.13.0
         // (minCompileSdk=37, minCompileMinorSdk=1) in androidDeviceTest.
-        compileSdk { version = release(37) { minor = 2 } }
+        compileSdk { version = release(37) { minorApiLevel = 2 } }
         minSdk = 26
 
         compilerOptions {
