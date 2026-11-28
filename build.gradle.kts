@@ -198,7 +198,7 @@ gradle.projectsEvaluated {
 }
 
 // Force-upgrade the vulnerable transitive `ws` in the Wasm dependency store. ktor-client-core
-// (pulled into the wasmJs target) declares `"ws": "8.18.3"` as an exact pin; 8.18.3 sits in the
+// (pulled into the wasmJs target) declares `"ws": "8.20.1"` as an exact pin; 8.20.1 sits in the
 // vulnerable range for GHSA-96hv-2xvq-fx4p (memory-exhaustion DoS; fixed in 8.21.0). Since ktor
 // pins an exact version (not a range), a plain bump is impossible — a yarn `resolutions` entry is
 // the only way to override it. At wasm browser runtime the app uses the browser's native WebSocket,

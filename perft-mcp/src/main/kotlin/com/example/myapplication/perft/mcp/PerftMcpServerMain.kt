@@ -94,8 +94,8 @@ class PerftMcpServer {
                 },
                 required = emptyList(),
             ),
-        ) { _, request ->
-            val deep = request.arguments["deep"]?.let { (it as? JsonPrimitive)?.booleanOrNull } ?: false
+        ) { request ->
+            val deep = request.arguments?.get("deep")?.let { (it as? JsonPrimitive)?.booleanOrNull } ?: false
             val root = PerftMcpPaths.repoRoot()
             val result = PerftGateRunner.run(root, deep)
             CallToolResult(content = listOf(TextContent(PerftMcpServer.formatGateResult(result, deep))))
@@ -119,10 +119,10 @@ class PerftMcpServer {
                 },
                 required = listOf("fen"),
             ),
-        ) { _, request ->
-            val fen = (request.arguments["fen"] as? JsonPrimitive)?.content
+        ) { request ->
+            val fen = (request.arguments?.get("fen") as? JsonPrimitive)?.content
                 ?: return@addTool CallToolResult(content = listOf(TextContent("Missing required argument 'fen'.")))
-            val depth = (request.arguments["depth"] as? JsonPrimitive)?.intOrNull ?: 3
+            val depth = (request.arguments?.get("depth") as? JsonPrimitive)?.intOrNull ?: 3
             val result = StockfishDivider().use { it.divide(fen, depth) }
             CallToolResult(content = listOf(TextContent(PerftMcpServer.formatDivideResult(fen, depth, result))))
         }
@@ -135,7 +135,7 @@ class PerftMcpServer {
                 properties = buildJsonObject {},
                 required = emptyList(),
             ),
-        ) { _, _ ->
+        ) { _ ->
             val result = DivergenceReader.read()
             CallToolResult(content = listOf(TextContent(result.content)))
         }
