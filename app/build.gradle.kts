@@ -93,7 +93,7 @@ kotlin {
         minSdk = 26
 
         compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_11)
+            jvmTarget.set(JvmTarget.JVM_21)
         }
 
         withHostTestBuilder {
@@ -125,9 +125,10 @@ kotlin {
 
     jvm("desktop") {
         compilerOptions {
-            // Desktop compiles at JVM 24 to match its scoped JDK toolchain launcher (see the
-            // desktopTest / run tasks below). Android stays on JVM_11.
-            jvmTarget.set(JvmTarget.JVM_24)
+            // Every target in the build emits JVM 21 bytecode and every JVM task runs on JDK 21
+            // (gradle-daemon-jvm.properties, the scoped launchers below, and CI's setup-java).
+            // 21 is the single JDK this project needs; don't introduce a second version here.
+            jvmTarget.set(JvmTarget.JVM_21)
         }
     }
 
@@ -413,16 +414,16 @@ val syncDesktopFilamentBridgeResources by tasks.registering(Sync::class) {
 tasks.withType<Test>().configureEach {
     providers.systemProperty("chess3d.smoke").orNull?.let { systemProperty("chess3d.smoke", it) }
     providers.systemProperty("chess3d.bench").orNull?.let { systemProperty("chess3d.bench", it) }
-    // The Gradle daemon runs on JDK 21 (gradle-daemon-jvm.properties); run the desktop tests on the
-    // installed JDK 26 via a scoped toolchain launcher to match the desktop target's JVM 24 bytecode.
-    // Android/other tests stay on the daemon JDK.
+    // Pinned to JDK 21 explicitly rather than inherited from the daemon, so a daemon started on a
+    // different JVM can't silently change which runtime the desktop tests (and the native Filament
+    // bridge they load) execute on. Same version as the daemon, so it resolves to it in practice.
     if (name == "desktopTest") {
         dependsOn(buildDesktopFilamentBridge)
         // Treat the native bridge library as a test input so editing the C++ re-runs desktopTest
         // instead of leaving it UP-TO-DATE against a stale .dylib/.so.
         inputs.files(buildDesktopFilamentBridge).withPropertyName("desktopFilamentBridge")
         javaLauncher.set(
-            javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(26)) }
+            javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) }
         )
         // Rococoa uses CGLIB which requires reflection access to java.lang.ClassLoader on newer JDKs
         jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
@@ -439,13 +440,13 @@ tasks.withType<Test>().configureEach {
         .forEach { (k, v) -> systemProperty(k.toString(), v.toString()) }
 }
 
-// The Compose Desktop run tasks (JavaExec) use the same scoped JDK 26 launcher and the Rococoa
-// --add-opens. The Gradle daemon is on JDK 21.
+// The Compose Desktop run tasks (JavaExec) use the same scoped JDK 21 launcher and the Rococoa
+// --add-opens.
 tasks.withType<JavaExec>().configureEach {
     if (name == "run" || name == "runDistributable" || name == "runRelease") {
         dependsOn(buildDesktopFilamentBridge)
         javaLauncher.set(
-            javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(26)) }
+            javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) }
         )
         jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
         doFirst {
@@ -490,7 +491,7 @@ tasks.configureEach {
 compose.desktop {
     application {
         mainClass = "com.example.myapplication.MainKt"
-        val launcher = javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(26)) }
+        val launcher = javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) }
         javaHome = launcher.get().metadata.installationPath.asFile.absolutePath
         jvmArgs += listOf("--add-opens=java.base/java.lang=ALL-UNNAMED")
 

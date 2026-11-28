@@ -39,9 +39,9 @@ buildscript {
     }
 }
 
-// Lets Gradle auto-provision a matching JDK toolchain (the JDK 26 the desktop target's scoped
-// launcher uses) on machines/CI runners that don't have one installed, instead of failing with
-// "Toolchain download repositories have not been configured".
+// Lets Gradle auto-provision the JDK 21 toolchain this build asks for on machines/CI runners that
+// don't have one installed, instead of failing with "Toolchain download repositories have not been
+// configured".
 plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }

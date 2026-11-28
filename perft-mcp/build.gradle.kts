@@ -19,13 +19,13 @@ application {
     mainClass.set("com.example.myapplication.perft.mcp.PerftMcpServerMainKt")
 }
 
-// Target JDK 17 bytecode (not 21) so the installDist start script runs on the JDK 17 that's
-// installed on this machine and on CI runners (setup-java: '17' in the workflows). The foojay
-// toolchain auto-provisioning would let us *compile* on 21, but the start script launches with
-// whatever `java` is on PATH, so emitting 17 bytecode keeps the run path working everywhere.
-// The MCP SDK 0.7.5 + Ktor 3.2.3 are themselves JDK 8/11-compatible, so 17 is a safe floor.
+// JDK 21, the one version this whole build uses (daemon, every module, every CI job). The
+// installDist start script launches with whatever `java` is on PATH, so this has to be a version
+// that's actually installed rather than merely foojay-provisionable for compilation -- which is the
+// reason it used to say 17, back when the workflows set up 17. They set up 21 now, so 17 bytecode
+// would be the odd one out and would make the toolchain service download a JDK nobody else needs.
 kotlin {
-    jvmToolchain(17)
+    jvmToolchain(21)
 }
 
 dependencies {
