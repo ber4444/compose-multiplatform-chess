@@ -89,7 +89,10 @@ kotlin {
 
     android {
         namespace = "com.example.myapplication"
-        compileSdk = 37
+        // The KMP android extension has no `compileSdkMinor`; the spec block is the only way
+        // to name a minor SDK here. 37.2 is required by compose ui-test-junit4-android 1.13.0
+        // (minCompileSdk=37, minCompileMinorSdk=1) in androidDeviceTest.
+        compileSdk { version = release(37) { minorApiLevel = 2 } }
         minSdk = 26
 
         compilerOptions {
@@ -104,10 +107,13 @@ kotlin {
 
         withDeviceTestBuilder {}.configure {
             instrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-            // Pinned rather than following compileSdk (37): an APK targeting 37 needs
-            // ACCESS_LOCAL_NETWORK to reach 10.0.2.2, so on an Android 17 device espresso-device
-            // could not reach the emulator's gRPC and rotation tests timed out. Matches
-            // :androidApp's targetSdk.
+            // Pinned at 36, now deliberately BELOW the app's targetSdk (37) rather than matching
+            // it: an APK targeting 37 needs ACCESS_LOCAL_NETWORK to reach 10.0.2.2, so on an
+            // Android 17 device espresso-device could not reach the emulator's gRPC and the
+            // rotation tests in androidDeviceTest/GameScreenTest.kt timed out. This is the only
+            // targetSdk in the build that is not the latest, and it governs a test APK, not
+            // anything shipped. Raising it means adding ACCESS_LOCAL_NETWORK here and confirming
+            // whether Android 17 also requires a runtime grant for it.
             targetSdk { version = release(36) }
             emulatorControl {
                 enable = true
@@ -239,7 +245,7 @@ kotlin {
             implementation(libs.sceneview)
             // Maia-3 on Android (explorer/LiteRtMaiaRuntime.android.kt). 5.9 MB uncompressed on arm64,
             // against ONNX Runtime's 18.2 MB; the AAR carries its own R8 rules.
-            implementation("com.google.ai.edge.litert:litert:2.4.0")
+            implementation("com.google.ai.edge.litert:litert:2.4.1")
         }
 
         jvmCommonMain.dependencies {

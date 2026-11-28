@@ -1,13 +1,18 @@
 [versions]
-kotlinxCoroutines = "1.9.0"
-agp = "9.5.0"
-kermit = "2.0.5"
-kotlin = "2.4.20"
-composeMultiplatform = "1.10.3"
-androidx-composeUi = "1.10.5"
+kotlinxCoroutines = "1.11.0"
+agp = "9.5.3"
+kermit = "2.2.0"
+kotlin = "2.4.21"
+composeMultiplatform = "1.12.2"
+# ui-test-junit4-android 1.13.0's AAR metadata declares minCompileSdk=37 AND
+# minCompileMinorSdk=1, so taking it required moving compileSdk to a *minor* SDK —
+# 37.2, the latest stable platform — in the three modules that consume it:
+# :androidApp, :app and :onDeviceAi (the last of which was still on 36). CI installs
+# platforms;android-37.2 for that reason. ui-test-manifest only asks for 34.
+androidx-composeUi = "1.13.0"
 androidx-activityCompose = "1.13.0"
-androidx-coreKtx = "1.18.0"
-androidx-lifecycleRuntimeCompose = "2.10.0"
+androidx-coreKtx = "1.19.1"
+androidx-lifecycleRuntimeCompose = "2.11.1"
 androidx-testExtJunit = "1.3.0"
 # Floor is 1.4.1, not 1.3.0: 1.3.0 unconditionally kills every process named `perfetto` before
 # tracing and hard-fails when one will not die. Retail devices ship long-lived statsd/GMS perfetto
@@ -20,7 +25,7 @@ androidx-testExtJunit = "1.3.0"
 # `strictly 5.2.1`, which a constraint on our side cannot lift. 1.5.0 moves that to a plain
 # `requires 6.4.0`; the root build.gradle.kts lifts it further to a 6.4.x carrying the follow-up fix.
 benchmarkMacroJunit4 = "1.5.0"
-uiautomator = "2.3.0"
+uiautomator = "2.4.1"
 espressoDevice = "1.1.0"
 junit = "4.13.2"
 # `AndroidBoard3D.kt` is the only consumer. It relies on render-on-demand (`FrameRatePolicy.OnDemand`,
@@ -28,17 +33,19 @@ junit = "4.13.2"
 # sceneview/sceneview#3108) and on `renderInvalidator`, so it does not compile below 4.38. Without
 # on-demand rendering an untouched 3D board redraws at the panel refresh rate forever: 120 fps /
 # ~1.9 cores on a Galaxy Z Fold3, 60 fps / ~1.76 cores on a Pixel 7a, the GPU rail alone at
-# 10.36 J per 10 s idle window. 4.66 adds `EngineWarmUp`, which ChessApplication starts. 4.65+ pulls
+# 10.36 J per 10 s idle window. 4.66 adds `EngineWarmUp`, which ChessApplication starts. On 4.76 (the current head) the
+# release notes announce no change to FrameRatePolicy, renderInvalidator, EngineWarmUp,
+# SurfaceType or CameraNode projection across 4.67-4.76; the one source hazard in that
+# range is 4.69.7 inserting `disallowParentIntercept` before `content` in SceneView(),
+# which cannot bite here because AndroidBoard3D passes every argument by name. 4.65+ pulls
 # Jetpack Compose 1.12 onto the Android classpath, and both require compileSdk 37.
-sceneview = "4.66.0"
+sceneview = "4.76.0"
 multiplatformSettings = "1.3.0"
-kotlinxSerialization = "1.8.0"
-mcpSdk = "0.7.5"
-ktor = "3.5.0"
-ksp = "2.3.10"
-genaiPrompt = "1.0.0-beta4"
-genaiSchema = "1.0.0-alpha1"
-mockk = "1.13.10"
+kotlinxSerialization = "1.13.0"
+mcpSdk = "0.16.0"
+ktor = "3.6.2"
+genaiPrompt = "1.0.0-beta5"
+mockk = "1.14.12"
 leakcanary = "2.14"
 profileinstaller = "1.4.1"
 
@@ -64,9 +71,9 @@ compose-ui-backhandler = { module = "org.jetbrains.compose.ui:ui-backhandler", v
 # :perft-mcp — adapter that exposes the perft rig as MCP tools (stdio). No dependency on :app or
 # :chess-core; it shells out to gradle + stockfish exactly as a human following the loop brief would.
 mcp-sdk = { module = "io.modelcontextprotocol:kotlin-sdk", version.ref = "mcpSdk" }
-# MCP SDK 0.7.5 declares Ktor deps without versions (expects the consumer to bring them via the
-# ktor-bom POM import). We pull the BOM explicitly in perft-mcp/build.gradle.kts; the BOM manages
-# perft-mcp's ktor deps, while :app references the client entries below directly with version.ref.
+# The ktor-bom entry is no longer a workaround for the MCP SDK: 0.7.5 declared its Ktor deps
+# without versions (#392) and 0.8.0 fixed that, so :perft-mcp pulls only the Ktor pieces it uses
+# itself. :app references the client entries below directly with version.ref.
 ktor-bom = { module = "io.ktor:ktor-bom", version.ref = "ktor" }
 ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
 ktor-server-sse = { module = "io.ktor:ktor-server-sse", version.ref = "ktor" }
@@ -80,8 +87,6 @@ ktor-client-js = { module = "io.ktor:ktor-client-js", version.ref = "ktor" }
 ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
 ktor-serialization-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "genaiPrompt" }
-genai-schema = { module = "com.google.mlkit:genai-schema", version.ref = "genaiSchema" }
-genai-schema-compiler = { module = "com.google.mlkit:genai-schema-compiler", version.ref = "genaiSchema" }
 mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
 leakcanary-android = { module = "com.squareup.leakcanary:leakcanary-android", version.ref = "leakcanary" }
 leakcanary-instrumentation = { module = "com.squareup.leakcanary:leakcanary-android-instrumentation", version.ref = "leakcanary" }
@@ -97,4 +102,3 @@ composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMul
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlinJvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

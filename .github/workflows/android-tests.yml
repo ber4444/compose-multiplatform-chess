@@ -48,7 +48,7 @@ jobs:
         uses: android-actions/setup-android@v4
 
       - name: Install compile SDK
-        run: sdkmanager "platforms;android-37.0"
+        run: sdkmanager "platforms;android-37.2"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
@@ -115,7 +115,7 @@ jobs:
 
       - name: Install compile SDK, emulator and system image
         # Install only what this job uses; updating every installed SDK package is unnecessary.
-        run: sdkmanager "emulator" "platforms;android-37.0" "system-images;android-${{ matrix.api-level }};${{ matrix.target }};x86_64"
+        run: sdkmanager "emulator" "platforms;android-37.2" "system-images;android-${{ matrix.api-level }};${{ matrix.target }};x86_64"
 
       - name: Let the runner user open /dev/kvm
         run: |

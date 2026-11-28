@@ -6,25 +6,25 @@ buildscript {
     dependencies {
         // BOM imports rather than per-module constraints: both of these ship many modules that must
         // move together, and pinning one member against an older sibling is its own breakage.
-        classpath(platform("com.fasterxml.jackson:jackson-bom:2.21.7"))
-        classpath(platform("io.opentelemetry:opentelemetry-bom:1.67.0"))
+        classpath(platform("com.fasterxml.jackson:jackson-bom:2.23.0"))
+        classpath(platform("io.opentelemetry:opentelemetry-bom:1.68.0"))
         constraints {
             // BouncyCastle moves as a set. bcprov sat at 1.80.2 because raising it alone would
             // desync from AGP's bcpkix/bcutil — the objection that closed #82. GHSA-wg6q-6289-32hp
             // now puts bcpkix in the same position (patched 1.84, same release as bcprov's
             // GHSA-c3fc-8qff-9hwx), so the trio moves together and the skew argument is gone.
-            classpath("org.bouncycastle:bcprov-jdk18on:1.85")
-            classpath("org.bouncycastle:bcpkix-jdk18on:1.85")
-            classpath("org.bouncycastle:bcutil-jdk18on:1.85")
-            classpath("io.netty:netty-codec-http2:4.1.137.Final")
-            classpath("io.netty:netty-handler:4.1.137.Final")
-            classpath("io.netty:netty-codec-http:4.1.137.Final")
-            classpath("io.netty:netty-codec:4.1.137.Final")
-            classpath("org.bitbucket.b_c:jose4j:0.9.6")
+            classpath("org.bouncycastle:bcprov-jdk18on:1.87")
+            classpath("org.bouncycastle:bcpkix-jdk18on:1.87")
+            classpath("org.bouncycastle:bcutil-jdk18on:1.87")
+            classpath("io.netty:netty-codec-http2:4.1.141.Final")
+            classpath("io.netty:netty-handler:4.1.141.Final")
+            classpath("io.netty:netty-codec-http:4.1.141.Final")
+            classpath("io.netty:netty-codec:4.1.141.Final")
+            classpath("org.bitbucket.b_c:jose4j:0.9.7")
             classpath("org.jdom:jdom2:2.0.6.1")
             classpath("org.apache.httpcomponents:httpclient:4.5.14")
-            classpath("org.apache.commons:commons-lang3:3.20.0")
-            classpath("com.google.guava:guava:33.7.2-jre")
+            classpath("org.apache.commons:commons-lang3:3.22.0")
+            classpath("com.google.guava:guava:33.8.0-jre")
         }
     }
 }
@@ -47,8 +47,8 @@ plugins {
 //   com.android.tools.utp:...-host-emulator-control:32.1.1   -> grpc-netty 1.69.1 -> netty 4.1.110
 // Both sit inside GHSA-558v-64gr-wgg4 (Bzip2Decoder RLE infinite loop), GHSA-jppx-w49h-x2qq
 // (SpdyHttpDecoder ByteBuf leak), GHSA-mvh2-crg5-v77c (SPDY zlib expansion past maxHeaderSize) and
-// GHSA-6jqx-86gh-f27w (unbounded SPDY SETTINGS map) — all fixed in 4.1.136.Final, the current head
-// of the 4.1 series and the same version the buildscript pins use.
+// GHSA-6jqx-86gh-f27w (unbounded SPDY SETTINGS map) — all fixed in 4.1.136.Final. The pins here
+// and in the two buildscript blocks sit at 4.1.141.Final, the current head of the 4.1 series.
 //
 // Deliberately scoped to the 4.1.x series: :server runs ktor's Netty 4.2.x stack (pinned via
 // netty-bom in server/build.gradle.kts), and a blanket `force` would drag that back a minor series.
@@ -79,8 +79,8 @@ allprojects {
         resolutionStrategy.eachDependency {
             when (requested.group) {
                 "io.netty" -> if (requested.version?.startsWith("4.1.") == true) {
-                    useVersion("4.1.137.Final")
-                    because("UTP/grpc-netty pins Netty 4.1.93/4.1.110; 4.1.137.Final is the patched 4.1.x")
+                    useVersion("4.1.141.Final")
+                    because("UTP/grpc-netty pins Netty 4.1.93/4.1.110; 4.1.141.Final is the current 4.1.x head")
                 }
                 // Guava publishes two flavours per release and they are not interchangeable — the
                 // `-jre` line compiles against Java 8 APIs the `-android` line avoids. Rewrite the
@@ -88,17 +88,17 @@ allprojects {
                 // and silently moving an Android classpath onto the JRE build (or vice versa).
                 "com.google.guava" -> if (requested.name == "guava") {
                     val flavor = if (requested.version?.endsWith("-android") == true) "android" else "jre"
-                    useVersion("33.7.2-$flavor")
-                    because("GHSA-xxph-c9ww-hj94 fixed in 33.7.2 (GHSA-7g45-4rm6-3mm3 / GHSA-5mg8-w23w-74h3 from 32.0.0)")
+                    useVersion("33.8.0-$flavor")
+                    because("GHSA-xxph-c9ww-hj94 fixed in 33.7.2, now on the 33.8.0 head (GHSA-7g45-4rm6-3mm3 / GHSA-5mg8-w23w-74h3 from 32.0.0)")
                 }
                 // bcprov/bcpkix/bcutil move as a set — see the buildscript constraints' note on why
                 // raising one alone desyncs from AGP.
                 "org.bouncycastle" -> if (requested.name.endsWith("-jdk18on")) {
-                    useVersion("1.85")
+                    useVersion("1.87")
                     because("GHSA-c3fc-8qff-9hwx (bcprov LDAP injection) + GHSA-wg6q-6289-32hp (bcpkix)")
                 }
                 "org.apache.commons" -> if (requested.name == "commons-lang3") {
-                    useVersion("3.20.0")
+                    useVersion("3.22.0")
                     because("GHSA-j288-q9x7-2f5v, uncontrolled recursion on long inputs")
                 }
                 // Scoped to the 4.x line by name: httpclient5 is a different group
@@ -109,9 +109,11 @@ allprojects {
                 }
                 // Only :macrobenchmark resolves wire, via benchmark-traceprocessor 1.5.0's plain
                 // `requires 6.4.0` (no longer the `strictly` pin 1.4.x carried, so this can lift it).
-                // The overflow left by CVE-2026-45799's incomplete fix is patched from 6.4.5; 6.4.7 is the latest 6.4.x.
+                // The overflow left by CVE-2026-45799's incomplete fix is patched from 6.4.5; this
+                // now sits on the 7.x head, two majors above what benchmark-traceprocessor asks for.
+                // If trace parsing breaks, 6.4.7 is the last version inside the requested major.
                 "com.squareup.wire" -> if (requested.name.startsWith("wire-runtime")) {
-                    useVersion("6.4.7")
+                    useVersion("7.2.2")
                     because("GHSA for ByteArrayProtoReader32 length overflow, fixed in 6.4.5")
                 }
                 // Only LeakCanary 2.14 (`debugImplementation` in :androidApp) asks for Okio 2.x: shark
@@ -121,20 +123,19 @@ allprojects {
                 // `Timeout.intersectWith()`, appears nowhere in LeakCanary 2.14's shark-*/leakcanary-*
                 // bytecode. Gradle follows okio:3.x's module metadata to okio-jvm on its own.
                 // Scoped to requests *below* 3.4.0 so nothing already patched is moved, and lifted
-                // to 3.17.0 — the version :macrobenchmark already resolves through wire — so this
-                // brings no new Okio into the build. Debug-only: LeakCanary is not in release builds.
+                // to 3.18.2, the current head of the Okio 3.x line. Debug-only: LeakCanary is not in release builds.
                 "com.squareup.okio" -> if (requested.name == "okio" &&
                     requested.version?.let { it.startsWith("2.") || Regex("""3\.[0-3]\..*""").matches(it) } == true
                 ) {
-                    useVersion("3.17.0")
+                    useVersion("3.18.2")
                     because("GHSA-w33c-445m-f8w7, Okio segment-size conversion error, fixed in 3.4.0")
                 }
                 // api, context and common ship as a set from the same release; the group-wide
                 // rewrite is what keeps them aligned (a BOM can't be injected into a KGP-internal
                 // configuration). Matches the opentelemetry-bom the buildscripts import.
                 "io.opentelemetry" -> {
-                    useVersion("1.67.0")
-                    because("GHSA-ccrj-gw8r-854m, quadratic CPU in W3C tracestate parsing (fixed in 1.67.0)")
+                    useVersion("1.68.0")
+                    because("GHSA-ccrj-gw8r-854m, quadratic CPU in W3C tracestate parsing (fixed in 1.67.0; pinned at the 1.68.0 head)")
                 }
             }
         }
@@ -197,7 +198,7 @@ gradle.projectsEvaluated {
 }
 
 // Force-upgrade the vulnerable transitive `ws` in the Wasm dependency store. ktor-client-core
-// (pulled into the wasmJs target) declares `"ws": "8.18.3"` as an exact pin; 8.18.3 sits in the
+// (pulled into the wasmJs target) declares `"ws": "8.20.1"` as an exact pin; 8.20.1 sits in the
 // vulnerable range for GHSA-96hv-2xvq-fx4p (memory-exhaustion DoS; fixed in 8.21.0). Since ktor
 // pins an exact version (not a range), a plain bump is impossible — a yarn `resolutions` entry is
 // the only way to override it. At wasm browser runtime the app uses the browser's native WebSocket,

@@ -40,11 +40,13 @@ val uploadKeyProperties = Properties().apply {
 android {
     namespace = "com.example.myapplication.app"
     compileSdk = 37
+    // 37.2, not 37: compose ui-test-junit4-android 1.13.0 declares minCompileMinorSdk=1.
+    compileSdkMinor = 2
 
     defaultConfig {
         applicationId = "io.github.ber4444.chess"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = providers.gradleProperty("versionCode").map { it.toInt() }.getOrElse(1)
         versionName = "1.0"
@@ -170,8 +172,8 @@ dependencies {
 
 configurations.all {
     resolutionStrategy {
-        force("androidx.concurrent:concurrent-futures:1.2.0")
-        force("androidx.concurrent:concurrent-futures-ktx:1.2.0")
+        force("androidx.concurrent:concurrent-futures:1.3.0")
+        force("androidx.concurrent:concurrent-futures-ktx:1.3.0")
         force("com.google.errorprone:error_prone_annotations:2.30.0")
         force("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
         force("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")

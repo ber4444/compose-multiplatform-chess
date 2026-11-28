@@ -60,7 +60,9 @@ val generateRulesCorpus by tasks.registering {
 kotlin {
     android {
         namespace = "com.example.ondeviceai"
-        compileSdk = 36
+        // Was 36. Raised with :app because androidDeviceTest consumes compose
+        // ui-test-junit4-android 1.13.0, which declares minCompileSdk=37 + minCompileMinorSdk=1.
+        compileSdk { version = release(37) { minorApiLevel = 2 } }
         minSdk = 26
 
         compilerOptions {
@@ -143,7 +145,7 @@ kotlin {
             // KV cache + generation internally.
             
             // Phase 2 dependencies
-            implementation(project.dependencies.platform("com.google.firebase:firebase-bom:34.16.0"))
+            implementation(project.dependencies.platform("com.google.firebase:firebase-bom:35.2.0"))
             implementation(libs.genai.prompt)
         }
 
@@ -159,7 +161,7 @@ kotlin {
                 // the weights), see LitertLmModelStore's KDoc. Gated behind
                 // CHESS_ENABLE_COACH=1 at the desktop entry point. Mirrors how
                 // androidMain depends on Cactus — same OnDeviceTextGenerator seam.
-                implementation("com.google.ai.edge.litertlm:litertlm-jvm:0.14.0")
+                implementation("com.google.ai.edge.litertlm:litertlm-jvm:0.20.0")
             }
         }
 
