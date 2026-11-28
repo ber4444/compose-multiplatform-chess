@@ -239,7 +239,7 @@ kotlin {
             implementation(libs.sceneview)
             // Maia-3 on Android (explorer/LiteRtMaiaRuntime.android.kt). 5.9 MB uncompressed on arm64,
             // against ONNX Runtime's 18.2 MB; the AAR carries its own R8 rules.
-            implementation("com.google.ai.edge.litert:litert:2.4.0")
+            implementation("com.google.ai.edge.litert:litert:2.4.1")
         }
 
         jvmCommonMain.dependencies {

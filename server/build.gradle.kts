@@ -17,8 +17,8 @@ dependencies {
     implementation("io.ktor:ktor-client-core-jvm:$ktorVersion")
     implementation("io.ktor:ktor-client-cio-jvm:$ktorVersion")
     implementation("io.ktor:ktor-client-content-negotiation-jvm:$ktorVersion")
-    implementation("com.zaxxer:HikariCP:7.0.2")
-    implementation("org.postgresql:postgresql:42.7.12")
+    implementation("com.zaxxer:HikariCP:7.1.0")
+    implementation("org.postgresql:postgresql:42.7.15")
     implementation("com.pgvector:pgvector:0.1.6")
     implementation("com.microsoft.onnxruntime:onnxruntime:1.22.0")
     implementation(libs.kotlinx.serialization.json)
@@ -58,7 +58,7 @@ dependencies {
     // computed for one `Origin` to a request carrying another. The 4.1.x half of the same advisory
     // is handled by the root build's version rewrite; both halves must move together or the alert
     // stays open on whichever series lags.
-    implementation(platform("io.netty:netty-bom:4.2.17.Final"))
+    implementation(platform("io.netty:netty-bom:4.2.21.Final"))
     // Jackson: swagger-request-validator-core (test-scoped above) pulls jackson transitively at
     // 2.19.x / 2.21.1; GHSA-rmj7-2vxq-3g9f and -j3rv-43j4-c7qm are fixed only in 2.21.4. The BOM
     // aligns the whole family (databind + core + annotations + dataformat-yaml + datatype-jsr310).
@@ -74,7 +74,7 @@ dependencies {
     // 2.21.5 -> 2.21.7: four databind advisories fixed in 2.21.6 (Duration/XMLGregorianCalendar
     // parse DoS, Path scheme allowlist, Comparable missing from the PTV denylist) and four more in
     // 2.21.7 (two databind DoS, two jackson-core: PATTERN_FLOAT ReDoS, unbounded error-token growth).
-    implementation(platform("com.fasterxml.jackson:jackson-bom:2.21.7"))
+    implementation(platform("com.fasterxml.jackson:jackson-bom:2.23.0"))
 
     // Apache HttpComponents 5.x, reached only through `ktor-server-test-host-jvm` ->
     // `ktor-client-apache5` (test-scoped above; it is the engine the test host offers for external
@@ -88,7 +88,7 @@ dependencies {
     // uses ktor-client-cio, and httpclient5 is absent from `runtimeClasspath` (verify with
     // `./gradlew :server:dependencies --configuration runtimeClasspath`).
     constraints {
-        testImplementation("org.apache.httpcomponents.client5:httpclient5:5.6.4")
+        testImplementation("org.apache.httpcomponents.client5:httpclient5:5.6.5")
     }
 }
 

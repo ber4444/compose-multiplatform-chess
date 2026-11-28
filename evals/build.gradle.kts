@@ -26,7 +26,7 @@ dependencies {
     // module takes `ktor-server-test-host-jvm` as `implementation` (the harness boots the server
     // in-process from main, not from a test), so :server's test-scoped constraint doesn't reach it.
     constraints {
-        implementation("org.apache.httpcomponents.client5:httpclient5:5.6.4")
+        implementation("org.apache.httpcomponents.client5:httpclient5:5.6.5")
     }
 }
 

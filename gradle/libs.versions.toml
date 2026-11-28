@@ -1,13 +1,13 @@
 [versions]
-kotlinxCoroutines = "1.9.0"
-agp = "9.5.0"
-kermit = "2.0.5"
-kotlin = "2.4.20"
+kotlinxCoroutines = "1.11.0"
+agp = "9.5.3"
+kermit = "2.2.0"
+kotlin = "2.4.21"
 composeMultiplatform = "1.10.3"
 androidx-composeUi = "1.10.5"
 androidx-activityCompose = "1.13.0"
-androidx-coreKtx = "1.18.0"
-androidx-lifecycleRuntimeCompose = "2.10.0"
+androidx-coreKtx = "1.19.1"
+androidx-lifecycleRuntimeCompose = "2.11.1"
 androidx-testExtJunit = "1.3.0"
 # Floor is 1.4.1, not 1.3.0: 1.3.0 unconditionally kills every process named `perfetto` before
 # tracing and hard-fails when one will not die. Retail devices ship long-lived statsd/GMS perfetto
@@ -20,7 +20,7 @@ androidx-testExtJunit = "1.3.0"
 # `strictly 5.2.1`, which a constraint on our side cannot lift. 1.5.0 moves that to a plain
 # `requires 6.4.0`; the root build.gradle.kts lifts it further to a 6.4.x carrying the follow-up fix.
 benchmarkMacroJunit4 = "1.5.0"
-uiautomator = "2.3.0"
+uiautomator = "2.4.1"
 espressoDevice = "1.1.0"
 junit = "4.13.2"
 # `AndroidBoard3D.kt` is the only consumer. It relies on render-on-demand (`FrameRatePolicy.OnDemand`,
@@ -32,13 +32,13 @@ junit = "4.13.2"
 # Jetpack Compose 1.12 onto the Android classpath, and both require compileSdk 37.
 sceneview = "4.66.0"
 multiplatformSettings = "1.3.0"
-kotlinxSerialization = "1.8.0"
+kotlinxSerialization = "1.13.0"
 mcpSdk = "0.7.5"
-ktor = "3.5.0"
-ksp = "2.3.10"
-genaiPrompt = "1.0.0-beta4"
-genaiSchema = "1.0.0-alpha1"
-mockk = "1.13.10"
+ktor = "3.6.2"
+ksp = "2.3.14"
+genaiPrompt = "1.0.0-beta5"
+genaiSchema = "1.0.0-alpha2"
+mockk = "1.14.12"
 leakcanary = "2.14"
 profileinstaller = "1.4.1"
 

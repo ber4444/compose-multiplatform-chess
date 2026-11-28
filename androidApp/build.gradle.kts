@@ -170,8 +170,8 @@ dependencies {
 
 configurations.all {
     resolutionStrategy {
-        force("androidx.concurrent:concurrent-futures:1.2.0")
-        force("androidx.concurrent:concurrent-futures-ktx:1.2.0")
+        force("androidx.concurrent:concurrent-futures:1.3.0")
+        force("androidx.concurrent:concurrent-futures-ktx:1.3.0")
         force("com.google.errorprone:error_prone_annotations:2.30.0")
         force("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
         force("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
