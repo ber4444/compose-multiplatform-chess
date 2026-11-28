@@ -104,10 +104,13 @@ kotlin {
 
         withDeviceTestBuilder {}.configure {
             instrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-            // Pinned rather than following compileSdk (37): an APK targeting 37 needs
-            // ACCESS_LOCAL_NETWORK to reach 10.0.2.2, so on an Android 17 device espresso-device
-            // could not reach the emulator's gRPC and rotation tests timed out. Matches
-            // :androidApp's targetSdk.
+            // Pinned at 36, now deliberately BELOW the app's targetSdk (37) rather than matching
+            // it: an APK targeting 37 needs ACCESS_LOCAL_NETWORK to reach 10.0.2.2, so on an
+            // Android 17 device espresso-device could not reach the emulator's gRPC and the
+            // rotation tests in androidDeviceTest/GameScreenTest.kt timed out. This is the only
+            // targetSdk in the build that is not the latest, and it governs a test APK, not
+            // anything shipped. Raising it means adding ACCESS_LOCAL_NETWORK here and confirming
+            // whether Android 17 also requires a runtime grant for it.
             targetSdk { version = release(36) }
             emulatorControl {
                 enable = true

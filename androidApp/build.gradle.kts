@@ -44,7 +44,7 @@ android {
     defaultConfig {
         applicationId = "io.github.ber4444.chess"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = providers.gradleProperty("versionCode").map { it.toInt() }.getOrElse(1)
         versionName = "1.0"

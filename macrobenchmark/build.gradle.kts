@@ -16,7 +16,7 @@ android {
 
     defaultConfig {
         minSdk = 29
-        targetSdk = 36
+        targetSdk = 37
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // No `androidx.benchmark.suppressErrors=DEBUGGABLE` here on purpose: :androidApp now has a
         // non-debuggable, profileable `benchmark` build type, so the error it suppressed cannot
