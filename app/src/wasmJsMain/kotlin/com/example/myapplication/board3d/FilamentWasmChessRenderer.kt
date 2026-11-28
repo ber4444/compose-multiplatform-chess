@@ -257,6 +257,8 @@ window.chess3dFilament = {
     view: null,
     renderer: null,
     swapChain: null,
+    // The WebGL2 context Filament.Engine.create made on the canvas; render() flushes it.
+    gl: null,
     transformManager: null,
     renderableManager: null,
     assetLoader: null,
@@ -278,6 +280,9 @@ window.chess3dFilament = {
         Filament.init(['${ChessSetConventions.GLB_ASSET}', '${ChessSetConventions.IBL_ASSET}', '${ChessSetConventions.SKYBOX_ASSET_BLURRED}'], () => {
             try {
                 this.engine = Filament.Engine.create(canvas);
+                // Only after Engine.create: getContext with the same type returns the context it
+                // created, whereas calling it first would create one with default attributes.
+                this.gl = canvas.getContext('webgl2');
                 this.scene = this.engine.createScene();
                 this.camera = this.engine.createCamera(Filament.EntityManager.get().create());
                 this.view = this.engine.createView();
@@ -509,6 +514,13 @@ window.chess3dFilament = {
         this.rafHandle = 0;
         if (this.isReady && this.renderer && this.view && this.swapChain) {
             this.renderer.render(this.swapChain, this.view);
+            // Submit this frame's commands, including the fence Filament's frame skipper will poll.
+            // It polls with clientWaitSync(sync, 0, 0) — no SYNC_FLUSH_COMMANDS_BIT — which relies on
+            // the browser flushing at the end of the task. Chromium does; Safari 27.2 never submits
+            // the fence, so it never signals, every beginFrame() after the first two is declined,
+            // and the board never draws (measured: 388 frames, 0 draw calls, every poll
+            // TIMEOUT_EXPIRED). With the flush the fence signals on the next frame, as in Chromium.
+            if (this.gl) this.gl.flush();
             if (this.gate.undrawnFrames > 0) this.gate.undrawnFrames--;
         }
         this.updateFrameLoop();
@@ -547,6 +559,7 @@ window.chess3dFilament = {
         this.camera = null;
         this.renderer = null;
         this.swapChain = null;
+        this.gl = null;
         this.assetLoader = null;
         this.asset = null;
         this.instances = null;
