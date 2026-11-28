@@ -108,6 +108,21 @@ class FrameLoopGateTest {
 
         assertTrue(rafHandle() != 0, "the push did not schedule a frame")
     }
+
+    // ── Safari ────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `every rendered frame is flushed after it is drawn`() {
+        // Filament polls its frame fence without SYNC_FLUSH_COMMANDS_BIT. Safari 27.2 never submits
+        // an unflushed fence, so without this flush every frame after the first two is declined and
+        // the board never appears there — while Chromium, which flushes at the end of each task,
+        // looks fine. Order matters: a flush before render() would leave the new fence unsubmitted.
+        installRecordingRenderer()
+
+        renderOneFrame()
+
+        assertEquals("render,flush", recordedCalls())
+    }
 }
 
 // ── browser helpers ───────────────────────────────────────────────────────────
@@ -168,3 +183,22 @@ private external fun drainOwedFrames()
         "f.boundRender = () => { f.rafHandle = 0; }; }"
 )
 private external fun armLoopWithoutRenderer()
+
+/**
+ * Stand-ins for what `init()` builds — renderer, view, swap chain and the WebGL context — that record
+ * the order of `renderer.render` and `gl.flush`. The loop stays inactive (setUp disposed it), so
+ * `render()` schedules nothing after the frame.
+ */
+@JsFun(
+    "() => { const f = window.chess3dFilament; const calls = []; window.__frameCalls = calls; " +
+        "f.isReady = true; f.view = {}; f.swapChain = {}; " +
+        "f.renderer = { render: () => { calls.push('render'); } }; " +
+        "f.gl = { flush: () => { calls.push('flush'); } }; }"
+)
+private external fun installRecordingRenderer()
+
+@JsFun("() => { window.chess3dFilament.render(); }")
+private external fun renderOneFrame()
+
+@JsFun("() => window.__frameCalls.join(',')")
+private external fun recordedCalls(): String
