@@ -3,8 +3,12 @@ kotlinxCoroutines = "1.11.0"
 agp = "9.5.3"
 kermit = "2.2.0"
 kotlin = "2.4.21"
-composeMultiplatform = "1.10.3"
-androidx-composeUi = "1.10.5"
+composeMultiplatform = "1.12.2"
+# Held at the 1.12 head, not 1.13.0: Compose 1.13 declares a minimum compileSdk of
+# 37.1 in its AAR metadata, and this build is on compileSdk 37 (CI installs
+# platforms;android-37.0). Raising it is a deliberate compileSdk change, which is the
+# same conclusion SceneView reached upstream when it refused Compose BOM 2026.11.
+androidx-composeUi = "1.12.1"
 androidx-activityCompose = "1.13.0"
 androidx-coreKtx = "1.19.1"
 androidx-lifecycleRuntimeCompose = "2.11.1"
